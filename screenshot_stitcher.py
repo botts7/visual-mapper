@@ -1638,17 +1638,19 @@ class ScreenshotStitcher:
                 actual_scroll = template_top - match_y
                 logger.info(f"  Implied actual scroll: {actual_scroll}px (commanded: {known_scroll}px)")
 
-                # If actual scroll differs significantly from known, adjust
+                # CRITICAL: Only trust match if it CONFIRMS our calculation (within tolerance)
+                # If match differs significantly from commanded scroll, it's likely a FALSE POSITIVE
+                # (similar visual content appearing at the wrong position)
                 if abs(actual_scroll - known_scroll) < 100:
-                    # Use calculated value since match confirms it's close
+                    # Match confirms calculation - both agree within tolerance
                     logger.info(f"  Match confirms calculation, using new_content_start={new_content_start}")
                     return (new_content_start, fixed_footer)
                 else:
-                    # Match found but scroll different - use match-based calculation
-                    adjusted_overlap = scrollable_height - actual_scroll
-                    adjusted_new_start = fixed_header + max(0, adjusted_overlap)
-                    logger.info(f"  Adjusting based on match: new_content_start={adjusted_new_start}")
-                    return (adjusted_new_start, fixed_footer)
+                    # Match differs too much - likely a false positive (similar visuals at wrong Y)
+                    # DON'T trust it, use the calculated value based on known scroll
+                    logger.warning(f"  Match implies {actual_scroll}px scroll but commanded {known_scroll}px")
+                    logger.warning(f"  Rejecting match as likely false positive, using calculated value")
+                    return (new_content_start, fixed_footer)
             else:
                 logger.warning(f"  Template match weak (conf={confidence}), using calculated value")
                 return (new_content_start, fixed_footer)
