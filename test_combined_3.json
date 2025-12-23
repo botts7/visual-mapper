@@ -1,0 +1,1 @@
+{"text": "Speed: 65.5 km/h", "extraction_rule": {"method": "regex", "regex_pattern": "(\\d+\\.\\d+)", "extract_numeric": true}}

@@ -1,0 +1,92 @@
+# Home Assistant Add-on Configuration
+# https://developers.home-assistant.io/docs/add-ons/configuration
+
+name: Visual Mapper
+version: 0.0.3
+slug: visual_mapper
+description: Android device control and sensor creation for Home Assistant via ADB
+url: https://github.com/yourusername/visual-mapper
+codenotary: notary@home-assistant.io
+
+# Supported architectures
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+
+# Startup configuration
+init: false
+startup: application
+boot: auto
+watchdog: true
+
+# Host network access required for ADB connections
+host_network: true
+
+# Ports
+ports:
+  3000/tcp: 3000
+
+ports_description:
+  3000/tcp: Web UI (HTTP)
+
+# WebUI configuration
+webui: http://[HOST]:[PORT:3000]
+panel_icon: mdi:android
+panel_title: Visual Mapper
+panel_admin: false
+ingress: true
+ingress_port: 3000
+
+# Add-on options
+options:
+  adb_device_ip: ""
+  adb_device_port: 5555
+  mqtt_broker: "core-mosquitto"
+  mqtt_port: 1883
+  mqtt_username: ""
+  mqtt_password: ""
+  mqtt_discovery_prefix: "homeassistant"
+  auto_start_updates: true
+  log_level: info
+
+# Options schema
+schema:
+  adb_device_ip: str?
+  adb_device_port: port
+  mqtt_broker: str
+  mqtt_port: port
+  mqtt_username: str?
+  mqtt_password: password?
+  mqtt_discovery_prefix: str
+  auto_start_updates: bool
+  log_level: list(debug|info|warning|error)
+
+# Service dependencies
+services:
+  - mqtt:need
+
+# Container image
+image: ghcr.io/yourusername/visual-mapper-{arch}
+
+# Map directories
+map:
+  - config:rw
+  - ssl:ro
+
+# USB access for ADB
+usb: true
+devices:
+  - /dev/bus/usb
+
+# ADB requires privileged access for network debugging
+apparmor: false
+
+# Translations
+translations:
+  en: translations/en.yaml
+
+# Backup configuration
+backup: simple

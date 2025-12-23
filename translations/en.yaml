@@ -1,0 +1,55 @@
+# English translations for Visual Mapper add-on
+# https://developers.home-assistant.io/docs/add-ons/presentation#translations
+
+configuration:
+  adb_device_ip:
+    name: ADB Device IP
+    description: >-
+      IP address of the Android device for ADB connection.
+      Leave empty to use USB connection or pair via UI.
+
+  adb_device_port:
+    name: ADB Device Port
+    description: >-
+      Port number for ADB connection (default: 5555).
+      Used for wireless debugging on Android 11+.
+
+  mqtt_broker:
+    name: MQTT Broker
+    description: >-
+      MQTT broker address. Use 'core-mosquitto' for the Home Assistant
+      Mosquitto broker add-on.
+
+  mqtt_port:
+    name: MQTT Port
+    description: MQTT broker port (default: 1883 for unencrypted, 8883 for TLS).
+
+  mqtt_username:
+    name: MQTT Username
+    description: >-
+      Username for MQTT authentication. Leave empty if authentication
+      is not required.
+
+  mqtt_password:
+    name: MQTT Password
+    description: >-
+      Password for MQTT authentication. Leave empty if authentication
+      is not required.
+
+  mqtt_discovery_prefix:
+    name: MQTT Discovery Prefix
+    description: >-
+      MQTT discovery prefix (default: 'homeassistant').
+      Only change if you've modified Home Assistant's discovery prefix.
+
+  auto_start_updates:
+    name: Auto-Start Sensor Updates
+    description: >-
+      Automatically start publishing sensor updates when the add-on starts.
+      Disable to manually control sensor updates via the UI.
+
+  log_level:
+    name: Log Level
+    description: >-
+      Logging level for the add-on. Use 'debug' for troubleshooting,
+      'info' for normal operation.

@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="0.0.3">
+    <meta name="version" content="0.0.3" data-build="2025-12-23">
+    <title>Action Management - Visual Mapper</title>
+    <link rel="stylesheet" href="css/styles.css?v=0.0.3">
+    <style>
+        /* Action-specific styles */
+        .action-card {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            background: var(--card-bg);
+        }
+
+        .action-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .action-type-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 600;
+            color: white;
+            margin-left: 8px;
+        }
+
+        .action-type-tap { background: #2196F3; }
+        .action-type-swipe { background: #9C27B0; }
+        .action-type-text { background: #4CAF50; }
+        .action-type-keyevent { background: #FF9800; }
+        .action-type-launch_app { background: #F44336; }
+        .action-type-delay { background: #607D8B; }
+        .action-type-macro { background: #E91E63; }
+
+        .action-card-body {
+            margin: 10px 0;
+            font-size: 0.9em;
+            color: var(--text-secondary);
+        }
+
+        .action-card-details {
+            font-family: 'Courier New', monospace;
+            background: var(--bg-color);
+            padding: 8px;
+            border-radius: 4px;
+            margin: 8px 0;
+            font-size: 0.85em;
+        }
+
+        .action-card-footer {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .action-stats {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+            margin: 5px 0;
+        }
+
+        .tag {
+            display: inline-block;
+            background: var(--primary-color);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            margin: 2px;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+
+        .status.success {
+            background: #4CAF5020;
+            color: #4CAF50;
+            border: 1px solid #4CAF50;
+        }
+
+        .status.error {
+            background: #F4433620;
+            color: #F44336;
+            border: 1px solid #F44336;
+        }
+
+        .status.warning {
+            background: #FF980020;
+            color: #FF9800;
+            border: 1px solid #FF9800;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <ul>
+            <!-- High priority - always visible -->
+            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
+            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
+            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
+
+            <!-- Medium priority - hidden on mobile -->
+            <li class="nav-priority-med"><a href="actions.html" class="active">Actions</a></li>
+            <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
+
+            <!-- Low priority - hidden on mobile and tablet -->
+            <li class="nav-priority-low"><a href="index.html">Home</a></li>
+            <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
+
+            <li class="version">v0.0.5</li>
+            <li id="themeToggleContainer"></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <h1>Action Management</h1>
+            <p>Manage and execute device actions. Create new actions on the <a href="devices.html">Devices page</a> using the "Action" mode.</p>
+        </div>
+
+        <div class="card">
+            <h2>All Actions</h2>
+
+            <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                <select id="deviceFilter" style="flex: 1; min-width: 200px; max-width: 400px;">
+                    <option value="">All Devices</option>
+                </select>
+                <input type="text" id="actionSearch" placeholder="Search actions..." style="flex: 1; min-width: 200px; max-width: 400px;">
+                <button id="refreshBtn">Refresh</button>
+                <button id="exportBtn">Export</button>
+            </div>
+
+            <div id="actionsContainer">
+                <p class="status warning">Loading actions...</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import APIClient from './js/modules/api-client.js?v=0.0.4';
+        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.4';
+        import MobileNav from './js/modules/mobile-nav.js?v=0.0.4';
+
+        const apiClient = new APIClient();
+        const themeToggle = new ThemeToggle();
+        const mobileNav = new MobileNav();
+
+        // Apply theme immediately
+        themeToggle.apply();
+
+        // Initialize mobile navigation
+        mobileNav.init();
+
+        // Add theme toggle button to nav
+        const themeToggleContainer = document.getElementById('themeToggleContainer');
+        if (themeToggleContainer) {
+            const toggleButton = themeToggle.createToggleButton((newTheme) => {
+                console.log('Theme changed to:', newTheme);
+            });
+            themeToggleContainer.appendChild(toggleButton);
+        }
+
+        let allActions = [];
+        let deviceActions = new Map(); // deviceId -> actions[]
+        let deviceInfo = new Map(); // deviceId -> device info (model, activity, etc.)
+
+        // Load all actions from all devices
+        async function loadActions() {
+            try {
+                // Get all devices
+                const devicesResponse = await apiClient.get('/adb/devices');
+                const devices = devicesResponse.devices || [];
+
+                // Store device info for later use
+                deviceInfo.clear();
+                devices.forEach(dev => deviceInfo.set(dev.id, dev));
+
+                // Load actions for each device IN PARALLEL
+                allActions = [];
+                deviceActions.clear();
+
+                // Create parallel API call promises
+                const actionPromises = devices.map(device =>
+                    apiClient.get(`/actions/${device.id}`)
+                        .then(response => ({device, actions: response.actions || []}))
+                        .catch(error => {
+                            console.error(`[Actions] Failed to load actions for ${device.id}:`, error);
+                            return {device, actions: []};
+                        })
+                );
+
+                // Wait for all API calls to complete in parallel
+                const results = await Promise.all(actionPromises);
+
+                // Process results
+                results.forEach(({device, actions}) => {
+                    if (actions.length > 0) {
+                        deviceActions.set(device.id, actions);
+                        // Add device_id to each action for filtering
+                        actions.forEach(action => action.device_id = device.id);
+                        allActions.push(...actions);
+                    }
+                });
+
+                updateDeviceFilter();
+                renderActions();
+
+            } catch (error) {
+                console.error('[Actions] Failed to load actions:', error);
+                document.getElementById('actionsContainer').innerHTML =
+                    '<p class="status error">Failed to load actions</p>';
+            }
+        }
+
+        // Update device filter dropdown
+        function updateDeviceFilter() {
+            const deviceFilter = document.getElementById('deviceFilter');
+            const currentValue = deviceFilter.value;
+
+            // Keep "All Devices" option
+            deviceFilter.innerHTML = '<option value="">All Devices</option>';
+
+            // Add option for each device that has actions
+            for (const [deviceId, actions] of deviceActions.entries()) {
+                const option = document.createElement('option');
+                option.value = deviceId;
+
+                // Get device info for model name
+                const device = deviceInfo.get(deviceId);
+                const model = device?.model || deviceId;
+
+                option.textContent = `${model} (${actions.length} action${actions.length !== 1 ? 's' : ''})`;
+                deviceFilter.appendChild(option);
+            }
+
+            // Restore previous selection if still valid
+            if (currentValue && Array.from(deviceFilter.options).some(opt => opt.value === currentValue)) {
+                deviceFilter.value = currentValue;
+            }
+        }
+
+        // Filter and render actions
+        function renderActions() {
+            const deviceFilter = document.getElementById('deviceFilter');
+            const search = document.getElementById('actionSearch').value.toLowerCase();
+            const selectedDevice = deviceFilter.value;
+
+            // Filter actions
+            let filteredActions = allActions;
+
+            // Filter by device
+            if (selectedDevice) {
+                filteredActions = filteredActions.filter(a => a.device_id === selectedDevice);
+            }
+
+            // Filter by search
+            if (search) {
+                filteredActions = filteredActions.filter(action =>
+                    action.action.name.toLowerCase().includes(search) ||
+                    (action.action.description && action.action.description.toLowerCase().includes(search)) ||
+                    action.action.action_type.toLowerCase().includes(search) ||
+                    (action.tags && action.tags.some(tag => tag.toLowerCase().includes(search)))
+                );
+            }
+
+            const container = document.getElementById('actionsContainer');
+
+            if (filteredActions.length === 0) {
+                if (allActions.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <p>No actions created yet.</p>
+                            <p>Create your first action on the <a href="devices.html">Devices page</a> by:</p>
+                            <ol style="text-align: left; display: inline-block;">
+                                <li>Selecting a device</li>
+                                <li>Capturing a screenshot</li>
+                                <li>Switching to "Action" mode</li>
+                                <li>Clicking on a UI element</li>
+                            </ol>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = '<div class="empty-state"><p>No actions match your search criteria</p></div>';
+                }
+                return;
+            }
+
+            // Render action cards
+            container.innerHTML = filteredActions.map(action => renderActionCard(action)).join('');
+
+            // Attach event listeners
+            attachActionListeners();
+        }
+
+        // Render a single action card
+        function renderActionCard(actionDef) {
+            const action = actionDef.action;
+            const device = deviceInfo.get(actionDef.device_id);
+            const deviceLabel = device?.model || actionDef.device_id;
+
+            const typeBadge = `<span class="action-type-badge action-type-${action.action_type}">${action.action_type}</span>`;
+
+            let details = '';
+            if (action.action_type === 'tap') {
+                details = `Coordinates: (${action.x}, ${action.y})`;
+            } else if (action.action_type === 'swipe') {
+                details = `From (${action.x1}, ${action.y1}) to (${action.x2}, ${action.y2}) in ${action.duration}ms`;
+            } else if (action.action_type === 'text') {
+                details = `Text: "${action.text}"`;
+            } else if (action.action_type === 'keyevent') {
+                details = `Keycode: ${action.keycode}`;
+            } else if (action.action_type === 'launch_app') {
+                details = `Package: ${action.package_name}`;
+            } else if (action.action_type === 'delay') {
+                details = `Duration: ${action.duration}ms`;
+            } else if (action.action_type === 'macro') {
+                details = `Macro with ${action.actions ? action.actions.length : 0} steps`;
+            }
+
+            const tags = actionDef.tags ? actionDef.tags.map(tag => `<span class="tag">${tag}</span>`).join('') : '';
+
+            const stats = `
+                <div class="action-stats">
+                    Device: ${deviceLabel} |
+                    Executed: ${actionDef.execution_count || 0} times
+                    ${actionDef.last_executed ? `| Last: ${new Date(actionDef.last_executed).toLocaleString()}` : ''}
+                </div>
+            `;
+
+            return `
+                <div class="action-card" data-action-id="${actionDef.id}" data-device-id="${actionDef.device_id}">
+                    <div class="action-card-header">
+                        <div>
+                            <strong>${action.name}</strong>
+                            ${typeBadge}
+                        </div>
+                        <div class="action-card-footer">
+                            <button class="btn-execute btn btn-secondary" data-id="${actionDef.id}" data-device="${actionDef.device_id}">▶ Execute</button>
+                            <button class="btn-edit btn btn-secondary" data-id="${actionDef.id}" data-device="${actionDef.device_id}">✏️ Edit</button>
+                            <button class="btn-delete btn btn-secondary" data-id="${actionDef.id}" data-device="${actionDef.device_id}">🗑 Delete</button>
+                        </div>
+                    </div>
+                    ${action.description ? `<div class="action-card-body">${action.description}</div>` : ''}
+                    <div class="action-card-details">${details}</div>
+                    ${tags ? `<div style="margin: 8px 0;">${tags}</div>` : ''}
+                    ${stats}
+                    ${actionDef.last_result ? `<div class="status ${actionDef.last_result.includes('success') ? 'success' : 'error'}" style="margin-top: 10px; font-size: 0.85em;">${actionDef.last_result}</div>` : ''}
+                </div>
+            `;
+        }
+
+        // Attach event listeners to action buttons
+        function attachActionListeners() {
+            document.querySelectorAll('.btn-execute').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const actionId = btn.dataset.id;
+                    const deviceId = btn.dataset.device;
+                    await executeAction(deviceId, actionId);
+                });
+            });
+
+            document.querySelectorAll('.btn-edit').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const actionId = btn.dataset.id;
+                    const deviceId = btn.dataset.device;
+                    await editAction(deviceId, actionId);
+                });
+            });
+
+            document.querySelectorAll('.btn-delete').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const actionId = btn.dataset.id;
+                    const deviceId = btn.dataset.device;
+                    if (confirm('Are you sure you want to delete this action?')) {
+                        await deleteAction(deviceId, actionId);
+                    }
+                });
+            });
+        }
+
+        // Execute action
+        async function executeAction(deviceId, actionId) {
+            const card = document.querySelector(`[data-action-id="${actionId}"]`);
+            const btn = card.querySelector('.btn-execute');
+            const originalText = btn.textContent;
+
+            try {
+                btn.textContent = '⏳ Executing...';
+                btn.disabled = true;
+
+                const result = await apiClient.post(`/actions/execute?device_id=${deviceId}`, {
+                    action_id: actionId
+                });
+
+                // Show result in card
+                let statusDiv = card.querySelector('.status');
+                if (!statusDiv) {
+                    statusDiv = document.createElement('div');
+                    card.appendChild(statusDiv);
+                }
+
+                statusDiv.className = `status ${result.success ? 'success' : 'error'}`;
+                statusDiv.style.marginTop = '10px';
+                statusDiv.style.fontSize = '0.85em';
+                statusDiv.textContent = `${result.success ? '✅' : '❌'} ${result.message} (${result.execution_time.toFixed(1)}ms)`;
+
+                // Reload to update stats
+                setTimeout(() => loadActions(), 1000);
+
+            } catch (error) {
+                console.error('[Actions] Execution failed:', error);
+                let statusDiv = card.querySelector('.status');
+                if (!statusDiv) {
+                    statusDiv = document.createElement('div');
+                    card.appendChild(statusDiv);
+                }
+                statusDiv.className = 'status error';
+                statusDiv.style.marginTop = '10px';
+                statusDiv.textContent = `❌ ${error.message}`;
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // Edit action
+        async function editAction(deviceId, actionId) {
+            // Find the action in our local data
+            const actionDef = allActions.find(a => a.id === actionId && a.device_id === deviceId);
+            if (!actionDef) {
+                alert('Action not found');
+                return;
+            }
+
+            const action = actionDef.action;
+
+            // Prompt for new name
+            const newName = prompt('Enter new action name:', action.name);
+            if (newName === null) return; // Cancelled
+
+            // Prompt for new description
+            const newDescription = prompt('Enter new description (optional):', action.description || '');
+
+            // Prompt for enabled status
+            const enabledStr = prompt('Enable action? (yes/no):', action.enabled ? 'yes' : 'no');
+            const newEnabled = enabledStr?.toLowerCase() === 'yes';
+
+            try {
+                // Update the action
+                const updateData = {
+                    action: {
+                        ...action,
+                        name: newName.trim() || action.name,
+                        description: newDescription?.trim() || action.description
+                    },
+                    enabled: newEnabled,
+                    tags: actionDef.tags
+                };
+
+                const result = await apiClient.put(`/actions/${deviceId}/${actionId}`, updateData);
+
+                if (result.success) {
+                    alert('Action updated successfully!');
+                    await loadActions();
+                } else {
+                    throw new Error(result.message || 'Update failed');
+                }
+            } catch (error) {
+                console.error('[Actions] Edit failed:', error);
+                alert(`Failed to update action: ${error.message}`);
+            }
+        }
+
+        // Delete action
+        async function deleteAction(deviceId, actionId) {
+            try {
+                await apiClient.delete(`/actions/${deviceId}/${actionId}`);
+                await loadActions();
+            } catch (error) {
+                console.error('[Actions] Delete failed:', error);
+                alert(`Failed to delete action: ${error.message}`);
+            }
+        }
+
+        // Export actions
+        async function exportActions() {
+            const deviceFilter = document.getElementById('deviceFilter');
+            const selectedDevice = deviceFilter.value;
+
+            if (!selectedDevice) {
+                alert('Please select a specific device to export its actions');
+                return;
+            }
+
+            try {
+                const exportData = await apiClient.get(`/actions/export/${selectedDevice}`);
+                const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `actions_${selectedDevice}_${Date.now()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('[Actions] Export failed:', error);
+                alert(`Failed to export actions: ${error.message}`);
+            }
+        }
+
+        // Event listeners
+        document.getElementById('deviceFilter').addEventListener('change', renderActions);
+        document.getElementById('actionSearch').addEventListener('input', renderActions);
+        document.getElementById('refreshBtn').addEventListener('click', loadActions);
+        document.getElementById('exportBtn').addEventListener('click', exportActions);
+
+        // Initial load
+        loadActions();
+    </script>
+</body>
+</html>

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="0.0.3">
+    <meta name="version" content="0.0.3" data-build="2025-12-23">
+    <title>Dev Tools - Visual Mapper</title>
+    <link rel="stylesheet" href="css/styles.css?v=0.0.3">
+</head>
+<body>
+    <nav>
+        <ul>
+            <li><a href="index.html">Home</a></li>
+            <li><a href="main.html">Dashboard</a></li>
+            <li><a href="devices.html">Devices</a></li>
+            <li><a href="sensors.html">Sensors</a></li>
+            <li><a href="actions.html">Actions</a></li>
+            <li><a href="diagnostic.html">Diagnostics</a></li>
+            <li><a href="dev.html">Dev Tools</a></li>
+            <li class="version">v0.0.5</li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <h1>Developer Tools</h1>
+            <p>Testing and debugging tools for development</p>
+        </div>
+
+        <div class="card">
+            <h2>Cache Busting Test</h2>
+            <p><strong>App Version:</strong> <span id="app-version"></span></p>
+            <p><strong>Meta Version:</strong> <span id="meta-version"></span></p>
+            <p><strong>API Base:</strong> <span id="api-base"></span></p>
+            <p class="mt-1 status success" id="cache-status">
+                ✅ Cache busting is working! All versions match 0.0.5
+            </p>
+        </div>
+
+        <div class="card">
+            <h2>ES6 Modules Status</h2>
+            <p style="margin-bottom: 15px;">Currently loaded modules across the application:</p>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px;">
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>api-client.js</strong> v0.0.4<br>
+                    <small style="color: var(--text-secondary);">API communication layer</small>
+                </div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>screenshot-capture.js</strong> v0.0.4<br>
+                    <small style="color: var(--text-secondary);">Device screen capture</small>
+                </div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>device-control.js</strong> v0.0.4<br>
+                    <small style="color: var(--text-secondary);">Touch gestures & input</small>
+                </div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>sensor-creator.js</strong> v0.0.9<br>
+                    <small style="color: var(--text-secondary);">Sensor definition dialog</small>
+                </div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>icon-renderer.js</strong> v0.0.5<br>
+                    <small style="color: var(--text-secondary);">MDI icon rendering</small>
+                </div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>theme-toggle.js</strong> v0.0.4<br>
+                    <small style="color: var(--text-secondary);">Dark/light theme switcher</small>
+                </div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>mobile-nav.js</strong> v0.0.4<br>
+                    <small style="color: var(--text-secondary);">Responsive navigation</small>
+                </div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>element-selector.js</strong> v0.0.4<br>
+                    <small style="color: var(--text-secondary);">UI element selection mode</small>
+                </div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>auto-refresh.js</strong> v0.0.4<br>
+                    <small style="color: var(--text-secondary);">Screenshot auto-update</small>
+                </div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>activity-monitor.js</strong> v0.0.4<br>
+                    <small style="color: var(--text-secondary);">Activity tracking</small>
+                </div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>device-manager.js</strong> v0.0.4<br>
+                    <small style="color: var(--text-secondary);">Device connection management</small>
+                </div>
+                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
+                    <strong>overlay-filters.js</strong> v0.0.4<br>
+                    <small style="color: var(--text-secondary);">Screenshot overlay controls</small>
+                </div>
+            </div>
+            <p style="margin-top: 15px; font-size: 13px; color: var(--text-secondary);">
+                All modules use dual export pattern (ES6 + global) with cache busting query parameters.
+            </p>
+        </div>
+    </div>
+
+    <script type="module" src="js/init.js?v=0.0.3"></script>
+    <script>
+        // Wait for init.js to load before checking versions
+        function updateVersionInfo() {
+            // Display version information
+            document.getElementById('app-version').textContent = window.APP_VERSION || 'Not set';
+
+            const metaVersion = document.querySelector('meta[name="version"]')?.content;
+            document.getElementById('meta-version').textContent = metaVersion || 'Not found';
+            document.getElementById('api-base').textContent = window.API_BASE || 'Not set';
+
+            // Verify cache busting
+            const expectedVersion = '0.0.5';
+            if (window.APP_VERSION === expectedVersion && metaVersion === expectedVersion) {
+                console.log('[Dev Tools] ✅ Cache busting verified');
+            } else {
+                document.getElementById('cache-status').textContent = '❌ Cache busting mismatch!';
+                document.getElementById('cache-status').className = 'mt-1 status error';
+            }
+        }
+
+        // Listen for init completion
+        window.addEventListener('visualmapper:ready', updateVersionInfo);
+
+        // Also try immediately (in case init.js already loaded)
+        if (window.APP_VERSION) {
+            updateVersionInfo();
+        }
+    </script>
+</body>
+</html>

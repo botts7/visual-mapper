@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="0.0.3">
+    <meta name="version" content="0.0.3" data-build="2025-12-23">
+    <title>Sensors - Visual Mapper</title>
+    <link rel="stylesheet" href="css/styles.css?v=0.0.3">
+</head>
+<body>
+    <nav>
+        <ul>
+            <!-- High priority - always visible -->
+            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
+            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
+            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
+
+            <!-- Medium priority - hidden on mobile -->
+            <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
+            <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
+
+            <!-- Low priority - hidden on mobile and tablet -->
+            <li class="nav-priority-low"><a href="index.html">Home</a></li>
+            <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
+
+            <li class="version">v0.0.4</li>
+            <li id="themeToggleContainer"></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <h1>Sensor Management</h1>
+            <p>Manage Home Assistant sensors created from Android UI elements</p>
+        </div>
+
+        <div class="card">
+            <h2>All Sensors</h2>
+
+            <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                <select id="deviceFilter" style="flex: 1; min-width: 200px; max-width: 400px;">
+                    <option value="">All Devices</option>
+                </select>
+                <input type="text" id="sensorSearch" placeholder="Search sensors..." style="flex: 1; min-width: 200px; max-width: 400px;">
+                <button id="refreshBtn">Refresh</button>
+            </div>
+
+            <div id="sensorsContainer">
+                <p class="status warning">Loading sensors...</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import APIClient from './js/modules/api-client.js?v=0.0.4';
+        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.4';
+        import MobileNav from './js/modules/mobile-nav.js?v=0.0.4';
+        import SensorCreator from './js/modules/sensor-creator.js?v=0.0.9';
+        import IconRenderer from './js/modules/icon-renderer.js?v=0.0.5';
+
+        const apiClient = new APIClient();
+        const themeToggle = new ThemeToggle();
+        const mobileNav = new MobileNav();
+        const sensorCreator = new SensorCreator(apiClient);
+        const iconRenderer = new IconRenderer();
+
+        // Apply theme immediately
+        themeToggle.apply();
+
+        // Initialize mobile navigation
+        mobileNav.init();
+
+        // Add theme toggle button to nav
+        const themeToggleContainer = document.getElementById('themeToggleContainer');
+        if (themeToggleContainer) {
+            const toggleButton = themeToggle.createToggleButton((newTheme) => {
+                console.log('Theme changed to:', newTheme);
+            });
+            themeToggleContainer.appendChild(toggleButton);
+        }
+
+        let allSensors = [];
+        let deviceSensors = new Map(); // deviceId -> sensors[]
+        let deviceInfo = new Map(); // deviceId -> device info (model, activity, etc.)
+
+        // Load all sensors
+        async function loadSensors() {
+            try {
+                // Get all devices
+                const devicesResponse = await apiClient.get('/adb/devices');
+                const devices = devicesResponse.devices || [];
+
+                // Store device info for later use
+                deviceInfo.clear();
+                devices.forEach(dev => deviceInfo.set(dev.id, dev));
+
+                // Load sensors for each device IN PARALLEL
+                allSensors = [];
+                deviceSensors.clear();
+
+                // Create parallel API call promises
+                const sensorPromises = devices.map(device =>
+                    apiClient.get(`/sensors/${device.id}`)
+                        .then(response => ({device, sensors: response.sensors || []}))
+                        .catch(error => {
+                            console.error(`[Sensors] Failed to load sensors for ${device.id}:`, error);
+                            return {device, sensors: []};
+                        })
+                );
+
+                // Wait for all API calls to complete in parallel
+                const results = await Promise.all(sensorPromises);
+
+                // Process results
+                results.forEach(({device, sensors}) => {
+                    if (sensors.length > 0) {
+                        deviceSensors.set(device.id, sensors);
+                        allSensors.push(...sensors);
+                    }
+                });
+
+                updateDeviceFilter();
+                renderSensors();
+
+            } catch (error) {
+                console.error('[Sensors] Failed to load sensors:', error);
+                document.getElementById('sensorsContainer').innerHTML =
+                    '<p class="status error">Failed to load sensors</p>';
+            }
+        }
+
+        // Update device filter dropdown
+        function updateDeviceFilter() {
+            const deviceFilter = document.getElementById('deviceFilter');
+            const currentValue = deviceFilter.value;
+
+            // Keep "All Devices" option
+            deviceFilter.innerHTML = '<option value="">All Devices</option>';
+
+            // Add option for each device that has sensors
+            for (const [deviceId, sensors] of deviceSensors.entries()) {
+                const option = document.createElement('option');
+                option.value = deviceId;
+
+                // Get device info for model name
+                const device = deviceInfo.get(deviceId);
+                const model = device?.model || deviceId;
+
+                option.textContent = `${model} (${sensors.length} sensor${sensors.length !== 1 ? 's' : ''})`;
+                deviceFilter.appendChild(option);
+            }
+
+            // Restore selection if possible
+            if (currentValue && deviceSensors.has(currentValue)) {
+                deviceFilter.value = currentValue;
+            }
+        }
+
+        // Render sensors list
+        function renderSensors() {
+            const container = document.getElementById('sensorsContainer');
+            const deviceFilter = document.getElementById('deviceFilter').value;
+            const searchTerm = document.getElementById('sensorSearch').value.toLowerCase();
+
+            // Filter sensors
+            let filteredSensors = allSensors;
+
+            if (deviceFilter) {
+                filteredSensors = filteredSensors.filter(s => s.device_id === deviceFilter);
+            }
+
+            if (searchTerm) {
+                filteredSensors = filteredSensors.filter(s =>
+                    s.friendly_name.toLowerCase().includes(searchTerm) ||
+                    s.sensor_id.toLowerCase().includes(searchTerm) ||
+                    s.device_class.toLowerCase().includes(searchTerm)
+                );
+            }
+
+            if (filteredSensors.length === 0) {
+                container.innerHTML = '<p class="status warning">No sensors found</p>';
+                return;
+            }
+
+            // Group by device
+            const groupedByDevice = new Map();
+            for (const sensor of filteredSensors) {
+                if (!groupedByDevice.has(sensor.device_id)) {
+                    groupedByDevice.set(sensor.device_id, []);
+                }
+                groupedByDevice.get(sensor.device_id).push(sensor);
+            }
+
+            // Render grouped sensors
+            let html = '';
+            for (const [deviceId, sensors] of groupedByDevice.entries()) {
+                html += `
+                    <div class="card" style="margin-bottom: 15px;">
+                        <h3 style="margin-bottom: 10px; color: var(--primary-color);">
+                            Device: ${deviceId}
+                            <span style="font-size: 14px; font-weight: normal; color: var(--text-secondary);">
+                                (${sensors.length} sensor${sensors.length !== 1 ? 's' : ''})
+                            </span>
+                        </h3>
+                        ${sensors.map(sensor => renderSensorCard(sensor)).join('')}
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        // Render individual sensor card
+        function renderSensorCard(sensor) {
+            const enabledBadge = sensor.enabled
+                ? '<span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Enabled</span>'
+                : '<span style="background: #757575; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Disabled</span>';
+
+            const typeBadge = sensor.sensor_type === 'binary_sensor'
+                ? '<span style="background: #FF9800; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Binary</span>'
+                : '<span style="background: #2196F3; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Sensor</span>';
+
+            const deviceClassBadge = sensor.device_class && sensor.device_class !== 'none'
+                ? `<span style="background: #673AB7; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">${sensor.device_class}</span>`
+                : '';
+
+            const currentValue = sensor.current_value
+                ? `<strong>Current Value:</strong> ${sensor.current_value}${sensor.unit_of_measurement || ''}`
+                : '<strong>Current Value:</strong> <em>Not yet updated</em>';
+
+            return `
+                <div style="border: 1px solid var(--border-color); padding: 15px; margin-bottom: 10px; border-radius: 6px; background: var(--card-background);">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                        <div style="flex: 1; min-width: 200px;">
+                            <h4 style="margin: 0 0 8px 0; color: var(--text-color);">
+                                ${sensor.icon ? iconRenderer.render(sensor.icon, {size: '1.3em', style: 'margin-right: 8px;'}) : ''}
+                                ${sensor.friendly_name}
+                            </h4>
+                            <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px;">
+                                ${enabledBadge}
+                                ${typeBadge}
+                                ${deviceClassBadge}
+                            </div>
+                            <p style="margin: 5px 0; font-size: 13px; color: var(--text-secondary);">
+                                <strong>ID:</strong> ${sensor.sensor_id}<br>
+                                <strong>Update Interval:</strong> ${sensor.update_interval_seconds}s<br>
+                                <strong>Extraction Method:</strong> ${sensor.extraction_rule.method}
+                            </p>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 5px;">
+                            <button onclick="window.testSensor('${sensor.device_id}', '${sensor.sensor_id}')" style="padding: 6px 12px; font-size: 13px; background: var(--secondary-color);">Test</button>
+                            <button onclick="window.editSensor('${sensor.device_id}', '${sensor.sensor_id}')" style="padding: 6px 12px; font-size: 13px;">Edit</button>
+                            <button onclick="window.toggleSensor('${sensor.device_id}', '${sensor.sensor_id}', ${!sensor.enabled})" style="padding: 6px 12px; font-size: 13px; background: ${sensor.enabled ? '#757575' : '#4CAF50'};">
+                                ${sensor.enabled ? 'Disable' : 'Enable'}
+                            </button>
+                            <button onclick="window.deleteSensor('${sensor.device_id}', '${sensor.sensor_id}')" style="padding: 6px 12px; font-size: 13px; background: #f44336;">Delete</button>
+                        </div>
+                    </div>
+                    <div style="background: var(--preview-background); padding: 10px; border-radius: 4px; border: 1px solid var(--preview-border);">
+                        <p style="margin: 0; font-size: 13px; color: var(--preview-text);">
+                            ${currentValue}
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Delete sensor
+        window.deleteSensor = async function(deviceId, sensorId) {
+            if (!confirm(`Delete sensor "${sensorId}"?\n\nThis action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                await apiClient.delete(`/sensors/${deviceId}/${sensorId}`);
+                console.log(`[Sensors] Deleted sensor ${sensorId}`);
+                await loadSensors();
+            } catch (error) {
+                console.error(`[Sensors] Failed to delete sensor:`, error);
+                alert(`Failed to delete sensor: ${error.message}`);
+            }
+        };
+
+        // Toggle sensor enabled/disabled
+        window.toggleSensor = async function(deviceId, sensorId, enable) {
+            try {
+                // Get current sensor
+                const response = await apiClient.get(`/sensors/${deviceId}/${sensorId}`);
+                const sensor = response.sensor;
+
+                // Update enabled flag
+                sensor.enabled = enable;
+
+                // Save
+                await apiClient.put('/sensors', sensor);
+                console.log(`[Sensors] ${enable ? 'Enabled' : 'Disabled'} sensor ${sensorId}`);
+                await loadSensors();
+            } catch (error) {
+                console.error(`[Sensors] Failed to toggle sensor:`, error);
+                alert(`Failed to ${enable ? 'enable' : 'disable'} sensor: ${error.message}`);
+            }
+        };
+
+        // Test sensor extraction - Call backend API to verify extraction still works
+        window.testSensor = async function(deviceId, sensorId) {
+            try {
+                // Get sensor details
+                const response = await apiClient.get(`/sensors/${deviceId}/${sensorId}`);
+                const sensor = response.sensor;
+
+                // Test extraction with current element text
+                const testResponse = await apiClient.post('/test/extract', {
+                    text: sensor.source.element_text,
+                    extraction_rule: sensor.extraction_rule
+                });
+
+                if (testResponse.success) {
+                    alert(`✅ Test Extraction Successful!\n\nSensor: ${sensor.friendly_name}\nOriginal Text: "${sensor.source.element_text}"\nExtracted Value: "${testResponse.extracted_value}"\n\nExtraction is working correctly!`);
+                } else {
+                    alert(`❌ Test Extraction Failed!\n\nSensor: ${sensor.friendly_name}\nError: ${testResponse.error || 'Unknown error'}\n\nYou may need to edit the sensor's extraction rules.`);
+                }
+            } catch (error) {
+                console.error(`[Sensors] Failed to test sensor:`, error);
+                alert(`Failed to test sensor: ${error.message}`);
+            }
+        };
+
+        // Edit sensor - Open sensor creator in edit mode
+        window.editSensor = async function(deviceId, sensorId) {
+            try {
+                // Get sensor details
+                const response = await apiClient.get(`/sensors/${deviceId}/${sensorId}`);
+                const sensor = response.sensor;
+
+                // Open sensor creator in edit mode
+                await sensorCreator.showEdit(sensor);
+            } catch (error) {
+                console.error(`[Sensors] Failed to load sensor for editing:`, error);
+                alert(`Failed to load sensor: ${error.message}`);
+            }
+        };
+
+        // Event listeners
+        document.getElementById('deviceFilter').addEventListener('change', renderSensors);
+        document.getElementById('sensorSearch').addEventListener('input', renderSensors);
+        document.getElementById('refreshBtn').addEventListener('click', loadSensors);
+
+        // Initial load
+        loadSensors();
+    </script>
+</body>
+</html>

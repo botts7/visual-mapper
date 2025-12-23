@@ -1,0 +1,6 @@
+{
+  "text": "Battery: 94%",
+  "extraction_rule": {
+    "method": "numeric"
+  }
+}

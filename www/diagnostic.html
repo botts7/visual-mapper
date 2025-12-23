@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="0.0.3">
+    <meta name="version" content="0.0.3">
+    <title>Diagnostics - Visual Mapper</title>
+    <link rel="stylesheet" href="css/styles.css?v=0.0.3">
+    <style>
+        .pipeline-step {
+            background: var(--card-background);
+            border: 1px solid var(--border-color);
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .pipeline-step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .remove-step-btn {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <ul>
+            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
+            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
+            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
+            <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
+            <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
+            <li class="nav-priority-low"><a href="index.html">Home</a></li>
+            <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
+            <li class="version">v0.0.4</li>
+            <li id="themeToggleContainer"></li>
+        </ul>
+    </nav>
+    <div class="container">
+        <div class="card">
+            <h1>System Diagnostics</h1>
+            <p>Test all backend capabilities with full parameter support</p>
+        </div>
+
+        <!-- API Health Check -->
+        <div class="card">
+            <h2>API Health Check</h2>
+            <button id="testHealth" class="btn">Test API Health</button>
+            <div id="healthResult" style="margin-top:10px"></div>
+        </div>
+
+        <!-- ADB Connection Test -->
+        <div class="card">
+            <h2>ADB Connection Test</h2>
+            <button id="testAdb" class="btn">Test ADB Devices</button>
+            <div id="adbResult" style="margin-top:10px"></div>
+        </div>
+
+        <!-- Screenshot Test -->
+        <div class="card">
+            <h2>Screenshot Test</h2>
+            <select id="scrDev" class="form-select" style="margin:10px 0"></select>
+            <button id="testScr" class="btn">Capture Screenshot</button>
+            <div id="scrResult" style="margin-top:10px"></div>
+        </div>
+
+        <!-- Text Extraction Test with Pipeline Support -->
+        <div class="card">
+            <h2>Text Extraction Test (with Pipeline Support)</h2>
+            <p style="color: var(--text-secondary); font-size: 13px;">Test single or multi-step extraction pipelines</p>
+
+            <div style="display: grid; gap: 10px; margin-top: 10px;">
+                <div>
+                    <label>Text to extract from:</label>
+                    <input id="extText" class="form-input" value="Updated: 22/12/25 5:29 pm" placeholder="Enter text">
+                </div>
+
+                <!-- Pipeline Steps -->
+                <div id="pipelineSteps"></div>
+
+                <button id="addStep" class="btn btn-secondary">+ Add Extraction Step</button>
+
+                <!-- Post-processing Options -->
+                <div style="border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 10px;">
+                    <label style="font-weight: bold;">Post-Processing:</label>
+                    <div style="display: flex; gap: 15px; margin-top: 5px;">
+                        <label>
+                            <input type="checkbox" id="extractNumeric"> Extract numeric only
+                        </label>
+                        <label>
+                            <input type="checkbox" id="removeUnit"> Remove unit suffix
+                        </label>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label>Fallback Value (if extraction fails):</label>
+                        <input id="fallbackValue" class="form-input" placeholder="Optional fallback">
+                    </div>
+                </div>
+
+                <button id="testExt" class="btn">Test Extraction</button>
+            </div>
+
+            <div id="extResult" style="margin-top:10px"></div>
+        </div>
+
+        <!-- Device Control Test -->
+        <div class="card">
+            <h2>Device Control Test</h2>
+            <select id="ctrlDev" class="form-select" style="margin:10px 0"></select>
+            <div style="display:flex;gap:10px;margin-top:10px">
+                <button id="testTap" class="btn btn-secondary">Tap (500,500)</button>
+                <button id="testKey" class="btn btn-secondary">HOME Key</button>
+                <button id="testSwipe" class="btn btn-secondary">Swipe Down</button>
+            </div>
+            <div id="ctrlResult" style="margin-top:10px"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import APIClient from './js/modules/api-client.js?v=0.0.4';
+        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.4';
+        import MobileNav from './js/modules/mobile-nav.js?v=0.0.4';
+
+        const api = new APIClient();
+        const theme = new ThemeToggle();
+        const nav = new MobileNav();
+
+        theme.apply();
+        nav.init();
+        document.getElementById('themeToggleContainer').appendChild(theme.createToggleButton());
+
+        // Pipeline state
+        let pipelineSteps = [];
+
+        // Load devices into dropdowns
+        async function loadDevs() {
+            try {
+                const r = await api.get('/adb/devices');
+                ['scrDev', 'ctrlDev'].forEach(id => {
+                    const s = document.getElementById(id);
+                    s.innerHTML = '<option value="">Select device...</option>';
+                    r.devices.forEach(d => {
+                        s.innerHTML += `<option value="${d.id}">${d.id}</option>`;
+                    });
+                });
+            } catch (e) {
+                console.error('[Diagnostic] Failed to load devices:', e);
+            }
+        }
+
+        // Add extraction step
+        function addStep() {
+            const stepId = Date.now();
+            pipelineSteps.push({
+                id: stepId,
+                method: 'numeric',
+                params: {}
+            });
+            renderPipeline();
+        }
+
+        // Remove extraction step
+        window.removeStep = function(stepId) {
+            pipelineSteps = pipelineSteps.filter(s => s.id !== stepId);
+            renderPipeline();
+        };
+
+        // Update step method
+        window.updateStepMethod = function(stepId, method) {
+            const step = pipelineSteps.find(s => s.id === stepId);
+            if (step) {
+                step.method = method;
+                step.params = {}; // Reset params when method changes
+                renderPipeline();
+            }
+        };
+
+        // Render pipeline UI
+        function renderPipeline() {
+            const container = document.getElementById('pipelineSteps');
+
+            if (pipelineSteps.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-secondary); font-style: italic;">No extraction steps. Add a step to test extraction.</p>';
+                return;
+            }
+
+            let html = '';
+            pipelineSteps.forEach((step, index) => {
+                html += `
+                    <div class="pipeline-step">
+                        <div class="pipeline-step-header">
+                            <strong>Step ${index + 1}</strong>
+                            <button class="remove-step-btn" onclick="removeStep(${step.id})">Remove</button>
+                        </div>
+                        <div style="display: grid; gap: 8px;">
+                            <div>
+                                <label>Method:</label>
+                                <select class="form-select" onchange="updateStepMethod(${step.id}, this.value)" id="method_${step.id}">
+                                    <option value="exact" ${step.method === 'exact' ? 'selected' : ''}>exact</option>
+                                    <option value="numeric" ${step.method === 'numeric' ? 'selected' : ''}>numeric</option>
+                                    <option value="regex" ${step.method === 'regex' ? 'selected' : ''}>regex</option>
+                                    <option value="after" ${step.method === 'after' ? 'selected' : ''}>after</option>
+                                    <option value="before" ${step.method === 'before' ? 'selected' : ''}>before</option>
+                                    <option value="between" ${step.method === 'between' ? 'selected' : ''}>between</option>
+                                </select>
+                            </div>
+                            ${renderStepParams(step)}
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        // Render step-specific parameters
+        function renderStepParams(step) {
+            switch (step.method) {
+                case 'regex':
+                    return `
+                        <div>
+                            <label>Regex Pattern:</label>
+                            <input class="form-input" id="param_${step.id}" placeholder="e.g., \\d+" value="${step.params.regex_pattern || ''}">
+                        </div>
+                    `;
+                case 'after':
+                    return `
+                        <div>
+                            <label>After Text:</label>
+                            <input class="form-input" id="param_${step.id}" placeholder="Text to search after" value="${step.params.after_text || ''}">
+                        </div>
+                    `;
+                case 'before':
+                    return `
+                        <div>
+                            <label>Before Text:</label>
+                            <input class="form-input" id="param_${step.id}" placeholder="Text to search before" value="${step.params.before_text || ''}">
+                        </div>
+                    `;
+                case 'between':
+                    return `
+                        <div>
+                            <label>Between Start:</label>
+                            <input class="form-input" id="param_start_${step.id}" placeholder="Start delimiter" value="${step.params.between_start || ''}">
+                        </div>
+                        <div>
+                            <label>Between End:</label>
+                            <input class="form-input" id="param_end_${step.id}" placeholder="End delimiter" value="${step.params.between_end || ''}">
+                        </div>
+                    `;
+                default:
+                    return '';
+            }
+        }
+
+        // Build extraction rule from pipeline
+        function buildExtractionRule() {
+            if (pipelineSteps.length === 0) {
+                return null;
+            }
+
+            // Read parameters from form inputs
+            const pipeline = pipelineSteps.map(step => {
+                const rule = { method: step.method };
+
+                if (step.method === 'regex') {
+                    const input = document.getElementById(`param_${step.id}`);
+                    if (input && input.value) {
+                        rule.regex_pattern = input.value;
+                    }
+                } else if (step.method === 'after') {
+                    const input = document.getElementById(`param_${step.id}`);
+                    if (input && input.value) {
+                        rule.after_text = input.value;
+                    }
+                } else if (step.method === 'before') {
+                    const input = document.getElementById(`param_${step.id}`);
+                    if (input && input.value) {
+                        rule.before_text = input.value;
+                    }
+                } else if (step.method === 'between') {
+                    const startInput = document.getElementById(`param_start_${step.id}`);
+                    const endInput = document.getElementById(`param_end_${step.id}`);
+                    if (startInput && startInput.value && endInput && endInput.value) {
+                        rule.between_start = startInput.value;
+                        rule.between_end = endInput.value;
+                    }
+                }
+
+                return rule;
+            });
+
+            // Build full extraction rule
+            const extraction_rule = {
+                pipeline: pipeline,
+                extract_numeric: document.getElementById('extractNumeric').checked,
+                remove_unit: document.getElementById('removeUnit').checked
+            };
+
+            const fallback = document.getElementById('fallbackValue').value;
+            if (fallback) {
+                extraction_rule.fallback_value = fallback;
+            }
+
+            return extraction_rule;
+        }
+
+        // API Health Check
+        document.getElementById('testHealth').onclick = async () => {
+            const el = document.getElementById('healthResult');
+            try {
+                const r = await api.get('/health');
+                el.innerHTML = '<p class="status success">✅ Running v' + r.version + '</p>';
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        // ADB Connection Test
+        document.getElementById('testAdb').onclick = async () => {
+            const el = document.getElementById('adbResult');
+            try {
+                const r = await api.get('/adb/devices');
+                el.innerHTML = `<p class="status success">✅ Found ${r.devices.length} device(s)</p><pre>${JSON.stringify(r, null, 2)}</pre>`;
+                loadDevs();
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        // Screenshot Test
+        document.getElementById('testScr').onclick = async () => {
+            const el = document.getElementById('scrResult');
+            const dev = document.getElementById('scrDev').value;
+
+            if (!dev) {
+                el.innerHTML = '<p class="status error">Select device</p>';
+                return;
+            }
+
+            try {
+                const r = await api.post('/adb/screenshot', { device_id: dev });
+                el.innerHTML = `<p class="status success">✅ ${r.size} bytes</p><img src="data:image/png;base64,${r.image}" style="max-width:100%;border:1px solid var(--border-color)">`;
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        // Text Extraction Test (with Pipeline)
+        document.getElementById('testExt').onclick = async () => {
+            const el = document.getElementById('extResult');
+            const text = document.getElementById('extText').value;
+
+            if (!text) {
+                el.innerHTML = '<p class="status error">Please enter text to test</p>';
+                return;
+            }
+
+            const extraction_rule = buildExtractionRule();
+
+            if (!extraction_rule) {
+                el.innerHTML = '<p class="status error">Please add at least one extraction step</p>';
+                return;
+            }
+
+            // Validate required parameters
+            for (let i = 0; i < pipelineSteps.length; i++) {
+                const step = pipelineSteps[i];
+                const rule = extraction_rule.pipeline[i];
+
+                if (step.method === 'regex' && !rule.regex_pattern) {
+                    el.innerHTML = `<p class="status error">Step ${i + 1}: Please enter regex pattern</p>`;
+                    return;
+                }
+                if (step.method === 'after' && !rule.after_text) {
+                    el.innerHTML = `<p class="status error">Step ${i + 1}: Please enter "after" text</p>`;
+                    return;
+                }
+                if (step.method === 'before' && !rule.before_text) {
+                    el.innerHTML = `<p class="status error">Step ${i + 1}: Please enter "before" text</p>`;
+                    return;
+                }
+                if (step.method === 'between' && (!rule.between_start || !rule.between_end)) {
+                    el.innerHTML = `<p class="status error">Step ${i + 1}: Please enter both start and end delimiters</p>`;
+                    return;
+                }
+            }
+
+            try {
+                const r = await api.post('/test/extract', { text, extraction_rule });
+
+                let resultHtml = '<div style="background: var(--preview-background); padding: 15px; border-radius: 6px; border: 2px solid var(--success-color);">';
+                resultHtml += `<p style="margin: 0 0 10px 0;"><strong>✅ Extraction Successful!</strong></p>`;
+                resultHtml += `<p style="margin: 5px 0;"><strong>Original:</strong> "${text}"</p>`;
+                resultHtml += `<p style="margin: 5px 0;"><strong>Pipeline Steps:</strong> ${pipelineSteps.length}</p>`;
+                resultHtml += `<p style="margin: 5px 0; font-size: 16px; color: var(--primary-color);"><strong>Result:</strong> "${r.extracted_value}"</p>`;
+                resultHtml += '</div>';
+
+                el.innerHTML = resultHtml;
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        // Tap Test
+        document.getElementById('testTap').onclick = async () => {
+            const el = document.getElementById('ctrlResult');
+            const dev = document.getElementById('ctrlDev').value;
+
+            if (!dev) {
+                el.innerHTML = '<p class="status error">Select device</p>';
+                return;
+            }
+
+            try {
+                await api.post('/adb/tap', { device_id: dev, x: 500, y: 500 });
+                el.innerHTML = '<p class="status success">✅ Tap sent to (500,500)</p>';
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        // Keyevent Test
+        document.getElementById('testKey').onclick = async () => {
+            const el = document.getElementById('ctrlResult');
+            const dev = document.getElementById('ctrlDev').value;
+
+            if (!dev) {
+                el.innerHTML = '<p class="status error">Select device</p>';
+                return;
+            }
+
+            try {
+                await api.post('/adb/keyevent', { device_id: dev, keycode: '3' });
+                el.innerHTML = '<p class="status success">✅ HOME key sent</p>';
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        // Swipe Test
+        document.getElementById('testSwipe').onclick = async () => {
+            const el = document.getElementById('ctrlResult');
+            const dev = document.getElementById('ctrlDev').value;
+
+            if (!dev) {
+                el.innerHTML = '<p class="status error">Select device</p>';
+                return;
+            }
+
+            try {
+                // Swipe down from top (500,300) to (500,1000)
+                await api.post('/adb/swipe', {
+                    device_id: dev,
+                    x1: 500, y1: 300,
+                    x2: 500, y2: 1000,
+                    duration_ms: 300
+                });
+                el.innerHTML = '<p class="status success">✅ Swipe down sent</p>';
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        // Add step button
+        document.getElementById('addStep').onclick = addStep;
+
+        // Initial setup
+        loadDevs();
+        addStep(); // Add first step by default
+    </script>
+</body>
+</html>
