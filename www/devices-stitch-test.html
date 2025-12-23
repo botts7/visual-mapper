@@ -49,6 +49,60 @@
                 grid-template-columns: 1fr;
             }
         }
+        /* Element overlay styles */
+        .screenshot-container {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+        }
+        .element-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .element-box {
+            position: absolute;
+            border: 2px solid rgba(0, 200, 100, 0.7);
+            background: rgba(0, 200, 100, 0.1);
+            pointer-events: auto;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .element-box:hover {
+            border-color: rgba(255, 100, 100, 0.9);
+            background: rgba(255, 100, 100, 0.2);
+            z-index: 10;
+        }
+        .element-box .element-label {
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            font-size: 10px;
+            padding: 2px 4px;
+            white-space: nowrap;
+            display: none;
+            z-index: 100;
+        }
+        .element-box:hover .element-label {
+            display: block;
+        }
+        .overlay-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin: 10px 0;
+            flex-wrap: wrap;
+        }
+        .overlay-controls label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -141,7 +195,46 @@
                 <div>
                     <h3>Stitched Screenshot</h3>
                     <p id="stitchedInfo" style="font-size: 12px; color: var(--text-secondary);">Not captured yet</p>
-                    <img id="stitchedImage" class="stitched-image" style="display: none;">
+                    <div class="overlay-controls" id="overlayControls" style="display: none;">
+                        <label>
+                            <input type="checkbox" id="showOverlay" checked>
+                            Show Overlay
+                        </label>
+                        <span style="border-left: 1px solid var(--border-color); padding-left: 10px;">
+                            <strong>Filters:</strong>
+                        </span>
+                        <label>
+                            <input type="checkbox" id="filterClickable" checked> Clickable
+                        </label>
+                        <label>
+                            <input type="checkbox" id="filterNonClickable" checked> Non-Clickable
+                        </label>
+                        <label>
+                            <input type="checkbox" id="filterTextLabels" checked> Text Labels
+                        </label>
+                        <label>
+                            <input type="checkbox" id="filterMinSize"> Hide Small (&lt;50px)
+                        </label>
+                        <label>
+                            <input type="checkbox" id="filterTextOnly"> Text Only
+                        </label>
+                        <span style="border-left: 1px solid var(--border-color); padding-left: 10px;">
+                            <strong>Mode:</strong>
+                        </span>
+                        <label>
+                            <input type="radio" name="interactionMode" id="modeInspect" value="inspect" checked>
+                            Inspect
+                        </label>
+                        <label>
+                            <input type="radio" name="interactionMode" id="modeSensor" value="sensor">
+                            Sensor
+                        </label>
+                        <span id="elementCount" style="font-size: 12px; color: var(--text-secondary); margin-left: auto;"></span>
+                    </div>
+                    <div class="screenshot-container" id="stitchedContainer">
+                        <img id="stitchedImage" class="stitched-image" style="display: none;">
+                        <div class="element-overlay" id="elementOverlay"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -160,10 +253,12 @@
         import APIClient from './js/modules/api-client.js?v=0.0.5';
         import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.5';
         import MobileNav from './js/modules/mobile-nav.js?v=0.0.5';
+        import SensorCreator from './js/modules/sensor-creator.js?v=0.0.5';
 
         const apiClient = new APIClient();
         const themeToggle = new ThemeToggle();
         const mobileNav = new MobileNav();
+        const sensorCreator = new SensorCreator(apiClient);
 
         // Apply theme
         themeToggle.apply();
@@ -178,6 +273,187 @@
 
         // State
         let selectedDevice = null;
+        let stitchedElements = [];  // Store elements for overlay
+
+        // Get current filter settings
+        function getFilterSettings() {
+            return {
+                showClickable: document.getElementById('filterClickable').checked,
+                showNonClickable: document.getElementById('filterNonClickable').checked,
+                showTextLabels: document.getElementById('filterTextLabels').checked,
+                hideSmall: document.getElementById('filterMinSize').checked,
+                textOnly: document.getElementById('filterTextOnly').checked
+            };
+        }
+
+        // Check if element passes filters
+        function elementPassesFilters(elem, filters) {
+            const isClickable = elem.clickable === 'true' || elem.clickable === true;
+            const hasText = elem.text && elem.text.trim().length > 0;
+
+            // Clickable filter
+            if (isClickable && !filters.showClickable) return false;
+            if (!isClickable && !filters.showNonClickable) return false;
+
+            // Text only filter
+            if (filters.textOnly && !hasText) return false;
+
+            // Text labels filter (elements with text)
+            if (!filters.showTextLabels && hasText) return false;
+
+            return true;
+        }
+
+        // Render element overlays on the stitched image
+        function renderElementOverlay(elements, imageEl) {
+            const overlay = document.getElementById('elementOverlay');
+            const overlayControls = document.getElementById('overlayControls');
+            const elementCount = document.getElementById('elementCount');
+
+            overlay.innerHTML = '';
+
+            if (!elements || elements.length === 0) {
+                overlayControls.style.display = 'none';
+                return;
+            }
+
+            // Get image display dimensions vs actual dimensions
+            const imgRect = imageEl.getBoundingClientRect();
+            const imgNaturalWidth = imageEl.naturalWidth;
+            const imgNaturalHeight = imageEl.naturalHeight;
+            const scaleX = imgRect.width / imgNaturalWidth;
+            const scaleY = imgRect.height / imgNaturalHeight;
+
+            console.log('[StitchTest] Overlay sizing:', {
+                imgRect: { width: imgRect.width, height: imgRect.height },
+                natural: { width: imgNaturalWidth, height: imgNaturalHeight },
+                scale: { x: scaleX, y: scaleY }
+            });
+
+            // Update overlay size to match displayed image
+            overlay.style.width = `${imgRect.width}px`;
+            overlay.style.height = `${imgRect.height}px`;
+
+            // Get filter settings
+            const filters = getFilterSettings();
+            let renderedCount = 0;
+
+            // Render each element as a box
+            elements.forEach((elem, idx) => {
+                const bounds = elem.bounds;
+                let x, y, width, height;
+
+                if (typeof bounds === 'object') {
+                    x = bounds.x || 0;
+                    y = bounds.y || 0;
+                    width = bounds.width || 0;
+                    height = bounds.height || 0;
+                } else if (typeof bounds === 'string') {
+                    // Parse "[x1,y1][x2,y2]" format
+                    const match = bounds.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
+                    if (match) {
+                        x = parseInt(match[1]);
+                        y = parseInt(match[2]);
+                        width = parseInt(match[3]) - x;
+                        height = parseInt(match[4]) - y;
+                    } else {
+                        return; // Skip if can't parse
+                    }
+                } else {
+                    return; // Skip
+                }
+
+                // Skip tiny elements
+                if (width < 10 || height < 10) return;
+
+                // Apply hide small filter
+                if (filters.hideSmall && (width < 50 || height < 50)) return;
+
+                // Apply other filters
+                if (!elementPassesFilters(elem, filters)) return;
+
+                // Scale to displayed size
+                const scaledX = x * scaleX;
+                const scaledY = y * scaleY;
+                const scaledWidth = width * scaleX;
+                const scaledHeight = height * scaleY;
+
+                // Create element box
+                const box = document.createElement('div');
+                box.className = 'element-box';
+                box.style.left = `${scaledX}px`;
+                box.style.top = `${scaledY}px`;
+                box.style.width = `${scaledWidth}px`;
+                box.style.height = `${scaledHeight}px`;
+
+                // Color based on clickable status
+                const isClickable = elem.clickable === 'true' || elem.clickable === true;
+                if (isClickable) {
+                    box.style.borderColor = 'rgba(0, 200, 100, 0.7)';
+                    box.style.background = 'rgba(0, 200, 100, 0.1)';
+                } else {
+                    box.style.borderColor = 'rgba(100, 150, 255, 0.7)';
+                    box.style.background = 'rgba(100, 150, 255, 0.1)';
+                }
+
+                // Create label
+                const label = document.createElement('div');
+                label.className = 'element-label';
+                const text = elem.text || '';
+                const resId = elem.resource_id || elem['resource-id'] || '';
+                const className = elem.class || '';
+                label.textContent = text || resId || className || `Element ${idx}`;
+                box.appendChild(label);
+
+                // Handle click based on mode
+                box.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const mode = document.querySelector('input[name="interactionMode"]:checked').value;
+
+                    if (mode === 'sensor') {
+                        // Open sensor creator
+                        sensorCreator.show(selectedDevice, elem, idx);
+                    } else {
+                        // Inspect mode - show element details in console
+                        console.log('[StitchTest] Element clicked:', elem);
+                        alert(`Element: ${text || resId || className}\nClickable: ${isClickable}\nBounds: ${JSON.stringify(bounds)}`);
+                    }
+                });
+
+                overlay.appendChild(box);
+                renderedCount++;
+            });
+
+            // Show controls
+            overlayControls.style.display = 'flex';
+            elementCount.textContent = `${renderedCount} / ${elements.length} elements`;
+
+            console.log(`[StitchTest] Rendered ${renderedCount} of ${elements.length} element overlays`);
+
+            // Debug: log first few element bounds
+            if (elements.length > 0) {
+                console.log('[StitchTest] Sample element bounds:');
+                elements.slice(0, 5).forEach((elem, i) => {
+                    console.log(`  ${i}: bounds=${JSON.stringify(elem.bounds)}, text=${elem.text?.substring(0, 30) || 'N/A'}`);
+                });
+            }
+        }
+
+        // Re-render overlay when filters change
+        ['filterClickable', 'filterNonClickable', 'filterTextLabels', 'filterMinSize', 'filterTextOnly'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => {
+                if (stitchedElements.length > 0) {
+                    const stitchedImage = document.getElementById('stitchedImage');
+                    renderElementOverlay(stitchedElements, stitchedImage);
+                }
+            });
+        });
+
+        // Toggle overlay visibility
+        document.getElementById('showOverlay').addEventListener('change', (e) => {
+            const overlay = document.getElementById('elementOverlay');
+            overlay.style.display = e.target.checked ? 'block' : 'none';
+        });
 
         // Load devices
         async function loadDevices() {
@@ -322,6 +598,19 @@
                 // Display stitched image
                 stitchedImage.src = `data:image/png;base64,${response.screenshot}`;
                 stitchedImage.style.display = 'block';
+
+                // Store elements for overlay
+                stitchedElements = response.elements || [];
+
+                // Render overlay after image loads (with small delay for layout)
+                stitchedImage.onload = () => {
+                    console.log('[StitchTest] Image loaded, natural size:', stitchedImage.naturalWidth, 'x', stitchedImage.naturalHeight);
+                    console.log('[StitchTest] Elements to render:', stitchedElements.length);
+                    // Small delay to ensure image is fully laid out before measuring
+                    setTimeout(() => {
+                        renderElementOverlay(stitchedElements, stitchedImage);
+                    }, 100);
+                };
 
                 // Display metadata
                 resultInfo.style.display = 'block';

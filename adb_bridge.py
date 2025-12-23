@@ -331,8 +331,25 @@ class ADBBridge:
         try:
             logger.debug(f"[ADBBridge] Capturing screenshot from {device_id}")
 
-            # Execute screencap command
-            # -p flag outputs PNG format
+            # Try using subprocess with exec-out for more reliable binary data transfer
+            import subprocess
+
+            def _run_screencap():
+                result = subprocess.run(
+                    ["adb", "-s", device_id, "exec-out", "screencap", "-p"],
+                    capture_output=True,
+                    timeout=30
+                )
+                return result.stdout if result.returncode == 0 else b""
+
+            result = await asyncio.to_thread(_run_screencap)
+
+            if result and len(result) > 1000:  # Valid PNG should be > 1KB
+                logger.debug(f"[ADBBridge] Screenshot captured via exec-out: {len(result)} bytes")
+                return result
+
+            # Fallback to shell method if exec-out fails
+            logger.debug("[ADBBridge] exec-out failed, trying shell method")
             result = await conn.shell("screencap -p")
 
             # Result should be bytes for PNG data
@@ -340,7 +357,7 @@ class ADBBridge:
                 # Fallback: encode as latin1 if somehow still a string
                 result = result.encode('latin1')
 
-            logger.debug(f"[ADBBridge] Screenshot captured: {len(result)} bytes")
+            logger.debug(f"[ADBBridge] Screenshot captured via shell: {len(result)} bytes")
             return result
 
         except Exception as e:
@@ -367,21 +384,20 @@ class ADBBridge:
         try:
             logger.debug(f"[ADBBridge] Extracting UI elements from {device_id}")
 
-            # Dump UI hierarchy to stdout (v3 approach)
-            # Using /dev/tty instead of file path to get output directly
-            # --compressed flag prevents waiting for idle state (fixes animated UIs)
-            xml_str = await conn.shell("uiautomator dump --compressed /dev/tty")
+            # Dump UI hierarchy to file then read it (more reliable than /dev/tty)
+            # Some devices don't output XML to /dev/tty properly
+            dump_output = await conn.shell("uiautomator dump && cat /sdcard/window_dump.xml")
 
             # Clean up the output:
-            # 1. Remove the "UI hierarchy dumped to: /dev/tty" message
+            # 1. Remove the "UI hierarchy dumped to: /sdcard/window_dump.xml" message
             # 2. Extract only the XML portion (starts with <?xml)
             # 3. Remove any trailing junk after the closing tag
-            xml_start = xml_str.find('<?xml')
+            xml_start = dump_output.find('<?xml')
             if xml_start == -1:
-                logger.error(f"[ADBBridge] No XML found in uiautomator output: {xml_str[:200]}")
+                logger.error(f"[ADBBridge] No XML found in uiautomator output: {dump_output[:200]}")
                 raise ValueError("No XML data in uiautomator output")
 
-            xml_str = xml_str[xml_start:]
+            xml_str = dump_output[xml_start:]
 
             # Find the end of the XML document
             # Look for closing </hierarchy> tag
@@ -406,6 +422,9 @@ class ADBBridge:
                     'visible': node.get('visible-to-user') == 'true',
                     'enabled': node.get('enabled') == 'true',
                     'focused': node.get('focused') == 'true',
+                    # Added for height estimation
+                    'content_desc': node.get('content-desc', ''),
+                    'scrollable': node.get('scrollable') == 'true',
                 }
                 elements.append(element)
 

@@ -98,6 +98,7 @@
                 <div class="screenshot-panel">
                     <div class="screenshot-controls">
                         <button class="btn btn-secondary" id="btnRefreshScreen">🔄 Refresh</button>
+                        <button class="btn btn-secondary" id="btnStitchCapture">📸 Stitch Capture</button>
                         <button class="btn btn-secondary" id="btnGoBack">⬅️ Back</button>
                         <button class="btn btn-secondary" id="btnGoHome">🏠 Home</button>
                     </div>
@@ -109,8 +110,30 @@
                         <button class="btn btn-sm" data-swipe="right">➡️ Right</button>
                     </div>
 
+                    <div class="overlay-section" style="margin-bottom: 10px; padding: 10px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">
+                        <strong>Element Overlay:</strong>
+                        <div style="display: flex; flex-wrap: wrap; gap: 15px; margin-top: 8px;">
+                            <label style="cursor: pointer;">
+                                <input type="checkbox" id="filterClickable" checked> Clickable
+                            </label>
+                            <label style="cursor: pointer;">
+                                <input type="checkbox" id="filterNonClickable" checked> Non-Clickable
+                            </label>
+                            <label style="cursor: pointer;">
+                                <input type="checkbox" id="filterTextLabels" checked> Text Labels
+                            </label>
+                            <label style="cursor: pointer;">
+                                <input type="checkbox" id="filterMinSize"> Hide Small (&lt;50px)
+                            </label>
+                            <label style="cursor: pointer;">
+                                <input type="checkbox" id="filterTextOnly"> Text Only
+                            </label>
+                        </div>
+                    </div>
+
                     <div id="screenshotContainer" class="screenshot-display loading">
-                        Starting flow...
+                        <canvas id="screenshotCanvas" style="display: none; cursor: crosshair; max-width: 100%;"></canvas>
+                        <div id="screenshotLoading">Starting flow...</div>
                     </div>
                 </div>
 
