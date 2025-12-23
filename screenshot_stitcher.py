@@ -1572,14 +1572,15 @@ class ScreenshotStitcher:
             # - Gesture nav: ~20px (just hint bar)
             # - 3-button nav: ~48px
             # - Nav + app bar: ~100-150px
-            # - Max: 150px (more is likely mis-detection)
+            # - Large footers (Netflix, etc): 150-220px
+            # - Max: 250px (more is likely mis-detection)
             #
             # IMPORTANT: Don't enforce a minimum - fullscreen/gesture apps may have 0px footer
             if fixed_footer < 0:
                 fixed_footer = 0
-            elif fixed_footer > 150:
-                logger.info(f"  Footer detection capped: {fixed_footer}px -> 150px (likely mis-detection)")
-                fixed_footer = 150  # Cap to prevent over-cropping
+            elif fixed_footer > 250:
+                logger.info(f"  Footer detection capped: {fixed_footer}px -> 250px (likely mis-detection)")
+                fixed_footer = 250  # Cap to prevent over-cropping
             logger.info(f"  Using fixed_footer={fixed_footer}px (0=fullscreen/gesture possible)")
 
             # Detect fixed header
@@ -1606,53 +1607,81 @@ class ScreenshotStitcher:
             # Actual new content start = screen_height - known_scroll
             # But since header is fixed, we take content starting from there
 
-            # Simple approach: new content starts at approximately (header + overlap)
+            # ROW-BY-ROW comparison to find EXACT overlap point
+            # Take a strip from img1 (just above footer) and find it in img2
+            import numpy as np
+
             scrollable_height = screen_height - fixed_header - fixed_footer
-            overlap = scrollable_height - known_scroll
-            if overlap < 0:
-                overlap = 0
+            logger.info(f"  Scrollable height: {scrollable_height}px (header={fixed_header}, footer={fixed_footer})")
 
-            new_content_start = fixed_header + overlap
-            logger.info(f"  Calculated: scrollable={scrollable_height}, overlap={overlap}, new_start={new_content_start}")
+            # Convert images to numpy for fast comparison
+            arr1 = np.array(img1.convert('RGB'))
+            arr2 = np.array(img2.convert('RGB'))
 
-            # VERIFY with template matching
-            # Take template from middle of img1's scrollable area
-            template_height = 80
-            # Use content from around 40% from top of scrollable area
-            template_top = fixed_header + int(scrollable_height * 0.4)
-            template_bottom = template_top + template_height
+            # Take a reference strip from img1 - use area just above footer
+            # This content should appear somewhere in img2 after scrolling
+            strip_height = 60
+            strip_y = screen_height - fixed_footer - strip_height - 50  # 50px above footer
+            if strip_y < fixed_header + 100:
+                strip_y = fixed_header + 100  # Ensure we're in scrollable area
 
-            template = img1.crop((0, template_top, width, template_bottom))
-            logger.info(f"  Verification template: y={template_top}-{template_bottom}")
+            reference_strip = arr1[strip_y:strip_y + strip_height, :, :]
+            logger.info(f"  Reference strip from img1: y={strip_y}-{strip_y + strip_height}")
 
-            # This template should appear at template_top - known_scroll in img2
-            expected_match_y = template_top - known_scroll
-            logger.info(f"  Expected match at y={expected_match_y}")
+            # Search for this strip in img2 (in the header-to-footer range)
+            best_match_y = -1
+            best_match_score = 0
+            search_start = fixed_header
+            search_end = screen_height - fixed_footer - strip_height
 
-            # Search in img2
-            match_y, confidence = self._find_overlap_offset(template, img2, screen_height - fixed_footer)
+            for y in range(search_start, search_end, 5):  # Step by 5 for speed
+                candidate = arr2[y:y + strip_height, :, :]
+                # Calculate similarity
+                diff = np.abs(reference_strip.astype(float) - candidate.astype(float))
+                similarity = 1.0 - (np.mean(diff) / 255.0)
 
-            if match_y is not None and confidence and confidence > 0.8:
-                logger.info(f"  Actual match at y={match_y} (conf={confidence:.3f})")
-                # Calculate actual scroll from match
-                actual_scroll = template_top - match_y
-                logger.info(f"  Implied actual scroll: {actual_scroll}px (commanded: {known_scroll}px)")
+                if similarity > best_match_score:
+                    best_match_score = similarity
+                    best_match_y = y
 
-                # CRITICAL: Only trust match if it CONFIRMS our calculation (within tolerance)
-                # If match differs significantly from commanded scroll, it's likely a FALSE POSITIVE
-                # (similar visual content appearing at the wrong position)
-                if abs(actual_scroll - known_scroll) < 100:
-                    # Match confirms calculation - both agree within tolerance
-                    logger.info(f"  Match confirms calculation, using new_content_start={new_content_start}")
-                    return (new_content_start, fixed_footer)
-                else:
-                    # Match differs too much - likely a false positive (similar visuals at wrong Y)
-                    # DON'T trust it, use the calculated value based on known scroll
-                    logger.warning(f"  Match implies {actual_scroll}px scroll but commanded {known_scroll}px")
-                    logger.warning(f"  Rejecting match as likely false positive, using calculated value")
-                    return (new_content_start, fixed_footer)
+            # Refine to exact pixel
+            if best_match_y > 0 and best_match_score > 0.9:
+                for y in range(max(search_start, best_match_y - 5), min(search_end, best_match_y + 6)):
+                    candidate = arr2[y:y + strip_height, :, :]
+                    diff = np.abs(reference_strip.astype(float) - candidate.astype(float))
+                    similarity = 1.0 - (np.mean(diff) / 255.0)
+                    if similarity > best_match_score:
+                        best_match_score = similarity
+                        best_match_y = y
+
+            logger.info(f"  Best match in img2: y={best_match_y}, similarity={best_match_score:.3f}")
+
+            if best_match_score > 0.92:
+                # Good match found - calculate where new content starts
+                # The reference strip was at strip_y in img1
+                # It appears at best_match_y in img2
+                # So content scrolled by: strip_y - best_match_y
+                actual_scroll = strip_y - best_match_y
+                logger.info(f"  Actual scroll detected: {actual_scroll}px (commanded: {known_scroll}px)")
+
+                # New content in img2 starts where img1's bottom content ends
+                # img1 content ended at (screen_height - fixed_footer)
+                # This appears at (screen_height - fixed_footer - actual_scroll) in img2's coordinate
+                # So new content starts just after this point
+                new_content_start = screen_height - fixed_footer - actual_scroll
+                if new_content_start < fixed_header:
+                    new_content_start = fixed_header
+
+                logger.info(f"  New content starts at y={new_content_start}")
+                return (new_content_start, fixed_footer)
             else:
-                logger.warning(f"  Template match weak (conf={confidence}), using calculated value")
+                # Fallback to calculation
+                logger.warning(f"  Row matching weak ({best_match_score:.3f}), using calculated fallback")
+                overlap = scrollable_height - known_scroll
+                if overlap < 0:
+                    overlap = 0
+                new_content_start = fixed_header + overlap
+                logger.info(f"  Fallback new_content_start={new_content_start}")
                 return (new_content_start, fixed_footer)
 
         except Exception as e:

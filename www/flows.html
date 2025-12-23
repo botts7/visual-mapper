@@ -39,7 +39,7 @@
         }
 
         .flow-table thead {
-            background: var(--primary);
+            background: #3b82f6;
             color: white;
         }
 
@@ -121,11 +121,30 @@
         .btn-icon.execute {
             color: #3b82f6;
             border-color: #3b82f6;
+            position: relative;
         }
 
         .btn-icon.execute:hover {
             background: #3b82f6;
             color: white;
+        }
+
+        .btn-icon.execute.running {
+            background: #10b981;
+            color: white;
+            border-color: #10b981;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .flow-status.running {
+            background: #10b981;
+            color: white;
+            animation: pulse 1.5s ease-in-out infinite;
         }
 
         .btn-icon.delete {
@@ -138,10 +157,165 @@
             color: white;
         }
 
+        .btn-icon.edit {
+            color: #f59e0b;
+            border-color: #f59e0b;
+        }
+
+        .btn-icon.edit:hover {
+            background: #f59e0b;
+            color: white;
+        }
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
             color: var(--text-secondary);
+        }
+
+        /* Edit Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 900px;
+            width: 95%;
+            max-height: 85vh;
+            overflow-y: auto;
+            position: relative;
+            z-index: 10001;
+        }
+
+        .modal-header {
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            color: #0f172a;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #0f172a;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            font-size: 14px;
+            background: #ffffff;
+            color: #0f172a;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .form-group .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .form-group input[type="checkbox"] {
+            width: auto;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        .modal-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .modal-tab {
+            padding: 10px 20px;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+            font-weight: 600;
+            color: #64748b;
+            transition: all 0.2s;
+        }
+
+        .modal-tab.active {
+            color: #3b82f6;
+            border-bottom-color: #3b82f6;
+        }
+
+        .modal-tab:hover {
+            color: #0f172a;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .json-editor {
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            padding: 15px;
+            min-height: 500px;
+            height: 60vh;
+            max-height: none;
+            overflow-y: auto;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            white-space: pre;
+        }
+
+        .json-editor-warning {
+            background: #fef3c7;
+            border: 1px solid #fbbf24;
+            color: #92400e;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-size: 13px;
         }
     </style>
 </head>
@@ -156,7 +330,7 @@
             <li><a href="flows.html">Flows</a></li>
             <li><a href="diagnostic.html">Diagnostics</a></li>
             <li><a href="dev.html">Dev Tools</a></li>
-            <li class="version">v0.0.4</li>
+            <li class="version">v0.0.5</li>
         </ul>
     </nav>
 
@@ -220,9 +394,68 @@
         </div>
     </div>
 
+    <!-- Edit Flow Modal -->
+    <div class="modal-overlay" id="editModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Edit Flow</h2>
+            </div>
+
+            <!-- Tabs -->
+            <div class="modal-tabs">
+                <button type="button" class="modal-tab active" onclick="switchEditTab('basic')">Basic Settings</button>
+                <button type="button" class="modal-tab" onclick="switchEditTab('advanced')">Advanced (JSON)</button>
+            </div>
+
+            <form id="editFlowForm">
+                <!-- Basic Settings Tab -->
+                <div id="tabBasic" class="tab-content active">
+                    <div class="form-group">
+                        <label for="editFlowName">Flow Name *</label>
+                        <input type="text" id="editFlowName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editFlowDescription">Description</label>
+                        <textarea id="editFlowDescription"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="editFlowInterval">Update Interval (seconds)</label>
+                        <input type="number" id="editFlowInterval" min="5" required>
+                    </div>
+                    <div class="form-group">
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" id="editFlowEnabled">
+                            <label for="editFlowEnabled" style="margin: 0">Flow Enabled</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Advanced Tab -->
+                <div id="tabAdvanced" class="tab-content">
+                    <div class="json-editor-warning">
+                        ⚠️ <strong>Advanced Mode:</strong> Edit flow JSON directly. Changes must be valid JSON or save will fail.
+                    </div>
+                    <div class="form-group">
+                        <label for="editFlowJSON">Flow JSON</label>
+                        <textarea id="editFlowJSON" class="json-editor"></textarea>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeEditModal()">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script type="module">
-        import FlowManager from './js/modules/flow-manager.js?v=0.0.4';
-        import { showToast } from './js/modules/toast.js?v=0.0.4';
+        import FlowManager from './js/modules/flow-manager.js?v=0.0.9';
+        import { showToast } from './js/modules/toast.js?v=0.0.9';
 
         // Make functions globally available
         window.flowManager = new FlowManager();
@@ -275,6 +508,11 @@
                                     onclick="executeFlow('${flow.device_id}', '${flow.flow_id}')"
                                     title="Execute Now">
                                 ▶
+                            </button>
+                            <button class="btn-icon edit"
+                                    onclick="editFlow('${flow.device_id}', '${flow.flow_id}')"
+                                    title="Edit">
+                                ✏
                             </button>
                             <button class="btn-icon delete"
                                     onclick="deleteFlow('${flow.device_id}', '${flow.flow_id}', '${escapeHtml(flow.name)}')"
@@ -369,10 +607,157 @@
             return div.innerHTML;
         }
 
+        let editingFlow = null;
+        let currentEditTab = 'basic';
+
+        function switchEditTab(tabName) {
+            currentEditTab = tabName;
+
+            // Update tab buttons
+            document.querySelectorAll('.modal-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+
+            if (tabName === 'basic') {
+                document.getElementById('tabBasic').classList.add('active');
+                // Sync basic form from JSON if user was editing JSON
+                syncBasicFormFromJSON();
+            } else if (tabName === 'advanced') {
+                document.getElementById('tabAdvanced').classList.add('active');
+                // Sync JSON from basic form
+                syncJSONFromBasicForm();
+            }
+        }
+
+        function syncJSONFromBasicForm() {
+            if (!editingFlow) return;
+
+            // Build updated flow object from basic form
+            const updatedFlow = {
+                ...editingFlow.flow,
+                name: document.getElementById('editFlowName').value,
+                description: document.getElementById('editFlowDescription').value,
+                update_interval_seconds: parseInt(document.getElementById('editFlowInterval').value),
+                enabled: document.getElementById('editFlowEnabled').checked
+            };
+
+            // Update JSON editor
+            document.getElementById('editFlowJSON').value = JSON.stringify(updatedFlow, null, 2);
+        }
+
+        function syncBasicFormFromJSON() {
+            if (!editingFlow) return;
+
+            try {
+                const flowData = JSON.parse(document.getElementById('editFlowJSON').value);
+                document.getElementById('editFlowName').value = flowData.name || '';
+                document.getElementById('editFlowDescription').value = flowData.description || '';
+                document.getElementById('editFlowInterval').value = flowData.update_interval_seconds || 60;
+                document.getElementById('editFlowEnabled').checked = flowData.enabled !== false;
+            } catch (error) {
+                console.warn('Failed to sync basic form from JSON:', error);
+            }
+        }
+
+        function editFlow(deviceId, flowId) {
+            // Find the flow to edit
+            const flow = flows.find(f => f.device_id === deviceId && f.flow_id === flowId);
+            if (!flow) {
+                showToast('Flow not found', 'error');
+                return;
+            }
+
+            // Store reference for saving
+            editingFlow = { deviceId, flowId, flow };
+
+            // Populate basic form
+            document.getElementById('editFlowName').value = flow.name || '';
+            document.getElementById('editFlowDescription').value = flow.description || '';
+            document.getElementById('editFlowInterval').value = flow.update_interval_seconds || 60;
+            document.getElementById('editFlowEnabled').checked = flow.enabled !== false;
+
+            // Populate JSON editor
+            document.getElementById('editFlowJSON').value = JSON.stringify(flow, null, 2);
+
+            // Reset to basic tab
+            currentEditTab = 'basic';
+            document.querySelectorAll('.modal-tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.querySelector('.modal-tab:first-child').classList.add('active');
+            document.getElementById('tabBasic').classList.add('active');
+
+            // Show modal
+            document.getElementById('editModal').classList.add('active');
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').classList.remove('active');
+            editingFlow = null;
+            currentEditTab = 'basic';
+        }
+
+        // Handle edit form submission
+        document.getElementById('editFlowForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!editingFlow) return;
+
+            let updatedFlow;
+
+            try {
+                // If on advanced tab, parse JSON
+                if (currentEditTab === 'advanced') {
+                    const jsonText = document.getElementById('editFlowJSON').value;
+                    updatedFlow = JSON.parse(jsonText);
+
+                    // Validate flow structure
+                    if (!updatedFlow.flow_id || !updatedFlow.device_id) {
+                        throw new Error('Invalid flow JSON: missing flow_id or device_id');
+                    }
+                } else {
+                    // Use basic form values
+                    updatedFlow = {
+                        ...editingFlow.flow,
+                        name: document.getElementById('editFlowName').value,
+                        description: document.getElementById('editFlowDescription').value,
+                        update_interval_seconds: parseInt(document.getElementById('editFlowInterval').value),
+                        enabled: document.getElementById('editFlowEnabled').checked
+                    };
+                }
+
+                await window.flowManager.updateFlow(editingFlow.deviceId, editingFlow.flowId, updatedFlow);
+                showToast('Flow updated successfully', 'success');
+                closeEditModal();
+                await loadFlows();
+            } catch (error) {
+                if (error instanceof SyntaxError) {
+                    showToast('Invalid JSON: ' + error.message, 'error', 5000);
+                } else {
+                    showToast('Failed to update flow: ' + error.message, 'error', 5000);
+                }
+            }
+        });
+
+        // Close modal when clicking outside
+        document.getElementById('editModal').addEventListener('click', (e) => {
+            if (e.target.id === 'editModal') {
+                closeEditModal();
+            }
+        });
+
         // Make functions globally available
         window.loadFlows = loadFlows;
         window.executeFlow = executeFlow;
         window.deleteFlow = deleteFlow;
+        window.editFlow = editFlow;
+        window.closeEditModal = closeEditModal;
+        window.switchEditTab = switchEditTab;
 
         // Load flows on page load
         if (document.readyState === 'loading') {
