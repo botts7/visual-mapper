@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="0.0.3">
+    <meta name="version" content="0.0.3" data-build="2025-12-23">
+    <title>Flow Wizard - Visual Mapper</title>
+    <link rel="stylesheet" href="css/styles.css?v=0.0.3">
+    <link rel="stylesheet" href="css/flow-wizard.css?v=0.0.3">
+</head>
+<body>
+    <nav>
+        <ul>
+            <li><a href="index.html">Home</a></li>
+            <li><a href="main.html">Dashboard</a></li>
+            <li><a href="devices.html">Devices</a></li>
+            <li><a href="sensors.html">Sensors</a></li>
+            <li><a href="actions.html">Actions</a></li>
+            <li><a href="flows.html">Flows</a></li>
+            <li><a href="diagnostic.html">Diagnostics</a></li>
+            <li><a href="dev.html">Dev Tools</a></li>
+            <li class="version">v0.0.5</li>
+            <li id="themeToggleContainer"></li>
+        </ul>
+    </nav>
+
+    <div class="wizard-container">
+        <!-- Progress Indicator -->
+        <div class="wizard-progress">
+            <div class="step active" data-step="1">
+                <div class="step-number">1</div>
+                <div class="step-label">Device</div>
+            </div>
+            <div class="step" data-step="2">
+                <div class="step-number">2</div>
+                <div class="step-label">App & Mode</div>
+            </div>
+            <div class="step" data-step="3">
+                <div class="step-number">3</div>
+                <div class="step-label">Record</div>
+            </div>
+            <div class="step" data-step="4">
+                <div class="step-number">4</div>
+                <div class="step-label">Review</div>
+            </div>
+            <div class="step" data-step="5">
+                <div class="step-number">5</div>
+                <div class="step-label">Settings</div>
+            </div>
+        </div>
+
+        <!-- Step 1: Device Selection -->
+        <div id="step1" class="wizard-step active">
+            <h2>Select Device</h2>
+            <p class="step-description">Choose which Android device should run this flow</p>
+            <div id="deviceList" class="loading">Loading devices...</div>
+        </div>
+
+        <!-- Step 2: App Selection & Recording Mode -->
+        <div id="step2" class="wizard-step">
+            <h2>Select App & Recording Mode</h2>
+
+            <div class="recording-mode-selector">
+                <h3>How should we record this flow?</h3>
+                <div class="mode-options">
+                    <label class="mode-option">
+                        <input type="radio" name="recordMode" value="execute" checked>
+                        <div class="mode-card">
+                            <h4>▶️ Record & Execute</h4>
+                            <p>Taps will happen on your device immediately. You'll see the app navigate in real-time as you build the flow.</p>
+                            <span class="badge badge-recommended">Recommended</span>
+                        </div>
+                    </label>
+
+                    <label class="mode-option">
+                        <input type="radio" name="recordMode" value="record-only">
+                        <div class="mode-card">
+                            <h4>📝 Record Only</h4>
+                            <p>Just record coordinates without touching the device. Test the flow later.</p>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <h3>Select App to Automate</h3>
+            <div class="app-search">
+                <input type="text" id="appSearch" class="search-input" placeholder="🔍 Search apps...">
+            </div>
+            <div id="appList" class="app-grid loading">Loading apps...</div>
+        </div>
+
+        <!-- Step 3: Recording Mode -->
+        <div id="step3" class="wizard-step">
+            <h2>Record Flow Steps</h2>
+            <p class="step-description">Click elements on the screen to add actions or sensors</p>
+
+            <div class="recording-layout">
+                <div class="screenshot-panel">
+                    <div class="screenshot-controls">
+                        <button class="btn btn-secondary" id="btnRefreshScreen">🔄 Refresh</button>
+                        <button class="btn btn-secondary" id="btnGoBack">⬅️ Back</button>
+                        <button class="btn btn-secondary" id="btnGoHome">🏠 Home</button>
+                    </div>
+
+                    <div class="swipe-controls">
+                        <button class="btn btn-sm" data-swipe="up">⬆️ Up</button>
+                        <button class="btn btn-sm" data-swipe="down">⬇️ Down</button>
+                        <button class="btn btn-sm" data-swipe="left">⬅️ Left</button>
+                        <button class="btn btn-sm" data-swipe="right">➡️ Right</button>
+                    </div>
+
+                    <div id="screenshotContainer" class="screenshot-display loading">
+                        Starting flow...
+                    </div>
+                </div>
+
+                <div class="flow-steps-panel">
+                    <h3>Flow Steps</h3>
+                    <div id="flowStepsList" class="flow-steps-list"></div>
+
+                    <button class="btn btn-primary" id="btnDoneRecording">
+                        Done Recording →
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 4: Review & Test -->
+        <div id="step4" class="wizard-step">
+            <h2>Review & Test Flow</h2>
+
+            <div class="review-controls">
+                <button class="btn btn-primary" id="btnTestFlow">▶️ Test Flow Now</button>
+                <p>Run this flow on your device to verify it works correctly</p>
+            </div>
+
+            <div id="flowStepsReview" class="flow-steps-review"></div>
+        </div>
+
+        <!-- Step 5: Settings & Save -->
+        <div id="step5" class="wizard-step">
+            <h2>Flow Settings</h2>
+
+            <div class="form-section">
+                <div class="form-group">
+                    <label for="flowName">Flow Name *</label>
+                    <input type="text" id="flowName" required class="form-control" placeholder="e.g., Morning News Check">
+                </div>
+
+                <div class="form-group">
+                    <label for="flowDescription">Description (optional)</label>
+                    <textarea id="flowDescription" rows="3" class="form-control" placeholder="What does this flow do?"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="updateInterval">Run this flow every:</label>
+                    <div class="interval-input">
+                        <input type="number" id="intervalValue" value="60" min="1" class="form-control">
+                        <select id="intervalUnit" class="form-control">
+                            <option value="1">seconds</option>
+                            <option value="60" selected>minutes</option>
+                            <option value="3600">hours</option>
+                        </select>
+                    </div>
+                    <div class="quick-intervals">
+                        <button class="btn btn-sm" data-interval="60">1 min</button>
+                        <button class="btn btn-sm" data-interval="300">5 min</button>
+                        <button class="btn btn-sm" data-interval="900">15 min</button>
+                        <button class="btn btn-sm" data-interval="3600">1 hour</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="wizard-nav">
+            <button id="btnBack" class="btn btn-secondary" disabled>← Back</button>
+            <button id="btnNext" class="btn btn-primary">Next →</button>
+        </div>
+    </div>
+
+    <script type="module" src="js/init.js?v=0.0.3"></script>
+    <script type="module" src="js/modules/flow-wizard.js?v=0.0.3"></script>
+</body>
+</html>

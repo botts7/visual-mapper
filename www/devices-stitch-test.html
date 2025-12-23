@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="0.0.3">
+    <meta name="version" content="0.0.3" data-build="2025-12-23">
+    <title>Screenshot Stitching Test - Visual Mapper</title>
+    <link rel="stylesheet" href="css/styles.css?v=0.0.3">
+    <style>
+        .test-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .test-controls label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .test-controls input[type="number"] {
+            width: 80px;
+            padding: 6px;
+        }
+        .result-info {
+            background: var(--preview-background);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .result-info pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .stitched-image {
+            max-width: 100%;
+            border: 2px solid var(--border-color);
+            border-radius: 4px;
+        }
+        .comparison-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 800px) {
+            .comparison-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <ul>
+            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
+            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
+            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
+            <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
+            <li class="nav-priority-med"><a href="flows.html">Flows</a></li>
+            <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
+            <li class="nav-priority-low"><a href="index.html">Home</a></li>
+            <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
+            <li class="version">v0.0.5-test</li>
+            <li id="themeToggleContainer"></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <h1>Screenshot Stitching Test</h1>
+            <p>Test the OpenCV-based screenshot stitching functionality</p>
+            <p style="color: var(--text-secondary); font-size: 13px;">
+                This page tests the ScreenshotStitcher class which uses OpenCV template matching
+                to combine multiple screenshots into a single full-page capture.
+            </p>
+        </div>
+
+        <!-- Device Selection -->
+        <div class="card">
+            <h2>1. Select Device</h2>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <select id="deviceSelect" style="flex: 1; max-width: 400px; padding: 10px; font-size: 16px;">
+                    <option value="">-- Loading devices... --</option>
+                </select>
+                <button id="refreshDevicesBtn" class="btn btn-secondary">Refresh</button>
+            </div>
+            <p class="status" id="deviceStatus"></p>
+        </div>
+
+        <!-- Stitching Parameters -->
+        <div class="card">
+            <h2>2. Stitching Parameters</h2>
+            <div class="test-controls">
+                <label>
+                    Max Scrolls:
+                    <input type="number" id="maxScrolls" value="5" min="1" max="50">
+                </label>
+                <label>
+                    Scroll Ratio:
+                    <input type="number" id="scrollRatio" value="0.75" min="0.1" max="0.9" step="0.05">
+                </label>
+                <label>
+                    Overlap Ratio:
+                    <input type="number" id="overlapRatio" value="0.25" min="0.1" max="0.5" step="0.05">
+                </label>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 12px;">
+                <strong>Max Scrolls:</strong> Maximum number of scroll operations (safety limit)<br>
+                <strong>Scroll Ratio:</strong> How much of the screen to scroll (0.75 = 75%)<br>
+                <strong>Overlap Ratio:</strong> Overlap region for template matching (0.25 = 25%)
+            </p>
+        </div>
+
+        <!-- Test Actions -->
+        <div class="card">
+            <h2>3. Run Tests</h2>
+            <div class="test-controls">
+                <button id="captureNormalBtn" class="btn btn-secondary">Capture Normal Screenshot</button>
+                <button id="captureStitchedBtn" class="btn">Capture Stitched Screenshot</button>
+            </div>
+            <p class="status" id="testStatus"></p>
+        </div>
+
+        <!-- Results -->
+        <div class="card">
+            <h2>4. Results</h2>
+
+            <div id="resultInfo" class="result-info" style="display: none;">
+                <h3>Stitching Metadata</h3>
+                <pre id="metadataDisplay"></pre>
+            </div>
+
+            <div class="comparison-container">
+                <div>
+                    <h3>Normal Screenshot</h3>
+                    <p id="normalInfo" style="font-size: 12px; color: var(--text-secondary);">Not captured yet</p>
+                    <img id="normalImage" class="stitched-image" style="display: none;">
+                </div>
+                <div>
+                    <h3>Stitched Screenshot</h3>
+                    <p id="stitchedInfo" style="font-size: 12px; color: var(--text-secondary);">Not captured yet</p>
+                    <img id="stitchedImage" class="stitched-image" style="display: none;">
+                </div>
+            </div>
+        </div>
+
+        <!-- Debug Screenshots -->
+        <div class="card" id="debugCard" style="display: none;">
+            <h2>5. Debug: Individual Captures</h2>
+            <p style="color: var(--text-secondary); font-size: 12px; margin-bottom: 15px;">
+                Each screenshot captured during the stitching process. Check for missing content or overlap issues.
+            </p>
+            <div id="debugScreenshots" style="display: flex; flex-wrap: wrap; gap: 15px;"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import APIClient from './js/modules/api-client.js?v=0.0.5';
+        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.5';
+        import MobileNav from './js/modules/mobile-nav.js?v=0.0.5';
+
+        const apiClient = new APIClient();
+        const themeToggle = new ThemeToggle();
+        const mobileNav = new MobileNav();
+
+        // Apply theme
+        themeToggle.apply();
+        mobileNav.init();
+
+        // Add theme toggle button
+        const themeToggleContainer = document.getElementById('themeToggleContainer');
+        if (themeToggleContainer) {
+            const toggleButton = themeToggle.createToggleButton();
+            themeToggleContainer.appendChild(toggleButton);
+        }
+
+        // State
+        let selectedDevice = null;
+
+        // Load devices
+        async function loadDevices() {
+            const select = document.getElementById('deviceSelect');
+            const status = document.getElementById('deviceStatus');
+
+            try {
+                status.textContent = 'Loading devices...';
+                status.className = 'status';
+
+                const response = await apiClient.get('/adb/devices');
+                const devices = response.devices || [];
+
+                select.innerHTML = '<option value="">-- Select Device --</option>';
+
+                if (devices.length === 0) {
+                    status.textContent = 'No devices connected. Connect a device on the Devices page.';
+                    status.className = 'status warning';
+                    return;
+                }
+
+                devices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.id;
+                    option.textContent = `${device.model || device.id} (${device.state})`;
+                    select.appendChild(option);
+                });
+
+                // Auto-select if only one device
+                if (devices.length === 1) {
+                    select.value = devices[0].id;
+                    selectedDevice = devices[0].id;
+                    status.textContent = `✓ Auto-selected: ${devices[0].model || devices[0].id}`;
+                    status.className = 'status success';
+                } else {
+                    status.textContent = `Found ${devices.length} devices. Select one to test.`;
+                    status.className = 'status success';
+                }
+
+            } catch (error) {
+                console.error('[StitchTest] Failed to load devices:', error);
+                status.textContent = `Failed to load devices: ${error.message}`;
+                status.className = 'status error';
+                select.innerHTML = '<option value="">-- Error loading devices --</option>';
+            }
+        }
+
+        // Handle device selection
+        document.getElementById('deviceSelect').addEventListener('change', (e) => {
+            selectedDevice = e.target.value;
+            const status = document.getElementById('deviceStatus');
+            if (selectedDevice) {
+                status.textContent = `Selected: ${selectedDevice}`;
+                status.className = 'status success';
+            }
+        });
+
+        // Refresh devices
+        document.getElementById('refreshDevicesBtn').addEventListener('click', loadDevices);
+
+        // Capture normal screenshot
+        document.getElementById('captureNormalBtn').addEventListener('click', async () => {
+            const status = document.getElementById('testStatus');
+            const normalInfo = document.getElementById('normalInfo');
+            const normalImage = document.getElementById('normalImage');
+
+            if (!selectedDevice) {
+                status.textContent = 'Please select a device first';
+                status.className = 'status error';
+                return;
+            }
+
+            try {
+                status.textContent = 'Capturing normal screenshot...';
+                status.className = 'status';
+
+                const startTime = Date.now();
+
+                const response = await apiClient.post('/adb/screenshot', {
+                    device_id: selectedDevice
+                });
+
+                const elapsed = Date.now() - startTime;
+
+                // Display image
+                normalImage.src = `data:image/png;base64,${response.screenshot}`;
+                normalImage.style.display = 'block';
+
+                // Update info
+                normalInfo.textContent = `Captured in ${elapsed}ms | Elements: ${response.elements?.length || 0}`;
+
+                status.textContent = `✓ Normal screenshot captured in ${elapsed}ms`;
+                status.className = 'status success';
+
+            } catch (error) {
+                console.error('[StitchTest] Normal capture failed:', error);
+                status.textContent = `Normal capture failed: ${error.message}`;
+                status.className = 'status error';
+            }
+        });
+
+        // Capture stitched screenshot
+        document.getElementById('captureStitchedBtn').addEventListener('click', async () => {
+            const status = document.getElementById('testStatus');
+            const stitchedInfo = document.getElementById('stitchedInfo');
+            const stitchedImage = document.getElementById('stitchedImage');
+            const resultInfo = document.getElementById('resultInfo');
+            const metadataDisplay = document.getElementById('metadataDisplay');
+            const debugCard = document.getElementById('debugCard');
+            const debugScreenshots = document.getElementById('debugScreenshots');
+
+            if (!selectedDevice) {
+                status.textContent = 'Please select a device first';
+                status.className = 'status error';
+                return;
+            }
+
+            // Get parameters
+            const maxScrolls = parseInt(document.getElementById('maxScrolls').value) || 5;
+            const scrollRatio = parseFloat(document.getElementById('scrollRatio').value) || 0.75;
+            const overlapRatio = parseFloat(document.getElementById('overlapRatio').value) || 0.25;
+
+            // Clear previous debug screenshots
+            debugScreenshots.innerHTML = '';
+            debugCard.style.display = 'none';
+
+            try {
+                status.textContent = `Capturing stitched screenshot (max ${maxScrolls} scrolls)...`;
+                status.className = 'status';
+
+                const startTime = Date.now();
+
+                const response = await apiClient.post('/adb/screenshot/stitch', {
+                    device_id: selectedDevice,
+                    max_scrolls: maxScrolls,
+                    scroll_ratio: scrollRatio,
+                    overlap_ratio: overlapRatio
+                });
+
+                const elapsed = Date.now() - startTime;
+
+                // Display stitched image
+                stitchedImage.src = `data:image/png;base64,${response.screenshot}`;
+                stitchedImage.style.display = 'block';
+
+                // Display metadata
+                resultInfo.style.display = 'block';
+                metadataDisplay.textContent = JSON.stringify(response.metadata, null, 2);
+
+                // Update info
+                const meta = response.metadata || {};
+                stitchedInfo.textContent = `Captured in ${elapsed}ms | Strategy: ${meta.strategy || 'unknown'} | Scrolls: ${meta.scroll_count || 0} | Captures: ${meta.capture_count || 0} | Size: ${meta.final_width || '?'}x${meta.final_height || '?'}`;
+
+                // Display debug screenshots
+                if (response.debug_screenshots && response.debug_screenshots.length > 0) {
+                    debugCard.style.display = 'block';
+                    response.debug_screenshots.forEach((dbg, idx) => {
+                        const container = document.createElement('div');
+                        container.style.cssText = 'flex: 0 0 auto; text-align: center; background: var(--preview-background); padding: 10px; border-radius: 8px;';
+
+                        const label = document.createElement('div');
+                        label.style.cssText = 'font-weight: bold; margin-bottom: 5px;';
+                        label.textContent = `Capture ${idx + 1}`;
+
+                        const info = document.createElement('div');
+                        info.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 5px;';
+                        info.textContent = `Elements: ${dbg.element_count} | First new Y: ${dbg.first_new_y}`;
+
+                        const img = document.createElement('img');
+                        img.src = `data:image/png;base64,${dbg.image}`;
+                        img.style.cssText = 'max-width: 200px; max-height: 400px; border: 1px solid var(--border-color); border-radius: 4px;';
+                        img.title = `Capture ${idx + 1} - Elements: ${dbg.element_count}, First new Y: ${dbg.first_new_y}`;
+
+                        container.appendChild(label);
+                        container.appendChild(info);
+                        container.appendChild(img);
+                        debugScreenshots.appendChild(container);
+                    });
+                }
+
+                status.textContent = `✓ Stitched screenshot captured in ${elapsed}ms (${meta.scroll_count || 0} scrolls, ${meta.capture_count || 0} captures, strategy: ${meta.strategy || 'unknown'})`;
+                status.className = 'status success';
+
+                console.log('[StitchTest] Stitching result:', response.metadata);
+
+            } catch (error) {
+                console.error('[StitchTest] Stitched capture failed:', error);
+                status.textContent = `Stitched capture failed: ${error.message}`;
+                status.className = 'status error';
+
+                // Show error details
+                resultInfo.style.display = 'block';
+                metadataDisplay.textContent = `Error: ${error.message}\n\nThis may indicate:\n- Device not responding\n- Screen not scrollable\n- OpenCV template matching failed`;
+            }
+        });
+
+        // Initial load
+        loadDevices();
+    </script>
+</body>
+</html>

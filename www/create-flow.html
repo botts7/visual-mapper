@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="0.0.3">
+    <meta name="version" content="0.0.3" data-build="2025-12-23">
+    <title>Create Flow - Visual Mapper</title>
+    <link rel="stylesheet" href="css/styles.css?v=0.0.3">
+    <style>
+        .form-section {
+            background: var(--surface);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-family: inherit;
+        }
+
+        .step-item {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+        }
+
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .step-number {
+            display: inline-block;
+            background: var(--primary);
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <ul>
+            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
+            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
+            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
+            <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
+            <li class="nav-priority-med"><a href="flows.html">Flows</a></li>
+            <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
+            <li class="nav-priority-low"><a href="index.html">Home</a></li>
+            <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
+            <li class="version">v0.0.4</li>
+            <li id="themeToggleContainer"></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <h1>Create New Flow</h1>
+
+        <form id="flowForm">
+            <div class="form-section">
+                <h2>Basic Information</h2>
+
+                <div class="form-group">
+                    <label for="flow_id">Flow ID *</label>
+                    <input type="text" id="flow_id" required placeholder="e.g., my_flow_001">
+                    <small>Unique identifier for this flow</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="device_id">Device ID *</label>
+                    <input type="text" id="device_id" required placeholder="e.g., 192.168.86.2:40951">
+                    <small>Device IP:Port</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="name">Flow Name *</label>
+                    <input type="text" id="name" required placeholder="e.g., Morning News Check">
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <textarea id="description" rows="3" placeholder="What does this flow do?"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="update_interval">Update Interval (seconds) *</label>
+                    <input type="number" id="update_interval" required value="60" min="1">
+                    <small>How often the flow should run (minimum: 1 second)</small>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="enabled" checked>
+                        Enable flow immediately
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h2>Flow Steps</h2>
+                <div id="stepsContainer"></div>
+                <button type="button" class="btn btn-secondary" onclick="addStep()">Add Step</button>
+            </div>
+
+            <div class="btn-group">
+                <button type="submit" class="btn btn-primary">Create Flow</button>
+                <button type="button" class="btn btn-secondary" onclick="window.location.href='flows.html'">Cancel</button>
+            </div>
+        </form>
+    </div>
+
+    <script type="module">
+        import FlowManager from './js/modules/flow-manager.js?v=0.0.4';
+        import { showToast } from './js/modules/toast.js?v=0.0.4';
+
+        window.flowManager = new FlowManager();
+        let stepCount = 0;
+        let steps = [];
+
+        window.addStep = function() {
+            stepCount++;
+            const stepId = `step_${stepCount}`;
+
+            const stepHtml = `
+                <div class="step-item" id="${stepId}">
+                    <div class="step-header">
+                        <span class="step-number">${stepCount}</span>
+                        <button type="button" class="btn btn-sm btn-danger" onclick="removeStep('${stepId}')">Remove</button>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Step Type *</label>
+                        <select class="step-type" data-step="${stepId}" onchange="updateStepFields('${stepId}')">
+                            <option value="">Select step type...</option>
+                            <option value="wait">Wait</option>
+                            <option value="launch_app">Launch App</option>
+                            <option value="tap">Tap Coordinate</option>
+                            <option value="go_home">Go Home</option>
+                            <option value="go_back">Go Back</option>
+                            <option value="swipe">Swipe</option>
+                            <option value="capture_sensors">Capture Sensors</option>
+                        </select>
+                    </div>
+
+                    <div class="step-fields-${stepId}"></div>
+
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" class="step-desc" data-step="${stepId}" placeholder="Optional description">
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('stepsContainer').insertAdjacentHTML('beforeend', stepHtml);
+        };
+
+        window.removeStep = function(stepId) {
+            document.getElementById(stepId).remove();
+        };
+
+        window.updateStepFields = function(stepId) {
+            const stepType = document.querySelector(`select.step-type[data-step="${stepId}"]`).value;
+            const fieldsContainer = document.querySelector(`.step-fields-${stepId}`);
+
+            let fieldsHtml = '';
+
+            switch(stepType) {
+                case 'wait':
+                    fieldsHtml = `
+                        <div class="form-group">
+                            <label>Duration (milliseconds) *</label>
+                            <input type="number" class="step-duration" data-step="${stepId}" required min="1" value="1000">
+                        </div>
+                    `;
+                    break;
+
+                case 'launch_app':
+                    fieldsHtml = `
+                        <div class="form-group">
+                            <label>Package Name *</label>
+                            <input type="text" class="step-package" data-step="${stepId}" required placeholder="e.g., com.spotify.music">
+                        </div>
+                    `;
+                    break;
+
+                case 'tap':
+                    fieldsHtml = `
+                        <div class="form-group">
+                            <label>X Coordinate *</label>
+                            <input type="number" class="step-x" data-step="${stepId}" required min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Y Coordinate *</label>
+                            <input type="number" class="step-y" data-step="${stepId}" required min="0">
+                        </div>
+                    `;
+                    break;
+
+                case 'swipe':
+                    fieldsHtml = `
+                        <div class="form-group">
+                            <label>Start X *</label>
+                            <input type="number" class="step-start-x" data-step="${stepId}" required min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Start Y *</label>
+                            <input type="number" class="step-start-y" data-step="${stepId}" required min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>End X *</label>
+                            <input type="number" class="step-end-x" data-step="${stepId}" required min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>End Y *</label>
+                            <input type="number" class="step-end-y" data-step="${stepId}" required min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Duration (milliseconds)</label>
+                            <input type="number" class="step-duration" data-step="${stepId}" value="300" min="1">
+                        </div>
+                    `;
+                    break;
+
+                case 'capture_sensors':
+                    fieldsHtml = `
+                        <div class="form-group">
+                            <label>Sensor IDs (comma-separated) *</label>
+                            <input type="text" class="step-sensors" data-step="${stepId}" required placeholder="e.g., sensor1,sensor2,sensor3">
+                        </div>
+                    `;
+                    break;
+            }
+
+            fieldsContainer.innerHTML = fieldsHtml;
+        };
+
+        document.getElementById('flowForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // Collect form data
+            const flowData = {
+                flow_id: document.getElementById('flow_id').value,
+                device_id: document.getElementById('device_id').value,
+                name: document.getElementById('name').value,
+                description: document.getElementById('description').value || '',
+                update_interval_seconds: parseInt(document.getElementById('update_interval').value),
+                enabled: document.getElementById('enabled').checked,
+                steps: []
+            };
+
+            // Collect steps
+            const stepElements = document.querySelectorAll('.step-item');
+            for (const stepEl of stepElements) {
+                const stepId = stepEl.id;
+                const stepType = document.querySelector(`select.step-type[data-step="${stepId}"]`).value;
+                const stepDesc = document.querySelector(`.step-desc[data-step="${stepId}"]`).value;
+
+                if (!stepType) {
+                    showToast('Please select a step type for all steps', 'error');
+                    return;
+                }
+
+                const step = {
+                    step_type: stepType,
+                    description: stepDesc
+                };
+
+                // Add type-specific fields
+                switch(stepType) {
+                    case 'wait':
+                        step.duration = parseInt(document.querySelector(`.step-duration[data-step="${stepId}"]`).value);
+                        break;
+                    case 'launch_app':
+                        step.package = document.querySelector(`.step-package[data-step="${stepId}"]`).value;
+                        break;
+                    case 'tap':
+                        step.x = parseInt(document.querySelector(`.step-x[data-step="${stepId}"]`).value);
+                        step.y = parseInt(document.querySelector(`.step-y[data-step="${stepId}"]`).value);
+                        break;
+                    case 'swipe':
+                        step.start_x = parseInt(document.querySelector(`.step-start-x[data-step="${stepId}"]`).value);
+                        step.start_y = parseInt(document.querySelector(`.step-start-y[data-step="${stepId}"]`).value);
+                        step.end_x = parseInt(document.querySelector(`.step-end-x[data-step="${stepId}"]`).value);
+                        step.end_y = parseInt(document.querySelector(`.step-end-y[data-step="${stepId}"]`).value);
+                        const duration = document.querySelector(`.step-duration[data-step="${stepId}"]`);
+                        if (duration) step.duration = parseInt(duration.value);
+                        break;
+                    case 'capture_sensors':
+                        const sensorIds = document.querySelector(`.step-sensors[data-step="${stepId}"]`).value;
+                        step.sensor_ids = sensorIds.split(',').map(s => s.trim());
+                        break;
+                }
+
+                flowData.steps.push(step);
+            }
+
+            if (flowData.steps.length === 0) {
+                showToast('Please add at least one step to the flow', 'error');
+                return;
+            }
+
+            // Create flow
+            try {
+                await window.flowManager.createFlow(flowData);
+                showToast('Flow created successfully!', 'success');
+                setTimeout(() => {
+                    window.location.href = 'flows.html';
+                }, 1500);
+            } catch (error) {
+                showToast(`Failed to create flow: ${error.message}`, 'error');
+            }
+        });
+
+        // Add one step by default
+        addStep();
+    </script>
+</body>
+</html>

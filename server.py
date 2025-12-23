@@ -7,6 +7,7 @@ import logging
 import base64
 import time
 import os
+import io
 import asyncio
 from datetime import datetime
 from typing import Optional
@@ -39,6 +40,13 @@ from utils.action_models import (
     ActionListResponse
 )
 from utils.error_handler import handle_api_error
+
+# Phase 8: Flow System
+from flow_manager import FlowManager
+from flow_executor import FlowExecutor
+from flow_scheduler import FlowScheduler
+from performance_monitor import PerformanceMonitor
+from screenshot_stitcher import ScreenshotStitcher
 
 # Configure logging
 logging.basicConfig(
@@ -101,6 +109,13 @@ action_executor = ActionExecutor(adb_bridge)
 mqtt_manager: Optional[MQTTManager] = None
 sensor_updater: Optional[SensorUpdater] = None
 
+# Phase 8: Flow System (will be configured on startup)
+flow_manager: Optional[FlowManager] = None
+flow_executor: Optional[FlowExecutor] = None
+flow_scheduler: Optional[FlowScheduler] = None
+performance_monitor: Optional[PerformanceMonitor] = None
+screenshot_stitcher: Optional[ScreenshotStitcher] = None
+
 # MQTT Configuration (loaded from environment or config)
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
@@ -122,6 +137,13 @@ class DisconnectDeviceRequest(BaseModel):
 
 class ScreenshotRequest(BaseModel):
     device_id: str
+
+
+class ScreenshotStitchRequest(BaseModel):
+    device_id: str
+    max_scrolls: Optional[int] = 20
+    scroll_ratio: Optional[float] = 0.75
+    overlap_ratio: Optional[float] = 0.25
 
 
 class TapRequest(BaseModel):
@@ -160,7 +182,7 @@ class PairingRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize MQTT connection on startup"""
-    global mqtt_manager, sensor_updater
+    global mqtt_manager, sensor_updater, flow_manager, flow_executor, flow_scheduler, performance_monitor, screenshot_stitcher
 
     logger.info("[Server] Starting Visual Mapper v0.0.5")
     logger.info(f"[Server] MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
@@ -181,6 +203,32 @@ async def startup_event():
 
         # Initialize Sensor Updater
         sensor_updater = SensorUpdater(adb_bridge, sensor_manager, mqtt_manager)
+
+        # Phase 8: Initialize Flow System
+        logger.info("[Server] Initializing Flow System (Phase 8)")
+
+        # Initialize components
+        flow_manager = FlowManager()
+        screenshot_stitcher = ScreenshotStitcher(adb_bridge)
+
+        flow_executor = FlowExecutor(
+            adb_bridge=adb_bridge,
+            sensor_manager=sensor_manager,
+            text_extractor=text_extractor,
+            mqtt_manager=mqtt_manager,
+            flow_manager=flow_manager,
+            screenshot_stitcher=screenshot_stitcher
+        )
+
+        flow_scheduler = FlowScheduler(flow_executor, flow_manager)
+        performance_monitor = PerformanceMonitor(flow_scheduler, mqtt_manager)
+
+        # Update flow_executor with performance_monitor
+        flow_executor.performance_monitor = performance_monitor
+
+        # Start scheduler
+        await flow_scheduler.start()
+        logger.info("[Server] ✅ Flow System initialized and scheduler started")
 
         # Register callback to publish MQTT discovery when devices are discovered
         async def on_device_discovered(device_id: str):
@@ -472,6 +520,49 @@ async def capture_screenshot(request: ScreenshotRequest):
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.error(f"[API] Screenshot failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Screenshot Stitching Endpoint
+@app.post("/api/adb/screenshot/stitch")
+async def capture_stitched_screenshot(request: ScreenshotStitchRequest):
+    """Capture full scrollable page by stitching multiple screenshots"""
+    try:
+        logger.info(f"[API] Capturing stitched screenshot from {request.device_id}")
+        logger.debug(f"  max_scrolls={request.max_scrolls}, scroll_ratio={request.scroll_ratio}, overlap_ratio={request.overlap_ratio}")
+
+        # Ensure screenshot_stitcher is initialized
+        if screenshot_stitcher is None:
+            logger.error("[API] ScreenshotStitcher not initialized")
+            raise HTTPException(status_code=500, detail="Screenshot stitcher not available")
+
+        # Capture scrolling screenshot
+        result = await screenshot_stitcher.capture_scrolling_screenshot(
+            request.device_id,
+            max_scrolls=request.max_scrolls,
+            scroll_ratio=request.scroll_ratio,
+            overlap_ratio=request.overlap_ratio
+        )
+
+        # Convert PIL Image to base64
+        img_buffer = io.BytesIO()
+        result['image'].save(img_buffer, format='PNG')
+        img_buffer.seek(0)
+        screenshot_base64 = base64.b64encode(img_buffer.read()).decode('utf-8')
+
+        logger.info(f"[API] Stitched screenshot captured: {result['metadata']}")
+
+        return {
+            "screenshot": screenshot_base64,
+            "metadata": result['metadata'],
+            "debug_screenshots": result.get('debug_screenshots', []),
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        logger.error(f"[API] Stitched screenshot failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"[API] Stitched screenshot failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1265,6 +1356,258 @@ async def import_actions(device_id: str, actions_json: str):
         logger.error(f"[API] Import actions failed: {e}")
         return handle_api_error(e)
 
+
+################################################################################
+#                         PHASE 8: FLOW SYSTEM API ENDPOINTS                  #
+################################################################################
+
+# ============================================================================
+# Flow CRUD Endpoints
+# ============================================================================
+
+@app.post("/api/flows")
+async def create_flow(flow_data: dict):
+    """
+    Create a new flow
+
+    Body:
+        flow_data: Flow definition (SensorCollectionFlow dict)
+
+    Returns:
+        Created flow with generated flow_id
+    """
+    try:
+        if not flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        # Import here to avoid circular dependency
+        from flow_models import SensorCollectionFlow
+
+        # Create flow from dict
+        flow = SensorCollectionFlow(**flow_data)
+
+        # Save flow
+        success = flow_manager.create_flow(flow)
+        if not success:
+            raise HTTPException(status_code=400, detail="Flow already exists")
+
+        logger.info(f"[API] Created flow {flow.flow_id} for device {flow.device_id}")
+        return flow.dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to create flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/flows")
+async def list_flows(device_id: Optional[str] = None):
+    """
+    List all flows (optionally filtered by device)
+
+    Args:
+        device_id: Optional device ID filter
+
+    Returns:
+        List of flows
+    """
+    try:
+        if not flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        if device_id:
+            flows = flow_manager.get_device_flows(device_id)
+        else:
+            flows = flow_manager.get_all_flows()
+
+        return {"flows": [f.dict() for f in flows]}
+
+    except Exception as e:
+        logger.error(f"[API] Failed to list flows: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/flows/{device_id}/{flow_id}")
+async def get_flow(device_id: str, flow_id: str):
+    """
+    Get a specific flow
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+
+    Returns:
+        Flow definition
+    """
+    try:
+        if not flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        flow = flow_manager.get_flow(device_id, flow_id)
+        if not flow:
+            raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
+
+        return flow.dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to get flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/flows/{device_id}/{flow_id}")
+async def update_flow(device_id: str, flow_id: str, flow_data: dict):
+    """
+    Update an existing flow
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+        flow_data: Updated flow definition
+
+    Returns:
+        Updated flow
+    """
+    try:
+        if not flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        # Import here to avoid circular dependency
+        from flow_models import SensorCollectionFlow
+
+        # Create flow from dict
+        flow = SensorCollectionFlow(**flow_data)
+
+        # Ensure IDs match
+        if flow.device_id != device_id or flow.flow_id != flow_id:
+            raise HTTPException(status_code=400, detail="Flow ID mismatch")
+
+        # Update flow
+        success = flow_manager.update_flow(flow)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
+
+        logger.info(f"[API] Updated flow {flow_id} for device {device_id}")
+        return flow.dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to update flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/flows/{device_id}/{flow_id}")
+async def delete_flow(device_id: str, flow_id: str):
+    """
+    Delete a flow
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+
+    Returns:
+        Success message
+    """
+    try:
+        if not flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        success = flow_manager.delete_flow(device_id, flow_id)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
+
+        logger.info(f"[API] Deleted flow {flow_id} for device {device_id}")
+        return {"success": True, "message": f"Flow {flow_id} deleted"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to delete flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Flow Execution Endpoints
+# ============================================================================
+
+@app.post("/api/flows/{device_id}/{flow_id}/execute")
+async def execute_flow_on_demand(device_id: str, flow_id: str):
+    """
+    Execute a flow on-demand (outside the scheduler)
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+
+    Returns:
+        Execution result
+    """
+    try:
+        if not flow_scheduler:
+            raise HTTPException(status_code=503, detail="Flow scheduler not initialized")
+
+        # Get flow
+        flow = flow_manager.get_flow(device_id, flow_id)
+        if not flow:
+            raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
+
+        # Schedule with highest priority (on-demand execution)
+        await flow_scheduler.schedule_flow_on_demand(flow)
+
+        logger.info(f"[API] Scheduled on-demand execution for flow {flow_id}")
+        return {"success": True, "message": f"Flow {flow_id} scheduled for execution"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to execute flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Performance Metrics Endpoint
+# ============================================================================
+
+@app.get("/api/flows/metrics")
+async def get_flow_metrics(device_id: Optional[str] = None):
+    """
+    Get performance metrics for flows
+
+    Args:
+        device_id: Optional device ID to filter metrics (if not provided, returns all)
+
+    Returns:
+        Performance metrics including:
+        - Total executions
+        - Success rate
+        - Average execution time
+        - Recent alerts
+        - Queue depth
+    """
+    try:
+        if not performance_monitor:
+            raise HTTPException(status_code=503, detail="Performance monitor not initialized")
+
+        if device_id:
+            # Get metrics for specific device
+            metrics = performance_monitor.get_metrics(device_id)
+            return {"device_id": device_id, "metrics": metrics}
+        else:
+            # Get metrics for all devices
+            all_metrics = performance_monitor.get_all_metrics()
+            return {"all_devices": all_metrics}
+
+    except Exception as e:
+        logger.error(f"[API] Failed to get flow metrics: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+################################################################################
+#                              MIDDLEWARE                                      #
+################################################################################
 
 # Custom middleware to serve HTML with no-cache headers (development mode only)
 # Set DISABLE_HTML_CACHE=false in production to enable browser caching
