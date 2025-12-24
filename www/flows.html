@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="0.0.3">
+    <meta name="version" content="0.0.3" data-build="2025-12-24">
     <title>Flow Management - Visual Mapper</title>
     <link rel="stylesheet" href="css/styles.css?v=0.0.3">
     <style>
@@ -455,6 +456,115 @@
         .add-step-btn:hover {
             background: #2563eb;
         }
+
+        /* Alerts Panel */
+        .alerts-panel {
+            background: var(--surface);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .alerts-panel.hidden {
+            display: none;
+        }
+
+        .alerts-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .alerts-header h3 {
+            margin: 0;
+            color: var(--text-primary);
+        }
+
+        .alerts-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .alert-card {
+            background: #f8fafc;
+            border-left: 4px solid;
+            padding: 15px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .alert-card.severity-info {
+            border-left-color: #3b82f6;
+            background: #eff6ff;
+        }
+
+        .alert-card.severity-warning {
+            border-left-color: #f59e0b;
+            background: #fffbeb;
+        }
+
+        .alert-card.severity-error {
+            border-left-color: #ef4444;
+            background: #fef2f2;
+        }
+
+        .alert-card.severity-critical {
+            border-left-color: #dc2626;
+            background: #fee2e2;
+        }
+
+        .alert-content {
+            flex: 1;
+        }
+
+        .alert-message {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #0f172a;
+        }
+
+        .alert-timestamp {
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 10px;
+        }
+
+        .alert-recommendations {
+            list-style: none;
+            padding: 0;
+            margin: 8px 0 0 0;
+        }
+
+        .alert-recommendations li {
+            padding: 4px 0;
+            font-size: 14px;
+            color: #475569;
+        }
+
+        .alert-recommendations li:before {
+            content: "→ ";
+            color: #94a3b8;
+            margin-right: 5px;
+        }
+
+        .alert-dismiss {
+            background: transparent;
+            border: none;
+            color: #64748b;
+            cursor: pointer;
+            padding: 4px 8px;
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .alert-dismiss:hover {
+            color: #0f172a;
+        }
     </style>
 </head>
 <body>
@@ -468,7 +578,8 @@
             <li><a href="flows.html">Flows</a></li>
             <li><a href="diagnostic.html">Diagnostics</a></li>
             <li><a href="dev.html">Dev Tools</a></li>
-            <li class="version">v0.0.5</li>
+            <li class="version">v0.0.3</li>
+            <li id="themeToggleContainer"></li>
         </ul>
     </nav>
 
@@ -505,6 +616,15 @@
                 <h3>Success Rate</h3>
                 <div class="value" id="statSuccessRate">-</div>
             </div>
+        </div>
+
+        <!-- Alerts Panel -->
+        <div id="alertsPanel" class="alerts-panel hidden">
+            <div class="alerts-header">
+                <h3>Performance Alerts</h3>
+                <button type="button" class="btn btn-sm" onclick="clearAllAlerts()">Clear All</button>
+            </div>
+            <div id="alertsList" class="alerts-list"></div>
         </div>
 
         <div id="flowTableContainer">
@@ -602,8 +722,8 @@
     </div>
 
     <script type="module">
-        import FlowManager from './js/modules/flow-manager.js?v=0.0.11';
-        import { showToast } from './js/modules/toast.js?v=0.0.11';
+        import FlowManager from './js/modules/flow-manager.js?v=0.0.3';
+        import { showToast } from './js/modules/toast.js?v=0.0.3';
 
         // Make functions globally available
         window.flowManager = new FlowManager();
@@ -617,9 +737,108 @@
                 flows = await window.flowManager.getFlows();
                 renderFlowTable();
                 updateStats();
+                await loadAlerts(); // Load alerts after flows
             } catch (error) {
                 console.error('Failed to load flows:', error);
                 showToast('Failed to load flows: ' + error.message, 'error');
+            }
+        }
+
+        async function loadAlerts() {
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/flows/alerts?limit=10`);
+                if (!response.ok) throw new Error('Failed to fetch alerts');
+
+                const data = await response.json();
+                const alerts = data.alerts || [];
+
+                renderAlerts(alerts);
+            } catch (error) {
+                console.error('Failed to load alerts:', error);
+            }
+        }
+
+        function renderAlerts(alerts) {
+            const alertsPanel = document.getElementById('alertsPanel');
+            const alertsList = document.getElementById('alertsList');
+
+            if (alerts.length === 0) {
+                alertsPanel.classList.add('hidden');
+                return;
+            }
+
+            alertsPanel.classList.remove('hidden');
+
+            alertsList.innerHTML = alerts.map(alert => `
+                <div class="alert-card severity-${alert.severity}">
+                    <div class="alert-content">
+                        <div class="alert-message">
+                            ${getSeverityIcon(alert.severity)} ${escapeHtml(alert.message)}
+                        </div>
+                        <div class="alert-timestamp">
+                            ${formatDateTime(alert.timestamp)}
+                            ${alert.device_id ? ` • Device: ${alert.device_id}` : ''}
+                            ${alert.flow_id ? ` • Flow: ${alert.flow_id}` : ''}
+                        </div>
+                        ${alert.recommendations && alert.recommendations.length > 0 ? `
+                            <ul class="alert-recommendations">
+                                ${alert.recommendations.map(rec => `<li>${escapeHtml(rec)}</li>`).join('')}
+                            </ul>
+                        ` : ''}
+                    </div>
+                    <button type="button" class="alert-dismiss" onclick="dismissAlert('${alert.device_id}', event)" title="Dismiss alert">
+                        ×
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function getSeverityIcon(severity) {
+            const icons = {
+                info: 'ℹ️',
+                warning: '⚠️',
+                error: '❌',
+                critical: '🚨'
+            };
+            return icons[severity] || 'ℹ️';
+        }
+
+        async function clearAllAlerts() {
+            if (!confirm('Clear all performance alerts?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/flows/alerts`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) throw new Error('Failed to clear alerts');
+
+                showToast('Alerts cleared', 'success');
+                await loadAlerts();
+            } catch (error) {
+                showToast('Failed to clear alerts: ' + error.message, 'error');
+            }
+        }
+
+        async function dismissAlert(deviceId, event) {
+            event.stopPropagation();
+
+            try {
+                const url = deviceId
+                    ? `${window.flowManager.apiBase}/flows/alerts?device_id=${encodeURIComponent(deviceId)}`
+                    : `${window.flowManager.apiBase}/flows/alerts`;
+
+                const response = await fetch(url, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) throw new Error('Failed to dismiss alert');
+
+                await loadAlerts();
+            } catch (error) {
+                showToast('Failed to dismiss alert: ' + error.message, 'error');
             }
         }
 
@@ -1144,6 +1363,9 @@
 
         // Make functions globally available
         window.loadFlows = loadFlows;
+        window.loadAlerts = loadAlerts;
+        window.clearAllAlerts = clearAllAlerts;
+        window.dismissAlert = dismissAlert;
         window.executeFlow = executeFlow;
         window.deleteFlow = deleteFlow;
         window.editFlow = editFlow;

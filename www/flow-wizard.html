@@ -19,7 +19,7 @@
             <li><a href="flows.html">Flows</a></li>
             <li><a href="diagnostic.html">Diagnostics</a></li>
             <li><a href="dev.html">Dev Tools</a></li>
-            <li class="version">v0.0.5</li>
+            <li class="version">v0.0.3</li>
             <li id="themeToggleContainer"></li>
         </ul>
     </nav>
@@ -95,6 +95,25 @@
             <p class="step-description">Click elements on the screen to add actions or sensors</p>
 
             <div class="recording-layout">
+                <!-- Element Sidebar (Collapsible) -->
+                <aside id="elementSidebar" class="element-sidebar">
+                    <div class="sidebar-header">
+                        <h3>Detected Elements</h3>
+                        <button class="btn-collapse" id="btnCollapseSidebar" title="Collapse sidebar">
+                            ◀
+                        </button>
+                    </div>
+                    <div class="sidebar-content">
+                        <div id="elementList" class="element-list-sidebar"></div>
+                    </div>
+                </aside>
+
+                <!-- Sidebar Toggle Button (when collapsed) -->
+                <button id="btnExpandSidebar" class="sidebar-toggle-btn">
+                    📋<br>Elements
+                </button>
+
+                <!-- Screenshot Panel (Middle) -->
                 <div class="screenshot-panel">
                     <div class="screenshot-controls">
                         <button class="btn btn-secondary" id="btnRefreshScreen">🔄 Refresh</button>
@@ -131,23 +150,13 @@
                         </div>
                     </div>
 
-                    <!-- Element Panel Toggle -->
-                    <button class="btn btn-secondary" id="btnToggleElementPanel">
-                        📋 Show Elements
-                    </button>
-
-                    <!-- Element Panel -->
-                    <div id="elementPanel">
-                        <h4>Detected Elements</h4>
-                        <div id="elementList"></div>
-                    </div>
-
                     <div id="screenshotContainer" class="screenshot-display loading">
                         <canvas id="screenshotCanvas" style="display: none; cursor: crosshair; max-width: 100%;"></canvas>
                         <div id="screenshotLoading">Starting flow...</div>
                     </div>
                 </div>
 
+                <!-- Flow Steps Panel (Right) -->
                 <div class="flow-steps-panel">
                     <h3>Flow Steps</h3>
                     <div id="flowStepsList" class="flow-steps-list"></div>

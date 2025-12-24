@@ -51,7 +51,7 @@ class ScreenshotStitcher:
         self.max_scrolls = 25  # Safety limit (increased for smaller scroll steps)
         self.duplicate_threshold = 0.95  # If images > 95% similar, we're not scrolling
         self.min_new_content_ratio = 0.05  # Need at least 5% new content to continue (was 15% - too strict)
-        self.fixed_element_threshold = 0.95  # Threshold for detecting fixed UI elements (balanced - catches real fixed UI)
+        self.fixed_element_threshold = 0.92  # Threshold for detecting fixed UI elements (allow slight variations)
 
         # Element tracking for smart stitching
         self.use_element_tracking = True  # Use UI elements for precise stitching
@@ -520,9 +520,24 @@ class ScreenshotStitcher:
         logger.info(f"[ScreenshotStitcher] Starting BOOKEND capture for {device_id}")
 
         try:
-            # === STEP 0: Refresh page (optional but recommended) ===
-            logger.info("  STEP 0: Refreshing page 3 times...")
-            await self._refresh_page(device_id, times=3)
+            # === STEP 0: Refresh page (skip for browsers to avoid triggering gestures) ===
+            # Get current app to check if it's a browser
+            devices = await self.adb_bridge.get_devices()
+            current_app = ""
+            for d in devices:
+                if d.get('id') == device_id:
+                    current_app = d.get('current_activity', '')
+                    break
+
+            # Skip refresh for browsers (they have their own gestures that interfere)
+            browser_packages = ['chrome', 'browser', 'firefox', 'opera', 'edge', 'brave', 'samsung.sbrowser']
+            is_browser = any(pkg in current_app.lower() for pkg in browser_packages)
+
+            if is_browser:
+                logger.info("  STEP 0: Skipping refresh (browser detected)")
+            else:
+                logger.info("  STEP 0: Refreshing page 3 times...")
+                await self._refresh_page(device_id, times=3)
 
             # === STEP 1: Capture TOP ===
             logger.info("  STEP 1: Scrolling to TOP...")
@@ -659,6 +674,7 @@ class ScreenshotStitcher:
                     logger.info(f"  >>> SLOW SWIPE: y={swipe_start_y}->{swipe_end_y} ({swipe_distance}px, 1000ms)")
 
                     await self.adb_bridge.swipe(device_id, swipe_x, swipe_start_y, swipe_x, swipe_end_y, duration=1000)
+
                     scroll_count += 1
 
                     # Wait for scroll to settle completely
@@ -768,10 +784,23 @@ class ScreenshotStitcher:
         logger.debug(f"  PREV has {len(fp_prev_data)} fingerprinted elements")
 
         # Find common elements in CURR and track their positions
-        common_elements = []  # List of (fingerprint, y_center_curr, y_bottom_curr, y_center_prev)
+        # SKIP full-screen containers and very large elements
+        common_elements = []  # List of (fingerprint, y_center_curr, y_bottom_curr, y_center_prev, elem_height)
         for elem in elements_curr:
             fp = self._get_element_fingerprint(elem)
             if fp and fp in fp_prev_data:
+                bounds = elem.get('bounds', {})
+                elem_height = bounds.get('height', 0) if isinstance(bounds, dict) else 0
+                elem_y = bounds.get('y', 0) if isinstance(bounds, dict) else 0
+
+                # Skip full-screen containers (y near 0, height near screen height)
+                if elem_y < 50 and elem_height > height * 0.8:
+                    continue
+
+                # Skip very large elements (likely containers, not content)
+                if elem_height > height * 0.5:
+                    continue
+
                 y_center_curr = self._get_element_y_center(elem)
                 y_bottom_curr = self._get_element_bottom(elem)
                 y_center_prev = fp_prev_data[fp][0]
@@ -977,10 +1006,13 @@ class ScreenshotStitcher:
             logger.error(f"  Image-based overlap detection failed: {e}")
             return int(screen_height * 0.5)
 
-    async def _scroll_to_bottom(self, device_id: str, max_attempts: int = 5):
+    async def _scroll_to_bottom(self, device_id: str, max_attempts: int = 5, use_keyevent: bool = True):
         """
         Scroll to the bottom of the current scrollable view.
-        Uses multiple swipe up gestures until we can't scroll anymore.
+
+        Args:
+            use_keyevent: If True, use PAGE_DOWN keyevent (safer for browsers).
+                          If False, use swipe gestures.
         """
         try:
             for attempt in range(max_attempts):
@@ -988,14 +1020,21 @@ class ScreenshotStitcher:
                 if not img_before:
                     break
 
-                width, height = img_before.size
-                swipe_x = width // 2
-                # Swipe UP (finger moves up) to scroll DOWN
-                swipe_start_y = int(height * 0.70)
-                swipe_end_y = int(height * 0.30)
+                if use_keyevent:
+                    # Use PAGE_DOWN keyevent - safer, no accidental clicks
+                    # Send multiple PAGE_DOWN for faster scrolling
+                    for _ in range(3):
+                        await self.adb_bridge.keyevent(device_id, "93")  # KEYCODE_PAGE_DOWN
+                        await asyncio.sleep(0.1)
+                else:
+                    # Fallback to swipe
+                    width, height = img_before.size
+                    swipe_x = width // 2
+                    swipe_start_y = int(height * 0.65)
+                    swipe_end_y = int(height * 0.25)
+                    await self.adb_bridge.swipe(device_id, swipe_x, swipe_start_y, swipe_x, swipe_end_y, duration=400)
 
-                await self.adb_bridge.swipe(device_id, swipe_x, swipe_start_y, swipe_x, swipe_end_y, duration=300)
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.4)
 
                 img_after = await self._capture_screenshot_pil(device_id)
                 if not img_after:
@@ -1010,6 +1049,87 @@ class ScreenshotStitcher:
 
         except Exception as e:
             logger.warning(f"  Scroll to bottom failed: {e}")
+
+    def _find_safe_scroll_x(self, screen_width: int, elements: list) -> int:
+        """
+        Find a safe X coordinate for scrolling that avoids interactive elements.
+
+        Analyzes the UI elements to find a vertical strip without clickable elements
+        like buttons, links, inputs, etc.
+
+        Args:
+            screen_width: Width of the screen in pixels
+            elements: List of UI elements from UI hierarchy
+
+        Returns:
+            Safe X coordinate for scrolling (defaults to 85% of width if no safe area found)
+        """
+        # Interactive element types that we want to avoid
+        interactive_classes = [
+            'button', 'edittext', 'checkbox', 'switch', 'radio',
+            'imagebutton', 'spinner', 'seekbar', 'ratingbar',
+            'compoundbutton', 'togglebutton', 'link'
+        ]
+
+        # Track which X ranges are occupied by interactive elements
+        # We'll divide the screen into 20 columns and mark which are "dangerous"
+        num_columns = 20
+        column_width = screen_width // num_columns
+        dangerous_columns = set()
+
+        for elem in elements:
+            # Check if this is an interactive element
+            class_name = (elem.get('class', '') or '').lower()
+            clickable = elem.get('clickable', False)
+            focusable = elem.get('focusable', False)
+
+            is_interactive = clickable or focusable
+            for ic in interactive_classes:
+                if ic in class_name:
+                    is_interactive = True
+                    break
+
+            if not is_interactive:
+                continue
+
+            # Get element bounds
+            bounds = elem.get('bounds', {})
+            if isinstance(bounds, dict):
+                x = bounds.get('x', 0)
+                width = bounds.get('width', 0)
+            elif isinstance(bounds, str):
+                # Parse "[x1,y1][x2,y2]" format
+                import re
+                match = re.findall(r'\[(\d+),(\d+)\]', bounds)
+                if len(match) >= 2:
+                    x = int(match[0][0])
+                    x2 = int(match[1][0])
+                    width = x2 - x
+                else:
+                    continue
+            else:
+                continue
+
+            # Mark columns covered by this element as dangerous
+            start_col = max(0, x // column_width)
+            end_col = min(num_columns - 1, (x + width) // column_width)
+            for col in range(start_col, end_col + 1):
+                dangerous_columns.add(col)
+
+        # Find the safest column (preferring right side of screen)
+        # Start from column 17 (85%) and work backwards, then forwards
+        preferred_order = list(range(17, num_columns)) + list(range(16, -1, -1))
+
+        for col in preferred_order:
+            if col not in dangerous_columns:
+                safe_x = col * column_width + column_width // 2
+                logger.debug(f"  Safe scroll column {col} at x={safe_x}")
+                return safe_x
+
+        # If all columns are dangerous, use right edge (least likely to have buttons)
+        safe_x = int(screen_width * 0.85)
+        logger.debug(f"  No safe column found, using x={safe_x} (85%)")
+        return safe_x
 
     def _get_element_fingerprint(self, element: dict) -> str:
         """Create a unique fingerprint for an element"""
@@ -1179,41 +1299,34 @@ class ScreenshotStitcher:
     async def _scroll_to_top(self, device_id: str, max_attempts: int = 3):
         """
         Scroll to the top of the current scrollable view.
-        Uses multiple swipe down gestures until we can't scroll anymore.
+
+        Uses KEYCODE_MOVE_HOME (122) or PAGE_UP keyevents to scroll up.
+        This avoids accidental clicks on interactive elements.
         """
         try:
-            # Get screen dimensions for swipe coordinates
-            # We'll swipe DOWN (finger moves down) to scroll UP
+            # First try MOVE_HOME to jump to top instantly
+            await self.adb_bridge.keyevent(device_id, "122")  # KEYCODE_MOVE_HOME
+            await asyncio.sleep(0.3)
+
+            # Then use PAGE_UP to ensure we're at top
             for attempt in range(max_attempts):
-                # Capture before scroll
                 img_before = await self._capture_screenshot_pil(device_id)
                 if not img_before:
                     break
 
-                # Swipe DOWN to scroll UP (opposite of normal scrolling)
-                # Start near top, swipe to bottom
-                width, height = img_before.size
-                swipe_x = width // 2
-                swipe_start_y = int(height * 0.30)  # Start near top
-                swipe_end_y = int(height * 0.70)    # End near bottom
+                # Use PAGE_UP keyevent - safer, no accidental clicks
+                for _ in range(3):
+                    await self.adb_bridge.keyevent(device_id, "92")  # KEYCODE_PAGE_UP
+                    await asyncio.sleep(0.1)
 
-                await self.adb_bridge.swipe(
-                    device_id,
-                    swipe_x, swipe_start_y,
-                    swipe_x, swipe_end_y,
-                    duration=300
-                )
+                await asyncio.sleep(0.3)
 
-                await asyncio.sleep(0.3)  # Short wait
-
-                # Capture after scroll
                 img_after = await self._capture_screenshot_pil(device_id)
                 if not img_after:
                     break
 
-                # Check if we actually scrolled (images different)
                 similarity = self._compare_images(img_before, img_after)
-                if similarity > 0.98:  # Images nearly identical = at top
+                if similarity > 0.98:
                     logger.debug(f"  Reached top after {attempt + 1} scroll(s)")
                     break
 
@@ -1500,17 +1613,39 @@ class ScreenshotStitcher:
 
         # Stitch each subsequent capture to the result
         for i in range(1, len(captures)):
-            img_next, elements_next, _, known_scroll = unpack_capture(captures[i])
+            img_next, elements_next, precalc_first_new_y, known_scroll = unpack_capture(captures[i])
             is_last = (i == len(captures) - 1)
 
             logger.info(f"  === IMAGE-BASED STITCHING: Capture {i}/{len(captures)-1} ===")
 
-            # Do template matching between consecutive RAW captures
-            # This gives us the actual overlap AND the detected footer height
-            detected_new_content_start, detected_footer = self._detect_overlap_between_captures(
-                prev_raw_img, img_next, height, known_scroll
-            )
+            # Check if we have a pre-calculated first_new_y (from bookend element matching)
+            if precalc_first_new_y > 0:
+                # Use the element-based calculation (more reliable for bookend approach)
+                detected_new_content_start = precalc_first_new_y
+                # Still detect footer for proper cropping
+                detected_footer = self._detect_fixed_bottom_height(prev_raw_img, img_next)
+                if detected_footer > 250:
+                    detected_footer = 250
+                logger.info(f"  Using pre-calculated new_content_start={detected_new_content_start} (element-based)")
+            else:
+                # Do image-based template matching for sequential scroll approach
+                detected_new_content_start, detected_footer = self._detect_overlap_between_captures(
+                    prev_raw_img, img_next, height, known_scroll
+                )
             logger.info(f"  Detected new content starts at y={detected_new_content_start}, footer={detected_footer}px")
+
+            # For last capture, be extra conservative to avoid duplicates
+            if is_last:
+                logger.info(f"  === LAST CAPTURE DEBUG ===")
+                # The last capture often has unreliable scroll detection due to page bottom
+                # Use a more conservative (higher) new_content_start to avoid duplicates
+                # Compare current capture with result so far to detect true overlap
+                conservative_start = screen_height - detected_footer - int(known_scroll * 0.3)
+                if detected_new_content_start < conservative_start:
+                    logger.info(f"  LAST CAPTURE: Adjusting start from {detected_new_content_start} to {conservative_start} (conservative)")
+                    detected_new_content_start = conservative_start
+                expected_new_content = screen_height - detected_new_content_start
+                logger.info(f"  is_last=True, new_content_start={detected_new_content_start}, new_content={expected_new_content}px")
 
             result_img, result_elements, stitch_info = self._stitch_two_captures_simple(
                 result_img, result_elements,
@@ -1614,67 +1749,207 @@ class ScreenshotStitcher:
             scrollable_height = screen_height - fixed_header - fixed_footer
             logger.info(f"  Scrollable height: {scrollable_height}px (header={fixed_header}, footer={fixed_footer})")
 
+            # QUICK CHECK: If images are very similar, page barely scrolled
+            img_similarity = self._compare_images(img1, img2)
+            logger.info(f"  OVERLAP: Full image similarity: {img_similarity:.3f}")
+            if img_similarity > 0.90:
+                # Images are very similar - page barely moved
+                # Use a very conservative scroll estimate
+                estimated_scroll = int(known_scroll * (1.0 - img_similarity) * 5)
+                if estimated_scroll < 50:
+                    estimated_scroll = 50  # At least 50px
+                logger.info(f"  OVERLAP: Images very similar! Using conservative scroll: {estimated_scroll}px")
+                new_content_start = screen_height - fixed_footer - estimated_scroll
+                return (new_content_start, fixed_footer)
+
             # Convert images to numpy for fast comparison
             arr1 = np.array(img1.convert('RGB'))
             arr2 = np.array(img2.convert('RGB'))
 
-            # Take a reference strip from img1 - use area just above footer
-            # This content should appear somewhere in img2 after scrolling
-            strip_height = 60
-            strip_y = screen_height - fixed_footer - strip_height - 50  # 50px above footer
-            if strip_y < fixed_header + 100:
-                strip_y = fixed_header + 100  # Ensure we're in scrollable area
+            strip_height = 60  # Strip height for matching
+            scrollable_start = fixed_header
+            scrollable_end = screen_height - fixed_footer
 
-            reference_strip = arr1[strip_y:strip_y + strip_height, :, :]
-            logger.info(f"  Reference strip from img1: y={strip_y}-{strip_y + strip_height}")
+            # MULTI-STRIP VALIDATION: Use multiple strips from the LOWER portion
+            # of scrollable area (avoiding fixed headers/titles at top)
+            strip_positions = [
+                int(scrollable_height * 0.60),  # 60% down
+                int(scrollable_height * 0.75),  # 75% down
+                int(scrollable_height * 0.88),  # 88% down (near bottom)
+            ]
 
-            # Search for this strip in img2 (in the header-to-footer range)
-            best_match_y = -1
-            best_match_score = 0
-            search_start = fixed_header
-            search_end = screen_height - fixed_footer - strip_height
+            scroll_estimates = []
+            for rel_pos in strip_positions:
+                strip_y = scrollable_start + rel_pos
+                strip_y = max(scrollable_start + 50, min(strip_y, scrollable_end - strip_height - 20))
 
-            for y in range(search_start, search_end, 5):  # Step by 5 for speed
-                candidate = arr2[y:y + strip_height, :, :]
-                # Calculate similarity
-                diff = np.abs(reference_strip.astype(float) - candidate.astype(float))
-                similarity = 1.0 - (np.mean(diff) / 255.0)
+                reference_strip = arr1[strip_y:strip_y + strip_height, :, :]
 
-                if similarity > best_match_score:
-                    best_match_score = similarity
-                    best_match_y = y
+                # Search for this strip in img2
+                # Use known_scroll to guide search range
+                expected_y = strip_y - known_scroll if known_scroll > 0 else strip_y // 2
 
-            # Refine to exact pixel
-            if best_match_y > 0 and best_match_score > 0.9:
-                for y in range(max(search_start, best_match_y - 5), min(search_end, best_match_y + 6)):
+                # Search in full scrollable range if expected is out of bounds
+                search_start = max(fixed_header, expected_y - 300)
+                search_end = min(scrollable_end - strip_height, expected_y + 300)
+
+                if expected_y < fixed_header or expected_y > scrollable_end:
+                    search_start = fixed_header
+                    search_end = min(scrollable_end - strip_height, fixed_header + 500)
+
+                best_y = -1
+                best_score = 0
+
+                for y in range(search_start, search_end, 5):
                     candidate = arr2[y:y + strip_height, :, :]
                     diff = np.abs(reference_strip.astype(float) - candidate.astype(float))
                     similarity = 1.0 - (np.mean(diff) / 255.0)
-                    if similarity > best_match_score:
-                        best_match_score = similarity
-                        best_match_y = y
+                    if similarity > best_score:
+                        best_score = similarity
+                        best_y = y
 
-            logger.info(f"  Best match in img2: y={best_match_y}, similarity={best_match_score:.3f}")
+                if best_score > 0.9 and best_y > 0:
+                    detected_scroll = strip_y - best_y
+                    scroll_estimates.append((strip_y, best_y, detected_scroll, best_score))
+
+            # Analyze scroll estimates for consistency
+            if len(scroll_estimates) >= 2:
+                scrolls = [e[2] for e in scroll_estimates]
+                scroll_range = max(scrolls) - min(scrolls)
+                avg_scroll = sum(scrolls) / len(scrolls)
+
+                logger.info(f"  MULTI-STRIP: {len(scroll_estimates)} strips, scrolls={scrolls}, range={scroll_range}px")
+
+                # If strips disagree significantly (>100px range), match is unreliable
+                if scroll_range > 100:
+                    min_scroll = min(scrolls)
+                    max_scroll = max(scrolls)
+                    logger.info(f"  MULTI-STRIP: Inconsistent matches! min={min_scroll}, max={max_scroll}")
+
+                    # Strategy: lower scroll -> higher new_content_start -> LESS content added
+                    # To avoid duplicates, we want to add LESS content when unsure
+                    # So use the MINIMUM scroll (most conservative)
+                    #
+                    # BUT: if some scrolls are consistent with previous captures (~530px)
+                    # and others are much lower, the lower ones might be false matches
+                    #
+                    # Check if any scroll is close to previous captures' pattern
+                    # Consistent = within 100px of commanded OR within 15% of previous captures (~530px)
+                    # Use a tighter bound for consistency
+                    expected_scroll = known_scroll if known_scroll > 0 else 450
+                    consistent_scrolls = [s for s in scrolls if abs(s - expected_scroll) < 100 or (s >= 450 and s <= 600)]
+                    low_scrolls = [s for s in scrolls if s < expected_scroll * 0.6]
+
+                    if consistent_scrolls and low_scrolls:
+                        # Mixed: some consistent, some low - this often happens at end of page
+                        # Use the MINIMUM to be most conservative and avoid duplicates
+                        # Better to miss some content than to have visible duplicates
+                        actual_scroll = min(scrolls)
+                        logger.info(f"  MULTI-STRIP: Mixed results, using minimum: {actual_scroll}px (all: {scrolls})")
+                    elif low_scrolls and not consistent_scrolls:
+                        # All scrolls are low - page likely at bottom
+                        actual_scroll = min(scrolls)
+                        logger.info(f"  MULTI-STRIP: All low scrolls, page at bottom: {actual_scroll}px")
+                    else:
+                        # General inconsistency with mostly high values - use median
+                        actual_scroll = int(sorted(scrolls)[len(scrolls)//2])
+                        logger.info(f"  MULTI-STRIP: Using median: {actual_scroll}px")
+
+                    best_match_y = -1
+                    best_match_score = 0.5  # Mark as unreliable
+                else:
+                    # Use the median scroll estimate
+                    actual_scroll = int(sorted(scrolls)[len(scrolls)//2])
+                    best_match_y = scroll_estimates[0][1]
+                    best_match_score = max(e[3] for e in scroll_estimates)
+            elif len(scroll_estimates) == 1:
+                actual_scroll = scroll_estimates[0][2]
+                best_match_y = scroll_estimates[0][1]
+                best_match_score = scroll_estimates[0][3]
+            else:
+                # No good matches found
+                actual_scroll = known_scroll
+                best_match_y = -1
+                best_match_score = 0
+
+            logger.info(f"  OVERLAP: Best match y={best_match_y}, similarity={best_match_score:.3f}")
 
             if best_match_score > 0.92:
-                # Good match found - calculate where new content starts
-                # The reference strip was at strip_y in img1
-                # It appears at best_match_y in img2
-                # So content scrolled by: strip_y - best_match_y
-                actual_scroll = strip_y - best_match_y
-                logger.info(f"  Actual scroll detected: {actual_scroll}px (commanded: {known_scroll}px)")
+                # Good match found - actual_scroll already calculated by multi-strip above
+                logger.info(f"  OVERLAP: actual_scroll={actual_scroll}px (commanded: {known_scroll}px)")
+
+                # SANITY CHECK: If actual_scroll is very different from known_scroll,
+                # the page might have hit the bottom or the match might be wrong
+                scroll_diff = abs(actual_scroll - known_scroll) if known_scroll > 0 else 0
+                if known_scroll > 0 and actual_scroll > 0:
+                    scroll_ratio = actual_scroll / known_scroll
+                else:
+                    scroll_ratio = 1.0
+
+                # Check for suspicious results
+                if scroll_diff > 100:
+                    # More than 100px difference from commanded scroll - suspicious
+                    logger.info(f"  SUSPICIOUS: actual_scroll={actual_scroll} differs from commanded={known_scroll} by {scroll_diff}px")
+
+                    # If actual scroll is LESS than expected, page might have hit bottom
+                    # OR the row matching found a wrong match in repetitive content
+                    if actual_scroll < known_scroll * 0.75:
+                        # Page scrolled less than 75% of commanded - likely at end or bad match
+                        logger.info(f"  END-OF-PAGE: actual_scroll ({actual_scroll}) < 75% of commanded ({known_scroll})")
+
+                        # Use COMMANDED scroll as the basis, not detected actual_scroll
+                        # This is more conservative and avoids duplicates from bad matches
+                        # The content might scroll less at the end, but we'd rather miss a bit
+                        # than show duplicates
+                        conservative_scroll = known_scroll
+                        new_content_start = screen_height - fixed_footer - conservative_scroll
+
+                        # But ensure we don't go below the detected value (which found SOME overlap)
+                        # Use the HIGHER new_content_start (which adds LESS content)
+                        detected_start = screen_height - fixed_footer - actual_scroll
+                        if detected_start > new_content_start:
+                            new_content_start = detected_start
+                            logger.info(f"  Using detected overlap (higher): {new_content_start}")
+                        else:
+                            logger.info(f"  Using commanded scroll (more conservative): {new_content_start}")
+
+                        if new_content_start < fixed_header:
+                            new_content_start = fixed_header
+                        logger.info(f"  END-OF-PAGE: Final new_content_start={new_content_start}")
+                        return (new_content_start, fixed_footer)
+
+                    # If actual scroll is MORE than expected, match might be wrong
+                    if actual_scroll > known_scroll * 1.5:
+                        logger.warning(f"  MATCH possibly wrong: actual > 1.5x commanded, using commanded scroll")
+                        # Use commanded scroll as fallback
+                        new_content_start = screen_height - fixed_footer - known_scroll
+                        if new_content_start < fixed_header:
+                            new_content_start = fixed_header
+                        logger.info(f"  Fallback new content starts at y={new_content_start}")
+                        return (new_content_start, fixed_footer)
 
                 # New content in img2 starts where img1's bottom content ends
                 # img1 content ended at (screen_height - fixed_footer)
                 # This appears at (screen_height - fixed_footer - actual_scroll) in img2's coordinate
                 # So new content starts just after this point
                 new_content_start = screen_height - fixed_footer - actual_scroll
+                logger.info(f"  OVERLAP: new_content_start = {screen_height} - {fixed_footer} - {actual_scroll} = {new_content_start}")
                 if new_content_start < fixed_header:
                     new_content_start = fixed_header
-
-                logger.info(f"  New content starts at y={new_content_start}")
+                    logger.info(f"  OVERLAP: Clamped to fixed_header={fixed_header}")
                 return (new_content_start, fixed_footer)
             else:
+                # best_match_score is low, but we might still have actual_scroll from multi-strip
+                # Use actual_scroll if it was calculated, otherwise fall back to known_scroll
+                if actual_scroll != known_scroll:
+                    # Multi-strip gave us a value - use it
+                    logger.info(f"  OVERLAP: Using multi-strip actual_scroll={actual_scroll} (score was low)")
+                    new_content_start = screen_height - fixed_footer - actual_scroll
+                    logger.info(f"  OVERLAP: new_content_start = {screen_height} - {fixed_footer} - {actual_scroll} = {new_content_start}")
+                    if new_content_start < fixed_header:
+                        new_content_start = fixed_header
+                    return (new_content_start, fixed_footer)
+
                 # Fallback to calculation
                 logger.warning(f"  Row matching weak ({best_match_score:.3f}), using calculated fallback")
                 overlap = scrollable_height - known_scroll
@@ -1721,6 +1996,12 @@ class ScreenshotStitcher:
             logger.warning(f"  No new content! height={new_content_height}")
             return accumulated_img, accumulated_elements, {"scroll_offset": 0}
 
+        # Skip captures with very little new content (likely duplicates at end of page)
+        MIN_NEW_CONTENT = 50  # At least 50px of new content needed
+        if new_content_height < MIN_NEW_CONTENT and not is_last_capture:
+            logger.warning(f"  Too little new content ({new_content_height}px < {MIN_NEW_CONTENT}px), skipping this capture")
+            return accumulated_img, accumulated_elements, {"scroll_offset": 0}
+
         # For first stitch, we need to crop footer from accumulated image
         if acc_height == screen_height and not is_last_capture:
             paste_y = acc_height - fixed_footer
@@ -1757,10 +2038,11 @@ class ScreenshotStitcher:
                 combined_elements.append(elem.copy())
 
         # Elements from new image (only in new content region)
+        # Use strict greater-than to avoid duplicates at boundaries
         y_adjustment = paste_y - new_content_start
         for elem in new_elements:
             y_center = self._get_element_y_center(elem)
-            if new_content_start <= y_center <= new_content_end:
+            if new_content_start < y_center <= new_content_end:
                 adjusted_elem = elem.copy()
                 bounds = adjusted_elem.get('bounds', {})
                 if isinstance(bounds, dict):
