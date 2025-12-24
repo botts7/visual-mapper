@@ -317,6 +317,144 @@
             margin-bottom: 10px;
             font-size: 13px;
         }
+
+        /* Toggle Switch */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #cbd5e0;
+            transition: 0.3s;
+            border-radius: 20px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: #10b981;
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(20px);
+        }
+
+        /* Flow Steps UI Editor */
+        .steps-editor {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+
+        .step-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            position: relative;
+        }
+
+        .step-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .step-type-badge {
+            background: #3b82f6;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .step-actions {
+            display: flex;
+            gap: 5px;
+        }
+
+        .step-action-btn {
+            background: transparent;
+            border: 1px solid #e2e8f0;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .step-action-btn:hover {
+            background: #f1f5f9;
+        }
+
+        .step-fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .step-field {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .step-field label {
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+
+        .step-field input,
+        .step-field select {
+            padding: 6px 8px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .add-step-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            margin-top: 10px;
+        }
+
+        .add-step-btn:hover {
+            background: #2563eb;
+        }
     </style>
 </head>
 <body>
@@ -377,6 +515,7 @@
                         <th>Device</th>
                         <th>Steps</th>
                         <th>Interval</th>
+                        <th>Enabled</th>
                         <th>Status</th>
                         <th>Last Run</th>
                         <th>Success</th>
@@ -404,6 +543,7 @@
             <!-- Tabs -->
             <div class="modal-tabs">
                 <button type="button" class="modal-tab active" onclick="switchEditTab('basic')">Basic Settings</button>
+                <button type="button" class="modal-tab" onclick="switchEditTab('steps')">Flow Steps</button>
                 <button type="button" class="modal-tab" onclick="switchEditTab('advanced')">Advanced (JSON)</button>
             </div>
 
@@ -430,6 +570,14 @@
                     </div>
                 </div>
 
+                <!-- Flow Steps Tab -->
+                <div id="tabSteps" class="tab-content">
+                    <div id="stepsEditor" class="steps-editor">
+                        <!-- Steps will be dynamically rendered here -->
+                    </div>
+                    <button type="button" class="add-step-btn" onclick="addNewStep()">+ Add Step</button>
+                </div>
+
                 <!-- Advanced Tab -->
                 <div id="tabAdvanced" class="tab-content">
                     <div class="json-editor-warning">
@@ -454,14 +602,15 @@
     </div>
 
     <script type="module">
-        import FlowManager from './js/modules/flow-manager.js?v=0.0.9';
-        import { showToast } from './js/modules/toast.js?v=0.0.9';
+        import FlowManager from './js/modules/flow-manager.js?v=0.0.11';
+        import { showToast } from './js/modules/toast.js?v=0.0.11';
 
         // Make functions globally available
         window.flowManager = new FlowManager();
         window.showToast = showToast;
 
         let flows = [];
+        const runningFlows = new Set(); // Track currently executing flows
 
         async function loadFlows() {
             try {
@@ -480,7 +629,7 @@
             if (flows.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="8" class="empty-state">
+                        <td colspan="9" class="empty-state">
                             <p>No flows configured yet.</p>
                             <p>Flows will appear here once you create them via the API.</p>
                         </td>
@@ -489,25 +638,40 @@
                 return;
             }
 
-            tbody.innerHTML = flows.map(flow => `
+            tbody.innerHTML = flows.map(flow => {
+                const flowKey = `${flow.device_id}:${flow.flow_id}`;
+                const isRunning = runningFlows.has(flowKey);
+
+                return `
                 <tr>
                     <td><strong>${escapeHtml(flow.name)}</strong></td>
                     <td><code>${escapeHtml(flow.device_id)}</code></td>
                     <td>${flow.steps.length} steps</td>
                     <td>${flow.update_interval_seconds}s</td>
                     <td>
-                        <span class="flow-status ${flow.enabled ? 'enabled' : 'disabled'}">
-                            ${flow.enabled ? 'Enabled' : 'Disabled'}
+                        <label class="toggle-switch">
+                            <input type="checkbox"
+                                   ${flow.enabled ? 'checked' : ''}
+                                   onchange="toggleFlowEnabled('${flow.device_id}', '${flow.flow_id}', this.checked)">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </td>
+                    <td>
+                        <span class="flow-status ${isRunning ? 'running' : (flow.enabled ? 'enabled' : 'disabled')}">
+                            ${isRunning ? '▶ Running' : (flow.enabled ? 'Enabled' : 'Disabled')}
                         </span>
                     </td>
                     <td>${formatDateTime(flow.last_executed)}</td>
                     <td>${formatSuccessRate(flow)}</td>
                     <td>
                         <div class="flow-row-actions">
-                            <button class="btn-icon execute"
+                            <button class="btn-icon execute ${isRunning ? 'running' : ''}"
+                                    data-device-id="${flow.device_id}"
+                                    data-flow-id="${flow.flow_id}"
                                     onclick="executeFlow('${flow.device_id}', '${flow.flow_id}')"
-                                    title="Execute Now">
-                                ▶
+                                    title="Execute Now"
+                                    ${isRunning ? 'disabled' : ''}>
+                                ${isRunning ? '⏳' : '▶'}
                             </button>
                             <button class="btn-icon edit"
                                     onclick="editFlow('${flow.device_id}', '${flow.flow_id}')"
@@ -522,7 +686,8 @@
                         </div>
                     </td>
                 </tr>
-            `).join('');
+            `;
+            }).join('');
         }
 
         async function updateStats() {
@@ -566,11 +731,36 @@
         }
 
         async function executeFlow(deviceId, flowId) {
+            const flowKey = `${deviceId}:${flowId}`;
+
+            // Prevent double-execution
+            if (runningFlows.has(flowKey)) {
+                showToast('Flow is already running', 'warning');
+                return;
+            }
+
             try {
+                // Add to running set and update UI
+                runningFlows.add(flowKey);
+                renderFlowTable(); // Re-render to show running state
+
+                showToast('Flow execution started...', 'info');
+
+                // Execute the flow
                 await window.flowManager.executeFlow(deviceId, flowId);
-                showToast('Flow execution scheduled', 'success');
-                await loadFlows();
+
+                showToast('Flow execution completed!', 'success');
+
+                // Keep running state visible for 2 seconds, then refresh
+                setTimeout(async () => {
+                    runningFlows.delete(flowKey);
+                    await loadFlows(); // Reload to get updated stats
+                }, 2000);
+
             } catch (error) {
+                // Remove from running set on error
+                runningFlows.delete(flowKey);
+                renderFlowTable(); // Re-render to remove running state
                 showToast('Failed to execute flow: ' + error.message, 'error');
             }
         }
@@ -626,13 +816,214 @@
 
             if (tabName === 'basic') {
                 document.getElementById('tabBasic').classList.add('active');
-                // Sync basic form from JSON if user was editing JSON
                 syncBasicFormFromJSON();
+            } else if (tabName === 'steps') {
+                document.getElementById('tabSteps').classList.add('active');
+                renderFlowSteps();
             } else if (tabName === 'advanced') {
                 document.getElementById('tabAdvanced').classList.add('active');
-                // Sync JSON from basic form
                 syncJSONFromBasicForm();
             }
+        }
+
+        async function toggleFlowEnabled(deviceId, flowId, enabled) {
+            try {
+                const flow = flows.find(f => f.device_id === deviceId && f.flow_id === flowId);
+                if (!flow) return;
+
+                // Update flow with new enabled status
+                const updatedFlow = { ...flow, enabled };
+                await window.flowManager.updateFlow(deviceId, flowId, updatedFlow);
+
+                showToast(`Flow ${enabled ? 'enabled' : 'disabled'}`, 'success');
+                await loadFlows(); // Reload to update UI
+            } catch (error) {
+                showToast(`Failed to toggle flow: ${error.message}`, 'error');
+                // Reload to revert checkbox state
+                await loadFlows();
+            }
+        }
+
+        function renderFlowSteps() {
+            if (!editingFlow) return;
+
+            const stepsContainer = document.getElementById('stepsEditor');
+            const steps = editingFlow.flow.steps || [];
+
+            if (steps.length === 0) {
+                stepsContainer.innerHTML = '<p style="text-align:center;color:#64748b;">No steps defined yet. Click "+ Add Step" to create one.</p>';
+                return;
+            }
+
+            stepsContainer.innerHTML = steps.map((step, index) => `
+                <div class="step-card" data-step-index="${index}">
+                    <div class="step-card-header">
+                        <span class="step-type-badge">${step.step_type || 'unknown'}</span>
+                        <div class="step-actions">
+                            <button type="button" class="step-action-btn" onclick="moveStepUp(${index})" ${index === 0 ? 'disabled' : ''}>↑</button>
+                            <button type="button" class="step-action-btn" onclick="moveStepDown(${index})" ${index === steps.length - 1 ? 'disabled' : ''}>↓</button>
+                            <button type="button" class="step-action-btn" onclick="deleteStep(${index})">✕</button>
+                        </div>
+                    </div>
+                    <div class="step-fields">
+                        ${renderStepFields(step, index)}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderStepFields(step, index) {
+            const stepType = step.step_type;
+            let fields = `
+                <div class="step-field" style="grid-column: 1 / -1">
+                    <label>Description</label>
+                    <input type="text" value="${escapeHtml(step.description || '')}"
+                           onchange="updateStepField(${index}, 'description', this.value)">
+                </div>
+            `;
+
+            // Type-specific fields
+            if (stepType === 'tap') {
+                fields += `
+                    <div class="step-field">
+                        <label>X Coordinate</label>
+                        <input type="number" value="${step.x || ''}"
+                               onchange="updateStepField(${index}, 'x', parseInt(this.value))">
+                    </div>
+                    <div class="step-field">
+                        <label>Y Coordinate</label>
+                        <input type="number" value="${step.y || ''}"
+                               onchange="updateStepField(${index}, 'y', parseInt(this.value))">
+                    </div>
+                `;
+            } else if (stepType === 'swipe') {
+                fields += `
+                    <div class="step-field">
+                        <label>Start X</label>
+                        <input type="number" value="${step.start_x || ''}"
+                               onchange="updateStepField(${index}, 'start_x', parseInt(this.value))">
+                    </div>
+                    <div class="step-field">
+                        <label>Start Y</label>
+                        <input type="number" value="${step.start_y || ''}"
+                               onchange="updateStepField(${index}, 'start_y', parseInt(this.value))">
+                    </div>
+                    <div class="step-field">
+                        <label>End X</label>
+                        <input type="number" value="${step.end_x || ''}"
+                               onchange="updateStepField(${index}, 'end_x', parseInt(this.value))">
+                    </div>
+                    <div class="step-field">
+                        <label>End Y</label>
+                        <input type="number" value="${step.end_y || ''}"
+                               onchange="updateStepField(${index}, 'end_y', parseInt(this.value))">
+                    </div>
+                    <div class="step-field">
+                        <label>Duration (ms)</label>
+                        <input type="number" value="${step.duration || 500}"
+                               onchange="updateStepField(${index}, 'duration', parseInt(this.value))">
+                    </div>
+                `;
+            } else if (stepType === 'type_text') {
+                fields += `
+                    <div class="step-field" style="grid-column: 1 / -1">
+                        <label>Text to Type</label>
+                        <input type="text" value="${escapeHtml(step.text || '')}"
+                               onchange="updateStepField(${index}, 'text', this.value)">
+                    </div>
+                `;
+            } else if (stepType === 'wait') {
+                fields += `
+                    <div class="step-field">
+                        <label>Duration (seconds)</label>
+                        <input type="number" step="0.1" value="${step.duration || 1}"
+                               onchange="updateStepField(${index}, 'duration', parseFloat(this.value))">
+                    </div>
+                `;
+            } else if (stepType === 'launch_app') {
+                fields += `
+                    <div class="step-field" style="grid-column: 1 / -1">
+                        <label>Package Name</label>
+                        <input type="text" value="${escapeHtml(step.package || '')}"
+                               onchange="updateStepField(${index}, 'package', this.value)">
+                    </div>
+                `;
+            } else if (stepType === 'capture_sensors') {
+                fields += `
+                    <div class="step-field" style="grid-column: 1 / -1">
+                        <label>Sensor IDs (comma-separated)</label>
+                        <input type="text" value="${(step.sensor_ids || []).join(', ')}"
+                               onchange="updateStepField(${index}, 'sensor_ids', this.value.split(',').map(s => s.trim()).filter(s => s))">
+                    </div>
+                `;
+            }
+
+            return fields;
+        }
+
+        function updateStepField(stepIndex, field, value) {
+            if (!editingFlow) return;
+            editingFlow.flow.steps[stepIndex][field] = value;
+        }
+
+        function deleteStep(stepIndex) {
+            if (!editingFlow) return;
+            if (!confirm('Delete this step?')) return;
+
+            editingFlow.flow.steps.splice(stepIndex, 1);
+            renderFlowSteps();
+        }
+
+        function moveStepUp(stepIndex) {
+            if (!editingFlow || stepIndex === 0) return;
+            const steps = editingFlow.flow.steps;
+            [steps[stepIndex - 1], steps[stepIndex]] = [steps[stepIndex], steps[stepIndex - 1]];
+            renderFlowSteps();
+        }
+
+        function moveStepDown(stepIndex) {
+            if (!editingFlow) return;
+            const steps = editingFlow.flow.steps;
+            if (stepIndex === steps.length - 1) return;
+            [steps[stepIndex], steps[stepIndex + 1]] = [steps[stepIndex + 1], steps[stepIndex]];
+            renderFlowSteps();
+        }
+
+        function addNewStep() {
+            if (!editingFlow) return;
+
+            const stepType = prompt('Enter step type (tap, swipe, type_text, wait, launch_app, capture_sensors, keypress):');
+            if (!stepType) return;
+
+            const newStep = {
+                step_type: stepType,
+                description: `New ${stepType} step`,
+                retry_on_failure: false,
+                max_retries: 3
+            };
+
+            // Initialize type-specific fields
+            if (stepType === 'tap') {
+                newStep.x = 0;
+                newStep.y = 0;
+            } else if (stepType === 'swipe') {
+                newStep.start_x = 0;
+                newStep.start_y = 0;
+                newStep.end_x = 0;
+                newStep.end_y = 0;
+                newStep.duration = 500;
+            } else if (stepType === 'type_text') {
+                newStep.text = '';
+            } else if (stepType === 'wait') {
+                newStep.duration = 1;
+            } else if (stepType === 'launch_app') {
+                newStep.package = '';
+            } else if (stepType === 'capture_sensors') {
+                newStep.sensor_ids = [];
+            }
+
+            editingFlow.flow.steps.push(newStep);
+            renderFlowSteps();
         }
 
         function syncJSONFromBasicForm() {
@@ -758,6 +1149,13 @@
         window.editFlow = editFlow;
         window.closeEditModal = closeEditModal;
         window.switchEditTab = switchEditTab;
+        window.toggleFlowEnabled = toggleFlowEnabled;
+        window.addNewStep = addNewStep;
+        window.deleteStep = deleteStep;
+        window.moveStepUp = moveStepUp;
+        window.moveStepDown = moveStepDown;
+        window.updateStepField = updateStepField;
+        window.renderFlowSteps = renderFlowSteps;
 
         // Load flows on page load
         if (document.readyState === 'loading') {
