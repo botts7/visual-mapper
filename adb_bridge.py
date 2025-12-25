@@ -536,7 +536,14 @@ class ADBBridge:
             raise ValueError(f"Device not connected: {device_id}")
 
         logger.debug(f"[ADBBridge] Swipe ({x1},{y1}) -> ({x2},{y2}) on {device_id}")
-        await conn.shell(f"input swipe {x1} {y1} {x2} {y2} {duration}")
+        # Use subprocess for swipe - adb-shell library has issues with input commands
+        import subprocess
+        await asyncio.to_thread(
+            subprocess.run,
+            ['adb', '-s', device_id, 'shell', 'input', 'touchscreen', 'swipe',
+             str(x1), str(y1), str(x2), str(y2), str(duration)],
+            capture_output=True, timeout=10
+        )
 
     async def type_text(self, device_id: str, text: str) -> None:
         """

@@ -529,9 +529,12 @@ class ScreenshotStitcher:
                     current_app = d.get('current_activity', '')
                     break
 
-            # Skip refresh for browsers (they have their own gestures that interfere)
-            browser_packages = ['chrome', 'browser', 'firefox', 'opera', 'edge', 'brave', 'samsung.sbrowser']
-            is_browser = any(pkg in current_app.lower() for pkg in browser_packages)
+            # Skip refresh for browsers only (they have their own gestures that interfere)
+            # Keep refresh for other apps - needed for stale data
+            skip_refresh_packages = [
+                'chrome', 'browser', 'firefox', 'opera', 'edge', 'brave', 'samsung.sbrowser'
+            ]
+            is_browser = any(pkg in current_app.lower() for pkg in skip_refresh_packages)
 
             if is_browser:
                 logger.info("  STEP 0: Skipping refresh (browser detected)")
@@ -1296,29 +1299,52 @@ class ScreenshotStitcher:
         logger.warning(f"  All UI element retries failed - using pixel-only stitching")
         return []
 
-    async def _scroll_to_top(self, device_id: str, max_attempts: int = 3):
+    async def _scroll_to_top(self, device_id: str, max_attempts: int = 10):
         """
         Scroll to the top of the current scrollable view.
 
-        Uses KEYCODE_MOVE_HOME (122) or PAGE_UP keyevents to scroll up.
-        This avoids accidental clicks on interactive elements.
+        Uses combination of keyevents and swipe gestures for reliability.
         """
         try:
+            # Get screen size for swipe calculations
+            img = await self._capture_screenshot_pil(device_id)
+            if not img:
+                return
+            width, height = img.size
+
             # First try MOVE_HOME to jump to top instantly
             await self.adb_bridge.keyevent(device_id, "122")  # KEYCODE_MOVE_HOME
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.5)
 
-            # Then use PAGE_UP to ensure we're at top
+            # Do a few aggressive swipes first to ensure we're near top
+            swipe_x = width // 2
+            for _ in range(3):
+                await self.adb_bridge.swipe(
+                    device_id,
+                    swipe_x, int(height * 0.2),
+                    swipe_x, int(height * 0.9),
+                    duration=150
+                )
+                await asyncio.sleep(0.2)
+
+            # Then use swipe gestures (more reliable than keyevents in many apps)
             for attempt in range(max_attempts):
                 img_before = await self._capture_screenshot_pil(device_id)
                 if not img_before:
                     break
 
-                # Use PAGE_UP keyevent - safer, no accidental clicks
-                for _ in range(3):
-                    await self.adb_bridge.keyevent(device_id, "92")  # KEYCODE_PAGE_UP
-                    await asyncio.sleep(0.1)
+                # Swipe DOWN on screen (finger moves down = content scrolls up = go to top)
+                # Start high, end low
+                swipe_x = width // 2
+                swipe_start_y = int(height * 0.2)  # Start near top
+                swipe_end_y = int(height * 0.8)    # End near bottom (finger drags down)
 
+                await self.adb_bridge.swipe(
+                    device_id,
+                    swipe_x, swipe_start_y,
+                    swipe_x, swipe_end_y,
+                    duration=200
+                )
                 await asyncio.sleep(0.3)
 
                 img_after = await self._capture_screenshot_pil(device_id)
@@ -1634,6 +1660,19 @@ class ScreenshotStitcher:
                 )
             logger.info(f"  Detected new content starts at y={detected_new_content_start}, footer={detected_footer}px")
 
+            # CRITICAL: When we crop footer from first capture, adjust new_content_start accordingly
+            # First capture ends at (screen_height - footer), not screen_height
+            # Content at that position in cap1 is at y = (screen_height - footer - known_scroll)
+            if current_result_height == screen_height:
+                footer_adjusted_start = screen_height - detected_footer - known_scroll
+                if footer_adjusted_start < 0:
+                    footer_adjusted_start = 0
+                logger.info(f"  Footer adjustment: first cap ends at {screen_height - detected_footer}, in cap2 this is y={footer_adjusted_start}")
+                # Use the LOWER value to ensure no gap
+                if detected_new_content_start > footer_adjusted_start:
+                    logger.info(f"  Adjusting new_content_start from {detected_new_content_start} to {footer_adjusted_start} (footer compensation)")
+                    detected_new_content_start = footer_adjusted_start
+
             # For last capture, be extra conservative to avoid duplicates
             if is_last:
                 logger.info(f"  === LAST CAPTURE DEBUG ===")
@@ -1674,7 +1713,78 @@ class ScreenshotStitcher:
         logger.info(f"  Final image: {final_w}x{final_h}px from {len(captures)} captures")
         logger.info(f"  Total elements: {len(result_elements)}")
 
+        # === POST-PROCESS: Remove duplicate content at bottom ===
+        # Check if the bottom portion duplicates content earlier in the image
+        result_img, result_elements = self._remove_bottom_duplicates(
+            result_img, result_elements, screen_height
+        )
+
         return result_img, result_elements, total_stitch_info
+
+    def _remove_bottom_duplicates(
+        self,
+        img: Image.Image,
+        elements: list,
+        screen_height: int
+    ) -> Tuple[Image.Image, list]:
+        """
+        Post-process to remove duplicate content at the bottom of stitched image.
+        Compares bottom strips with earlier content to find and remove duplicates.
+        """
+        import numpy as np
+
+        width, height = img.size
+        if height <= screen_height:
+            return img, elements  # Single screen, no duplicates possible
+
+        arr = np.array(img.convert('RGB'))
+        strip_height = 100
+
+        # Check the bottom portion (last screen_height worth) against earlier content
+        # Start checking from the bottom
+        bottom_start = height - screen_height
+
+        # Search for where the bottom content matches earlier content
+        best_match_y = -1
+        best_match_score = 0
+
+        for check_y in range(bottom_start, height - strip_height, 50):
+            bottom_strip = arr[check_y:check_y + strip_height, :, :]
+
+            # Search in the earlier part of the image
+            for search_y in range(0, bottom_start - strip_height, 50):
+                earlier_strip = arr[search_y:search_y + strip_height, :, :]
+
+                matching = np.sum(bottom_strip == earlier_strip)
+                total = bottom_strip.size
+                score = matching / total
+
+                if score > 0.95 and score > best_match_score:
+                    best_match_score = score
+                    best_match_y = check_y
+                    logger.info(f"  DUPLICATE FOUND: bottom y={check_y} matches earlier y={search_y} ({score*100:.1f}%)")
+                    break
+
+            if best_match_y > 0:
+                break
+
+        if best_match_y > 0:
+            # Crop the image to remove duplicate content
+            new_height = best_match_y
+            logger.info(f"  REMOVING DUPLICATE: Cropping from {height}px to {new_height}px")
+
+            cropped_img = img.crop((0, 0, width, new_height))
+
+            # Filter elements to only include those above the crop line
+            filtered_elements = [
+                e for e in elements
+                if self._get_element_y_center(e) < new_height
+            ]
+
+            logger.info(f"  Elements: {len(elements)} -> {len(filtered_elements)}")
+            return cropped_img, filtered_elements
+
+        return img, elements
 
     def _detect_overlap_between_captures(
         self,
@@ -2002,8 +2112,9 @@ class ScreenshotStitcher:
             logger.warning(f"  Too little new content ({new_content_height}px < {MIN_NEW_CONTENT}px), skipping this capture")
             return accumulated_img, accumulated_elements, {"scroll_offset": 0}
 
-        # For first stitch, we need to crop footer from accumulated image
-        if acc_height == screen_height and not is_last_capture:
+        # For first stitch (acc is single screen), ALWAYS crop footer from accumulated image
+        # The last capture will provide the footer, so we don't want it duplicated
+        if acc_height == screen_height:
             paste_y = acc_height - fixed_footer
         else:
             paste_y = acc_height
@@ -2018,7 +2129,8 @@ class ScreenshotStitcher:
         stitched = Image.new('RGB', (width, total_height))
 
         # Paste accumulated image (crop footer if first stitch)
-        if acc_height == screen_height and not is_last_capture:
+        if acc_height == screen_height:
+            # First stitch - crop footer from accumulated image
             cropped_acc = accumulated_img.crop((0, 0, width, paste_y))
             stitched.paste(cropped_acc, (0, 0))
         else:
