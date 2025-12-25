@@ -1730,6 +1730,10 @@ class ScreenshotStitcher:
         """
         Post-process to remove duplicate content at the bottom of stitched image.
         Compares bottom strips with earlier content to find and remove duplicates.
+
+        IMPORTANT: Only compares CENTER content area to avoid false positives from:
+        - Consistent headers/status bars
+        - Consistent edge margins/backgrounds
         """
         import numpy as np
 
@@ -1740,8 +1744,14 @@ class ScreenshotStitcher:
         arr = np.array(img.convert('RGB'))
         strip_height = 100
 
+        # Only compare CENTER 60% of width (skip edges with consistent UI)
+        left_margin = width // 5
+        right_margin = 4 * width // 5
+
+        # Skip header area (top 300px) when searching for earlier matches
+        header_skip = 300
+
         # Check the bottom portion (last screen_height worth) against earlier content
-        # Start checking from the bottom
         bottom_start = height - screen_height
 
         # Search for where the bottom content matches earlier content
@@ -1749,17 +1759,19 @@ class ScreenshotStitcher:
         best_match_score = 0
 
         for check_y in range(bottom_start, height - strip_height, 50):
-            bottom_strip = arr[check_y:check_y + strip_height, :, :]
+            # Get CENTER of bottom strip (skip edges)
+            bottom_strip = arr[check_y:check_y + strip_height, left_margin:right_margin, :]
 
-            # Search in the earlier part of the image
-            for search_y in range(0, bottom_start - strip_height, 50):
-                earlier_strip = arr[search_y:search_y + strip_height, :, :]
+            # Search in the earlier part of the image (skip header)
+            for search_y in range(header_skip, bottom_start - strip_height, 50):
+                earlier_strip = arr[search_y:search_y + strip_height, left_margin:right_margin, :]
 
                 matching = np.sum(bottom_strip == earlier_strip)
                 total = bottom_strip.size
                 score = matching / total
 
-                if score > 0.95 and score > best_match_score:
+                # Use 98% threshold - must be nearly identical to be a true duplicate
+                if score > 0.98 and score > best_match_score:
                     best_match_score = score
                     best_match_y = check_y
                     logger.info(f"  DUPLICATE FOUND: bottom y={check_y} matches earlier y={search_y} ({score*100:.1f}%)")
