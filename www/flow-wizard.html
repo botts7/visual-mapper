@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="0.0.3">
-    <meta name="version" content="0.0.3" data-build="2025-12-23">
+    <meta name="version" content="0.0.3" data-build="2025-12-25">
     <title>Flow Wizard - Visual Mapper</title>
     <link rel="stylesheet" href="css/styles.css?v=0.0.3">
     <link rel="stylesheet" href="css/flow-wizard.css?v=0.0.3">
@@ -83,9 +83,35 @@
             </div>
 
             <h3>Select App to Automate</h3>
-            <div class="app-search">
-                <input type="text" id="appSearch" class="search-input" placeholder="🔍 Search apps...">
+            <div class="app-search" style="display: flex; gap: 10px; align-items: center;">
+                <input type="text" id="appSearch" class="search-input" placeholder="🔍 Search apps..." style="flex: 1;">
+                <button type="button" id="btnToggleSystemApps" class="btn btn-secondary" style="white-space: nowrap;">
+                    🛠️ Hide System Apps
+                </button>
+                <button type="button" id="btnToggleIconSources" class="btn btn-secondary" style="white-space: nowrap;">
+                    🔍 Show Icon Sources
+                </button>
             </div>
+
+            <!-- Dev Mode Status Panel (hidden by default, shown when dev toggle is on) -->
+            <div id="iconFetchingStatus" style="display: none; padding: 10px; margin: 10px 0; background: #f1f5f9; border-radius: 6px; border: 1px solid #cbd5e1;">
+                <!-- Icon Status -->
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span id="fetchingStatusIcon">⏳</span>
+                        <span id="fetchingStatusText" style="font-size: 13px; font-weight: 500;">Checking...</span>
+                    </div>
+                    <button type="button" id="btnRefetchIcons" class="btn btn-sm btn-primary" style="white-space: nowrap;">
+                        🔄 Refetch All Icons
+                    </button>
+                </div>
+                <!-- App Name Status -->
+                <div style="display: flex; align-items: center; gap: 10px; padding-top: 8px; border-top: 1px solid #cbd5e1;">
+                    <span id="appNameStatusIcon">⏳</span>
+                    <span id="appNameStatusText" style="font-size: 13px; font-weight: 500; color: #64748b;">Checking app names...</span>
+                </div>
+            </div>
+
             <div id="appList" class="app-grid loading">Loading apps...</div>
         </div>
 
@@ -115,11 +141,21 @@
 
                 <!-- Screenshot Panel (Middle) -->
                 <div class="screenshot-panel">
+                    <!-- App Info Header -->
+                    <div id="appInfoHeader" class="app-info-header" style="display: none; margin-bottom: 15px; padding: 15px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); align-items: center; gap: 15px;">
+                        <img id="appIcon" src="" alt="App Icon" style="width: 48px; height: 48px; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="flex: 1;">
+                            <h3 id="appName" style="margin: 0; font-size: 18px; color: var(--text-primary);"></h3>
+                            <div id="appPackage" style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;"></div>
+                        </div>
+                    </div>
+
                     <div class="screenshot-controls">
                         <button class="btn btn-secondary" id="btnRefreshScreen">🔄 Refresh</button>
                         <button class="btn btn-secondary" id="btnStitchCapture">📸 Stitch Capture</button>
                         <button class="btn btn-secondary" id="btnGoBack">⬅️ Back</button>
                         <button class="btn btn-secondary" id="btnGoHome">🏠 Home</button>
+                        <button class="btn btn-secondary" id="btnToggleScale">📏 1:1 Scale</button>
                     </div>
 
                     <div class="swipe-controls">
@@ -150,8 +186,8 @@
                         </div>
                     </div>
 
-                    <div id="screenshotContainer" class="screenshot-display loading">
-                        <canvas id="screenshotCanvas" style="display: none; cursor: crosshair; max-width: 100%;"></canvas>
+                    <div id="screenshotContainer" class="screenshot-display loading" style="overflow: auto; max-height: calc(100vh - 300px); position: relative;">
+                        <canvas id="screenshotCanvas" style="display: none; cursor: crosshair; transform-origin: top left;"></canvas>
                         <div id="screenshotLoading">Starting flow...</div>
                     </div>
                 </div>

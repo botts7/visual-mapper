@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="0.0.3">
+    <title>Stitcher V2 Test Page</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #eee;
+            background-color: #121212;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1, h2 { color: #00aaff; border-bottom: 2px solid #333; padding-bottom: 10px; }
+        .container { background-color: #1e1e1e; padding: 25px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        label { font-weight: bold; margin-right: 10px; }
+        select, button {
+            padding: 10px 15px;
+            border-radius: 5px;
+            border: 1px solid #555;
+            background-color: #333;
+            color: #eee;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button:hover { background-color: #00aaff; color: #121212; }
+        button:disabled { background-color: #2a2a2a; color: #777; cursor: not-allowed; }
+        #results { margin-top: 20px; }
+        #status {
+            padding: 15px;
+            background-color: #252525;
+            border: 1px solid #444;
+            border-radius: 5px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        #stitchedImage {
+            max-width: 100%;
+            border: 2px solid #555;
+            margin-top: 20px;
+            background-color: #000;
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Screenshot Stitcher V2 Test</h1>
+        <p>This page tests the refactored "v2" screenshot stitcher with debugging enabled.</p>
+
+        <div id="controls">
+            <label for="deviceSelector">Select Device:</label>
+            <select id="deviceSelector"></select>
+            <button id="rescanBtn">Rescan Devices</button>
+            <button id="runTestBtn">Start Stitch Test</button>
+        </div>
+
+        <div id="results">
+            <h2>Test Status</h2>
+            <div id="status">Ready.</div>
+            <h2>Resulting Image</h2>
+            <img id="stitchedImage" class="hidden" alt="Stitched Screenshot" />
+        </div>
+    </div>
+
+    <script>
+        const deviceSelector = document.getElementById('deviceSelector');
+        const runTestBtn = document.getElementById('runTestBtn');
+        const statusDiv = document.getElementById('status');
+        const stitchedImage = document.getElementById('stitchedImage');
+        const rescanBtn = document.getElementById('rescanBtn');
+
+        async function getDevices() {
+            log('Fetching connected devices...');
+            runTestBtn.disabled = true;
+            try {
+                const response = await fetch('/api/adb/devices');
+                const data = await response.json();
+                
+                if (!data.devices || data.devices.length === 0) {
+                    log('No devices found. Please connect a device via ADB and click "Rescan Devices".');
+                    return;
+                }
+
+                deviceSelector.innerHTML = '';
+                data.devices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.id;
+                    option.textContent = `${device.id} (${device.model || 'Unknown Model'})`;
+                    deviceSelector.appendChild(option);
+                });
+                runTestBtn.disabled = false;
+                log('Devices loaded. Ready to start test.');
+            } catch (error) {
+                log(`Error fetching devices: ${error}. Make sure the server is running.`);
+            }
+        }
+
+        async function runTest() {
+            const deviceId = deviceSelector.value;
+            if (!deviceId) {
+                log('No device selected.');
+                return;
+            }
+
+            log('Starting stitch test for v2 stitcher with debug=true...');
+            log('This may take up to a minute. Please wait...');
+            runTestBtn.disabled = true;
+            rescanBtn.disabled = true;
+            stitchedImage.classList.add('hidden');
+
+            const requestBody = {
+                device_id: deviceId,
+                max_scrolls: 20,
+                stitcher_version: "v2",
+                debug: true
+            };
+
+            try {
+                const startTime = Date.now();
+                const response = await fetch('/api/adb/screenshot/stitch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const endTime = Date.now();
+                const duration = ((endTime - startTime) / 1000).toFixed(2);
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`API Error: ${errorData.detail || 'Unknown error'}`);
+                }
+
+                const result = await response.json();
+                
+                log(`Test complete in ${duration} seconds.`);
+                log('--- METADATA ---');
+                log(JSON.stringify(result.metadata, null, 2));
+
+                stitchedImage.src = `data:image/png;base64,${result.screenshot}`;
+                stitchedImage.classList.remove('hidden');
+
+                log("\nSUCCESS: Stitched image displayed below.");
+                log("Debug files have been saved to the 'stitch_debug_output' directory in your project folder.");
+
+            } catch (error) {
+                log(`An error occurred: ${error}`);
+            } finally {
+                runTestBtn.disabled = false;
+                rescanBtn.disabled = false;
+            }
+        }
+
+        function log(message) {
+            console.log(message);
+            statusDiv.textContent = message;
+        }
+
+        // Initialize
+        runTestBtn.addEventListener('click', runTest);
+        rescanBtn.addEventListener('click', getDevices);
+        document.addEventListener('DOMContentLoaded', getDevices);
+    </script>
+
+</body>
+</html>

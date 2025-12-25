@@ -18,6 +18,7 @@ from typing import Dict, List, Optional
 
 from utils.adb_manager import ADBManager
 from utils.base_connection import BaseADBConnection
+from playstore_icon_scraper import PlayStoreIconScraper
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,9 @@ class ADBBridge:
         self.devices: Dict[str, BaseADBConnection] = {}
         self._adb_lock = asyncio.Lock()  # Prevent concurrent ADB operations
         self._device_discovered_callbacks = []  # Callbacks for device auto-import
+
+        # Initialize Play Store scraper for app name extraction
+        self.playstore_scraper = PlayStoreIconScraper()
 
         logger.info("[ADBBridge] Initialized (Phase 2 - hybrid connection strategy)")
 
@@ -464,6 +468,40 @@ class ADBBridge:
 
         return None
 
+    async def get_ui_hierarchy_xml(self, device_id: str) -> str:
+        """
+        Get raw UI hierarchy XML (for device_icon_scraper)
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            Raw XML string from uiautomator
+        """
+        conn = self.devices.get(device_id)
+        if not conn:
+            raise ValueError(f"Device not connected: {device_id}")
+
+        try:
+            dump_output = await conn.shell("uiautomator dump && cat /sdcard/window_dump.xml")
+
+            # Extract XML portion
+            xml_start = dump_output.find('<?xml')
+            if xml_start == -1:
+                raise ValueError("No XML data in uiautomator output")
+
+            xml_str = dump_output[xml_start:]
+
+            # Find end of XML
+            xml_end = xml_str.find('</hierarchy>')
+            if xml_end > 0:
+                xml_str = xml_str[:xml_end + len('</hierarchy>')]
+
+            return xml_str
+        except Exception as e:
+            logger.error(f"[ADBBridge] get_ui_hierarchy_xml failed: {e}")
+            raise
+
     # Device Control Methods
 
     async def tap(self, device_id: str, x: int, y: int) -> None:
@@ -590,12 +628,13 @@ class ADBBridge:
             logger.error(f"[ADBBridge] Failed to get current activity: {e}")
             return ""
 
-    async def get_installed_apps(self, device_id: str) -> List[Dict[str, str]]:
+    async def get_installed_apps(self, device_id: str, extract_real_labels: bool = True) -> List[Dict[str, str]]:
         """
         Get list of installed apps (packages) on the device.
 
         Args:
             device_id: Device identifier
+            extract_real_labels: Extract real app names from dumpsys (slower but accurate)
 
         Returns:
             List of dicts with package name and app label
@@ -615,23 +654,56 @@ class ADBBridge:
             # Frontend can filter if needed - PARITY PRINCIPLE
             output = await conn.shell("pm list packages")
 
-            apps = []
+            # Build package list with fallback labels
+            packages = []
             for line in output.strip().split('\n'):
                 if line.startswith('package:'):
                     package = line.replace('package:', '').strip()
+                    packages.append(package)
 
-                    # Determine if system app
-                    # System apps typically start with: com.android, com.google, android
-                    is_system = package.startswith(('com.android', 'com.google', 'android.'))
+            logger.debug(f"[ADBBridge] Found {len(packages)} total packages")
 
-                    # Simple label from package name
-                    label = package.split('.')[-1].title()
+            # Get ONLY packages with LAUNCHER activities (apps in app drawer)
+            # These are the only apps we can actually launch and automate
+            # Excludes system services, frameworks, background processes - they can't be used in flows anyway
+            launcher_output = await conn.shell(
+                "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"
+            )
 
-                    apps.append({
-                        "package": package,
-                        "label": label,
-                        "is_system": is_system
-                    })
+            # Parse output to extract package names
+            # Format: "packagename/activityname"
+            launcher_packages_set = set()
+            for line in launcher_output.strip().split('\n'):
+                line = line.strip()
+                if '/' in line and not line.startswith('['):  # Skip headers/errors
+                    package = line.split('/')[0].strip()
+                    if package:
+                        launcher_packages_set.add(package)
+
+            launcher_packages = sorted(list(launcher_packages_set))
+
+            logger.info(f"[ADBBridge] Found {len(launcher_packages)} launchable apps (filtered from {len(packages)} total packages)")
+
+            # Extract real labels only for launchable apps (performance optimization)
+            label_map = {}
+            if extract_real_labels:
+                label_map = await self._extract_labels_batch(conn, launcher_packages)
+                logger.info(f"[ADBBridge] Extracted {len(label_map)} real app labels")
+
+            # Build final app list - ONLY launchable apps
+            apps = []
+            for package in launcher_packages:
+                # Use real label if available, otherwise use smart fallback
+                if package in label_map:
+                    label = label_map[package]
+                else:
+                    label = self._smart_label_from_package(package)
+
+                apps.append({
+                    "package": package,
+                    "label": label,
+                    "is_system": False  # All apps returned are launchable (not system services)
+                })
 
             logger.info(f"[ADBBridge] Found {len(apps)} total apps on {device_id}")
             return apps
@@ -639,6 +711,153 @@ class ADBBridge:
         except Exception as e:
             logger.error(f"[ADBBridge] Failed to get installed apps: {e}")
             return []
+
+    async def _extract_labels_batch(self, conn, packages: List[str]) -> Dict[str, str]:
+        """
+        Extract real app labels for multiple packages efficiently
+
+        Multi-tier strategy:
+        1. Try Play Store scraper (cached + on-demand, very fast)
+        2. For remaining packages, try aapt dump (slower but accurate)
+
+        Args:
+            conn: Device connection
+            packages: List of package names
+
+        Returns:
+            Dict mapping package_name -> real_label
+        """
+        labels = {}
+
+        try:
+            # TIER 1: Play Store scraper (cache-only for speed, real names fetched during icon loading)
+            logger.debug(f"[ADBBridge] Checking Play Store cache for {len(packages)} packages...")
+            playstore_count = 0
+
+            for package in packages:
+                # Use cache_only=True to prevent timeout (real names fetched asynchronously during icon load)
+                app_name = self.playstore_scraper.get_app_name(package, cache_only=True)
+                if app_name:
+                    labels[package] = app_name
+                    playstore_count += 1
+
+            logger.info(f"[ADBBridge] ✅ Play Store cache provided {playstore_count} labels")
+
+            # TIER 2: APK extraction for remaining packages (slower, limited)
+            remaining_packages = [pkg for pkg in packages if pkg not in labels]
+
+            if remaining_packages:
+                logger.debug(f"[ADBBridge] Trying aapt for {len(remaining_packages)} remaining packages...")
+
+                # Get all packages with their APK paths
+                output = await conn.shell("pm list packages -f")
+
+                # Build package -> path mapping
+                package_paths = {}
+                for line in output.split('\n'):
+                    if line.startswith('package:'):
+                        # Format: package:/data/app/com.example.app-xxx/base.apk=com.example.app
+                        parts = line[8:].split('=')
+                        if len(parts) == 2:
+                            apk_path = parts[0].strip()
+                            package = parts[1].strip()
+                            package_paths[package] = apk_path
+
+                logger.debug(f"[ADBBridge] Found {len(package_paths)} package paths")
+
+                # For each remaining package, try to extract label using aapt
+                # Limit to first 50 to avoid timeout
+                aapt_count = 0
+                for package in remaining_packages[:50]:
+                    if package in package_paths:
+                        try:
+                            apk_path = package_paths[package]
+                            # Try aapt dump badging
+                            output = await conn.shell(f"aapt dump badging '{apk_path}' 2>/dev/null | grep 'application-label:'")
+
+                            if output and 'application-label:' in output:
+                                # Format: application-label:'App Name'
+                                match = re.search(r"application-label:'([^']+)'", output)
+                                if match:
+                                    labels[package] = match.group(1)
+                                    aapt_count += 1
+                                    continue
+
+                        except:
+                            pass
+
+                logger.info(f"[ADBBridge] ✅ AAPT extracted {aapt_count} additional labels")
+
+            logger.info(f"[ADBBridge] Total extracted: {len(labels)} labels ({playstore_count} Play Store, {len(labels) - playstore_count} AAPT)")
+
+        except Exception as e:
+            logger.warning(f"[ADBBridge] Label extraction failed: {e}")
+
+        return labels
+
+    def _smart_label_from_package(self, package: str) -> str:
+        """
+        Generate a smart app label from package name
+
+        Handles common patterns better than just taking the last segment
+
+        Examples:
+        - au.com.stan.and → Stan (take company name, not "and")
+        - com.netflix.mediaclient → Netflix (take brand, not "mediaclient")
+        - com.google.android.gms → Google Play Services (known mapping)
+        - com.android.chrome → Chrome
+        """
+        # Known package mappings for common apps
+        known_labels = {
+            'com.google.android.gms': 'Google Play Services',
+            'com.google.android.gsf': 'Google Services Framework',
+            'com.android.vending': 'Google Play Store',
+            'com.google.android.gm': 'Gmail',
+            'com.google.android.youtube': 'YouTube',
+            'com.google.android.apps.maps': 'Google Maps',
+            'com.android.chrome': 'Chrome',
+            'com.microsoft.teams': 'Microsoft Teams',
+            'au.com.stan.and': 'Stan',
+            'com.cbs.ca': 'Paramount+',
+            'com.netflix.mediaclient': 'Netflix',
+            'com.amazon.avod.thirdpartyclient': 'Prime Video',
+            'com.hulu.plus': 'Hulu',
+            'com.disney.disneyplus': 'Disney+',
+            'com.spotify.music': 'Spotify',
+            'com.zhiliaoapp.musically': 'TikTok',
+            'com.facebook.katana': 'Facebook',
+            'com.instagram.android': 'Instagram',
+            'com.twitter.android': 'Twitter',
+            'com.whatsapp': 'WhatsApp',
+        }
+
+        if package in known_labels:
+            return known_labels[package]
+
+        # Split package into segments
+        segments = package.split('.')
+
+        # For reverse domain notation (com.company.app), try to find the app name
+        if len(segments) >= 3:
+            # Skip TLD and domain, look for meaningful segments
+            # com.google.android.youtube → ['com', 'google', 'android', 'youtube']
+            meaningful_segments = segments[2:]  # Skip 'com.google'
+
+            # Filter out common non-label segments
+            excluded = {'android', 'app', 'apps', 'client', 'mobile', 'app', 'main', 'launcher'}
+
+            for seg in meaningful_segments:
+                if seg and seg.lower() not in excluded and len(seg) > 2:
+                    return seg.title()
+
+            # If all segments were excluded, use the company name
+            if len(segments) > 1:
+                company = segments[1]  # e.g., 'netflix' from 'com.netflix.xxx'
+                if company and company.lower() not in {'android', 'google', 'samsung'}:
+                    return company.title()
+
+        # Fallback: use last segment
+        return segments[-1].title() if segments else package.title()
 
     async def launch_app(self, device_id: str, package_name: str) -> bool:
         """

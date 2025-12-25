@@ -146,6 +146,53 @@
             </div>
         </div>
 
+        <!-- Icon Management Section (Phase 8 Enhancement) -->
+        <div class="card">
+            <h2>App Icon Management</h2>
+            <p>Scrape high-quality device-specific app icons (adaptive icons, themes, custom packs)</p>
+
+            <div style="margin-top: 15px;">
+                <!-- Cache Status -->
+                <div id="iconCacheStatus" style="background: var(--surface); padding: 15px; border-radius: 8px; margin-bottom: 15px; display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                        <div>
+                            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 5px;">Cached Icons</div>
+                            <div id="iconCount" style="font-size: 24px; font-weight: bold; color: var(--text-primary);">-</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 5px;">Cache Size</div>
+                            <div id="cacheSize" style="font-size: 24px; font-weight: bold; color: var(--text-primary);">-</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 5px;">New Apps</div>
+                            <div id="newAppsCount" style="font-size: 24px; font-weight: bold; color: var(--text-primary);">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button id="checkIconCacheBtn" class="btn btn-secondary" style="white-space: nowrap;">Check Cache Status</button>
+                    <button id="scrapeIconsBtn" class="btn btn-primary" style="white-space: nowrap;">Scrape Device Icons</button>
+                    <button id="viewCacheStatsBtn" class="btn btn-secondary" style="white-space: nowrap;">View All Stats</button>
+                </div>
+                <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
+                    💡 <strong>Smart Auto-Caching:</strong> First time you view an app, it shows SVG placeholder and fetches real icon in background. Next time = instant load from persistent cache. No ADB blocking!
+                </p>
+
+                <!-- Progress -->
+                <div id="iconScrapeProgress" style="background: var(--surface); padding: 15px; border-radius: 8px; margin-top: 15px; display: none;">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                        <div class="spinner" style="width: 20px; height: 20px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                        <div id="scrapeProgressText" style="color: var(--text-primary); font-weight: 500;">Scraping device icons...</div>
+                    </div>
+                    <div id="scrapeProgressDetail" style="font-size: 14px; color: var(--text-secondary);"></div>
+                </div>
+
+                <p class="status" id="iconMgmtStatus"></p>
+            </div>
+        </div>
+
         <div class="card">
             <h2>Screenshot Capture & Device Control</h2>
             <div style="margin-bottom: 20px;">
@@ -1048,6 +1095,154 @@
                 status.className = 'status error';
             }
         }
+
+        // ========== Icon Management (Phase 8 Enhancement) ==========
+
+        // Helper function to get API base
+        const getApiBase = () => '/api';
+
+        // Check Icon Cache Button
+        document.getElementById('checkIconCacheBtn').addEventListener('click', async () => {
+            const deviceId = deviceManager.getSelectedDevice();
+            const status = document.getElementById('iconMgmtStatus');
+            const cacheStatusDiv = document.getElementById('iconCacheStatus');
+
+            if (!deviceId) {
+                status.textContent = 'Please select a device first';
+                status.className = 'status error';
+                return;
+            }
+
+            status.textContent = 'Checking icon cache...';
+            status.className = 'status';
+            cacheStatusDiv.style.display = 'none';
+
+            try {
+                const response = await fetch(`${getApiBase()}/adb/check-icon-cache/${encodeURIComponent(deviceId)}`);
+                const data = await response.json();
+
+                // Update cache status display
+                document.getElementById('iconCount').textContent = data.cache_stats?.total_icons || 0;
+                document.getElementById('cacheSize').textContent = data.cache_stats?.total_size_mb ? `${data.cache_stats.total_size_mb} MB` : '0 MB';
+                document.getElementById('newAppsCount').textContent = data.new_apps_count || 0;
+
+                cacheStatusDiv.style.display = 'block';
+
+                if (data.needs_update) {
+                    status.textContent = `⚠️ ${data.new_apps_count} new app(s) detected. Click "Scrape Device Icons" to update cache.`;
+                    status.className = 'status warning';
+                } else {
+                    status.textContent = `✅ Icon cache is up to date (${data.cache_stats?.total_icons || 0} icons cached)`;
+                    status.className = 'status success';
+                }
+            } catch (error) {
+                console.error('Failed to check icon cache:', error);
+                status.textContent = `✗ Failed to check icon cache: ${error.message}`;
+                status.className = 'status error';
+            }
+        });
+
+        // Scrape Device Icons Button
+        document.getElementById('scrapeIconsBtn').addEventListener('click', async () => {
+            const deviceId = deviceManager.getSelectedDevice();
+            const status = document.getElementById('iconMgmtStatus');
+            const progressDiv = document.getElementById('iconScrapeProgress');
+            const progressText = document.getElementById('scrapeProgressText');
+            const progressDetail = document.getElementById('scrapeProgressDetail');
+
+            if (!deviceId) {
+                status.textContent = 'Please select a device first';
+                status.className = 'status error';
+                return;
+            }
+
+            // Confirm action
+            if (!confirm('This will scrape app icons from the device app drawer. It may take 30-60 seconds. Continue?')) {
+                return;
+            }
+
+            status.textContent = '';
+            progressDiv.style.display = 'block';
+            progressText.textContent = 'Scraping device icons...';
+            progressDetail.textContent = 'Opening app drawer and capturing screenshots...';
+
+            try {
+                const response = await fetch(`${getApiBase()}/adb/scrape-device-icons/${encodeURIComponent(deviceId)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+
+                progressDiv.style.display = 'none';
+
+                if (data.success) {
+                    status.textContent = `✅ Successfully scraped ${data.icons_scraped} icons! Cache size: ${data.cache_stats?.total_size_mb || 0} MB`;
+                    status.className = 'status success';
+
+                    // Update cache status display
+                    document.getElementById('iconCount').textContent = data.cache_stats?.total_icons || 0;
+                    document.getElementById('cacheSize').textContent = data.cache_stats?.total_size_mb ? `${data.cache_stats.total_size_mb} MB` : '0 MB';
+                    document.getElementById('newAppsCount').textContent = 0;
+                    document.getElementById('iconCacheStatus').style.display = 'block';
+                } else {
+                    status.textContent = `✗ Icon scraping failed`;
+                    status.className = 'status error';
+                }
+            } catch (error) {
+                console.error('Failed to scrape device icons:', error);
+                progressDiv.style.display = 'none';
+                status.textContent = `✗ Failed to scrape icons: ${error.message}`;
+                status.className = 'status error';
+            }
+        });
+
+        // View Cache Stats Button
+        document.getElementById('viewCacheStatsBtn').addEventListener('click', async () => {
+            const deviceId = deviceManager.getSelectedDevice();
+            const status = document.getElementById('iconMgmtStatus');
+
+            status.textContent = 'Loading cache statistics...';
+            status.className = 'status';
+
+            try {
+                const url = deviceId
+                    ? `${getApiBase()}/adb/icon-cache-stats?device_id=${encodeURIComponent(deviceId)}`
+                    : `${getApiBase()}/adb/icon-cache-stats`;
+
+                const response = await fetch(url);
+                const stats = await response.json();
+
+                // Format stats for display
+                let statsText = '📊 Icon Cache Statistics:\n\n';
+
+                if (stats.device_scraper) {
+                    statsText += `Device-Specific Icons:\n`;
+                    statsText += `  • Icons: ${stats.device_scraper.total_icons || 0}\n`;
+                    statsText += `  • Size: ${stats.device_scraper.total_size_mb || 0} MB\n\n`;
+                }
+
+                if (stats.playstore_scraper) {
+                    statsText += `Play Store Icons:\n`;
+                    statsText += `  • Icons: ${stats.playstore_scraper.total_icons || 0}\n`;
+                    statsText += `  • Size: ${stats.playstore_scraper.total_size_mb || 0} MB\n\n`;
+                }
+
+                if (stats.apk_extractor) {
+                    statsText += `APK Extracted Icons:\n`;
+                    statsText += `  • Icons: ${stats.apk_extractor.total_icons || 0}\n`;
+                    statsText += `  • Size: ${stats.apk_extractor.total_size_mb || 0} MB\n`;
+                }
+
+                alert(statsText);
+                status.textContent = '✅ Statistics loaded';
+                status.className = 'status success';
+            } catch (error) {
+                console.error('Failed to load cache stats:', error);
+                status.textContent = `✗ Failed to load stats: ${error.message}`;
+                status.className = 'status error';
+            }
+        });
 
         // Initial load
         loadDevices();
