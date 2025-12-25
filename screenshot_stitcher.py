@@ -1713,27 +1713,33 @@ class ScreenshotStitcher:
         logger.info(f"  Final image: {final_w}x{final_h}px from {len(captures)} captures")
         logger.info(f"  Total elements: {len(result_elements)}")
 
-        # === POST-PROCESS: Remove duplicate content at bottom ===
-        # Check if the bottom portion duplicates content earlier in the image
-        result_img, result_elements = self._remove_bottom_duplicates(
+        # === POST-PROCESS: Remove consecutive duplicate content ===
+        # Scan entire image for sections that repeat immediately after themselves
+        result_img, result_elements = self._remove_consecutive_duplicates(
             result_img, result_elements, screen_height
         )
 
         return result_img, result_elements, total_stitch_info
 
-    def _remove_bottom_duplicates(
+    def _remove_consecutive_duplicates(
         self,
         img: Image.Image,
         elements: list,
         screen_height: int
     ) -> Tuple[Image.Image, list]:
         """
-        Post-process to remove duplicate content at the bottom of stitched image.
-        Compares bottom strips with earlier content to find and remove duplicates.
+        Post-process to remove CONSECUTIVE duplicate content anywhere in the image.
 
-        IMPORTANT: Only compares CENTER content area to avoid false positives from:
-        - Consistent headers/status bars
-        - Consistent edge margins/backgrounds
+        This detects when the same content appears twice in a row - which happens
+        when overlap detection fails during stitching.
+
+        Strategy:
+        1. Scan the image for sections that match content 150-400px later
+        2. When found, remove the duplicate section (the later occurrence)
+        3. Repeat until no more duplicates found
+
+        IMPORTANT: Uses center 60% of width to avoid false positives from
+        consistent UI edges/margins.
         """
         import numpy as np
 
@@ -1741,60 +1747,137 @@ class ScreenshotStitcher:
         if height <= screen_height:
             return img, elements  # Single screen, no duplicates possible
 
+        logger.info(f"  === SCANNING FOR CONSECUTIVE DUPLICATES ===")
+        logger.info(f"  Image size: {width}x{height}")
+
         arr = np.array(img.convert('RGB'))
-        strip_height = 100
+        strip_height = 150  # Height of strip to compare
 
         # Only compare CENTER 60% of width (skip edges with consistent UI)
         left_margin = width // 5
         right_margin = 4 * width // 5
 
-        # Skip header area (top 300px) when searching for earlier matches
-        header_skip = 300
+        # Skip header area (top 200px) - often has fixed elements
+        header_skip = 200
 
-        # Check the bottom portion (last screen_height worth) against earlier content
-        bottom_start = height - screen_height
+        # Track duplicate regions to remove
+        # Each entry is (start_y, end_y) of the duplicate section to remove
+        duplicates_to_remove = []
 
-        # Search for where the bottom content matches earlier content
-        best_match_y = -1
-        best_match_score = 0
+        # Scan for consecutive duplicates
+        # Check every 25px for thorough coverage
+        y = header_skip
+        while y < height - strip_height - 150:  # Need room for offset check
+            strip1 = arr[y:y + strip_height, left_margin:right_margin, :]
 
-        for check_y in range(bottom_start, height - strip_height, 50):
-            # Get CENTER of bottom strip (skip edges)
-            bottom_strip = arr[check_y:check_y + strip_height, left_margin:right_margin, :]
+            # Skip dark/blank regions (variance < 1500 = not real content)
+            # Netflix and similar apps have lots of dark background that matches
+            # but isn't actually duplicate content
+            strip1_variance = np.var(strip1)
+            if strip1_variance < 1500:
+                y += 50  # Skip faster through dark regions
+                continue
 
-            # Search in the earlier part of the image (skip header)
-            for search_y in range(header_skip, bottom_start - strip_height, 50):
-                earlier_strip = arr[search_y:search_y + strip_height, left_margin:right_margin, :]
+            # Check for match 150-400px later (typical scroll distances)
+            for offset in [150, 200, 250, 300, 350, 400]:
+                later_y = y + offset
+                if later_y + strip_height > height:
+                    continue
 
-                matching = np.sum(bottom_strip == earlier_strip)
-                total = bottom_strip.size
+                strip2 = arr[later_y:later_y + strip_height, left_margin:right_margin, :]
+
+                # Also check second strip has content
+                strip2_variance = np.var(strip2)
+                if strip2_variance < 1500:
+                    continue
+
+                # Check if strips are very similar (>92% match for content regions)
+                matching = np.sum(strip1 == strip2)
+                total = strip1.size
                 score = matching / total
 
-                # Use 98% threshold - must be nearly identical to be a true duplicate
-                if score > 0.98 and score > best_match_score:
-                    best_match_score = score
-                    best_match_y = check_y
-                    logger.info(f"  DUPLICATE FOUND: bottom y={check_y} matches earlier y={search_y} ({score*100:.1f}%)")
-                    break
+                if score > 0.92:  # Lower threshold OK since we verified content exists
+                    # Found a consecutive duplicate!
+                    # The duplicate section runs from y+offset to some point beyond
 
-            if best_match_y > 0:
-                break
+                    # Find how far the duplicate extends
+                    dup_start = later_y
+                    dup_end = dup_start
 
-        if best_match_y > 0:
-            # Crop the image to remove duplicate content
-            new_height = best_match_y
-            logger.info(f"  REMOVING DUPLICATE: Cropping from {height}px to {new_height}px")
+                    # Extend the duplicate region as long as it keeps matching
+                    check_y = dup_start
+                    original_y = y
+                    while check_y + strip_height <= height and original_y + strip_height <= dup_start:
+                        check_strip = arr[check_y:check_y + strip_height, left_margin:right_margin, :]
+                        orig_strip = arr[original_y:original_y + strip_height, left_margin:right_margin, :]
 
-            cropped_img = img.crop((0, 0, width, new_height))
+                        match_score = np.sum(check_strip == orig_strip) / check_strip.size
+                        if match_score > 0.90:
+                            dup_end = check_y + strip_height
+                            check_y += 50  # Step forward
+                            original_y += 50
+                        else:
+                            break
 
-            # Filter elements to only include those above the crop line
-            filtered_elements = [
-                e for e in elements
-                if self._get_element_y_center(e) < new_height
-            ]
+                    if dup_end > dup_start + 50:  # Minimum 50px duplicate
+                        logger.info(f"  CONSECUTIVE DUP: y={y} repeats at y={dup_start}-{dup_end} ({score*100:.1f}%)")
+                        duplicates_to_remove.append((dup_start, dup_end))
+                        y = dup_end  # Skip past this duplicate
+                        break
 
-            logger.info(f"  Elements: {len(elements)} -> {len(filtered_elements)}")
-            return cropped_img, filtered_elements
+            y += 25  # Step by 25px for thorough coverage
+
+        # Remove duplicates (from bottom to top to preserve y-coordinates)
+        if duplicates_to_remove:
+            logger.info(f"  Found {len(duplicates_to_remove)} duplicate region(s) to remove")
+
+            # Sort by start position descending (process from bottom up)
+            duplicates_to_remove.sort(key=lambda x: x[0], reverse=True)
+
+            current_arr = arr
+            total_removed = 0
+
+            for dup_start, dup_end in duplicates_to_remove:
+                dup_height = dup_end - dup_start
+                logger.info(f"  Removing duplicate region y={dup_start}-{dup_end} ({dup_height}px)")
+
+                # Create new array without the duplicate region
+                new_arr = np.vstack([
+                    current_arr[:dup_start, :, :],
+                    current_arr[dup_end:, :, :]
+                ])
+                current_arr = new_arr
+                total_removed += dup_height
+
+                # Adjust elements
+                new_elements = []
+                for elem in elements:
+                    y_center = self._get_element_y_center(elem)
+
+                    if y_center < dup_start:
+                        # Element is before duplicate - keep as is
+                        new_elements.append(elem)
+                    elif y_center >= dup_end:
+                        # Element is after duplicate - adjust Y position
+                        adjusted_elem = elem.copy()
+                        bounds = adjusted_elem.get('bounds', {})
+                        if isinstance(bounds, dict):
+                            bounds = bounds.copy()
+                            bounds['y'] = bounds.get('y', 0) - dup_height
+                            adjusted_elem['bounds'] = bounds
+                        new_elements.append(adjusted_elem)
+                    # Elements inside the duplicate region are dropped
+
+                elements = new_elements
+
+            new_height = current_arr.shape[0]
+            logger.info(f"  TOTAL REMOVED: {total_removed}px, new height: {height}px -> {new_height}px")
+            logger.info(f"  Elements: after filtering: {len(elements)}")
+
+            result_img = Image.fromarray(current_arr)
+            return result_img, elements
+        else:
+            logger.info(f"  No consecutive duplicates found")
 
         return img, elements
 
