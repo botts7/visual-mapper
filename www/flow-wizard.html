@@ -125,28 +125,27 @@
                 <aside id="elementSidebar" class="element-sidebar">
                     <div class="sidebar-header">
                         <h3>Detected Elements</h3>
-                        <button class="btn-collapse" id="btnCollapseSidebar" title="Collapse sidebar">
-                            ◀
-                        </button>
+                    </div>
+                    <div class="sidebar-search">
+                        <input type="text" id="elementSearchInput" class="search-input" placeholder="Search elements...">
+                        <div class="sidebar-filters">
+                            <label><input type="checkbox" id="filterSidebarClickable" checked> Clickable</label>
+                            <label><input type="checkbox" id="filterSidebarText" checked> Has Text</label>
+                        </div>
                     </div>
                     <div class="sidebar-content">
                         <div id="elementList" class="element-list-sidebar"></div>
                     </div>
                 </aside>
 
-                <!-- Sidebar Toggle Button (when collapsed) -->
-                <button id="btnExpandSidebar" class="sidebar-toggle-btn">
-                    📋<br>Elements
-                </button>
-
                 <!-- Screenshot Panel (Middle) -->
                 <div class="screenshot-panel">
                     <!-- App Info Header -->
-                    <div id="appInfoHeader" class="app-info-header" style="display: none; margin-bottom: 15px; padding: 15px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); align-items: center; gap: 15px;">
-                        <img id="appIcon" src="" alt="App Icon" style="width: 48px; height: 48px; border-radius: 8px; border: 1px solid var(--border);">
-                        <div style="flex: 1;">
-                            <h3 id="appName" style="margin: 0; font-size: 18px; color: var(--text-primary);"></h3>
-                            <div id="appPackage" style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;"></div>
+                    <div id="appInfoHeader" class="app-info-header">
+                        <img id="appIcon" src="" alt="App Icon" class="app-icon-img">
+                        <div class="app-info-text">
+                            <h3 id="appName"></h3>
+                            <div id="appPackage" class="app-package-text"></div>
                         </div>
                     </div>
 
@@ -155,7 +154,12 @@
                         <button class="btn btn-secondary" id="btnStitchCapture">📸 Stitch Capture</button>
                         <button class="btn btn-secondary" id="btnGoBack">⬅️ Back</button>
                         <button class="btn btn-secondary" id="btnGoHome">🏠 Home</button>
-                        <button class="btn btn-secondary" id="btnToggleScale">📏 1:1 Scale</button>
+                        <div class="zoom-controls">
+                            <button class="btn btn-secondary btn-sm" id="btnZoomOut" title="Zoom Out">🔍-</button>
+                            <span class="zoom-level" id="zoomLevel">100%</span>
+                            <button class="btn btn-secondary btn-sm" id="btnZoomIn" title="Zoom In">🔍+</button>
+                            <button class="btn btn-secondary btn-sm" id="btnZoomReset" title="Reset Zoom">↺</button>
+                        </div>
                     </div>
 
                     <div class="swipe-controls">
@@ -165,29 +169,29 @@
                         <button class="btn btn-sm" data-swipe="right">➡️ Right</button>
                     </div>
 
-                    <div class="overlay-section" style="margin-bottom: 10px; padding: 10px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">
+                    <div class="overlay-section">
                         <strong>Element Overlay:</strong>
-                        <div style="display: flex; flex-wrap: wrap; gap: 15px; margin-top: 8px;">
-                            <label style="cursor: pointer;">
+                        <div class="overlay-filters">
+                            <label>
                                 <input type="checkbox" id="filterClickable" checked> Clickable
                             </label>
-                            <label style="cursor: pointer;">
+                            <label>
                                 <input type="checkbox" id="filterNonClickable" checked> Non-Clickable
                             </label>
-                            <label style="cursor: pointer;">
+                            <label>
                                 <input type="checkbox" id="filterTextLabels" checked> Text Labels
                             </label>
-                            <label style="cursor: pointer;">
+                            <label>
                                 <input type="checkbox" id="filterMinSize"> Hide Small (&lt;50px)
                             </label>
-                            <label style="cursor: pointer;">
+                            <label>
                                 <input type="checkbox" id="filterTextOnly"> Text Only
                             </label>
                         </div>
                     </div>
 
                     <div id="screenshotContainer" class="screenshot-display loading">
-                        <canvas id="screenshotCanvas" style="display: none; cursor: crosshair; transform-origin: top left;"></canvas>
+                        <canvas id="screenshotCanvas"></canvas>
                         <div id="screenshotLoading">Starting flow...</div>
                     </div>
                 </div>
