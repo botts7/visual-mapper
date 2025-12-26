@@ -412,11 +412,13 @@ class FlowWizard {
         document.getElementById('btnGoBack')?.addEventListener('click', async () => {
             await this.recorder.goBack();
             this.updateScreenshotDisplay();
+            this.refreshAfterAction(600); // Refresh elements after navigation
         });
 
         document.getElementById('btnGoHome')?.addEventListener('click', async () => {
             await this.recorder.goHome();
             this.updateScreenshotDisplay();
+            this.refreshAfterAction(600); // Refresh elements after navigation
         });
 
         // Zoom controls
@@ -438,6 +440,7 @@ class FlowWizard {
                 const direction = btn.dataset.swipe;
                 await this.recorder.swipe(direction);
                 this.updateScreenshotDisplay();
+                this.refreshAfterAction(500); // Refresh elements after swipe
             });
         });
 
@@ -561,6 +564,8 @@ class FlowWizard {
             this.liveStream.onConnect = () => {
                 this.updateStreamStatus('connected', 'Live');
                 showToast('Streaming started', 'success', 2000);
+                // Fetch initial elements
+                this.refreshElements();
             };
 
             this.liveStream.onDisconnect = () => {
@@ -617,6 +622,52 @@ class FlowWizard {
             statusEl.className = `stream-status ${className}`;
             statusEl.textContent = text;
         }
+    }
+
+    /**
+     * Refresh elements in background (for streaming mode)
+     * Fetches fresh element data without capturing a new screenshot
+     */
+    async refreshElements() {
+        if (!this.selectedDevice) return;
+
+        try {
+            const response = await fetch(`${getApiBase()}/adb/screenshot/${this.selectedDevice}?quick=true`);
+            if (!response.ok) return;
+
+            const data = await response.json();
+            const elements = data.elements || [];
+
+            // Update element panel
+            if (this.elementPanel && elements.length > 0) {
+                this.elementPanel.updateElements(elements);
+            }
+
+            // Update LiveStream elements for overlay
+            if (this.liveStream) {
+                this.liveStream.elements = elements;
+            }
+
+            console.log(`[FlowWizard] Elements refreshed: ${elements.length} elements`);
+        } catch (error) {
+            console.warn('[FlowWizard] Failed to refresh elements:', error);
+        }
+    }
+
+    /**
+     * Auto-refresh elements after an action (with delay)
+     * Used in streaming mode to update element overlays after tap/swipe
+     */
+    async refreshAfterAction(delayMs = 500) {
+        if (this.captureMode !== 'streaming') return;
+
+        setTimeout(async () => {
+            try {
+                await this.refreshElements();
+            } catch (e) {
+                console.warn('[FlowWizard] Auto-refresh after action failed:', e);
+            }
+        }, delayMs);
     }
 
     toggleScale() {
@@ -778,6 +829,9 @@ class FlowWizard {
             await this.recorder.wait(500); // Wait for UI to update
             await this.recorder.captureScreenshot();
         }
+
+        // Refresh elements in streaming mode
+        this.refreshAfterAction(500);
     }
 
     /**
