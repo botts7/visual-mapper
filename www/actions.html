@@ -110,6 +110,132 @@
             padding: 40px;
             color: var(--text-secondary);
         }
+
+        /* Edit Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 600px;
+            width: 95%;
+            max-height: 85vh;
+            overflow-y: auto;
+            position: relative;
+            z-index: 10001;
+        }
+
+        .modal-header {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            color: #0f172a;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #64748b;
+        }
+
+        .modal-close:hover {
+            color: #0f172a;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #0f172a;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            font-size: 14px;
+            background: #ffffff;
+            color: #0f172a;
+            box-sizing: border-box;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .form-group .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .form-group input[type="checkbox"] {
+            width: auto;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .form-row .form-group {
+            margin-bottom: 0;
+        }
+
+        .action-type-info {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+
+        .action-type-info code {
+            background: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
@@ -125,8 +251,7 @@
             <li class="nav-priority-med"><a href="flows.html">Flows</a></li>
             <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
 
-            <!-- Low priority - hidden on mobile and tablet -->
-            <li class="nav-priority-low"><a href="index.html">Home</a></li>
+            <!-- Low priority - hidden on tablet -->
             <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
 
             <li class="version">v0.0.5</li>
@@ -155,6 +280,53 @@
             <div id="actionsContainer">
                 <p class="status warning">Loading actions...</p>
             </div>
+        </div>
+    </div>
+
+    <!-- Edit Action Modal -->
+    <div class="modal-overlay" id="editModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Edit Action</h2>
+                <button type="button" class="modal-close" onclick="closeEditModal()">×</button>
+            </div>
+
+            <form id="editActionForm">
+                <div class="action-type-info" id="actionTypeInfo">
+                    <!-- Action type details will be displayed here -->
+                </div>
+
+                <div class="form-group">
+                    <label for="editActionName">Action Name *</label>
+                    <input type="text" id="editActionName" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="editActionDescription">Description</label>
+                    <textarea id="editActionDescription" rows="3" placeholder="Optional description of what this action does"></textarea>
+                </div>
+
+                <div id="actionTypeFields">
+                    <!-- Type-specific fields will be rendered here -->
+                </div>
+
+                <div class="form-group">
+                    <label for="editActionTags">Tags (comma-separated)</label>
+                    <input type="text" id="editActionTags" placeholder="e.g., navigation, login, settings">
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" id="editActionEnabled" checked>
+                        <label for="editActionEnabled" style="margin: 0">Action Enabled</label>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -445,7 +617,9 @@
             }
         }
 
-        // Edit action
+        // Edit action - show modal dialog
+        let editingAction = null;
+
         async function editAction(deviceId, actionId) {
             // Find the action in our local data
             const actionDef = allActions.find(a => a.id === actionId && a.device_id === deviceId);
@@ -454,35 +628,214 @@
                 return;
             }
 
+            editingAction = { deviceId, actionId, actionDef };
             const action = actionDef.action;
 
-            // Prompt for new name
-            const newName = prompt('Enter new action name:', action.name);
-            if (newName === null) return; // Cancelled
+            // Populate form fields
+            document.getElementById('editActionName').value = action.name || '';
+            document.getElementById('editActionDescription').value = action.description || '';
+            document.getElementById('editActionTags').value = (actionDef.tags || []).join(', ');
+            document.getElementById('editActionEnabled').checked = actionDef.enabled !== false;
 
-            // Prompt for new description
-            const newDescription = prompt('Enter new description (optional):', action.description || '');
+            // Show action type info
+            const typeInfo = document.getElementById('actionTypeInfo');
+            typeInfo.innerHTML = renderActionTypeInfo(action);
 
-            // Prompt for enabled status
-            const enabledStr = prompt('Enable action? (yes/no):', action.enabled ? 'yes' : 'no');
-            const newEnabled = enabledStr?.toLowerCase() === 'yes';
+            // Render type-specific fields
+            const typeFields = document.getElementById('actionTypeFields');
+            typeFields.innerHTML = renderActionTypeFields(action);
+
+            // Show modal
+            document.getElementById('editModal').classList.add('active');
+        }
+
+        function renderActionTypeInfo(action) {
+            let details = '';
+            switch (action.action_type) {
+                case 'tap':
+                    details = `<strong>Tap Action</strong> at coordinates <code>(${action.x}, ${action.y})</code>`;
+                    break;
+                case 'swipe':
+                    details = `<strong>Swipe Action</strong> from <code>(${action.x1}, ${action.y1})</code> to <code>(${action.x2}, ${action.y2})</code>`;
+                    break;
+                case 'text':
+                    details = `<strong>Text Input Action</strong> - types: <code>"${action.text}"</code>`;
+                    break;
+                case 'keyevent':
+                    details = `<strong>Key Event Action</strong> - keycode: <code>${action.keycode}</code>`;
+                    break;
+                case 'launch_app':
+                    details = `<strong>Launch App Action</strong> - package: <code>${action.package_name}</code>`;
+                    break;
+                case 'delay':
+                    details = `<strong>Delay Action</strong> - duration: <code>${action.duration}ms</code>`;
+                    break;
+                default:
+                    details = `<strong>${action.action_type} Action</strong>`;
+            }
+            return details;
+        }
+
+        function renderActionTypeFields(action) {
+            let html = '';
+
+            switch (action.action_type) {
+                case 'tap':
+                    html = `
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="editX">X Coordinate</label>
+                                <input type="number" id="editX" value="${action.x || 0}">
+                            </div>
+                            <div class="form-group">
+                                <label for="editY">Y Coordinate</label>
+                                <input type="number" id="editY" value="${action.y || 0}">
+                            </div>
+                        </div>
+                    `;
+                    break;
+                case 'swipe':
+                    html = `
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="editX1">Start X</label>
+                                <input type="number" id="editX1" value="${action.x1 || 0}">
+                            </div>
+                            <div class="form-group">
+                                <label for="editY1">Start Y</label>
+                                <input type="number" id="editY1" value="${action.y1 || 0}">
+                            </div>
+                        </div>
+                        <div class="form-row" style="margin-top: 15px;">
+                            <div class="form-group">
+                                <label for="editX2">End X</label>
+                                <input type="number" id="editX2" value="${action.x2 || 0}">
+                            </div>
+                            <div class="form-group">
+                                <label for="editY2">End Y</label>
+                                <input type="number" id="editY2" value="${action.y2 || 0}">
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label for="editDuration">Duration (ms)</label>
+                            <input type="number" id="editDuration" value="${action.duration || 300}">
+                        </div>
+                    `;
+                    break;
+                case 'text':
+                    html = `
+                        <div class="form-group">
+                            <label for="editText">Text to Type</label>
+                            <input type="text" id="editText" value="${action.text || ''}">
+                        </div>
+                    `;
+                    break;
+                case 'keyevent':
+                    html = `
+                        <div class="form-group">
+                            <label for="editKeycode">Keycode</label>
+                            <input type="text" id="editKeycode" value="${action.keycode || ''}">
+                        </div>
+                    `;
+                    break;
+                case 'launch_app':
+                    html = `
+                        <div class="form-group">
+                            <label for="editPackageName">Package Name</label>
+                            <input type="text" id="editPackageName" value="${action.package_name || ''}">
+                        </div>
+                    `;
+                    break;
+                case 'delay':
+                    html = `
+                        <div class="form-group">
+                            <label for="editDelayDuration">Delay Duration (ms)</label>
+                            <input type="number" id="editDelayDuration" value="${action.duration || 1000}">
+                        </div>
+                    `;
+                    break;
+            }
+
+            return html;
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').classList.remove('active');
+            editingAction = null;
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('editModal').addEventListener('click', (e) => {
+            if (e.target.id === 'editModal') {
+                closeEditModal();
+            }
+        });
+
+        // Handle form submission
+        document.getElementById('editActionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!editingAction) return;
+
+            const { deviceId, actionId, actionDef } = editingAction;
+            const action = { ...actionDef.action };
+
+            // Update basic fields
+            action.name = document.getElementById('editActionName').value.trim();
+            action.description = document.getElementById('editActionDescription').value.trim();
+
+            // Update type-specific fields
+            switch (action.action_type) {
+                case 'tap':
+                    action.x = parseInt(document.getElementById('editX').value) || 0;
+                    action.y = parseInt(document.getElementById('editY').value) || 0;
+                    break;
+                case 'swipe':
+                    action.x1 = parseInt(document.getElementById('editX1').value) || 0;
+                    action.y1 = parseInt(document.getElementById('editY1').value) || 0;
+                    action.x2 = parseInt(document.getElementById('editX2').value) || 0;
+                    action.y2 = parseInt(document.getElementById('editY2').value) || 0;
+                    action.duration = parseInt(document.getElementById('editDuration').value) || 300;
+                    break;
+                case 'text':
+                    action.text = document.getElementById('editText').value;
+                    break;
+                case 'keyevent':
+                    action.keycode = document.getElementById('editKeycode').value;
+                    break;
+                case 'launch_app':
+                    action.package_name = document.getElementById('editPackageName').value;
+                    break;
+                case 'delay':
+                    action.duration = parseInt(document.getElementById('editDelayDuration').value) || 1000;
+                    break;
+            }
+
+            // Parse tags
+            const tagsInput = document.getElementById('editActionTags').value;
+            const tags = tagsInput ? tagsInput.split(',').map(t => t.trim()).filter(t => t) : [];
+
+            const enabled = document.getElementById('editActionEnabled').checked;
 
             try {
-                // Update the action
                 const updateData = {
-                    action: {
-                        ...action,
-                        name: newName.trim() || action.name,
-                        description: newDescription?.trim() || action.description
-                    },
-                    enabled: newEnabled,
-                    tags: actionDef.tags
+                    action: action,
+                    enabled: enabled,
+                    tags: tags
                 };
 
                 const result = await apiClient.put(`/actions/${deviceId}/${actionId}`, updateData);
 
                 if (result.success) {
-                    alert('Action updated successfully!');
+                    closeEditModal();
+                    // Show success message
+                    const statusDiv = document.createElement('div');
+                    statusDiv.className = 'status success';
+                    statusDiv.style.cssText = 'position: fixed; top: 80px; right: 20px; z-index: 9999; padding: 15px 20px;';
+                    statusDiv.textContent = '✅ Action updated successfully!';
+                    document.body.appendChild(statusDiv);
+                    setTimeout(() => statusDiv.remove(), 3000);
+
                     await loadActions();
                 } else {
                     throw new Error(result.message || 'Update failed');
@@ -491,7 +844,10 @@
                 console.error('[Actions] Edit failed:', error);
                 alert(`Failed to update action: ${error.message}`);
             }
-        }
+        });
+
+        // Make closeEditModal globally available
+        window.closeEditModal = closeEditModal;
 
         // Delete action
         async function deleteAction(deviceId, actionId) {

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="0.0.3">
-    <meta name="version" content="0.0.3" data-build="2025-12-25">
+    <meta name="version" content="0.0.3" data-build="2025-12-27">
     <title>Flow Wizard - Visual Mapper</title>
     <link rel="stylesheet" href="css/styles.css?v=0.0.3">
     <link rel="stylesheet" href="css/flow-wizard.css?v=0.0.3">
@@ -11,15 +11,20 @@
 <body>
     <nav>
         <ul>
-            <li><a href="index.html">Home</a></li>
-            <li><a href="main.html">Dashboard</a></li>
-            <li><a href="devices.html">Devices</a></li>
-            <li><a href="sensors.html">Sensors</a></li>
-            <li><a href="actions.html">Actions</a></li>
-            <li><a href="flows.html">Flows</a></li>
-            <li><a href="diagnostic.html">Diagnostics</a></li>
-            <li><a href="dev.html">Dev Tools</a></li>
-            <li class="version">v0.0.3</li>
+            <!-- High priority - always visible -->
+            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
+            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
+            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
+
+            <!-- Medium priority - hidden on mobile -->
+            <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
+            <li class="nav-priority-med"><a href="flows.html" class="active">Flows</a></li>
+            <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
+
+            <!-- Low priority - hidden on tablet -->
+            <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
+
+            <li class="version">v0.0.5</li>
             <li id="themeToggleContainer"></li>
         </ul>
     </nav>
@@ -117,103 +122,88 @@
 
         <!-- Step 3: Recording Mode -->
         <div id="step3" class="wizard-step">
-            <h2>Record Flow Steps</h2>
-            <p class="step-description">Click elements on the screen to add actions or sensors</p>
-
             <div class="recording-layout">
-                <!-- Element Sidebar (Collapsible) -->
-                <aside id="elementSidebar" class="element-sidebar">
-                    <div class="sidebar-header">
-                        <h3>Detected Elements</h3>
-                    </div>
-                    <div class="sidebar-search">
-                        <input type="text" id="elementSearchInput" class="search-input" placeholder="Search elements...">
-                        <div class="sidebar-filters">
-                            <label><input type="checkbox" id="filterSidebarClickable" checked> Clickable</label>
-                            <label><input type="checkbox" id="filterSidebarText" checked> Has Text</label>
-                        </div>
-                    </div>
-                    <div class="sidebar-content">
-                        <div id="elementList" class="element-list-sidebar"></div>
-                    </div>
-                </aside>
-
-                <!-- Screenshot Panel (Middle) -->
+                <!-- Screenshot Panel (Main) -->
                 <div class="screenshot-panel">
-                    <!-- App Info Header -->
-                    <div id="appInfoHeader" class="app-info-header">
-                        <img id="appIcon" src="" alt="App Icon" class="app-icon-img">
-                        <div class="app-info-text">
-                            <h3 id="appName"></h3>
-                            <div id="appPackage" class="app-package-text"></div>
+                    <!-- Quick Actions Toolbar -->
+                    <div class="quick-actions-bar">
+                        <!-- App Info -->
+                        <div class="toolbar-app-info">
+                            <img id="appIcon" src="" alt="" class="toolbar-app-icon">
+                            <span id="appName" class="toolbar-app-name"></span>
                         </div>
+                        <div class="quick-divider"></div>
+
+                        <!-- Navigation -->
+                        <button class="quick-btn with-label" id="qabRefresh" title="Refresh Screen">
+                            <span class="btn-icon">↻</span><span class="btn-label">Refresh</span>
+                        </button>
+                        <button class="quick-btn with-label" id="qabBack" title="Back">
+                            <span class="btn-icon">←</span><span class="btn-label">Back</span>
+                        </button>
+                        <button class="quick-btn with-label" id="qabHome" title="Home">
+                            <span class="btn-icon">⌂</span><span class="btn-label">Home</span>
+                        </button>
+                        <div class="quick-divider"></div>
+
+                        <!-- Zoom -->
+                        <button class="quick-btn" id="qabZoomOut" title="Zoom Out">−</button>
+                        <span class="zoom-display" id="zoomLevel">100%</span>
+                        <button class="quick-btn" id="qabZoomIn" title="Zoom In">+</button>
+                        <button class="quick-btn" id="qabScale" title="Toggle 1:1 Scale">1:1</button>
+                        <div class="quick-divider"></div>
+
+                        <!-- Capture Mode -->
+                        <select id="captureMode" class="quick-select" title="Capture Mode">
+                            <option value="polling">Polling</option>
+                            <option value="streaming">Stream</option>
+                        </select>
+                        <select id="streamQuality" class="quick-select" title="Stream Quality">
+                            <option value="medium">720p</option>
+                            <option value="high">Native</option>
+                            <option value="low">480p</option>
+                            <option value="fast">360p</option>
+                        </select>
+                        <span id="connectionStatus" class="connection-status"></span>
+                        <div class="quick-divider"></div>
+
+                        <!-- Actions -->
+                        <button class="quick-btn with-label" id="qabStitch" title="Full Page Capture">
+                            <span class="btn-icon">📸</span><span class="btn-label">Stitch</span>
+                        </button>
+                        <button class="quick-btn" id="qabOverlay" title="Toggle Overlay Settings">⚙️</button>
                     </div>
 
-                    <div class="screenshot-controls">
-                        <!-- Capture Mode Toggle -->
-                        <div class="capture-mode-toggle">
-                            <label class="mode-option">
-                                <input type="radio" name="captureMode" value="polling" checked>
-                                <span>Polling</span>
-                            </label>
-                            <label class="mode-option">
-                                <input type="radio" name="captureMode" value="streaming">
-                                <span>Stream</span>
-                            </label>
-                            <select id="streamQuality" class="quality-select" disabled>
-                                <option value="medium">720p</option>
-                                <option value="high">Native</option>
-                                <option value="low">480p</option>
-                                <option value="fast">360p</option>
+                    <!-- Overlay Settings (collapsible) -->
+                    <div id="overlaySettings" class="overlay-settings" style="display: none;">
+                        <label><input type="checkbox" id="filterClickable" checked> Clickable</label>
+                        <label><input type="checkbox" id="filterNonClickable"> Non-Clickable</label>
+                        <label><input type="checkbox" id="filterTextLabels" checked> Labels</label>
+                        <label><input type="checkbox" id="filterMinSize" checked> Hide Small</label>
+                        <label><input type="checkbox" id="filterDividers" checked> Hide Dividers</label>
+                        <label><input type="checkbox" id="filterContainers" checked> Hide Containers</label>
+                        <label><input type="checkbox" id="filterEmptyElements" checked> Hide Empty</label>
+                        <span class="settings-divider">|</span>
+                        <label title="Element refresh interval in seconds">
+                            Refresh: <select id="elementRefreshInterval" style="padding: 2px 4px; font-size: 12px;">
+                                <option value="1000">1s</option>
+                                <option value="2000">2s</option>
+                                <option value="3000" selected>3s</option>
+                                <option value="5000">5s</option>
+                                <option value="10000">10s</option>
                             </select>
-                            <span id="streamStatus" class="stream-status"></span>
-                        </div>
-
-                        <button class="btn btn-secondary" id="btnRefreshScreen">🔄 Refresh</button>
-                        <button class="btn btn-secondary" id="btnStitchCapture">📸 Stitch Capture</button>
-                        <button class="btn btn-secondary" id="btnGoBack">⬅️ Back</button>
-                        <button class="btn btn-secondary" id="btnGoHome">🏠 Home</button>
-                        <button class="btn btn-secondary" id="btnToggleTree" title="Toggle element tree">🌳 Tree</button>
-                        <div class="zoom-controls">
-                            <button class="btn btn-secondary btn-sm" id="btnZoomOut" title="Zoom Out">🔍-</button>
-                            <span class="zoom-level" id="zoomLevel">100%</span>
-                            <button class="btn btn-secondary btn-sm" id="btnZoomIn" title="Zoom In">🔍+</button>
-                            <button class="btn btn-secondary btn-sm" id="btnZoomReset" title="Reset Zoom">↺</button>
-                        </div>
+                        </label>
                     </div>
 
-                    <div class="swipe-controls">
-                        <button class="btn btn-sm" data-swipe="up">⬆️ Up</button>
-                        <button class="btn btn-sm" data-swipe="down">⬇️ Down</button>
-                        <button class="btn btn-sm" data-swipe="left">⬅️ Left</button>
-                        <button class="btn btn-sm" data-swipe="right">➡️ Right</button>
-                    </div>
-
-                    <div class="overlay-section">
-                        <strong>Element Overlay:</strong>
-                        <div class="overlay-filters">
-                            <label>
-                                <input type="checkbox" id="filterClickable" checked> Clickable
-                            </label>
-                            <label>
-                                <input type="checkbox" id="filterNonClickable" checked> Non-Clickable
-                            </label>
-                            <label>
-                                <input type="checkbox" id="filterTextLabels" checked> Text Labels
-                            </label>
-                            <label>
-                                <input type="checkbox" id="filterMinSize"> Hide Small (&lt;50px)
-                            </label>
-                            <label>
-                                <input type="checkbox" id="filterTextOnly"> Text Only
-                            </label>
-                        </div>
-                    </div>
-
-                    <div id="screenshotContainer" class="screenshot-display screenshot-container loading">
+                    <!-- Screenshot Display -->
+                    <div id="screenshotContainer" class="screenshot-display">
                         <canvas id="screenshotCanvas"></canvas>
-                        <div id="screenshotLoading">Starting flow...</div>
-                        <!-- Hover tooltip for element preview -->
+                        <!-- Loading Overlay -->
+                        <div id="screenshotLoading" class="screenshot-loading-overlay">
+                            <div class="loading-spinner"></div>
+                            <div class="loading-text">Loading...</div>
+                        </div>
+                        <!-- Hover tooltip -->
                         <div id="hoverTooltip" class="hover-tooltip" style="display: none;">
                             <div class="tooltip-header"></div>
                             <div class="tooltip-body"></div>
@@ -223,32 +213,47 @@
                     </div>
                 </div>
 
-                <!-- Element Tree Panel (Split View) -->
-                <aside id="elementTreePanel" class="element-tree-panel" style="display: none;">
-                    <div class="tree-header">
-                        <h3>Element Tree</h3>
-                        <button id="btnCloseTree" class="btn btn-sm btn-secondary" title="Close tree view">✕</button>
+                <!-- Right Panel (Tabbed: Elements / Flow) -->
+                <div id="rightPanel" class="right-panel">
+                    <!-- Tab Headers -->
+                    <div class="panel-tabs">
+                        <button class="panel-tab active" data-tab="elements">
+                            Elements <span id="elementCount" class="tab-badge">0</span>
+                        </button>
+                        <button class="panel-tab" data-tab="flow">
+                            Flow <span id="stepCount" class="tab-badge">0</span>
+                        </button>
                     </div>
-                    <div class="tree-search">
-                        <input type="text" id="treeSearchInput" class="search-input" placeholder="Search elements...">
-                    </div>
-                    <div class="tree-filters">
-                        <label><input type="checkbox" id="treeFilterClickable"> Clickable only</label>
-                        <label><input type="checkbox" id="treeFilterText"> With text</label>
-                    </div>
-                    <div id="elementTreeContainer" class="tree-content"></div>
-                </aside>
 
-                <!-- Flow Steps Panel (Right) -->
-                <div class="flow-steps-panel">
-                    <h3>Flow Steps</h3>
-                    <div id="flowStepsList" class="flow-steps-list"></div>
+                    <!-- Elements Tab Content -->
+                    <div id="tabElements" class="tab-content active">
+                        <div class="tree-toolbar">
+                            <input type="text" id="treeSearchInput" class="tree-search-input" placeholder="Search elements...">
+                        </div>
+                        <div class="tree-filters">
+                            <label><input type="checkbox" id="treeFilterClickable"> Clickable only</label>
+                            <label><input type="checkbox" id="treeFilterText"> Has text</label>
+                        </div>
+                        <div id="elementTreeContainer" class="tree-content"></div>
+                    </div>
 
-                    <button class="btn btn-primary" id="btnDoneRecording">
-                        Done Recording →
-                    </button>
+                    <!-- Flow Tab Content -->
+                    <div id="tabFlow" class="tab-content">
+                        <div id="flowStepsList" class="flow-steps-list"></div>
+                        <div class="flow-actions">
+                            <button class="btn btn-secondary btn-sm" id="btnClearFlow">Clear All</button>
+                            <button class="btn btn-primary btn-done" id="btnDoneRecording">
+                                Done Recording →
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            <!-- FAB for mobile panel toggle -->
+            <button id="panelToggleFab" class="panel-toggle-fab">☰</button>
+            <!-- Backdrop for mobile panel -->
+            <div id="panelBackdrop" class="panel-backdrop"></div>
         </div>
 
         <!-- Step 4: Review & Test -->

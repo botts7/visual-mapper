@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="0.0.3">
-    <meta name="version" content="0.0.3" data-build="2025-12-24">
+    <meta name="version" content="0.0.3" data-build="2025-12-27">
     <title>Flow Management - Visual Mapper</title>
     <link rel="stylesheet" href="css/styles.css?v=0.0.3">
     <style>
@@ -570,15 +570,20 @@
 <body>
     <nav>
         <ul>
-            <li><a href="index.html">Home</a></li>
-            <li><a href="main.html">Dashboard</a></li>
-            <li><a href="devices.html">Devices</a></li>
-            <li><a href="sensors.html">Sensors</a></li>
-            <li><a href="actions.html">Actions</a></li>
-            <li><a href="flows.html">Flows</a></li>
-            <li><a href="diagnostic.html">Diagnostics</a></li>
-            <li><a href="dev.html">Dev Tools</a></li>
-            <li class="version">v0.0.3</li>
+            <!-- High priority - always visible -->
+            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
+            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
+            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
+
+            <!-- Medium priority - hidden on mobile -->
+            <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
+            <li class="nav-priority-med"><a href="flows.html" class="active">Flows</a></li>
+            <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
+
+            <!-- Low priority - hidden on tablet -->
+            <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
+
+            <li class="version">v0.0.5</li>
             <li id="themeToggleContainer"></li>
         </ul>
     </nav>
@@ -632,7 +637,9 @@
                 <thead>
                     <tr>
                         <th>Name</th>
+                        <th>App(s)</th>
                         <th>Device</th>
+                        <th>IP</th>
                         <th>Steps</th>
                         <th>Interval</th>
                         <th>Enabled</th>
@@ -644,7 +651,7 @@
                 </thead>
                 <tbody id="flowTableBody">
                     <tr>
-                        <td colspan="8" class="empty-state">
+                        <td colspan="11" class="empty-state">
                             Loading flows...
                         </td>
                     </tr>
@@ -848,7 +855,7 @@
             if (flows.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="9" class="empty-state">
+                        <td colspan="11" class="empty-state">
                             <p>No flows configured yet.</p>
                             <p>Flows will appear here once you create them via the API.</p>
                         </td>
@@ -861,10 +868,19 @@
                 const flowKey = `${flow.device_id}:${flow.flow_id}`;
                 const isRunning = runningFlows.has(flowKey);
 
+                // Extract apps from launch_app steps
+                const apps = getFlowApps(flow);
+                const appsDisplay = apps.length > 0 ? apps.join(', ') : '-';
+
+                // Parse device ID into name and IP
+                const { deviceName, deviceIP } = parseDeviceId(flow.device_id);
+
                 return `
                 <tr>
                     <td><strong>${escapeHtml(flow.name)}</strong></td>
-                    <td><code>${escapeHtml(flow.device_id)}</code></td>
+                    <td><code style="font-size: 11px;">${escapeHtml(appsDisplay)}</code></td>
+                    <td>${escapeHtml(deviceName)}</td>
+                    <td><code>${escapeHtml(deviceIP)}</code></td>
                     <td>${flow.steps.length} steps</td>
                     <td>${flow.update_interval_seconds}s</td>
                     <td>
@@ -1014,6 +1030,50 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        /**
+         * Extract app package names from flow steps
+         */
+        function getFlowApps(flow) {
+            const apps = new Set();
+            for (const step of flow.steps || []) {
+                if (step.step_type === 'launch_app' && step.package) {
+                    // Get the short app name (last part of package)
+                    const parts = step.package.split('.');
+                    const shortName = parts[parts.length - 1] || step.package;
+                    apps.add(shortName);
+                }
+            }
+            return Array.from(apps);
+        }
+
+        /**
+         * Parse device ID into device name and IP address
+         * Format: IP:PORT or just device name
+         */
+        function parseDeviceId(deviceId) {
+            if (!deviceId) {
+                return { deviceName: '-', deviceIP: '-' };
+            }
+
+            // Check if it looks like IP:PORT format
+            const ipPortMatch = deviceId.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):?(\d+)?$/);
+            if (ipPortMatch) {
+                const ip = ipPortMatch[1];
+                const port = ipPortMatch[2] || '5555';
+                // For IP-only devices, use IP as name too (could be enhanced to lookup device name)
+                return {
+                    deviceName: `Device`,
+                    deviceIP: `${ip}:${port}`
+                };
+            }
+
+            // If it's not IP format, treat the whole thing as device name
+            return {
+                deviceName: deviceId,
+                deviceIP: '-'
+            };
         }
 
         let editingFlow = null;
