@@ -5,6 +5,7 @@
     <meta name="viewport" content="0.0.3">
     <meta name="version" content="0.0.3" data-build="2025-12-26">
     <title>Live Stream - Visual Mapper</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="stylesheet" href="css/styles.css?v=0.0.3">
     <link rel="stylesheet" href="css/live-stream.css?v=0.0.3">
 </head>
@@ -43,8 +44,18 @@
                 <div class="control-group">
                     <label for="streamMode">Mode:</label>
                     <select id="streamMode">
-                        <option value="websocket" selected>WebSocket (Base64)</option>
-                        <option value="mjpeg">MJPEG Binary (~30% less bandwidth)</option>
+                        <option value="mjpeg" selected>MJPEG Binary (Recommended)</option>
+                        <option value="websocket">WebSocket Base64</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label for="streamQuality">Quality:</label>
+                    <select id="streamQuality">
+                        <option value="high">High (Native) ~5 FPS</option>
+                        <option value="medium" selected>Medium (720p) ~10 FPS</option>
+                        <option value="low">Low (480p) ~15 FPS</option>
+                        <option value="fast">Fast (360p) ~20 FPS</option>
                     </select>
                 </div>
 
@@ -266,10 +277,6 @@
                 <button class="quick-btn" id="qabSplitView" title="Toggle Split View">
                     <span class="quick-icon">◫</span>
                 </button>
-                <div class="quick-divider"></div>
-                <a href="http://localhost:8000/" target="_blank" class="quick-btn quick-btn-link" id="qabScrcpy" title="Open ws-scrcpy (Low Latency)">
-                    <span class="quick-icon">⚡</span>
-                </a>
             </div>
 
             <div id="splitViewContainer" class="split-view-container">
@@ -402,6 +409,7 @@
         // DOM elements
         const deviceSelect = document.getElementById('deviceSelect');
         const streamModeSelect = document.getElementById('streamMode');
+        const streamQualitySelect = document.getElementById('streamQuality');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const refreshDevicesBtn = document.getElementById('refreshDevicesBtn');
@@ -544,8 +552,10 @@
                 return;
             }
             const mode = streamModeSelect.value;
-            streamModeValue.textContent = mode === 'mjpeg' ? 'MJPEG Binary' : 'WebSocket Base64';
-            liveStream.start(deviceId, mode);
+            const quality = streamQualitySelect.value;
+            const qualityLabel = streamQualitySelect.options[streamQualitySelect.selectedIndex].text;
+            streamModeValue.textContent = `${mode === 'mjpeg' ? 'MJPEG' : 'Base64'} - ${qualityLabel}`;
+            liveStream.start(deviceId, mode, quality);
         });
 
         stopBtn.addEventListener('click', () => {
@@ -974,7 +984,7 @@
                 }
 
                 try {
-                    console.log(`[ADB] Sending tap to device at (${dragStart.x}, ${dragStart.y})`);
+                    console.log(`[Input] Sending tap at (${dragStart.x}, ${dragStart.y})`);
                     const tapResult = await apiPost('/adb/tap', {
                         device_id: deviceId,
                         x: dragStart.x,
@@ -984,6 +994,9 @@
 
                     // Record the tap if recording
                     recordAction('tap', { x: dragStart.x, y: dragStart.y });
+
+                    // Auto-refresh elements after tap
+                    refreshAfterAction(500);
                 } catch (error) {
                     console.error('Tap failed:', error);
                 }
@@ -1008,6 +1021,9 @@
 
                     // Record the swipe if recording
                     recordAction('swipe', { x1: dragStart.x, y1: dragStart.y, x2: endCoords.x, y2: endCoords.y });
+
+                    // Auto-refresh elements after swipe
+                    refreshAfterAction(500);
                 } catch (error) {
                     console.error('Swipe failed:', error);
                 }
@@ -1033,6 +1049,17 @@
         // Navigation controls
         const lastActionDiv = document.getElementById('lastAction');
 
+        // Auto-refresh elements after actions with a delay
+        async function refreshAfterAction(delayMs = 500) {
+            setTimeout(async () => {
+                try {
+                    await refreshElements();
+                } catch (e) {
+                    console.warn('[AutoRefresh] Failed to refresh after action:', e);
+                }
+            }, delayMs);
+        }
+
         async function sendKeyEvent(keycode, actionName) {
             const deviceId = deviceSelect.value;
             if (!deviceId) {
@@ -1046,6 +1073,8 @@
                 });
                 lastActionDiv.textContent = `Last action: ${actionName}`;
                 console.log(`Key event: ${actionName} (keycode ${keycode})`);
+                // Auto-refresh elements after screen change
+                refreshAfterAction(600);
             } catch (error) {
                 console.error(`${actionName} failed:`, error);
                 lastActionDiv.textContent = `Last action: ${actionName} FAILED`;
@@ -1091,6 +1120,8 @@
                 });
                 lastActionDiv.textContent = `Last action: Swipe ${direction}`;
                 console.log(`Swipe ${direction}: (${x1},${y1}) -> (${x2},${y2})`);
+                // Auto-refresh elements after swipe
+                refreshAfterAction(500);
             } catch (error) {
                 console.error(`Swipe ${direction} failed:`, error);
                 lastActionDiv.textContent = `Last action: Swipe ${direction} FAILED`;

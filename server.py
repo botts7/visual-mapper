@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 import uvicorn
 from pathlib import Path
+from PIL import Image
 
 from adb_bridge import ADBBridge
 from sensor_manager import SensorManager
@@ -134,6 +135,8 @@ screenshot_stitcher: Optional[ScreenshotStitcher] = None
 app_icon_extractor: Optional[AppIconExtractor] = None
 playstore_icon_scraper: Optional[PlayStoreIconScraper] = None
 device_icon_scraper: Optional[DeviceIconScraper] = None
+icon_background_fetcher: Optional['IconBackgroundFetcher'] = None
+app_name_background_fetcher: Optional['AppNameBackgroundFetcher'] = None
 
 # MQTT Configuration (loaded from environment or config)
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
@@ -195,7 +198,7 @@ class TextInputRequest(BaseModel):
 
 class KeyEventRequest(BaseModel):
     device_id: str
-    keycode: str
+    keycode: int
 
 
 class PairingRequest(BaseModel):
@@ -223,6 +226,43 @@ async def startup_event():
         discovery_prefix=MQTT_DISCOVERY_PREFIX
     )
 
+    # Initialize Screenshot Stitcher (independent of MQTT)
+    screenshot_stitcher = ScreenshotStitcher(adb_bridge)
+    logger.info("[Server] ✅ Screenshot Stitcher initialized")
+
+    # Initialize App Icon Extractor (independent of MQTT)
+    app_icon_extractor = AppIconExtractor(
+        cache_dir="data/app-icons",
+        enable_extraction=ENABLE_REAL_ICONS
+    )
+    logger.info(f"[Server] {'✅' if ENABLE_REAL_ICONS else '⚪'} App Icon Extractor initialized (real icons: {ENABLE_REAL_ICONS})")
+
+    # Initialize Play Store Icon Scraper (independent of MQTT)
+    playstore_icon_scraper = PlayStoreIconScraper(
+        cache_dir="data/app-icons-playstore"
+    )
+    logger.info(f"[Server] ✅ Play Store Icon Scraper initialized")
+
+    # Initialize Device Icon Scraper (independent of MQTT)
+    device_icon_scraper = DeviceIconScraper(
+        adb_bridge=adb_bridge,
+        cache_dir="data/device-icons"
+    )
+    logger.info(f"[Server] ✅ Device Icon Scraper initialized (device-specific icons)")
+
+    # Initialize Background Icon Fetcher (independent of MQTT)
+    icon_background_fetcher = IconBackgroundFetcher(
+        playstore_scraper=playstore_icon_scraper,
+        apk_extractor=app_icon_extractor
+    )
+    logger.info(f"[Server] ✅ Background Icon Fetcher initialized (async icon loading)")
+
+    # Initialize Background App Name Fetcher (independent of MQTT)
+    app_name_background_fetcher = AppNameBackgroundFetcher(
+        playstore_scraper=playstore_icon_scraper
+    )
+    logger.info(f"[Server] ✅ Background App Name Fetcher initialized (async name loading)")
+
     # Connect to MQTT broker
     connected = await mqtt_manager.connect()
     if connected:
@@ -236,7 +276,6 @@ async def startup_event():
 
         # Initialize components
         flow_manager = FlowManager()
-        screenshot_stitcher = ScreenshotStitcher(adb_bridge) # New modular implementation with ss_modules
 
         flow_executor = FlowExecutor(
             adb_bridge=adb_bridge,
@@ -256,39 +295,6 @@ async def startup_event():
         # Start scheduler
         await flow_scheduler.start()
         logger.info("[Server] ✅ Flow System initialized and scheduler started")
-
-        # Initialize App Icon Extractor (Phase 8 Enhancement)
-        app_icon_extractor = AppIconExtractor(
-            cache_dir="data/app-icons",
-            enable_extraction=ENABLE_REAL_ICONS
-        )
-        logger.info(f"[Server] {'✅' if ENABLE_REAL_ICONS else '⚪'} App Icon Extractor initialized (real icons: {ENABLE_REAL_ICONS})")
-
-        # Initialize Play Store Icon Scraper (Phase 8 Enhancement)
-        playstore_icon_scraper = PlayStoreIconScraper(
-            cache_dir="data/app-icons-playstore"
-        )
-        logger.info(f"[Server] ✅ Play Store Icon Scraper initialized")
-
-        # Initialize Device Icon Scraper (Phase 8 Enhancement - limited to first screen)
-        device_icon_scraper = DeviceIconScraper(
-            adb_bridge=adb_bridge,
-            cache_dir="data/device-icons"
-        )
-        logger.info(f"[Server] ✅ Device Icon Scraper initialized (device-specific icons)")
-
-        # Initialize Background Icon Fetcher (Phase 8 Enhancement - smart caching)
-        icon_background_fetcher = IconBackgroundFetcher(
-            playstore_scraper=playstore_icon_scraper,
-            apk_extractor=app_icon_extractor
-        )
-        logger.info(f"[Server] ✅ Background Icon Fetcher initialized (async icon loading)")
-
-        # Initialize Background App Name Fetcher (Phase 8 Enhancement - real app names)
-        app_name_background_fetcher = AppNameBackgroundFetcher(
-            playstore_scraper=playstore_icon_scraper
-        )
-        logger.info(f"[Server] ✅ Background App Name Fetcher initialized (async name loading)")
 
         # Register callback to publish MQTT discovery when devices are discovered
         async def on_device_discovered(device_id: str):
@@ -2218,7 +2224,42 @@ async def add_no_cache_headers(request: Request, call_next):
 
 
 # =============================================================================
-# LIVE STREAMING - WebSocket Endpoint
+# LIVE STREAMING - Quality Settings
+# =============================================================================
+
+# Quality presets: max_height, jpeg_quality, target_fps
+QUALITY_PRESETS = {
+    'high': {'max_height': None, 'jpeg_quality': 85, 'target_fps': 5, 'frame_delay': 0.2},
+    'medium': {'max_height': 720, 'jpeg_quality': 75, 'target_fps': 10, 'frame_delay': 0.1},
+    'low': {'max_height': 480, 'jpeg_quality': 65, 'target_fps': 15, 'frame_delay': 0.066},
+    'fast': {'max_height': 360, 'jpeg_quality': 55, 'target_fps': 20, 'frame_delay': 0.05},
+}
+
+def resize_image_for_quality(img_bytes: bytes, quality: str) -> bytes:
+    """Resize image based on quality preset. Returns JPEG bytes."""
+    preset = QUALITY_PRESETS.get(quality, QUALITY_PRESETS['medium'])
+
+    try:
+        img = Image.open(io.BytesIO(img_bytes))
+
+        # Resize if needed
+        if preset['max_height'] and img.height > preset['max_height']:
+            ratio = preset['max_height'] / img.height
+            new_width = int(img.width * ratio)
+            img = img.resize((new_width, preset['max_height']), Image.Resampling.LANCZOS)
+
+        # Convert to JPEG
+        output = io.BytesIO()
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+        img.save(output, format='JPEG', quality=preset['jpeg_quality'], optimize=True)
+        return output.getvalue()
+    except Exception as e:
+        logger.warning(f"[Quality] Resize failed: {e}, returning original")
+        return img_bytes
+
+# =============================================================================
+# LIVE STREAMING - WebSocket Endpoint (Base64 JSON - Original POC)
 # =============================================================================
 
 @app.websocket("/ws/stream/{device_id}")
@@ -2226,20 +2267,28 @@ async def stream_device(websocket: WebSocket, device_id: str):
     """
     WebSocket endpoint for live screenshot streaming.
 
-    Streams screenshots at ~5 FPS with UI element overlays.
+    Query params:
+    - quality: 'high', 'medium', 'low', 'fast' (default: medium)
 
     Message format (JSON):
     {
         "type": "frame",
-        "image": "<base64 PNG>",
+        "image": "<base64 JPEG>",
         "elements": [...],
         "timestamp": 1234567890.123,
-        "capture_ms": 150,  # Time to capture screenshot
+        "capture_ms": 150,
         "frame_number": 1
     }
     """
     await websocket.accept()
-    logger.info(f"[WS-Stream] Client connected for device: {device_id}")
+
+    # Parse quality from query string
+    quality = websocket.query_params.get('quality', 'medium')
+    if quality not in QUALITY_PRESETS:
+        quality = 'medium'
+    preset = QUALITY_PRESETS[quality]
+
+    logger.info(f"[WS-Stream] Client connected for device: {device_id}, quality: {quality} (target {preset['target_fps']} FPS)")
 
     frame_number = 0
 
@@ -2253,21 +2302,28 @@ async def stream_device(websocket: WebSocket, device_id: str):
                 screenshot_bytes = await adb_bridge.capture_screenshot(device_id)
                 capture_time = (time.time() - capture_start) * 1000  # ms
 
-                # Debug: Log screenshot size periodically
-                if frame_number <= 3 or frame_number % 60 == 0:
-                    is_valid_png = screenshot_bytes[:8] == b'\x89PNG\r\n\x1a\n' if len(screenshot_bytes) >= 8 else False
-                    logger.info(f"[WS-Stream] Frame {frame_number}: {len(screenshot_bytes)} bytes, valid PNG: {is_valid_png}")
-
                 # Skip if invalid/empty screenshot
                 if len(screenshot_bytes) < 1000:
                     logger.warning(f"[WS-Stream] Frame {frame_number}: Screenshot too small ({len(screenshot_bytes)} bytes), skipping")
                     await asyncio.sleep(0.5)
                     continue
 
-                # No elements fetched during streaming - use /api/adb/screenshot for elements on-demand
+                # Resize based on quality (also converts to JPEG)
+                if quality != 'high':
+                    processed_bytes = resize_image_for_quality(screenshot_bytes, quality)
+                else:
+                    processed_bytes = screenshot_bytes
+
+                # Debug: Log periodically
+                if frame_number <= 3 or frame_number % 100 == 0:
+                    logger.info(f"[WS-Stream] Frame {frame_number}: {len(screenshot_bytes)} -> {len(processed_bytes)} bytes ({quality})")
 
                 # Encode and send
-                screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+                screenshot_base64 = base64.b64encode(processed_bytes).decode('utf-8')
+
+                # Determine image type
+                is_jpeg = processed_bytes[:2] == b'\xff\xd8'
+                image_prefix = 'data:image/jpeg;base64,' if is_jpeg else 'data:image/png;base64,'
 
                 await websocket.send_json({
                     "type": "frame",
@@ -2278,9 +2334,8 @@ async def stream_device(websocket: WebSocket, device_id: str):
                     "frame_number": frame_number
                 })
 
-                # Target ~5 FPS (200ms between frames)
-                # Subtract capture time to maintain consistent rate
-                sleep_time = max(0.05, 0.2 - (time.time() - capture_start))
+                # Sleep based on quality preset
+                sleep_time = max(0.03, preset['frame_delay'] - (time.time() - capture_start))
                 await asyncio.sleep(sleep_time)
 
             except Exception as capture_error:
@@ -2299,6 +2354,107 @@ async def stream_device(websocket: WebSocket, device_id: str):
         logger.error(f"[WS-Stream] Connection error: {e}")
     finally:
         logger.info(f"[WS-Stream] Stream ended for device: {device_id}, frames sent: {frame_number}")
+
+
+# =============================================================================
+# LIVE STREAMING - MJPEG Binary Endpoint (Enhanced - ~30% less bandwidth)
+# =============================================================================
+
+@app.websocket("/ws/stream-mjpeg/{device_id}")
+async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
+    """
+    WebSocket endpoint for live MJPEG binary streaming.
+
+    Sends raw JPEG binary frames instead of base64 JSON for ~30% bandwidth reduction.
+
+    Query params:
+    - quality: 'high', 'medium', 'low', 'fast' (default: medium)
+
+    Message format (Binary + JSON header):
+    - First message: JSON config {"width": 1200, "height": 1920, "format": "jpeg"}
+    - Subsequent messages: Binary JPEG data with 8-byte header
+        - Bytes 0-3: Frame number (uint32 big-endian)
+        - Bytes 4-7: Capture time ms (uint32 big-endian)
+        - Bytes 8+: JPEG image data
+    """
+    import struct
+
+    await websocket.accept()
+
+    # Parse quality from query string
+    quality = websocket.query_params.get('quality', 'medium')
+    if quality not in QUALITY_PRESETS:
+        quality = 'medium'
+    preset = QUALITY_PRESETS[quality]
+
+    logger.info(f"[WS-MJPEG] Client connected for device: {device_id}, quality: {quality} (target {preset['target_fps']} FPS)")
+
+    frame_number = 0
+
+    try:
+        # Send initial config as JSON
+        await websocket.send_json({
+            "type": "config",
+            "format": "mjpeg",
+            "quality": quality,
+            "target_fps": preset['target_fps'],
+            "message": "MJPEG binary streaming ready. Subsequent frames are binary."
+        })
+
+        while True:
+            frame_number += 1
+            capture_start = time.time()
+
+            try:
+                # Capture screenshot (PNG from ADB)
+                screenshot_bytes = await adb_bridge.capture_screenshot(device_id)
+                capture_time = int((time.time() - capture_start) * 1000)  # ms as int
+
+                # Skip if invalid/empty screenshot
+                if len(screenshot_bytes) < 1000:
+                    logger.warning(f"[WS-MJPEG] Frame {frame_number}: Screenshot too small ({len(screenshot_bytes)} bytes), skipping")
+                    await asyncio.sleep(0.5)
+                    continue
+
+                # Resize and convert to JPEG based on quality preset
+                try:
+                    jpeg_bytes = resize_image_for_quality(screenshot_bytes, quality)
+                except Exception as convert_error:
+                    logger.warning(f"[WS-MJPEG] JPEG conversion failed: {convert_error}, sending PNG")
+                    jpeg_bytes = screenshot_bytes  # Fallback to PNG
+
+                # Create binary frame with header
+                # Header: 4 bytes frame_number + 4 bytes capture_time
+                header = struct.pack('>II', frame_number, capture_time)
+                frame_data = header + jpeg_bytes
+
+                # Send binary frame
+                await websocket.send_bytes(frame_data)
+
+                # Log periodically
+                if frame_number <= 3 or frame_number % 60 == 0:
+                    logger.info(f"[WS-MJPEG] Frame {frame_number}: {len(jpeg_bytes)} bytes JPEG, {capture_time}ms capture, quality={quality}")
+
+                # Use frame delay from quality preset
+                sleep_time = max(0.05, preset['frame_delay'] - (time.time() - capture_start))
+                await asyncio.sleep(sleep_time)
+
+            except Exception as capture_error:
+                logger.warning(f"[WS-MJPEG] Capture error: {capture_error}")
+                # Send error as JSON (not binary)
+                await websocket.send_json({
+                    "type": "error",
+                    "message": str(capture_error),
+                    "timestamp": time.time()
+                })
+                await asyncio.sleep(1)  # Wait before retry
+
+    except WebSocketDisconnect:
+        logger.info(f"[WS-MJPEG] Client disconnected: {device_id}")
+    except Exception as e:
+        logger.error(f"[WS-MJPEG] Connection error: {e}")
+    finally:
+        logger.info(f"[WS-MJPEG] Stream ended for device: {device_id}, frames sent: {frame_number}")
 
 
 # Mount static files LAST (catch-all route)

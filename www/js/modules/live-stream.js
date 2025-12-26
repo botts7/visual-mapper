@@ -1,17 +1,21 @@
 /**
  * Visual Mapper - Live Stream Module
- * Version: 0.0.6 (Phase 4 POC - Auto-reconnect)
+ * Version: 0.0.7 (Quality settings for optimized streaming)
  *
  * WebSocket-based live screenshot streaming with UI element overlays.
  * Supports two modes:
  * - websocket: Base64 JSON frames (original)
  * - mjpeg: Binary JPEG frames (~30% less bandwidth)
  *
+ * Quality settings:
+ * - high: Native resolution (~5 FPS)
+ * - medium: 720p (~10 FPS)
+ * - low: 480p (~15 FPS)
+ * - fast: 360p (~20 FPS)
+ *
  * Features:
  * - Auto-reconnect with exponential backoff
  * - Connection state tracking
- *
- * Target: 5-10 FPS, ~200-500ms latency
  */
 
 class LiveStream {
@@ -24,6 +28,7 @@ class LiveStream {
 
         // Streaming mode: 'websocket' (base64 JSON) or 'mjpeg' (binary)
         this.streamMode = 'websocket';
+        this.streamQuality = 'medium'; // 'high', 'medium', 'low', 'fast'
 
         // Current state
         this.currentImage = null;
@@ -90,9 +95,10 @@ class LiveStream {
      * Get WebSocket URL for device
      * @param {string} deviceId - Device identifier
      * @param {string} mode - 'websocket' or 'mjpeg'
+     * @param {string} quality - 'high', 'medium', 'low', 'fast'
      * @returns {string} WebSocket URL
      */
-    _getWebSocketUrl(deviceId, mode = 'websocket') {
+    _getWebSocketUrl(deviceId, mode = 'websocket', quality = 'medium') {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
 
@@ -103,19 +109,23 @@ class LiveStream {
         const url = window.location.href;
         const ingressMatch = url.match(/\/api\/hassio_ingress\/[^\/]+/);
 
+        // Add quality as query parameter
+        const queryParams = `?quality=${quality}`;
+
         if (ingressMatch) {
-            return `${protocol}//${host}${ingressMatch[0]}/${endpoint}/${deviceId}`;
+            return `${protocol}//${host}${ingressMatch[0]}/${endpoint}/${deviceId}${queryParams}`;
         }
 
-        return `${protocol}//${host}/${endpoint}/${deviceId}`;
+        return `${protocol}//${host}/${endpoint}/${deviceId}${queryParams}`;
     }
 
     /**
      * Start streaming from device
      * @param {string} deviceId - Device identifier (host:port)
      * @param {string} mode - 'websocket' (base64) or 'mjpeg' (binary)
+     * @param {string} quality - 'high', 'medium', 'low', 'fast'
      */
-    start(deviceId, mode = 'websocket') {
+    start(deviceId, mode = 'websocket', quality = 'medium') {
         if (this.isStreaming) {
             console.warn('[LiveStream] Already streaming, stopping first');
             this.stop();
@@ -124,6 +134,7 @@ class LiveStream {
         this._manualStop = false;
         this.deviceId = deviceId;
         this.streamMode = mode;
+        this.streamQuality = quality;
         this._connect();
     }
 
@@ -131,10 +142,10 @@ class LiveStream {
      * Internal connect method (used for initial connect and reconnect)
      */
     _connect() {
-        const wsUrl = this._getWebSocketUrl(this.deviceId, this.streamMode);
+        const wsUrl = this._getWebSocketUrl(this.deviceId, this.streamMode, this.streamQuality);
 
         this._setConnectionState(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
-        console.log(`[LiveStream] Connecting to ${wsUrl} (mode: ${this.streamMode}, attempt: ${this.reconnectAttempts + 1})`);
+        console.log(`[LiveStream] Connecting to ${wsUrl} (mode: ${this.streamMode}, quality: ${this.streamQuality}, attempt: ${this.reconnectAttempts + 1})`);
 
         // Reset bandwidth tracking
         this._bandwidthStart = performance.now();
