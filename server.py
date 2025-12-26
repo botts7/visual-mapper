@@ -11,10 +11,11 @@ import io
 import asyncio
 from datetime import datetime
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 import uvicorn
 from pathlib import Path
@@ -47,6 +48,11 @@ from flow_executor import FlowExecutor
 from flow_scheduler import FlowScheduler
 from performance_monitor import PerformanceMonitor
 from screenshot_stitcher import ScreenshotStitcher
+from app_icon_extractor import AppIconExtractor
+from playstore_icon_scraper import PlayStoreIconScraper
+from device_icon_scraper import DeviceIconScraper
+from icon_background_fetcher import IconBackgroundFetcher
+from app_name_background_fetcher import AppNameBackgroundFetcher
 
 # Configure logging
 logging.basicConfig(
@@ -62,6 +68,16 @@ app = FastAPI(
     title="Visual Mapper API",
     version="0.0.4",
     description="Android Device Monitoring & Automation for Home Assistant"
+)
+
+# Configure CORS to expose custom headers
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (localhost development)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Icon-Source"]  # Expose custom header to frontend
 )
 
 # Add validation error handler to log detailed errors
@@ -115,6 +131,9 @@ flow_executor: Optional[FlowExecutor] = None
 flow_scheduler: Optional[FlowScheduler] = None
 performance_monitor: Optional[PerformanceMonitor] = None
 screenshot_stitcher: Optional[ScreenshotStitcher] = None
+app_icon_extractor: Optional[AppIconExtractor] = None
+playstore_icon_scraper: Optional[PlayStoreIconScraper] = None
+device_icon_scraper: Optional[DeviceIconScraper] = None
 
 # MQTT Configuration (loaded from environment or config)
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
@@ -123,6 +142,11 @@ MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 MQTT_DISCOVERY_PREFIX = os.getenv("MQTT_DISCOVERY_PREFIX", "homeassistant")
 AUTO_START_UPDATES = os.getenv("AUTO_START_UPDATES", "true").lower() == "true"
+
+# App Icon Configuration (Phase 8 Enhancement)
+# Set to "true" to extract real icons from device (requires ADB access)
+# Set to "false" to use SVG letter icons (faster, no caching needed)
+ENABLE_REAL_ICONS = os.getenv("ENABLE_REAL_ICONS", "true").lower() == "true"
 
 
 # Request/Response Models
@@ -137,6 +161,7 @@ class DisconnectDeviceRequest(BaseModel):
 
 class ScreenshotRequest(BaseModel):
     device_id: str
+    quick: bool = False  # Quick mode: skip UI elements for faster preview
 
 
 class ScreenshotStitchRequest(BaseModel):
@@ -144,6 +169,8 @@ class ScreenshotStitchRequest(BaseModel):
     max_scrolls: Optional[int] = 20
     scroll_ratio: Optional[float] = 0.75
     overlap_ratio: Optional[float] = 0.25
+    stitcher_version: Optional[str] = "v2"
+    debug: Optional[bool] = False
 
 
 class TapRequest(BaseModel):
@@ -182,7 +209,7 @@ class PairingRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize MQTT connection on startup"""
-    global mqtt_manager, sensor_updater, flow_manager, flow_executor, flow_scheduler, performance_monitor, screenshot_stitcher
+    global mqtt_manager, sensor_updater, flow_manager, flow_executor, flow_scheduler, performance_monitor, screenshot_stitcher, app_icon_extractor, playstore_icon_scraper, device_icon_scraper, icon_background_fetcher, app_name_background_fetcher
 
     logger.info("[Server] Starting Visual Mapper v0.0.5")
     logger.info(f"[Server] MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
@@ -209,7 +236,7 @@ async def startup_event():
 
         # Initialize components
         flow_manager = FlowManager()
-        screenshot_stitcher = ScreenshotStitcher(adb_bridge)
+        screenshot_stitcher = ScreenshotStitcher(adb_bridge) # New modular implementation with ss_modules
 
         flow_executor = FlowExecutor(
             adb_bridge=adb_bridge,
@@ -229,6 +256,39 @@ async def startup_event():
         # Start scheduler
         await flow_scheduler.start()
         logger.info("[Server] ✅ Flow System initialized and scheduler started")
+
+        # Initialize App Icon Extractor (Phase 8 Enhancement)
+        app_icon_extractor = AppIconExtractor(
+            cache_dir="data/app-icons",
+            enable_extraction=ENABLE_REAL_ICONS
+        )
+        logger.info(f"[Server] {'✅' if ENABLE_REAL_ICONS else '⚪'} App Icon Extractor initialized (real icons: {ENABLE_REAL_ICONS})")
+
+        # Initialize Play Store Icon Scraper (Phase 8 Enhancement)
+        playstore_icon_scraper = PlayStoreIconScraper(
+            cache_dir="data/app-icons-playstore"
+        )
+        logger.info(f"[Server] ✅ Play Store Icon Scraper initialized")
+
+        # Initialize Device Icon Scraper (Phase 8 Enhancement - limited to first screen)
+        device_icon_scraper = DeviceIconScraper(
+            adb_bridge=adb_bridge,
+            cache_dir="data/device-icons"
+        )
+        logger.info(f"[Server] ✅ Device Icon Scraper initialized (device-specific icons)")
+
+        # Initialize Background Icon Fetcher (Phase 8 Enhancement - smart caching)
+        icon_background_fetcher = IconBackgroundFetcher(
+            playstore_scraper=playstore_icon_scraper,
+            apk_extractor=app_icon_extractor
+        )
+        logger.info(f"[Server] ✅ Background Icon Fetcher initialized (async icon loading)")
+
+        # Initialize Background App Name Fetcher (Phase 8 Enhancement - real app names)
+        app_name_background_fetcher = AppNameBackgroundFetcher(
+            playstore_scraper=playstore_icon_scraper
+        )
+        logger.info(f"[Server] ✅ Background App Name Fetcher initialized (async name loading)")
 
         # Register callback to publish MQTT discovery when devices are discovered
         async def on_device_discovered(device_id: str):
@@ -495,25 +555,34 @@ async def get_devices():
 # Screenshot Capture Endpoint
 @app.post("/api/adb/screenshot")
 async def capture_screenshot(request: ScreenshotRequest):
-    """Capture screenshot and UI elements from device"""
+    """Capture screenshot and UI elements from device
+
+    Quick mode (quick=true): Only captures screenshot image, skips UI element extraction
+    Normal mode (quick=false): Captures both screenshot and UI elements
+    """
     try:
-        logger.info(f"[API] Capturing screenshot from {request.device_id}")
+        mode = "quick" if request.quick else "full"
+        logger.info(f"[API] Capturing {mode} screenshot from {request.device_id}")
 
         # Capture PNG screenshot
         screenshot_bytes = await adb_bridge.capture_screenshot(request.device_id)
 
-        # Extract UI elements
-        elements = await adb_bridge.get_ui_elements(request.device_id)
+        # Extract UI elements (skip if quick mode)
+        if request.quick:
+            elements = []
+            logger.info(f"[API] Quick screenshot captured: {len(screenshot_bytes)} bytes (UI elements skipped)")
+        else:
+            elements = await adb_bridge.get_ui_elements(request.device_id)
+            logger.info(f"[API] Full screenshot captured: {len(screenshot_bytes)} bytes, {len(elements)} UI elements")
 
         # Encode screenshot to base64
         screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
 
-        logger.info(f"[API] Screenshot captured: {len(screenshot_bytes)} bytes, {len(elements)} UI elements")
-
         return {
             "screenshot": screenshot_base64,
             "elements": elements,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "quick": request.quick
         }
     except ValueError as e:
         logger.error(f"[API] Screenshot failed: {e}")
@@ -531,12 +600,11 @@ async def capture_stitched_screenshot(request: ScreenshotStitchRequest):
         logger.info(f"[API] Capturing stitched screenshot from {request.device_id}")
         logger.debug(f"  max_scrolls={request.max_scrolls}, scroll_ratio={request.scroll_ratio}, overlap_ratio={request.overlap_ratio}")
 
-        # Ensure screenshot_stitcher is initialized
         if screenshot_stitcher is None:
-            logger.error("[API] ScreenshotStitcher not initialized")
+            logger.error(f"[API] ScreenshotStitcher not initialized")
             raise HTTPException(status_code=500, detail="Screenshot stitcher not available")
 
-        # Capture scrolling screenshot
+        # Capture scrolling screenshot using new modular implementation
         result = await screenshot_stitcher.capture_scrolling_screenshot(
             request.device_id,
             max_scrolls=request.max_scrolls,
@@ -551,9 +619,11 @@ async def capture_stitched_screenshot(request: ScreenshotStitchRequest):
         screenshot_base64 = base64.b64encode(img_buffer.read()).decode('utf-8')
 
         logger.info(f"[API] Stitched screenshot captured: {result['metadata']}")
+        logger.info(f"[API] Combined elements: {len(result.get('elements', []))}")
 
         return {
             "screenshot": screenshot_base64,
+            "elements": result.get('elements', []),
             "metadata": result['metadata'],
             "debug_screenshots": result.get('debug_screenshots', []),
             "timestamp": datetime.now().isoformat()
@@ -562,8 +632,9 @@ async def capture_stitched_screenshot(request: ScreenshotStitchRequest):
         logger.error(f"[API] Stitched screenshot failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        logger.error(f"[API] Stitched screenshot failed: {e}")
+        logger.error(f"[API] Stitched screenshot failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # Device Control Endpoints
@@ -675,6 +746,360 @@ async def get_installed_apps(device_id: str):
         }
     except Exception as e:
         logger.error(f"[API] Get apps failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/adb/app-icon/{device_id}/{package_name}")
+async def get_app_icon(device_id: str, package_name: str, skip_extraction: bool = False):
+    """
+    Get app icon - multi-tier approach for optimal performance
+
+    Multi-Tier Loading Strategy:
+    0. Device-specific cache (scraped from device) - INSTANT ✅ 🏆 BEST QUALITY
+    1. Play Store cache (pre-populated/scraped) - INSTANT ✅
+    2. APK extraction cache (previously extracted) - INSTANT ✅
+    3. If skip_extraction=true: Return SVG immediately - INSTANT ✅
+    4. Play Store scrape (on-demand) - 1-2 seconds ⏱️
+    5. APK extraction (for system/OEM apps) - 10-30 seconds ⏱️⏱️
+    6. SVG fallback - INSTANT ✅
+
+    Args:
+        device_id: ADB device ID
+        package_name: App package name
+        skip_extraction: If true, skip slow methods (scraping/extraction) and return SVG
+
+    Returns:
+        Icon image data (PNG/WebP/SVG)
+    """
+    from fastapi.responses import Response
+
+    # Tier 0: Check device-specific cache (INSTANT + BEST QUALITY)
+    # This is scraped from the actual device app drawer, so it respects:
+    # - User's launcher theme
+    # - Adaptive icons (rendered correctly)
+    # - Custom icon packs
+    # - OEM customizations
+    if device_icon_scraper:
+        icon_data = device_icon_scraper.get_icon(device_id, package_name)
+        if icon_data:
+            logger.debug(f"[API] 🏆 Tier 0: Device-specific cache hit for {package_name}")
+            return Response(content=icon_data, media_type="image/png", headers={"X-Icon-Source": "device-scraper"})
+
+    # Tier 1: Check Play Store cache (INSTANT)
+    if playstore_icon_scraper:
+        from pathlib import Path
+        playstore_cache = Path(f"data/app-icons-playstore/{package_name}.png")
+        if playstore_cache.exists():
+            icon_data = playstore_cache.read_bytes()
+            logger.debug(f"[API] ✅ Tier 1: Play Store cache hit for {package_name}")
+            return Response(content=icon_data, media_type="image/png", headers={"X-Icon-Source": "playstore"})
+
+    # Tier 2: Check APK extraction cache (INSTANT)
+    if app_icon_extractor:
+        from pathlib import Path
+        import glob
+        apk_cache_pattern = f"data/app-icons/{package_name}_*.png"
+        apk_caches = glob.glob(apk_cache_pattern)
+        if apk_caches:
+            icon_data = Path(apk_caches[0]).read_bytes()
+            logger.debug(f"[API] ✅ Tier 2: APK cache hit for {package_name}")
+            return Response(content=icon_data, media_type="image/png", headers={"X-Icon-Source": "apk-extraction"})
+
+    # Tier 3: Not in cache - Trigger background fetch and return SVG immediately
+    # Background fetch will populate cache for next request (smart progressive loading)
+    if icon_background_fetcher and not skip_extraction:
+        icon_background_fetcher.request_icon(device_id, package_name)
+        logger.debug(f"[API] 🔄 Tier 3: Background fetch requested for {package_name}")
+
+    # Tier 4: SVG fallback (INSTANT - return immediately while background fetch happens)
+    first_letter = package_name.split('.')[-1][0].upper() if package_name else 'A'
+    hash_val = hash(package_name) % 360
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+        <rect width="48" height="48" fill="hsl({hash_val}, 70%, 60%)" rx="8"/>
+        <text x="24" y="32" font-family="Arial, sans-serif" font-size="24" font-weight="bold"
+              fill="white" text-anchor="middle">{first_letter}</text>
+    </svg>'''
+    logger.debug(f"[API] ⚪ Tier 4: SVG fallback for {package_name} (background fetch in progress)")
+    return Response(content=svg, media_type="image/svg+xml", headers={"X-Icon-Source": "svg-placeholder"})
+
+
+@app.post("/api/adb/prefetch-icons/{device_id}")
+async def prefetch_app_icons(device_id: str, max_apps: Optional[int] = None):
+    """
+    Prefetch app icons in background (Play Store + APK extraction)
+
+    This triggers background fetching for all apps on the device.
+    Icons load instantly from cache on subsequent requests.
+
+    Args:
+        device_id: ADB device ID
+        max_apps: Maximum number of apps to prefetch (None = all)
+
+    Returns:
+        {
+            "success": true,
+            "apps_queued": 375,
+            "queue_stats": {...}
+        }
+    """
+    try:
+        if not icon_background_fetcher:
+            raise HTTPException(status_code=500, detail="Background icon fetcher not initialized")
+
+        logger.info(f"[API] Starting background icon prefetch for {device_id}")
+
+        # Get list of installed apps
+        apps = await adb_bridge.get_installed_apps(device_id)
+        packages = [app['package'] for app in apps]
+
+        # Queue all apps for background fetch
+        await icon_background_fetcher.prefetch_all_apps(device_id, packages, max_apps)
+
+        queue_stats = icon_background_fetcher.get_queue_stats()
+
+        logger.info(f"[API] ✅ Queued {len(packages[:max_apps] if max_apps else packages)} apps for prefetch")
+
+        return {
+            "success": True,
+            "apps_queued": len(packages[:max_apps] if max_apps else packages),
+            "total_apps": len(packages),
+            "queue_stats": queue_stats
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Icon prefetch failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Icon prefetch failed: {str(e)}")
+
+
+@app.get("/api/adb/icon-queue-stats")
+async def get_icon_queue_stats():
+    """
+    Get background icon fetching queue statistics
+
+    Returns:
+        {
+            "queue_size": 45,
+            "processing_count": 1,
+            "is_running": true
+        }
+    """
+    try:
+        if not icon_background_fetcher:
+            raise HTTPException(status_code=500, detail="Background icon fetcher not initialized")
+
+        stats = icon_background_fetcher.get_queue_stats()
+        return stats
+
+    except Exception as e:
+        logger.error(f"[API] Failed to get queue stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get queue stats: {str(e)}")
+
+
+@app.get("/api/adb/app-name-queue-stats")
+async def get_app_name_queue_stats():
+    """
+    Get background app name fetching queue statistics
+
+    Returns:
+        {
+            "queue_size": 45,
+            "processing_count": 1,
+            "completed_count": 120,
+            "failed_count": 5,
+            "total_requested": 165,
+            "progress_percentage": 75.8,
+            "is_running": true
+        }
+    """
+    try:
+        if not app_name_background_fetcher:
+            raise HTTPException(status_code=500, detail="Background app name fetcher not initialized")
+
+        stats = app_name_background_fetcher.get_queue_stats()
+        return stats
+
+    except Exception as e:
+        logger.error(f"[API] Failed to get app name queue stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get app name queue stats: {str(e)}")
+
+
+@app.post("/api/adb/prefetch-app-names/{device_id}")
+async def prefetch_app_names(device_id: str, max_apps: Optional[int] = None):
+    """
+    Prefetch real app names from Google Play Store (background job)
+
+    This should be triggered when device is selected in Flow Wizard to populate
+    the app name cache silently in the background.
+
+    Strategy:
+    - Returns immediately (non-blocking)
+    - Fetches names in background over ~5-10 minutes
+    - Names appear in cache for next session
+    - Progress visible in dev mode via /api/adb/app-name-queue-stats
+
+    Args:
+        device_id: ADB device ID
+        max_apps: Maximum number of apps to prefetch (None = all)
+
+    Returns:
+        {
+            "success": true,
+            "queued_count": 165,
+            "stats": {...}
+        }
+    """
+    try:
+        if not app_name_background_fetcher:
+            raise HTTPException(status_code=500, detail="Background app name fetcher not initialized")
+
+        logger.info(f"[API] Starting app name prefetch for {device_id}")
+
+        # Get list of installed apps (returns list of dicts with 'package' key)
+        apps = await adb_bridge.get_installed_apps(device_id)
+        packages = [app['package'] for app in apps]
+
+        # Queue app name prefetch (non-blocking)
+        await app_name_background_fetcher.prefetch_all_apps(packages, max_apps)
+
+        # Get stats
+        stats = app_name_background_fetcher.get_queue_stats()
+
+        logger.info(f"[API] ✅ Queued {stats['total_requested']} apps for name prefetch")
+
+        return {
+            "success": True,
+            "queued_count": stats['total_requested'],
+            "stats": stats
+        }
+
+    except Exception as e:
+        logger.error(f"[API] App name prefetch failed: {e}")
+        raise HTTPException(status_code=500, detail=f"App name prefetch failed: {str(e)}")
+
+
+@app.post("/api/adb/scrape-device-icons/{device_id}")
+async def scrape_device_icons(device_id: str, max_apps: Optional[int] = None):
+    """
+    Scrape app icons from device app drawer (device onboarding)
+
+    This should be triggered:
+    1. During device onboarding (first time setup)
+    2. When new apps are detected on the device
+    3. Manually by user if icons need refresh
+
+    Args:
+        device_id: ADB device ID
+        max_apps: Maximum number of apps to scrape (None = all)
+
+    Returns:
+        {
+            "success": true,
+            "icons_scraped": 42,
+            "total_apps": 120,
+            "cache_stats": {...}
+        }
+    """
+    try:
+        if not device_icon_scraper:
+            raise HTTPException(status_code=500, detail="Device icon scraper not initialized")
+
+        logger.info(f"[API] Starting device icon scraping for {device_id}")
+
+        # Scrape icons from device
+        icons_scraped = await device_icon_scraper.scrape_device_icons(device_id, max_apps)
+
+        # Get cache stats
+        cache_stats = device_icon_scraper.get_cache_stats(device_id)
+
+        logger.info(f"[API] ✅ Scraped {icons_scraped} icons from {device_id}")
+
+        return {
+            "success": True,
+            "icons_scraped": icons_scraped,
+            "cache_stats": cache_stats
+        }
+    except Exception as e:
+        logger.error(f"[API] Device icon scraping failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/adb/check-icon-cache/{device_id}")
+async def check_icon_cache(device_id: str):
+    """
+    Check if device icon cache needs updating (new apps detected)
+
+    Returns:
+        {
+            "needs_update": true/false,
+            "cache_stats": {...},
+            "new_apps_count": 5
+        }
+    """
+    try:
+        if not device_icon_scraper:
+            raise HTTPException(status_code=500, detail="Device icon scraper not initialized")
+
+        # Get installed apps
+        apps = await adb_bridge.get_installed_apps(device_id)
+        app_packages = [app['package'] for app in apps]
+
+        # Check if update needed
+        needs_update = device_icon_scraper.should_update(device_id, app_packages)
+
+        # Get cache stats
+        cache_stats = device_icon_scraper.get_cache_stats(device_id)
+
+        # Calculate new apps count
+        from pathlib import Path
+        safe_device_id = device_id.replace(':', '_')
+        device_cache_dir = Path(f"data/device-icons/{safe_device_id}")
+        cached_packages = {f.stem for f in device_cache_dir.glob("*.png")} if device_cache_dir.exists() else set()
+        new_apps_count = len(set(app_packages) - cached_packages)
+
+        return {
+            "needs_update": needs_update,
+            "cache_stats": cache_stats,
+            "new_apps_count": new_apps_count,
+            "total_apps": len(app_packages)
+        }
+    except Exception as e:
+        logger.error(f"[API] Check icon cache failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/adb/icon-cache-stats")
+async def get_icon_cache_stats(device_id: Optional[str] = None):
+    """
+    Get icon cache statistics for all scrapers
+
+    Args:
+        device_id: Optional device ID for device-specific stats
+
+    Returns:
+        {
+            "device_scraper": {...},
+            "playstore_scraper": {...},
+            "apk_extractor": {...}
+        }
+    """
+    try:
+        stats = {}
+
+        # Device scraper stats
+        if device_icon_scraper:
+            stats["device_scraper"] = device_icon_scraper.get_cache_stats(device_id)
+
+        # Play Store scraper stats
+        if playstore_icon_scraper:
+            stats["playstore_scraper"] = playstore_icon_scraper.get_cache_stats()
+
+        # APK extractor stats
+        if app_icon_extractor:
+            stats["apk_extractor"] = app_icon_extractor.get_cache_stats()
+
+        return stats
+    except Exception as e:
+        logger.error(f"[API] Get icon cache stats failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1605,6 +2030,165 @@ async def get_flow_metrics(device_id: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/flows/alerts")
+async def get_flow_alerts(device_id: Optional[str] = None, limit: int = 10):
+    """
+    Get recent performance alerts
+
+    Args:
+        device_id: Optional device ID to filter alerts
+        limit: Maximum number of alerts to return (default: 10)
+
+    Returns:
+        List of recent alerts with severity, message, and recommendations
+    """
+    try:
+        if not performance_monitor:
+            raise HTTPException(status_code=503, detail="Performance monitor not initialized")
+
+        alerts = performance_monitor.get_recent_alerts(device_id=device_id, limit=limit)
+
+        return {
+            "alerts": alerts,
+            "count": len(alerts),
+            "device_id": device_id
+        }
+    except Exception as e:
+        logger.error(f"[API] Failed to get flow alerts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/flows/alerts")
+async def clear_flow_alerts(device_id: Optional[str] = None):
+    """
+    Clear performance alerts
+
+    Args:
+        device_id: Optional device ID (if not provided, clears all alerts)
+
+    Returns:
+        Confirmation message
+    """
+    try:
+        if not performance_monitor:
+            raise HTTPException(status_code=503, detail="Performance monitor not initialized")
+
+        performance_monitor.clear_alerts(device_id=device_id)
+
+        message = f"Cleared alerts for {device_id}" if device_id else "Cleared all alerts"
+        return {"success": True, "message": message}
+    except Exception as e:
+        logger.error(f"[API] Failed to clear flow alerts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/flows/thresholds")
+async def get_alert_thresholds():
+    """
+    Get current alert threshold configuration
+
+    Returns:
+        Alert thresholds for queue depth, backlog ratio, and failure rates
+    """
+    try:
+        if not performance_monitor:
+            raise HTTPException(status_code=503, detail="Performance monitor not initialized")
+
+        return {
+            "queue_depth_warning": performance_monitor.QUEUE_DEPTH_WARNING,
+            "queue_depth_critical": performance_monitor.QUEUE_DEPTH_CRITICAL,
+            "backlog_ratio": performance_monitor.BACKLOG_RATIO,
+            "failure_rate_warning": performance_monitor.FAILURE_RATE_WARNING,
+            "failure_rate_critical": performance_monitor.FAILURE_RATE_CRITICAL,
+            "alert_cooldown_seconds": performance_monitor.ALERT_COOLDOWN_SECONDS
+        }
+    except Exception as e:
+        logger.error(f"[API] Failed to get alert thresholds: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/flows/thresholds")
+async def update_alert_thresholds(thresholds: dict):
+    """
+    Update alert threshold configuration
+
+    Args:
+        thresholds: Dictionary with threshold values to update
+
+    Accepted fields:
+        - queue_depth_warning: int
+        - queue_depth_critical: int
+        - backlog_ratio: float (0-1)
+        - failure_rate_warning: float (0-1)
+        - failure_rate_critical: float (0-1)
+        - alert_cooldown_seconds: int
+
+    Returns:
+        Updated threshold configuration
+    """
+    try:
+        if not performance_monitor:
+            raise HTTPException(status_code=503, detail="Performance monitor not initialized")
+
+        # Update thresholds (with validation)
+        if "queue_depth_warning" in thresholds:
+            value = int(thresholds["queue_depth_warning"])
+            if value < 1 or value > 100:
+                raise HTTPException(status_code=400, detail="queue_depth_warning must be between 1 and 100")
+            performance_monitor.QUEUE_DEPTH_WARNING = value
+
+        if "queue_depth_critical" in thresholds:
+            value = int(thresholds["queue_depth_critical"])
+            if value < 1 or value > 100:
+                raise HTTPException(status_code=400, detail="queue_depth_critical must be between 1 and 100")
+            performance_monitor.QUEUE_DEPTH_CRITICAL = value
+
+        if "backlog_ratio" in thresholds:
+            value = float(thresholds["backlog_ratio"])
+            if value < 0 or value > 1:
+                raise HTTPException(status_code=400, detail="backlog_ratio must be between 0 and 1")
+            performance_monitor.BACKLOG_RATIO = value
+
+        if "failure_rate_warning" in thresholds:
+            value = float(thresholds["failure_rate_warning"])
+            if value < 0 or value > 1:
+                raise HTTPException(status_code=400, detail="failure_rate_warning must be between 0 and 1")
+            performance_monitor.FAILURE_RATE_WARNING = value
+
+        if "failure_rate_critical" in thresholds:
+            value = float(thresholds["failure_rate_critical"])
+            if value < 0 or value > 1:
+                raise HTTPException(status_code=400, detail="failure_rate_critical must be between 0 and 1")
+            performance_monitor.FAILURE_RATE_CRITICAL = value
+
+        if "alert_cooldown_seconds" in thresholds:
+            value = int(thresholds["alert_cooldown_seconds"])
+            if value < 0 or value > 3600:
+                raise HTTPException(status_code=400, detail="alert_cooldown_seconds must be between 0 and 3600")
+            performance_monitor.ALERT_COOLDOWN_SECONDS = value
+
+        logger.info(f"[API] Updated alert thresholds: {thresholds}")
+
+        # Return updated configuration
+        return {
+            "success": True,
+            "message": "Alert thresholds updated",
+            "thresholds": {
+                "queue_depth_warning": performance_monitor.QUEUE_DEPTH_WARNING,
+                "queue_depth_critical": performance_monitor.QUEUE_DEPTH_CRITICAL,
+                "backlog_ratio": performance_monitor.BACKLOG_RATIO,
+                "failure_rate_warning": performance_monitor.FAILURE_RATE_WARNING,
+                "failure_rate_critical": performance_monitor.FAILURE_RATE_CRITICAL,
+                "alert_cooldown_seconds": performance_monitor.ALERT_COOLDOWN_SECONDS
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to update alert thresholds: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 ################################################################################
 #                              MIDDLEWARE                                      #
 ################################################################################
@@ -1633,18 +2217,105 @@ async def add_no_cache_headers(request: Request, call_next):
     return response
 
 
+# =============================================================================
+# LIVE STREAMING - WebSocket Endpoint
+# =============================================================================
+
+@app.websocket("/ws/stream/{device_id}")
+async def stream_device(websocket: WebSocket, device_id: str):
+    """
+    WebSocket endpoint for live screenshot streaming.
+
+    Streams screenshots at ~5 FPS with UI element overlays.
+
+    Message format (JSON):
+    {
+        "type": "frame",
+        "image": "<base64 PNG>",
+        "elements": [...],
+        "timestamp": 1234567890.123,
+        "capture_ms": 150,  # Time to capture screenshot
+        "frame_number": 1
+    }
+    """
+    await websocket.accept()
+    logger.info(f"[WS-Stream] Client connected for device: {device_id}")
+
+    frame_number = 0
+
+    try:
+        while True:
+            frame_number += 1
+            capture_start = time.time()
+
+            try:
+                # Capture screenshot only - elements fetched on-demand for performance
+                screenshot_bytes = await adb_bridge.capture_screenshot(device_id)
+                capture_time = (time.time() - capture_start) * 1000  # ms
+
+                # Debug: Log screenshot size periodically
+                if frame_number <= 3 or frame_number % 60 == 0:
+                    is_valid_png = screenshot_bytes[:8] == b'\x89PNG\r\n\x1a\n' if len(screenshot_bytes) >= 8 else False
+                    logger.info(f"[WS-Stream] Frame {frame_number}: {len(screenshot_bytes)} bytes, valid PNG: {is_valid_png}")
+
+                # Skip if invalid/empty screenshot
+                if len(screenshot_bytes) < 1000:
+                    logger.warning(f"[WS-Stream] Frame {frame_number}: Screenshot too small ({len(screenshot_bytes)} bytes), skipping")
+                    await asyncio.sleep(0.5)
+                    continue
+
+                # No elements fetched during streaming - use /api/adb/screenshot for elements on-demand
+
+                # Encode and send
+                screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+
+                await websocket.send_json({
+                    "type": "frame",
+                    "image": screenshot_base64,
+                    "elements": [],  # Empty - elements fetched on-demand via Refresh Elements button
+                    "timestamp": time.time(),
+                    "capture_ms": round(capture_time, 1),
+                    "frame_number": frame_number
+                })
+
+                # Target ~5 FPS (200ms between frames)
+                # Subtract capture time to maintain consistent rate
+                sleep_time = max(0.05, 0.2 - (time.time() - capture_start))
+                await asyncio.sleep(sleep_time)
+
+            except Exception as capture_error:
+                logger.warning(f"[WS-Stream] Capture error: {capture_error}")
+                # Send error frame but keep connection alive
+                await websocket.send_json({
+                    "type": "error",
+                    "message": str(capture_error),
+                    "timestamp": time.time()
+                })
+                await asyncio.sleep(1)  # Wait before retry
+
+    except WebSocketDisconnect:
+        logger.info(f"[WS-Stream] Client disconnected: {device_id}")
+    except Exception as e:
+        logger.error(f"[WS-Stream] Connection error: {e}")
+    finally:
+        logger.info(f"[WS-Stream] Stream ended for device: {device_id}, frames sent: {frame_number}")
+
+
 # Mount static files LAST (catch-all route)
 app.mount("/", StaticFiles(directory="www", html=True), name="www")
 
 if __name__ == "__main__":
-    logger.info("Starting Visual Mapper v0.0.4 (Phase 3 - Sensor Creation)")
-    logger.info("Server: http://localhost:3000")
-    logger.info("API: http://localhost:3000/api")
+    # Default to port 3000, can be overridden by environment variable
+    port = int(os.getenv("PORT", 3000))
+    
+    logger.info(f"Starting Visual Mapper v0.0.4 (Phase 3 - Sensor Creation)")
+    logger.info(f"Server: http://localhost:{port}")
+    logger.info(f"API: http://localhost:{port}/api")
     logger.info(f"HTML Cache: {'DISABLED (development mode)' if DISABLE_HTML_CACHE else 'ENABLED (production mode)'}")
 
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=3000,
+        port=port,
         log_level="info"
     )

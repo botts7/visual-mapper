@@ -1,0 +1,382 @@
+/**
+ * Live Stream CSS
+ * Version: 0.0.4
+ */
+
+/* Controls */
+.controls-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-bottom: 15px;
+    align-items: center;
+}
+
+.control-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.control-group label {
+    font-weight: 500;
+}
+
+.control-group select {
+    padding: 8px 12px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    min-width: 200px;
+}
+
+/* Buttons */
+.btn {
+    padding: 10px 20px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.btn-primary {
+    background-color: #2196f3;
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: #1976d2;
+}
+
+.btn-secondary {
+    background-color: #757575;
+    color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background-color: #616161;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Metrics Grid */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 15px;
+}
+
+.metric {
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    background: #f5f5f5;
+    border-radius: 4px;
+}
+
+.metric-label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 4px;
+}
+
+.metric-value {
+    font-size: 18px;
+    font-weight: bold;
+    font-family: monospace;
+}
+
+/* Status colors */
+.status-disconnected {
+    color: #757575;
+}
+
+.status-connected {
+    color: #4caf50;
+}
+
+.status-error {
+    color: #f44336;
+}
+
+/* Stream Canvas */
+.stream-card {
+    max-width: 100%;
+}
+
+.canvas-container {
+    position: relative;
+    background: #1a1a1a;
+    border-radius: 4px;
+    overflow: hidden;
+    min-height: 400px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#streamCanvas {
+    max-width: 100%;
+    max-height: 80vh;
+    display: block;
+    cursor: crosshair;
+}
+
+.no-stream-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.7);
+    color: #aaa;
+    font-size: 16px;
+}
+
+/* Tap info */
+.tap-info {
+    padding: 10px;
+    background: #f0f0f0;
+    border-radius: 4px;
+    font-family: monospace;
+}
+
+/* Navigation Controls */
+.nav-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.nav-row {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.nav-btn {
+    padding: 12px 20px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    background: #f5f5f5;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+    min-width: 120px;
+}
+
+.nav-btn:hover {
+    background: #e0e0e0;
+    border-color: #999;
+}
+
+.nav-btn:active {
+    background: #d0d0d0;
+    transform: scale(0.98);
+}
+
+/* Modal dialog */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    padding: 25px;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 450px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-content h2 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 10px;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.form-control {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.form-control-sm {
+    padding: 6px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.coords-display {
+    display: flex;
+    gap: 20px;
+}
+
+.modal-info {
+    background: #f5f5f5;
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+    font-size: 13px;
+    color: #666;
+}
+
+.modal-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 20px;
+}
+
+/* Tap indicator */
+.tap-indicator {
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(255, 0, 0, 0.7);
+    border: 3px solid white;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 0 0 10px rgba(255, 0, 0, 0.8);
+}
+
+/* Element status */
+.element-status {
+    font-size: 14px;
+    color: #666;
+    margin-left: 10px;
+}
+
+/* Element details card */
+.element-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 10px;
+}
+
+.detail-row {
+    display: flex;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.detail-label {
+    font-weight: 600;
+    color: #555;
+    min-width: 100px;
+}
+
+.detail-value {
+    color: #333;
+    word-break: break-word;
+    font-family: monospace;
+    font-size: 13px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .nav-btn {
+        background: #444;
+        border-color: #555;
+        color: #fff;
+    }
+
+    .nav-btn:hover {
+        background: #555;
+        border-color: #666;
+    }
+
+    .nav-btn:active {
+        background: #666;
+    }
+
+    .metric {
+        background: #333;
+    }
+
+    .metric-label {
+        color: #aaa;
+    }
+
+    .control-group select {
+        background: #333;
+        color: #fff;
+        border-color: #555;
+    }
+
+    .tap-info {
+        background: #333;
+        color: #fff;
+    }
+
+    .element-status {
+        color: #aaa;
+    }
+
+    .detail-row {
+        border-bottom-color: #444;
+    }
+
+    .detail-label {
+        color: #aaa;
+    }
+
+    .detail-value {
+        color: #fff;
+    }
+
+    .modal-content {
+        background: #2a2a2a;
+        color: #fff;
+    }
+
+    .modal-content h2 {
+        border-bottom-color: #444;
+    }
+
+    .form-control,
+    .form-control-sm {
+        background: #333;
+        color: #fff;
+        border-color: #555;
+    }
+
+    .modal-info {
+        background: #333;
+        color: #aaa;
+    }
+}
