@@ -13,6 +13,7 @@ import FlowElementPanel from './flow-element-panel.js?v=0.0.5';
 import FlowInteractions from './flow-interactions.js?v=0.0.9';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
 import LiveStream from './live-stream.js?v=0.0.7';
+import ElementTree from './element-tree.js?v=0.0.3';
 
 // Step modules
 import * as Step1 from './flow-wizard-step1.js?v=0.0.5';
@@ -72,6 +73,10 @@ class FlowWizard {
         this.dragStart = null;
         this.isDragging = false;
         this.MIN_SWIPE_DISTANCE = 30; // Minimum pixels to count as swipe
+
+        // Element tree (Phase 5 enhancement)
+        this.elementTree = null;
+        this.isTreeViewOpen = false;
 
         console.log('FlowWizard initialized');
         this.init();
@@ -466,6 +471,18 @@ class FlowWizard {
             this.nextStep();
         });
 
+        // Tree view toggle button
+        document.getElementById('btnToggleTree')?.addEventListener('click', () => {
+            this.toggleTreeView();
+        });
+
+        document.getElementById('btnCloseTree')?.addEventListener('click', () => {
+            this.toggleTreeView(false);
+        });
+
+        // Setup element tree
+        this.setupElementTree();
+
         // Setup overlay filter controls
         this.setupOverlayFilters();
     }
@@ -657,6 +674,9 @@ class FlowWizard {
             if (this.liveStream) {
                 this.liveStream.elements = elements;
             }
+
+            // Update element tree if open
+            this.updateElementTree(elements);
 
             console.log(`[FlowWizard] Elements refreshed: ${elements.length} elements`);
         } catch (error) {
@@ -1123,6 +1143,122 @@ class FlowWizard {
             swipeContainer.style.display = 'none';
             swipeContainer.innerHTML = '';
         }, 800);
+    }
+
+    // ==========================================
+    // Phase 5: Element Tree Methods
+    // ==========================================
+
+    /**
+     * Setup element tree panel
+     */
+    setupElementTree() {
+        const container = document.getElementById('elementTreeContainer');
+        if (!container) {
+            console.warn('[FlowWizard] Element tree container not found');
+            return;
+        }
+
+        this.elementTree = new ElementTree(container, {
+            onTap: (element) => this.handleTreeTap(element),
+            onSensor: (element) => this.handleTreeSensor(element),
+            onHighlight: (element) => this.highlightHoveredElement(element)
+        });
+
+        // Wire up tree search
+        const searchInput = document.getElementById('treeSearchInput');
+        searchInput?.addEventListener('input', (e) => {
+            this.elementTree?.setSearchFilter(e.target.value);
+        });
+
+        // Wire up tree filters
+        document.getElementById('treeFilterClickable')?.addEventListener('change', (e) => {
+            this.elementTree?.setFilterOptions({ clickableOnly: e.target.checked });
+        });
+
+        document.getElementById('treeFilterText')?.addEventListener('change', (e) => {
+            this.elementTree?.setFilterOptions({ textOnly: e.target.checked });
+        });
+
+        console.log('[FlowWizard] Element tree initialized');
+    }
+
+    /**
+     * Toggle element tree panel visibility
+     */
+    toggleTreeView(show = null) {
+        const treePanel = document.getElementById('elementTreePanel');
+        const layout = document.querySelector('.recording-layout');
+        const toggleBtn = document.getElementById('btnToggleTree');
+
+        if (!treePanel || !layout) return;
+
+        // Determine new state
+        this.isTreeViewOpen = show !== null ? show : !this.isTreeViewOpen;
+
+        if (this.isTreeViewOpen) {
+            treePanel.style.display = 'flex';
+            layout.classList.add('split-view');
+            toggleBtn?.classList.add('active');
+
+            // Update tree with current elements
+            const elements = this.recorder?.screenshotMetadata?.elements || [];
+            this.elementTree?.setElements(elements);
+        } else {
+            treePanel.style.display = 'none';
+            layout.classList.remove('split-view');
+            toggleBtn?.classList.remove('active');
+        }
+
+        console.log(`[FlowWizard] Tree view ${this.isTreeViewOpen ? 'opened' : 'closed'}`);
+    }
+
+    /**
+     * Handle tap action from tree
+     */
+    handleTreeTap(element) {
+        if (!element?.bounds) return;
+
+        const bounds = element.bounds;
+        const x = bounds.x + bounds.width / 2;
+        const y = bounds.y + bounds.height / 2;
+
+        console.log(`[FlowWizard] Tree tap on element at (${x}, ${y})`);
+
+        // Execute tap on device
+        this.recorder?.executeTap(x, y);
+
+        // Add step to flow
+        this.recorder?.addStep({
+            step_type: 'tap',
+            x: Math.round(x),
+            y: Math.round(y),
+            description: `Tap "${element.text || element.class}"`
+        });
+
+        showToast('Tap recorded from tree', 'success', 1500);
+        this.refreshAfterAction(500);
+    }
+
+    /**
+     * Handle sensor action from tree
+     */
+    handleTreeSensor(element) {
+        if (!element) return;
+
+        console.log('[FlowWizard] Tree sensor for element:', element);
+
+        // Open the element action dialog with sensor pre-selected
+        this.interactions?.showElementActionDialog(element, 'sensor');
+    }
+
+    /**
+     * Update tree with new elements
+     */
+    updateElementTree(elements) {
+        if (this.isTreeViewOpen && this.elementTree) {
+            this.elementTree.setElements(elements);
+        }
     }
 
     toggleScale() {

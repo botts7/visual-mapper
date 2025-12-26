@@ -1164,3 +1164,219 @@ img.app-icon {
 .screenshot-container:hover .gesture-hint {
     opacity: 1;
 }
+
+/* ==========================================
+   Phase 5: Element Tree Panel
+   ========================================== */
+
+/* Split view layout when tree is open */
+.recording-layout.split-view {
+    grid-template-columns: 320px 1fr 280px 320px;
+}
+
+.recording-layout.split-view.sidebar-collapsed {
+    grid-template-columns: 0px 1fr 280px 320px;
+}
+
+/* Element Tree Panel */
+.element-tree-panel {
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.tree-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.tree-header h3 {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text);
+}
+
+.tree-search {
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+
+.tree-filters {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 10px;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.tree-filters label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+
+.tree-content {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+/* Tree structure styles */
+.element-tree {
+    font-size: 12px;
+}
+
+.tree-group {
+    margin-bottom: 4px;
+}
+
+.tree-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--background);
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.tree-group-header:hover {
+    background: var(--border);
+}
+
+.tree-toggle {
+    font-size: 10px;
+    color: var(--text-muted);
+    width: 12px;
+}
+
+.tree-class {
+    font-weight: 500;
+    color: var(--text);
+}
+
+.tree-class.has-clickable {
+    color: var(--primary);
+}
+
+.tree-count {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: auto;
+}
+
+.tree-group-items {
+    padding-left: 18px;
+}
+
+.tree-element {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    margin: 2px 0;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.tree-element:hover {
+    background: var(--background);
+}
+
+.tree-element.highlighted {
+    background: rgba(59, 130, 246, 0.2);
+    border: 1px solid var(--primary);
+}
+
+.tree-element.clickable {
+    border-left: 3px solid var(--primary);
+}
+
+.tree-element-content {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+
+.tree-element-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tree-badge {
+    font-size: 9px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.tree-badge.clickable-badge {
+    background: var(--primary);
+    color: white;
+}
+
+.tree-element-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.tree-element:hover .tree-element-actions {
+    opacity: 1;
+}
+
+.tree-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: var(--background);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tree-btn:hover {
+    background: var(--primary);
+    color: white;
+}
+
+.tree-empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 20px;
+    font-size: 13px;
+}
+
+/* Responsive adjustments for split view */
+@media (max-width: 1400px) {
+    .recording-layout.split-view {
+        grid-template-columns: 280px 1fr 240px 280px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .recording-layout.split-view {
+        grid-template-columns: 1fr;
+    }
+
+    .element-tree-panel {
+        display: none !important;
+    }
+}

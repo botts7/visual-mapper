@@ -173,6 +173,7 @@
                         <button class="btn btn-secondary" id="btnStitchCapture">📸 Stitch Capture</button>
                         <button class="btn btn-secondary" id="btnGoBack">⬅️ Back</button>
                         <button class="btn btn-secondary" id="btnGoHome">🏠 Home</button>
+                        <button class="btn btn-secondary" id="btnToggleTree" title="Toggle element tree">🌳 Tree</button>
                         <div class="zoom-controls">
                             <button class="btn btn-secondary btn-sm" id="btnZoomOut" title="Zoom Out">🔍-</button>
                             <span class="zoom-level" id="zoomLevel">100%</span>
@@ -221,6 +222,22 @@
                         <div class="gesture-hint">Click = Tap | Drag = Swipe</div>
                     </div>
                 </div>
+
+                <!-- Element Tree Panel (Split View) -->
+                <aside id="elementTreePanel" class="element-tree-panel" style="display: none;">
+                    <div class="tree-header">
+                        <h3>Element Tree</h3>
+                        <button id="btnCloseTree" class="btn btn-sm btn-secondary" title="Close tree view">✕</button>
+                    </div>
+                    <div class="tree-search">
+                        <input type="text" id="treeSearchInput" class="search-input" placeholder="Search elements...">
+                    </div>
+                    <div class="tree-filters">
+                        <label><input type="checkbox" id="treeFilterClickable"> Clickable only</label>
+                        <label><input type="checkbox" id="treeFilterText"> With text</label>
+                    </div>
+                    <div id="elementTreeContainer" class="tree-content"></div>
+                </aside>
 
                 <!-- Flow Steps Panel (Right) -->
                 <div class="flow-steps-panel">
