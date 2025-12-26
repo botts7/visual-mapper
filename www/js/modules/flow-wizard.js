@@ -371,6 +371,9 @@ class FlowWizard {
             this.updateZoomDisplay(e.detail.zoom);
         });
 
+        // Setup hover tooltip for element preview
+        this.setupHoverTooltip();
+
         // Sidebar collapse/expand buttons
         document.getElementById('btnCollapseSidebar')?.addEventListener('click', () => {
             this.collapseSidebar();
@@ -668,6 +671,184 @@ class FlowWizard {
                 console.warn('[FlowWizard] Auto-refresh after action failed:', e);
             }
         }, delayMs);
+    }
+
+    /**
+     * Setup hover tooltip for element preview
+     */
+    setupHoverTooltip() {
+        this.hoveredElement = null;
+        const hoverTooltip = document.getElementById('hoverTooltip');
+        const container = document.getElementById('screenshotContainer');
+
+        if (!hoverTooltip || !container) return;
+
+        // Handle mouse move on canvas
+        this.canvas.addEventListener('mousemove', (e) => {
+            this.handleCanvasHover(e, hoverTooltip, container);
+        });
+
+        // Hide tooltip when mouse leaves canvas
+        this.canvas.addEventListener('mouseleave', () => {
+            this.hoveredElement = null;
+            this.hideHoverTooltip(hoverTooltip);
+        });
+
+        console.log('[FlowWizard] Hover tooltip initialized');
+    }
+
+    /**
+     * Handle mouse movement over canvas for element hover
+     */
+    handleCanvasHover(e, hoverTooltip, container) {
+        const elements = this.recorder?.screenshotMetadata?.elements || this.liveStream?.elements || [];
+        if (elements.length === 0) {
+            this.hideHoverTooltip(hoverTooltip);
+            return;
+        }
+
+        // Get canvas coordinates
+        const rect = this.canvas.getBoundingClientRect();
+        const canvasX = e.clientX - rect.left;
+        const canvasY = e.clientY - rect.top;
+
+        // Convert to device coordinates
+        const deviceCoords = this.canvasRenderer.canvasToDevice(canvasX, canvasY);
+
+        // Find elements at hover position
+        let elementsAtPoint = [];
+        for (let i = elements.length - 1; i >= 0; i--) {
+            const el = elements[i];
+            if (!el.bounds) continue;
+            const b = el.bounds;
+            if (deviceCoords.x >= b.x && deviceCoords.x <= b.x + b.width &&
+                deviceCoords.y >= b.y && deviceCoords.y <= b.y + b.height) {
+                elementsAtPoint.push(el);
+            }
+        }
+
+        // Prioritize: clickable elements first, then smallest area
+        let foundElement = null;
+        if (elementsAtPoint.length > 0) {
+            const clickable = elementsAtPoint.filter(el => el.clickable);
+            const candidates = clickable.length > 0 ? clickable : elementsAtPoint;
+
+            foundElement = candidates.reduce((smallest, el) => {
+                const area = el.bounds.width * el.bounds.height;
+                const smallestArea = smallest.bounds.width * smallest.bounds.height;
+                return area < smallestArea ? el : smallest;
+            });
+        }
+
+        if (foundElement && foundElement !== this.hoveredElement) {
+            this.hoveredElement = foundElement;
+            this.showHoverTooltip(e, foundElement, hoverTooltip, container);
+            this.highlightHoveredElement(foundElement);
+        } else if (!foundElement && this.hoveredElement) {
+            this.hoveredElement = null;
+            this.hideHoverTooltip(hoverTooltip);
+            // Re-render without hover highlight
+            this.updateScreenshotDisplay();
+        } else if (foundElement) {
+            // Update tooltip position
+            this.updateTooltipPosition(e, hoverTooltip, container);
+        }
+    }
+
+    /**
+     * Show hover tooltip with element info
+     */
+    showHoverTooltip(e, element, hoverTooltip, container) {
+        const header = hoverTooltip.querySelector('.tooltip-header');
+        const body = hoverTooltip.querySelector('.tooltip-body');
+
+        // Header: element text or class name
+        const displayName = element.text?.trim() ||
+                           element.content_desc?.trim() ||
+                           element.class?.split('.').pop() ||
+                           'Element';
+        header.textContent = displayName;
+
+        // Body: element details
+        const clickableBadge = element.clickable
+            ? '<span class="clickable-badge">Clickable</span>'
+            : '<span class="not-clickable-badge">Not Clickable</span>';
+
+        let bodyHtml = `<div class="tooltip-row"><span class="tooltip-label">Class:</span><span class="tooltip-value">${element.class?.split('.').pop() || '-'}</span></div>`;
+
+        if (element.resource_id) {
+            const resId = element.resource_id.split('/').pop() || element.resource_id;
+            bodyHtml += `<div class="tooltip-row"><span class="tooltip-label">ID:</span><span class="tooltip-value">${resId}</span></div>`;
+        }
+
+        if (element.bounds) {
+            bodyHtml += `<div class="tooltip-row"><span class="tooltip-label">Size:</span><span class="tooltip-value">${element.bounds.width}x${element.bounds.height}</span></div>`;
+        }
+
+        bodyHtml += `<div class="tooltip-row"><span class="tooltip-label">Status:</span><span class="tooltip-value">${clickableBadge}</span></div>`;
+
+        body.innerHTML = bodyHtml;
+
+        this.updateTooltipPosition(e, hoverTooltip, container);
+        hoverTooltip.style.display = 'block';
+    }
+
+    /**
+     * Update tooltip position near cursor
+     */
+    updateTooltipPosition(e, hoverTooltip, container) {
+        const containerRect = container.getBoundingClientRect();
+        let x = e.clientX - containerRect.left + 15;
+        let y = e.clientY - containerRect.top + 15;
+
+        // Keep tooltip within container bounds
+        const tooltipRect = hoverTooltip.getBoundingClientRect();
+        if (x + tooltipRect.width > containerRect.width - 10) {
+            x = e.clientX - containerRect.left - tooltipRect.width - 15;
+        }
+        if (y + tooltipRect.height > containerRect.height - 10) {
+            y = e.clientY - containerRect.top - tooltipRect.height - 15;
+        }
+
+        hoverTooltip.style.left = Math.max(5, x) + 'px';
+        hoverTooltip.style.top = Math.max(5, y) + 'px';
+    }
+
+    /**
+     * Hide hover tooltip
+     */
+    hideHoverTooltip(hoverTooltip) {
+        if (hoverTooltip) {
+            hoverTooltip.style.display = 'none';
+        }
+    }
+
+    /**
+     * Highlight hovered element on canvas
+     */
+    highlightHoveredElement(element) {
+        // Re-render current screenshot with highlight
+        const dataUrl = this.recorder?.getScreenshotDataUrl();
+        const metadata = this.recorder?.screenshotMetadata;
+
+        if (!dataUrl || !this.canvasRenderer) return;
+
+        // Render with custom highlight callback
+        this.canvasRenderer.render(dataUrl, metadata).then(() => {
+            // Draw hover highlight
+            if (element.bounds) {
+                const b = element.bounds;
+                const ctx = this.canvasRenderer.ctx;
+                const scale = this.canvasRenderer.currentScale || 1;
+
+                ctx.save();
+                ctx.strokeStyle = '#00ffff'; // Cyan for hover
+                ctx.lineWidth = 3;
+                ctx.setLineDash([5, 5]);
+                ctx.strokeRect(b.x * scale, b.y * scale, b.width * scale, b.height * scale);
+                ctx.restore();
+            }
+        });
     }
 
     toggleScale() {

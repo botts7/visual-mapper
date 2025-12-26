@@ -464,6 +464,70 @@ img.app-icon {
     50% { opacity: 0.5; }
 }
 
+/* Element Hover Tooltip */
+.hover-tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.9);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    max-width: 280px;
+    pointer-events: none;
+    z-index: 200;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tooltip-header {
+    font-weight: bold;
+    color: #4fc3f7;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tooltip-body {
+    font-family: monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #ccc;
+}
+
+.tooltip-body .tooltip-row {
+    display: flex;
+    gap: 6px;
+}
+
+.tooltip-body .tooltip-label {
+    color: #888;
+    min-width: 50px;
+}
+
+.tooltip-body .tooltip-value {
+    color: #fff;
+    word-break: break-word;
+}
+
+.tooltip-body .clickable-badge {
+    display: inline-block;
+    background: #4caf50;
+    color: white;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+}
+
+.tooltip-body .not-clickable-badge {
+    display: inline-block;
+    background: #757575;
+    color: white;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+}
+
 .swipe-controls {
     display: flex;
     gap: 6px;
