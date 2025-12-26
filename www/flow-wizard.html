@@ -150,6 +150,25 @@
                     </div>
 
                     <div class="screenshot-controls">
+                        <!-- Capture Mode Toggle -->
+                        <div class="capture-mode-toggle">
+                            <label class="mode-option">
+                                <input type="radio" name="captureMode" value="polling" checked>
+                                <span>Polling</span>
+                            </label>
+                            <label class="mode-option">
+                                <input type="radio" name="captureMode" value="streaming">
+                                <span>Stream</span>
+                            </label>
+                            <select id="streamQuality" class="quality-select" disabled>
+                                <option value="medium">720p</option>
+                                <option value="high">Native</option>
+                                <option value="low">480p</option>
+                                <option value="fast">360p</option>
+                            </select>
+                            <span id="streamStatus" class="stream-status"></span>
+                        </div>
+
                         <button class="btn btn-secondary" id="btnRefreshScreen">🔄 Refresh</button>
                         <button class="btn btn-secondary" id="btnStitchCapture">📸 Stitch Capture</button>
                         <button class="btn btn-secondary" id="btnGoBack">⬅️ Back</button>

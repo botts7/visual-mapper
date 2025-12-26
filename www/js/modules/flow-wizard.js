@@ -12,6 +12,7 @@ import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.5';
 import FlowElementPanel from './flow-element-panel.js?v=0.0.5';
 import FlowInteractions from './flow-interactions.js?v=0.0.9';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
+import LiveStream from './live-stream.js?v=0.0.7';
 
 // Step modules
 import * as Step1 from './flow-wizard-step1.js?v=0.0.5';
@@ -62,6 +63,11 @@ class FlowWizard {
         this.interactions = null;
         this.stepManager = null;
 
+        // Live streaming (Phase 1 enhancement)
+        this.captureMode = 'polling'; // 'polling' or 'streaming'
+        this.streamQuality = 'medium'; // 'high', 'medium', 'low', 'fast'
+        this.liveStream = null;
+
         console.log('FlowWizard initialized');
         this.init();
     }
@@ -85,6 +91,10 @@ class FlowWizard {
      * Reset wizard to initial state
      */
     reset() {
+        // Stop streaming if active
+        this.stopStreaming();
+        this.captureMode = 'polling';
+
         this.currentStep = 1;
         this.selectedDevice = null;
         this.selectedApp = null;
@@ -214,6 +224,12 @@ class FlowWizard {
     }
 
     loadStepContent() {
+        // Stop streaming when leaving Step 3
+        if (this.currentStep !== 3 && this.captureMode === 'streaming') {
+            this.stopStreaming();
+            this.captureMode = 'polling';
+        }
+
         switch(this.currentStep) {
             case 1:
                 Step1.loadStep(this);
@@ -334,6 +350,9 @@ class FlowWizard {
     }
 
     setupRecordingUI() {
+        // Setup capture mode toggle (Polling/Streaming)
+        this.setupCaptureMode();
+
         // Canvas click handler
         this.canvas.addEventListener('click', async (e) => {
             // Ignore clicks during pinch gestures
@@ -469,6 +488,135 @@ class FlowWizard {
         });
 
         console.log('[FlowWizard] Overlay filters initialized');
+    }
+
+    /**
+     * Setup capture mode toggle (Polling vs Streaming)
+     */
+    setupCaptureMode() {
+        const captureModeInputs = document.querySelectorAll('input[name="captureMode"]');
+        const qualitySelect = document.getElementById('streamQuality');
+        const statusEl = document.getElementById('streamStatus');
+
+        if (!captureModeInputs.length) return;
+
+        // Handle capture mode change
+        captureModeInputs.forEach(input => {
+            input.addEventListener('change', (e) => {
+                const mode = e.target.value;
+                this.setCaptureMode(mode);
+            });
+        });
+
+        // Handle quality change
+        if (qualitySelect) {
+            qualitySelect.addEventListener('change', (e) => {
+                this.streamQuality = e.target.value;
+                // If streaming, restart with new quality
+                if (this.captureMode === 'streaming' && this.liveStream?.isActive()) {
+                    this.startStreaming();
+                }
+            });
+        }
+
+        console.log('[FlowWizard] Capture mode controls initialized');
+    }
+
+    /**
+     * Set capture mode (polling or streaming)
+     */
+    setCaptureMode(mode) {
+        const qualitySelect = document.getElementById('streamQuality');
+
+        if (mode === 'streaming') {
+            this.captureMode = 'streaming';
+            if (qualitySelect) qualitySelect.disabled = false;
+            this.startStreaming();
+        } else {
+            this.captureMode = 'polling';
+            if (qualitySelect) qualitySelect.disabled = true;
+            this.stopStreaming();
+        }
+
+        console.log(`[FlowWizard] Capture mode: ${mode}`);
+    }
+
+    /**
+     * Start live streaming
+     */
+    startStreaming() {
+        if (!this.selectedDevice) {
+            showToast('No device selected', 'error');
+            return;
+        }
+
+        // Stop any existing stream
+        this.stopStreaming();
+
+        // Initialize LiveStream if needed
+        if (!this.liveStream) {
+            this.liveStream = new LiveStream(this.canvas);
+
+            // Wire up callbacks
+            this.liveStream.onConnect = () => {
+                this.updateStreamStatus('connected', 'Live');
+                showToast('Streaming started', 'success', 2000);
+            };
+
+            this.liveStream.onDisconnect = () => {
+                this.updateStreamStatus('disconnected', 'Offline');
+            };
+
+            this.liveStream.onConnectionStateChange = (state, attempts) => {
+                switch (state) {
+                    case 'connecting':
+                        this.updateStreamStatus('connecting', 'Connecting...');
+                        break;
+                    case 'reconnecting':
+                        this.updateStreamStatus('reconnecting', `Retry ${attempts}...`);
+                        break;
+                    case 'connected':
+                        this.updateStreamStatus('connected', 'Live');
+                        break;
+                    case 'disconnected':
+                        this.updateStreamStatus('disconnected', 'Offline');
+                        break;
+                }
+            };
+
+            this.liveStream.onError = (error) => {
+                console.error('[FlowWizard] Stream error:', error);
+            };
+
+            // Apply current overlay settings
+            this.liveStream.setOverlaysVisible(this.overlayFilters.showClickable || this.overlayFilters.showNonClickable);
+            this.liveStream.setTextLabelsVisible(this.overlayFilters.showTextLabels);
+        }
+
+        // Start streaming with MJPEG mode for lower bandwidth
+        this.liveStream.start(this.selectedDevice, 'mjpeg', this.streamQuality);
+        this.updateStreamStatus('connecting', 'Connecting...');
+    }
+
+    /**
+     * Stop live streaming
+     */
+    stopStreaming() {
+        if (this.liveStream) {
+            this.liveStream.stop();
+        }
+        this.updateStreamStatus('', '');
+    }
+
+    /**
+     * Update stream status display
+     */
+    updateStreamStatus(className, text) {
+        const statusEl = document.getElementById('streamStatus');
+        if (statusEl) {
+            statusEl.className = `stream-status ${className}`;
+            statusEl.textContent = text;
+        }
     }
 
     toggleScale() {

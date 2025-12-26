@@ -5,7 +5,7 @@
 
 /* Wizard Container */
 .wizard-container {
-    max-width: 1400px;
+    max-width: 1800px;
     margin: 0 auto;
     padding: 20px;
 }
@@ -115,9 +115,14 @@
 .wizard-nav {
     display: flex;
     justify-content: space-between;
-    margin-top: 40px;
-    padding-top: 20px;
+    position: sticky;
+    bottom: 0;
+    background: var(--background);
+    padding: 20px;
+    margin: 0 -20px -20px -20px;
     border-top: 2px solid var(--border);
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+    z-index: 100;
 }
 
 .wizard-nav button:disabled {
@@ -226,9 +231,17 @@
 }
 
 .device-icon,
-.app-icon {
+.app-icon-fallback {
     font-size: 48px;
     margin-bottom: 10px;
+}
+
+img.app-icon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    object-fit: contain;
 }
 
 .device-name,
@@ -288,45 +301,213 @@
     border-color: var(--primary);
 }
 
-/* Recording Layout */
+/* Recording Layout - LOCKED HEIGHTS TO PREVENT BOUNCING */
 .recording-layout {
     display: grid;
-    grid-template-columns: 1fr 400px;
-    gap: 20px;
-    min-height: 700px;
+    grid-template-columns: 380px 1fr 320px;
+    gap: 15px;
+    height: calc(100vh - 250px);
+    position: relative;
+    overflow: hidden;
 }
 
-.screenshot-panel,
+.recording-layout.sidebar-collapsed {
+    grid-template-columns: 0px 1fr 320px;
+}
+
+.screenshot-panel {
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 .flow-steps-panel {
     background: var(--surface);
-    border-radius: 12px;
-    padding: 20px;
+    border-radius: 8px;
+    padding: 12px;
     border: 1px solid var(--border);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* App Info Header - No shrink to prevent bouncing */
+.app-info-header {
+    display: none;
+    margin-bottom: 10px;
+    padding: 12px 15px;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.app-icon-img {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.app-info-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.app-info-text h3 {
+    margin: 0;
+    font-size: 16px;
+    color: var(--text-primary);
+}
+
+.app-package-text {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
 }
 
 .screenshot-controls {
     display: flex;
-    gap: 10px;
-    margin-bottom: 15px;
+    gap: 6px;
+    margin-bottom: 8px;
     flex-wrap: wrap;
+    flex-shrink: 0;
+    align-items: center;
+}
+
+/* Capture Mode Toggle (Polling/Streaming) */
+.capture-mode-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-right: 8px;
+}
+
+.capture-mode-toggle .mode-option {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+}
+
+.capture-mode-toggle .mode-option:has(input:checked) {
+    background: var(--primary);
+    color: white;
+}
+
+.capture-mode-toggle .mode-option input {
+    display: none;
+}
+
+.capture-mode-toggle .quality-select {
+    padding: 4px 8px;
+    font-size: 11px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    cursor: pointer;
+}
+
+.capture-mode-toggle .quality-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.stream-status {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    min-width: 60px;
+    text-align: center;
+}
+
+.stream-status.connecting {
+    background: #fef3c7;
+    color: #d97706;
+}
+
+.stream-status.connected {
+    background: #dcfce7;
+    color: #16a34a;
+}
+
+.stream-status.disconnected {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.stream-status.reconnecting {
+    background: #e0e7ff;
+    color: #4f46e5;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }
 
 .swipe-controls {
     display: flex;
-    gap: 8px;
-    margin-bottom: 15px;
+    gap: 6px;
+    margin-bottom: 8px;
     justify-content: center;
+    flex-shrink: 0;
+}
+
+/* Overlay Section - No shrink to prevent bouncing */
+.overlay-section {
+    margin-bottom: 8px;
+    padding: 10px;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.overlay-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 8px;
+    font-size: 13px;
+}
+
+.overlay-filters label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .screenshot-display {
     border-radius: 8px;
-    overflow: hidden;
-    background: #f5f5f5;
-    min-height: 500px;
-    display: flex;
-    align-items: flex-start;
-    justify-content: flex-start;
+    overflow: auto; /* Enable scrolling in both directions when zoomed */
+    background: var(--background);
+    flex: 1;
+    min-height: 0;
+    height: 0; /* Force flex item to respect container height */
+    /* REMOVED: display: flex, align-items, justify-content - prevents layout thrashing */
     position: relative;
+    -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+    touch-action: pan-x pan-y; /* Allow panning but prevent default pinch zoom */
 }
 
 .screenshot-display img {
@@ -336,15 +517,57 @@
     display: block;
 }
 
-.flow-steps-panel h3 {
-    margin: 0 0 20px 0;
+/* Phase 8: Screenshot canvas - ANTI-BOUNCING: Bulletproof fix */
+#screenshotCanvas {
+    display: block;
+    cursor: crosshair;
+    max-width: none; /* Allow zoom to exceed container */
+    max-height: none; /* Allow zoom to exceed container */
+    touch-action: none; /* Prevent default touch behavior, let JS handle gestures */
+    /* Canvas bitmap dimensions are locked in JS - CSS uses bitmap size */
+    /* No explicit width/height - let browser use natural dimensions */
+    /* No flex on parent - prevents layout recalculation */
+    /* No display toggle - prevents reflow */
+}
+
+/* Zoom controls */
+.zoom-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    padding: 4px 8px;
+    background: var(--surface);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+}
+
+.zoom-level {
+    font-family: monospace;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--text-primary);
+    min-width: 45px;
+    text-align: center;
+}
+
+.zoom-controls .btn-sm {
+    padding: 4px 8px;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.flow-steps-panel h3 {
+    margin: 0 0 12px 0;
+    color: var(--text-primary);
+    flex-shrink: 0;
 }
 
 .flow-steps-list {
-    max-height: 500px;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
 }
 
 .flow-step-item {
@@ -530,34 +753,141 @@
     60%, 100% { content: '...'; }
 }
 
-/* Element Panel */
-#btnToggleElementPanel {
-    margin-bottom: 10px;
-    width: 100%;
+/* Element Sidebar - LOCKED HEIGHT TO PREVENT BOUNCING */
+.element-sidebar {
+    background: var(--surface);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    padding: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: all 0.3s ease;
 }
 
-#elementPanel {
-    display: none;
-    margin-bottom: 10px;
-    max-height: 400px;
-    overflow-y: auto;
+.element-sidebar.collapsed {
+    width: 0;
+    min-width: 0;
+    opacity: 0;
+    padding: 0;
+    border: none;
+    pointer-events: none;
+}
+
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    border-bottom: 1px solid var(--border);
     background: var(--surface);
-    border-radius: 8px;
+    flex-shrink: 0;
+}
+
+.sidebar-header h3 {
+    margin: 0;
+    font-size: 16px;
+    color: var(--text-primary);
+}
+
+.btn-collapse {
+    background: transparent;
     border: 1px solid var(--border);
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+}
+
+.btn-collapse:hover {
+    background: var(--hover);
+    color: var(--text-primary);
+}
+
+.sidebar-search {
+    padding: 12px 15px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+}
+
+.sidebar-search .search-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    background: var(--background);
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.sidebar-search .search-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.sidebar-filters {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.sidebar-filters label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+
+.sidebar-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     padding: 10px;
 }
 
-#elementPanel h4 {
-    margin: 0 0 10px 0;
-    color: var(--text-primary);
+.element-list-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Sidebar Toggle Button (when collapsed) */
+.sidebar-toggle-btn {
+    position: fixed;
+    left: 20px;
+    top: 200px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 15px 8px;
+    border-radius: 0 8px 8px 0;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: center;
+    box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s ease;
+    z-index: 9999;
+    display: none;
+}
+
+.sidebar-toggle-btn:hover {
+    background: var(--primary-dark, #2563eb);
+    transform: translateX(2px);
 }
 
 .element-item {
     background: var(--card-bg);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px;
-    margin-bottom: 8px;
+    border-radius: 6px;
+    padding: 8px;
+    margin-bottom: 6px;
     transition: all 0.2s ease;
 }
 
@@ -599,6 +929,27 @@
 .element-meta {
     font-size: 11px;
     color: var(--text-secondary);
+}
+
+.element-preview {
+    background: var(--surface, #f3f4f6);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 8px 0;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+}
+
+.preview-label {
+    color: var(--text-secondary);
+    font-weight: 600;
+    margin-right: 6px;
+}
+
+.preview-value {
+    color: var(--text-primary);
+    word-wrap: break-word;
 }
 
 .element-actions {
