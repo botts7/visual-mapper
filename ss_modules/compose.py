@@ -82,13 +82,23 @@ class ImageComposer:
 
         # Track the LAST RAW capture for template matching
         prev_raw_img = img
-        prev_raw_elements = result_elements
         current_result_height = height
 
         # Stitch each subsequent capture to the result
         for i in range(1, len(captures)):
             img_next, elements_next, precalc_first_new_y, known_scroll = unpack_capture(captures[i])
             is_last = (i == len(captures) - 1)
+
+            # For element-based short page stitching, use TRACING PAPER method
+            # This matches the stable stitcher's approach
+            if precalc_first_new_y > 0 and len(captures) == 2:
+                logger.info(f"  === TRACING PAPER STITCHING (element-based) ===")
+                result_img, result_elements, stitch_info = self.stitch_tracing_paper(
+                    result_img, result_elements,
+                    img_next, elements_next,
+                    screen_height
+                )
+                continue
 
             logger.info(f"  === IMAGE-BASED STITCHING: Capture {i}/{len(captures)-1} ===")
 
@@ -111,7 +121,9 @@ class ImageComposer:
             # CRITICAL: When we crop footer from first capture, adjust new_content_start accordingly
             # First capture ends at (screen_height - footer), not screen_height
             # Content at that position in cap1 is at y = (screen_height - footer - known_scroll)
-            if current_result_height == screen_height:
+            # BUT: Skip this for element-based overlap (precalc_first_new_y > 0) - the element
+            # calculation already accounts for positions correctly
+            if current_result_height == screen_height and precalc_first_new_y == 0:
                 footer_adjusted_start = screen_height - detected_footer - known_scroll
                 if footer_adjusted_start < 0:
                     footer_adjusted_start = 0
@@ -122,34 +134,82 @@ class ImageComposer:
                     detected_new_content_start = footer_adjusted_start
 
             # For last capture, do DIRECT comparison between accumulated image and new capture
-            # This finds the TRUE overlap, not estimated from scroll amounts
+            # BUT ONLY if we don't have reliable element-based overlap (precalc_first_new_y > 0)
+            # Element-based overlap is more reliable for short pages with gradient backgrounds
             if is_last:
-                logger.info(f"  === LAST CAPTURE - DIRECT OVERLAP DETECTION ===")
+                if precalc_first_new_y > 0:
+                    # We have element-based overlap - trust it, don't override with template matching
+                    # This is important for apps with gradient backgrounds (BYD, Netflix) where
+                    # template matching can be confused by color changes
+                    logger.info(f"  === LAST CAPTURE - USING ELEMENT-BASED OVERLAP ===")
+                    logger.info(f"  Element-based new_content_start={detected_new_content_start} (trusted)")
+                else:
+                    logger.info(f"  === LAST CAPTURE - DIRECT OVERLAP DETECTION ===")
 
-                # Take template from bottom of accumulated image (last 100px of content)
-                acc_height = result_img.size[1]
-                template_height = 100
-                template_y = acc_height - template_height - 20  # 20px margin from bottom
+                    # Take template from bottom of accumulated image, but ABOVE the footer
+                    # Important: if there's a fixed footer, taking template from very bottom
+                    # would match the footer (which doesn't move) and give wrong results
+                    acc_height = result_img.size[1]
+                    template_height = 100
+                    # Account for footer - take template from CONTENT area, not footer
+                    footer_margin = detected_footer + 100  # Detected footer + safety margin
+                    template_y = acc_height - template_height - footer_margin
+                    logger.info(f"  Template from y={template_y}-{template_y+template_height} (footer={detected_footer}px, acc_height={acc_height})")
 
-                if template_y > 0:
-                    template = result_img.crop((0, template_y, result_img.size[0], template_y + template_height))
+                    if template_y > 0:
+                        template = result_img.crop((0, template_y, result_img.size[0], template_y + template_height))
 
-                    # Search for this template in the new capture
-                    match_y, confidence = self.overlap_detector.find_overlap_offset(
-                        template, img_next, screen_height
-                    )
+                        # Search for this template in the new capture
+                        match_y, confidence = self.overlap_detector.find_overlap_offset(
+                            template, img_next, screen_height
+                        )
 
-                    if match_y is not None and confidence and confidence > 0.8:
-                        # Found where accumulated content appears in new capture
-                        # New content starts AFTER this match
-                        direct_new_content_start = match_y + template_height
-                        logger.info(f"  DIRECT MATCH: template found at y={match_y} (conf={confidence:.3f})")
-                        logger.info(f"  DIRECT: new_content_start={direct_new_content_start} (vs scroll-based={detected_new_content_start})")
+                        if match_y is not None and confidence and confidence > 0.8:
+                            # Found where accumulated content appears in new capture
+                            # New content starts AFTER this match
+                            direct_new_content_start = match_y + template_height
+                            logger.info(f"  DIRECT MATCH: template found at y={match_y} (conf={confidence:.3f})")
 
-                        # Use the DIRECT detection - it's more accurate
-                        detected_new_content_start = direct_new_content_start
-                    else:
-                        logger.info(f"  DIRECT MATCH failed (conf={confidence}), using scroll-based={detected_new_content_start}")
+                            # === TRACEPAPER REFINEMENT ===
+                            # Fine-tune position by sliding template in small range to find best match
+                            import numpy as np
+                            # Ensure both are RGB (not RGBA) to avoid shape mismatch
+                            template_arr = np.array(template.convert('RGB'))
+                            img_arr = np.array(img_next.convert('RGB'))
+
+                            best_y = match_y
+                            best_score = 0
+                            search_range = 30  # Search +/- 30 pixels
+
+                            for test_y in range(max(0, match_y - search_range), min(screen_height - template_height, match_y + search_range + 1)):
+                                test_region = img_arr[test_y:test_y + template_height, :, :]
+                                if test_region.shape[0] == template_height:
+                                    score = np.sum(template_arr == test_region) / template_arr.size
+                                    if score > best_score:
+                                        best_score = score
+                                        best_y = test_y
+
+                            if best_y != match_y:
+                                logger.info(f"  TRACEPAPER: Refined y={match_y} -> y={best_y} (score {best_score*100:.1f}%)")
+                                direct_new_content_start = best_y + template_height
+
+                            logger.info(f"  DIRECT: new_content_start={direct_new_content_start} (vs scroll-based={detected_new_content_start})")
+
+                            # For LAST capture, be CONSERVATIVE to avoid duplicates
+                            # If direct and scroll-based differ significantly, use the HIGHER value
+                            # (higher y = less new content = safer, avoids duplicating)
+                            diff = abs(direct_new_content_start - detected_new_content_start)
+                            if diff > 150:
+                                # Big discrepancy - template might have matched similar content (e.g., episode thumbnails)
+                                # Use the MORE CONSERVATIVE value (higher y = less content included)
+                                conservative_start = max(direct_new_content_start, detected_new_content_start)
+                                logger.info(f"  LAST CAPTURE: Big diff ({diff}px), using conservative {conservative_start} (was direct={direct_new_content_start})")
+                                detected_new_content_start = conservative_start
+                            else:
+                                # Small diff - trust the direct detection
+                                detected_new_content_start = direct_new_content_start
+                        else:
+                            logger.info(f"  DIRECT MATCH failed (conf={confidence}), using scroll-based={detected_new_content_start}")
 
                 expected_new_content = screen_height - detected_new_content_start
                 logger.info(f"  is_last=True, final new_content_start={detected_new_content_start}, new_content={expected_new_content}px")
@@ -166,7 +226,6 @@ class ImageComposer:
 
             # Update for next iteration
             prev_raw_img = img_next
-            prev_raw_elements = elements_next
             current_result_height = result_img.size[1]
 
             # Accumulate stitch info
@@ -188,6 +247,157 @@ class ImageComposer:
         )
 
         return result_img, result_elements, total_stitch_info
+
+    def stitch_tracing_paper(
+        self,
+        img1: Image.Image, elements1: list,
+        img2: Image.Image, elements2: list,
+        screen_height: int
+    ) -> Tuple[Image.Image, list, dict]:
+        """
+        TRACING PAPER stitch method - matches the stable stitcher's approach.
+
+        Logic:
+        1. Find common elements between C1 and C2
+        2. Calculate scroll offset: where element is in C1 vs C2
+        3. C1 contributes: y=0 to y=(scroll_offset + fixed_header)
+        4. C2 contributes: y=fixed_header to y=height, pasted at (scroll_offset + fixed_header)
+
+        Returns:
+            Tuple of (stitched_image, combined_elements, stitch_info)
+        """
+        width, height = img1.size
+
+        logger.info(f"  Screen: {width}x{height}")
+
+        # Step 1: Build element position maps (fingerprint -> y_center)
+        elem1_positions = {}
+        for elem in elements1:
+            fp = self.element_analyzer.get_element_fingerprint(elem)
+            if fp:
+                y_center = self.element_analyzer.get_element_y_center(elem)
+                y_bottom = self.element_analyzer.get_element_bottom(elem)
+                elem1_positions[fp] = (y_center, y_bottom)
+
+        elem2_positions = {}
+        for elem in elements2:
+            fp = self.element_analyzer.get_element_fingerprint(elem)
+            if fp:
+                y_center = self.element_analyzer.get_element_y_center(elem)
+                y_bottom = self.element_analyzer.get_element_bottom(elem)
+                elem2_positions[fp] = (y_center, y_bottom)
+
+        logger.info(f"  C1: {len(elem1_positions)} elements, C2: {len(elem2_positions)} elements")
+
+        # Step 2: Find common elements (excluding fixed header/footer regions)
+        header_limit = height * 0.15
+        footer_limit = height * 0.80
+
+        common_elements = []
+        for fp in elem1_positions:
+            if fp in elem2_positions:
+                y1_center = elem1_positions[fp][0]
+                y2_center = elem2_positions[fp][0]
+
+                # Element must be in scrollable region in BOTH captures
+                if y1_center > header_limit and y2_center < footer_limit:
+                    offset = y1_center - y2_center
+                    common_elements.append((fp, y1_center, y2_center, offset))
+                    if len(common_elements) <= 10:  # Log first 10
+                        logger.info(f"    Common: '{fp[:35]}' C1_y={int(y1_center)}, C2_y={int(y2_center)}, offset={int(offset)}")
+
+        if not common_elements:
+            logger.warning("  No common elements found! Checking all elements...")
+            for fp in elem1_positions:
+                if fp in elem2_positions:
+                    y1 = elem1_positions[fp][0]
+                    y2 = elem2_positions[fp][0]
+                    offset = y1 - y2
+                    if offset > 50:
+                        common_elements.append((fp, y1, y2, offset))
+
+        if not common_elements:
+            logger.error("  Still no common elements! Using default 50% overlap")
+            scroll_offset = int(height * 0.5)
+        else:
+            # Filter out elements with offset=0 or near 0 (full-screen containers)
+            meaningful_offsets = [c[3] for c in common_elements if c[3] > 100]
+
+            if meaningful_offsets:
+                meaningful_offsets.sort()
+                scroll_offset = int(meaningful_offsets[len(meaningful_offsets) // 2])
+                logger.info(f"  Median scroll offset: {scroll_offset}px (from {len(meaningful_offsets)} moving elements)")
+            else:
+                all_offsets = [c[3] for c in common_elements]
+                scroll_offset = max(all_offsets) if all_offsets else int(height * 0.5)
+                logger.info(f"  Using max offset: {scroll_offset}px")
+
+        # Step 3: Detect fixed header height
+        fixed_header_height = self.overlap_detector.detect_fixed_top_height(img1, img2)
+        if fixed_header_height < 80:
+            fixed_header_height = 80  # Minimum Android status bar
+
+        logger.info(f"  Fixed header height: {fixed_header_height}px")
+
+        # Step 4: Calculate crop and paste positions
+        # C1 contributes: y=0 to y=(scroll_offset + fixed_header)
+        # C2 contributes: y=fixed_header to y=height, pasted at (scroll_offset + fixed_header)
+        c1_crop_bottom = scroll_offset + fixed_header_height
+        c2_crop_top = fixed_header_height
+        c2_crop_bottom = height
+        c2_height_used = c2_crop_bottom - c2_crop_top
+        c2_paste_y = scroll_offset + fixed_header_height
+
+        total_height = c2_paste_y + c2_height_used
+
+        logger.info(f"  C1: crop y=0-{c1_crop_bottom} ({c1_crop_bottom}px), paste at y=0")
+        logger.info(f"  C2: crop y={c2_crop_top}-{c2_crop_bottom} ({c2_height_used}px), paste at y={c2_paste_y}")
+        logger.info(f"  Final size: {width}x{total_height}")
+
+        # Step 5: Create stitched image
+        stitched = Image.new('RGB', (width, total_height))
+
+        # Paste C1's top portion
+        if c1_crop_bottom > 0:
+            c1_cropped = img1.crop((0, 0, width, c1_crop_bottom))
+            stitched.paste(c1_cropped, (0, 0))
+            logger.info(f"  Pasted C1 ({c1_cropped.size[1]}px) at y=0")
+
+        # Paste C2 without its header
+        c2_cropped = img2.crop((0, c2_crop_top, width, c2_crop_bottom))
+        stitched.paste(c2_cropped, (0, c2_paste_y))
+        logger.info(f"  Pasted C2 ({c2_cropped.size[1]}px) at y={c2_paste_y}")
+
+        # Step 6: Combine elements from both captures
+        combined_elements = []
+
+        # Add elements from C1 within its crop region
+        for elem in elements1:
+            bounds = elem.get('bounds', {})
+            if isinstance(bounds, dict):
+                elem_y = bounds.get('y', 0)
+                if elem_y < c1_crop_bottom:
+                    combined_elements.append(elem.copy())
+
+        # Add elements from C2 within its crop region, with adjusted Y
+        for elem in elements2:
+            bounds = elem.get('bounds', {})
+            if isinstance(bounds, dict):
+                elem_y = bounds.get('y', 0)
+                if c2_crop_top <= elem_y < c2_crop_bottom:
+                    adjusted_elem = elem.copy()
+                    adjusted_bounds = bounds.copy()
+                    adjusted_bounds['y'] = (elem_y - c2_crop_top) + c2_paste_y
+                    adjusted_elem['bounds'] = adjusted_bounds
+                    combined_elements.append(adjusted_elem)
+
+        logger.info(f"  Combined {len(combined_elements)} elements")
+
+        return stitched, combined_elements, {
+            "scroll_offset": scroll_offset,
+            "header_height": fixed_header_height,
+            "footer_height": 0
+        }
 
     def stitch_two_captures_simple(
         self,
@@ -249,9 +459,64 @@ class ImageComposer:
         else:
             stitched.paste(accumulated_img, (0, 0))
 
-        # Paste new content
+        # Paste new content (no gradient blending - it was causing black lines)
         new_content = new_img.crop((0, new_content_start, width, new_content_end))
-        stitched.paste(new_content, (0, paste_y))
+
+        # DISABLED: Gradient blending was causing artifacts (black lines, cut text)
+        # The overlap detection is accurate enough that we don't need blending
+        blend_height = 0  # Disabled - was 10
+        if False and paste_y > blend_height and new_content_height > blend_height:
+            import numpy as np
+
+            # Get the overlap region from both images (ensure RGB, not RGBA)
+            if acc_height == screen_height:
+                acc_bottom = np.array(accumulated_img.crop((0, paste_y - blend_height, width, paste_y)).convert('RGB'))
+            else:
+                acc_bottom = np.array(stitched.crop((0, paste_y - blend_height, width, paste_y)).convert('RGB'))
+            new_top = np.array(new_content.convert('RGB').crop((0, 0, width, blend_height)))
+
+            # Create gradient blend
+            for i in range(blend_height):
+                alpha = i / blend_height  # 0 at top (acc), 1 at bottom (new)
+                blended_row = (1 - alpha) * acc_bottom[i] + alpha * new_top[i]
+                acc_bottom[i] = blended_row.astype(np.uint8)
+
+            # Paste blended region (replaces the area just before paste_y)
+            blended_img = Image.fromarray(acc_bottom)
+            stitched.paste(blended_img, (0, paste_y - blend_height))
+
+            # Paste rest of new content starting at paste_y (NOT paste_y + blend_height!)
+            if new_content_height > blend_height:
+                rest_content = new_content.crop((0, blend_height, width, new_content_height))
+                stitched.paste(rest_content, (0, paste_y))  # Fixed: was paste_y + blend_height
+
+            logger.info(f"  Applied {blend_height}px gradient blend at seam")
+        else:
+            stitched.paste(new_content, (0, paste_y))
+
+        # === STITCH QUALITY CHECK ===
+        # Compare the seam region to detect misalignment
+        import numpy as np
+        seam_height = 20  # Compare 20px around the seam
+        if paste_y > seam_height and new_content_start > 0:
+            # Get the bottom of accumulated image (above where we paste)
+            if acc_height == screen_height:
+                acc_seam = accumulated_img.crop((0, paste_y - seam_height, width, paste_y))
+            else:
+                acc_seam = accumulated_img.crop((0, paste_y - seam_height, width, paste_y))
+
+            # Get the top of new content (what we're pasting)
+            new_seam = new_img.crop((0, new_content_start, width, new_content_start + seam_height))
+
+            # Compare - if very different, the stitch might be misaligned (ensure RGB)
+            acc_arr = np.array(acc_seam.convert('RGB'))
+            new_arr = np.array(new_seam.convert('RGB'))
+            seam_similarity = np.sum(acc_arr == new_arr) / acc_arr.size
+
+            if seam_similarity < 0.5:
+                logger.warning(f"  ⚠️ STITCH QUALITY: Seam similarity only {seam_similarity*100:.1f}% - possible misalignment!")
+            else:
+                logger.info(f"  Stitch quality OK: seam similarity {seam_similarity*100:.1f}%")
 
         # === Combine elements ===
         combined_elements = []
@@ -262,12 +527,16 @@ class ImageComposer:
             if y_center <= paste_y:
                 combined_elements.append(elem.copy())
 
-        # Elements from new image (only in new content region)
-        # Use strict greater-than to avoid duplicates at boundaries
+        # Y adjustment for element positions
+        # Use template-based adjustment (same as image stitching) for perfect alignment
         y_adjustment = paste_y - new_content_start
+        logger.info(f"  Element Y adjustment: {y_adjustment}px (template-based)")
+
+        # Elements from new image (only in new content region)
+        # Use inclusive boundary check to avoid missing elements at edges
         for elem in new_elements:
             y_center = self.element_analyzer.get_element_y_center(elem)
-            if new_content_start < y_center <= new_content_end:
+            if new_content_start <= y_center <= new_content_end:
                 adjusted_elem = elem.copy()
                 bounds = adjusted_elem.get('bounds', {})
                 if isinstance(bounds, dict):
@@ -451,7 +720,7 @@ class ImageComposer:
             # Check for position-aware duplicates
             adjusted_y = y_center + y_adjustment
             if fp and fp in fingerprint_y_positions:
-                is_dup = any(abs(existing_y - adjusted_y) < 100 for existing_y in fingerprint_y_positions[fp])
+                is_dup = any(abs(existing_y - adjusted_y) < 50 for existing_y in fingerprint_y_positions[fp])
                 if is_dup:
                     continue
 
@@ -834,11 +1103,11 @@ class ImageComposer:
             adjusted_y_center = y_center + y_adjustment
 
             # Position-aware deduplication: skip only if there's an element
-            # with same fingerprint at CLOSE Y position (within 100px)
+            # with same fingerprint at CLOSE Y position (within 50px)
             if fp and fp in fingerprint_y_positions:
                 is_duplicate = False
                 for existing_y in fingerprint_y_positions[fp]:
-                    if abs(existing_y - adjusted_y_center) < 100:
+                    if abs(existing_y - adjusted_y_center) < 50:
                         is_duplicate = True
                         break
                 if is_duplicate:
