@@ -1,12 +1,28 @@
 /**
  * Flow Wizard Module
- * Visual Mapper v0.0.5
+ * Visual Mapper v0.0.6
  *
  * Interactive wizard for creating flows with recording mode
+ * Refactored: Steps 1,2,4,5 use separate modules
  */
 
-import { showToast } from './toast.js?v=0.0.14';
-import FlowRecorder from './flow-recorder.js?v=0.0.14';
+import { showToast } from './toast.js?v=0.0.5';
+import FlowRecorder from './flow-recorder.js?v=0.0.6';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.5';
+import FlowElementPanel from './flow-element-panel.js?v=0.0.5';
+import FlowInteractions from './flow-interactions.js?v=0.0.9';
+import FlowStepManager from './flow-step-manager.js?v=0.0.5';
+
+// Step modules
+import * as Step1 from './flow-wizard-step1.js?v=0.0.5';
+import * as Step2 from './flow-wizard-step2.js?v=0.0.5';
+import * as Step4 from './flow-wizard-step4.js?v=0.0.5';
+import * as Step5 from './flow-wizard-step5.js?v=0.0.5';
+
+// Helper to get API base (from global set by init.js)
+function getApiBase() {
+    return window.API_BASE || '/api';
+}
 
 class FlowWizard {
     constructor() {
@@ -25,6 +41,27 @@ class FlowWizard {
             textOnly: false
         };
 
+        // Capture state tracking (prevent concurrent captures)
+        this.captureInProgress = false;
+        this.currentCaptureType = null; // 'normal' or 'stitch'
+
+        // Canvas scaling
+        this.scaleMode = 'fit'; // 'fit' or '1:1'
+        this.currentScale = 1.0;
+
+        // Dev toggle for icon source display
+        this.showIconSources = false;
+        this.queueStatsInterval = null;
+
+        // System apps filter toggle
+        this.hideSystemApps = true; // Default: hide system apps
+
+        // Helper modules (initialized in loadStep3)
+        this.canvasRenderer = null;
+        this.elementPanel = null;
+        this.interactions = null;
+        this.stepManager = null;
+
         console.log('FlowWizard initialized');
         this.init();
     }
@@ -40,8 +77,22 @@ class FlowWizard {
 
     setup() {
         this.setupNavigation();
-        this.loadStep1(); // Load first step immediately
+        Step1.loadStep(this); // Load first step immediately
         console.log('FlowWizard setup complete');
+    }
+
+    /**
+     * Reset wizard to initial state
+     */
+    reset() {
+        this.currentStep = 1;
+        this.selectedDevice = null;
+        this.selectedApp = null;
+        this.recordMode = 'execute';
+        this.recorder = null;
+        this.flowSteps = [];
+        this.updateUI();
+        Step1.loadStep(this);
     }
 
     setupNavigation() {
@@ -131,6 +182,10 @@ class FlowWizard {
                 if (modeInput) {
                     this.recordMode = modeInput.value;
                 }
+                console.log('[FlowWizard] Validated step 2:', {
+                    app: this.selectedApp,
+                    mode: this.recordMode
+                });
                 return true;
 
             case 3:
@@ -161,174 +216,59 @@ class FlowWizard {
     loadStepContent() {
         switch(this.currentStep) {
             case 1:
-                this.loadStep1();
+                Step1.loadStep(this);
                 break;
             case 2:
-                this.loadStep2();
+                Step2.loadStep(this);
                 break;
             case 3:
-                this.loadStep3();
+                this.loadStep3(); // Step 3 remains inline (complex recording UI)
                 break;
             case 4:
-                this.loadStep4();
+                Step4.loadStep(this);
                 break;
             case 5:
-                this.loadStep5();
+                Step5.loadStep(this);
                 break;
         }
     }
 
-    async loadStep1() {
-        console.log('Loading Step 1: Device Selection');
-        const deviceList = document.getElementById('deviceList');
-
-        try {
-            const response = await fetch('/api/adb/devices');
-            if (!response.ok) throw new Error('Failed to fetch devices');
-
-            const data = await response.json();
-            const devices = data.devices || [];
-            console.log('Devices loaded:', devices);
-
-            if (devices.length === 0) {
-                deviceList.innerHTML = `
-                    <div class="empty-state">
-                        <p>No devices connected</p>
-                        <p><a href="devices.html" class="btn btn-primary">Connect a Device</a></p>
-                    </div>
-                `;
-                return;
-            }
-
-            // Render device grid
-            deviceList.className = 'device-grid';
-            deviceList.innerHTML = devices.map(device => `
-                <div class="device-card" data-device="${device.id}">
-                    <div class="device-icon">📱</div>
-                    <div class="device-name">${device.model || device.id}</div>
-                    <div class="device-status">
-                        <span class="status-dot" style="background: ${device.state === 'device' ? '#22c55e' : '#ef4444'}"></span>
-                        ${device.state}
-                    </div>
-                </div>
-            `).join('');
-
-            // Add "Add New Device" card
-            deviceList.insertAdjacentHTML('beforeend', `
-                <div class="device-card" onclick="window.location.href='devices.html'">
-                    <div class="device-icon">➕</div>
-                    <div class="device-name">Add Device</div>
-                    <div class="device-status">Connect new</div>
-                </div>
-            `);
-
-            // Handle device selection
-            deviceList.querySelectorAll('.device-card[data-device]').forEach(card => {
-                card.addEventListener('click', () => {
-                    deviceList.querySelectorAll('.device-card').forEach(c => c.classList.remove('selected'));
-                    card.classList.add('selected');
-                    this.selectedDevice = card.dataset.device;
-                    console.log('Device selected:', this.selectedDevice);
-                });
-            });
-
-        } catch (error) {
-            console.error('Error loading devices:', error);
-            deviceList.innerHTML = `
-                <div class="error-state">
-                    <p>Error loading devices: ${error.message}</p>
-                    <button class="btn btn-secondary" onclick="location.reload()">Retry</button>
-                </div>
-            `;
-        }
-    }
-
-    async loadStep2() {
-        console.log('Loading Step 2: App Selection');
-        const appList = document.getElementById('appList');
-
-        if (!this.selectedDevice) {
-            showToast('No device selected', 'error');
-            this.currentStep = 1;
-            this.updateUI();
-            return;
-        }
-
-        try {
-            const response = await fetch(`/api/adb/apps/${this.selectedDevice}`);
-            if (!response.ok) throw new Error('Failed to fetch apps');
-
-            const data = await response.json();
-            const apps = data.apps || [];
-            console.log('Apps loaded:', apps.length);
-
-            if (apps.length === 0) {
-                appList.innerHTML = `<div class="empty-state">No apps found on device</div>`;
-                return;
-            }
-
-            // Sort apps alphabetically by label
-            apps.sort((a, b) => {
-                const labelA = (a.label || a.package).toLowerCase();
-                const labelB = (b.label || b.package).toLowerCase();
-                return labelA.localeCompare(labelB);
-            });
-
-            // Render app grid
-            appList.className = 'app-grid';
-            appList.innerHTML = apps.map(app => `
-                <div class="app-item" data-package="${app.package}" data-label="${app.label || app.package}">
-                    <div class="app-icon">📱</div>
-                    <div class="app-label">${app.label || app.package}</div>
-                    <div class="app-package">${app.package}</div>
-                </div>
-            `).join('');
-
-            // Setup search (searches both label and package name)
-            const searchInput = document.getElementById('appSearch');
-            if (searchInput) {
-                searchInput.addEventListener('input', (e) => {
-                    const search = e.target.value.toLowerCase();
-                    document.querySelectorAll('.app-item').forEach(item => {
-                        const label = item.dataset.label.toLowerCase();
-                        const pkg = item.dataset.package.toLowerCase();
-                        const matches = label.includes(search) || pkg.includes(search);
-                        item.style.display = matches ? '' : 'none';
-                    });
-                });
-            }
-
-            // Handle app selection
-            document.querySelectorAll('.app-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    document.querySelectorAll('.app-item').forEach(i => i.classList.remove('selected'));
-                    item.classList.add('selected');
-                    this.selectedApp = item.dataset.package;
-                    console.log('App selected:', this.selectedApp);
-                });
-            });
-
-        } catch (error) {
-            console.error('Error loading apps:', error);
-            appList.innerHTML = `
-                <div class="error-state">
-                    <p>Error loading apps: ${error.message}</p>
-                </div>
-            `;
-        }
-    }
+    // NOTE: Steps 1, 2, 4, 5 moved to separate modules:
+    // - flow-wizard-step1.js (device selection)
+    // - flow-wizard-step2.js (app selection, icon detection, filtering)
+    // - flow-wizard-step4.js (review & test)
+    // - flow-wizard-step5.js (settings & save)
 
     async loadStep3() {
         console.log('Loading Step 3: Recording Mode');
         showToast(`Starting recording session...`, 'info');
+
+        // Populate app info header
+        this.populateAppInfo();
 
         // Get canvas and context for rendering
         this.canvas = document.getElementById('screenshotCanvas');
         this.ctx = this.canvas.getContext('2d');
         this.currentImage = null;
 
-        // Initialize FlowRecorder
-        this.recorder = new FlowRecorder(this.selectedDevice, this.selectedApp, this.recordMode);
+        // Initialize helper modules
+        this.canvasRenderer = new FlowCanvasRenderer(this.canvas, this.ctx);
+        this.canvasRenderer.setOverlayFilters(this.overlayFilters);
+
+        this.elementPanel = new FlowElementPanel(document.getElementById('elementList'));
+        this.elementPanel.setCallbacks({
+            onTap: (el) => this.addTapStepFromElement(el),
+            onType: (el) => this.addTypeStepFromElement(el),
+            onSensor: (el, idx) => this.addSensorCaptureFromElement(el, idx)
+        });
+
+        this.interactions = new FlowInteractions(getApiBase());
+
+        this.stepManager = new FlowStepManager(document.getElementById('flowStepsList'));
+
+        // Initialize FlowRecorder (pass package name, not full object)
+        const packageName = this.selectedApp?.package || this.selectedApp;
+        this.recorder = new FlowRecorder(this.selectedDevice, packageName, this.recordMode);
 
         // Setup UI event listeners
         this.setupRecordingUI();
@@ -338,16 +278,67 @@ class FlowWizard {
 
         if (started) {
             // Display initial screenshot
-            this.updateScreenshotDisplay();
+            await this.updateScreenshotDisplay();
 
-            // Setup flow steps listener
-            this.setupFlowStepsListener();
+            // Show preview overlay if quick screenshot was loaded
+            if (this.recorder.screenshotMetadata?.quick) {
+                this.showPreviewOverlay();
+            }
         }
+    }
+
+    populateAppInfo() {
+        console.log('[FlowWizard] populateAppInfo() called');
+        console.log('[FlowWizard] this.selectedApp:', this.selectedApp);
+        console.log('[FlowWizard] this.selectedDevice:', this.selectedDevice);
+
+        const appInfoHeader = document.getElementById('appInfoHeader');
+        const appIcon = document.getElementById('appIcon');
+        const appName = document.getElementById('appName');
+        const appPackage = document.getElementById('appPackage');
+
+        console.log('[FlowWizard] DOM elements:', { appInfoHeader, appIcon, appName, appPackage });
+
+        if (!appInfoHeader || !appIcon || !appName || !appPackage) {
+            console.warn('[FlowWizard] App info elements not found in DOM');
+            return;
+        }
+
+        // Get app data
+        const packageName = this.selectedApp?.package || this.selectedApp;
+        const label = this.selectedApp?.label || packageName;
+
+        console.log('[FlowWizard] Extracted data:', { packageName, label });
+
+        // Set app name and package
+        appName.textContent = label;
+        appPackage.textContent = packageName;
+
+        // Fetch and set app icon
+        const iconUrl = `${getApiBase()}/adb/app-icon/${encodeURIComponent(this.selectedDevice)}/${encodeURIComponent(packageName)}`;
+        console.log('[FlowWizard] App icon URL:', iconUrl);
+
+        appIcon.src = iconUrl;
+        appIcon.onerror = () => {
+            console.warn('[FlowWizard] App icon failed to load, using fallback');
+            // Fallback to emoji if icon fails to load
+            appIcon.style.display = 'none';
+            appIcon.insertAdjacentHTML('afterend', '<div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; font-size: 32px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">📱</div>');
+        };
+
+        // Show the header
+        appInfoHeader.style.display = 'flex';
+        console.log('[FlowWizard] App info header display set to flex');
+
+        console.log(`[FlowWizard] App info populated: ${label} (${packageName})`);
     }
 
     setupRecordingUI() {
         // Canvas click handler
         this.canvas.addEventListener('click', async (e) => {
+            // Ignore clicks during pinch gestures
+            if (this.canvasRenderer.isPinching) return;
+
             const rect = this.canvas.getBoundingClientRect();
             const canvasX = e.clientX - rect.left;
             const canvasY = e.clientY - rect.top;
@@ -356,9 +347,18 @@ class FlowWizard {
             await this.handleElementClick(canvasX, canvasY);
         });
 
-        // Toggle element panel button
-        document.getElementById('btnToggleElementPanel')?.addEventListener('click', () => {
-            this.toggleElementPanel();
+        // Listen for zoom changes from gestures (pinch/wheel)
+        this.canvas.addEventListener('zoomChanged', (e) => {
+            this.updateZoomDisplay(e.detail.zoom);
+        });
+
+        // Sidebar collapse/expand buttons
+        document.getElementById('btnCollapseSidebar')?.addEventListener('click', () => {
+            this.collapseSidebar();
+        });
+
+        document.getElementById('btnExpandSidebar')?.addEventListener('click', () => {
+            this.expandSidebar();
         });
 
         // Navigation controls
@@ -400,6 +400,19 @@ class FlowWizard {
             this.updateScreenshotDisplay();
         });
 
+        // Zoom controls
+        document.getElementById('btnZoomIn')?.addEventListener('click', () => {
+            this.zoomIn();
+        });
+
+        document.getElementById('btnZoomOut')?.addEventListener('click', () => {
+            this.zoomOut();
+        });
+
+        document.getElementById('btnZoomReset')?.addEventListener('click', () => {
+            this.resetZoom();
+        });
+
         // Swipe controls
         document.querySelectorAll('[data-swipe]').forEach(btn => {
             btn.addEventListener('click', async () => {
@@ -407,6 +420,11 @@ class FlowWizard {
                 await this.recorder.swipe(direction);
                 this.updateScreenshotDisplay();
             });
+        });
+
+        // Scale toggle button
+        document.getElementById('btnToggleScale')?.addEventListener('click', () => {
+            this.toggleScale();
         });
 
         // Done recording button
@@ -438,6 +456,10 @@ class FlowWizard {
 
             checkbox.addEventListener('change', () => {
                 this.overlayFilters[filterName] = checkbox.checked;
+                // Update canvas renderer filters
+                if (this.canvasRenderer) {
+                    this.canvasRenderer.setOverlayFilters(this.overlayFilters);
+                }
                 console.log(`[FlowWizard] ${filterName} = ${checkbox.checked}`);
                 this.updateScreenshotDisplay();
             });
@@ -449,15 +471,58 @@ class FlowWizard {
         console.log('[FlowWizard] Overlay filters initialized');
     }
 
+    toggleScale() {
+        this.scaleMode = this.canvasRenderer.toggleScale();
+
+        const btn = document.getElementById('btnToggleScale');
+        if (btn) {
+            btn.textContent = this.scaleMode === 'fit' ? '📏 1:1 Scale' : '📏 Fit to Screen';
+        }
+
+        console.log(`[FlowWizard] Scale mode: ${this.scaleMode}`);
+        this.updateScreenshotDisplay();
+    }
+
+    zoomIn() {
+        const zoomLevel = this.canvasRenderer.zoomIn();
+        this.updateZoomDisplay(zoomLevel);
+        this.updateScreenshotDisplay();
+    }
+
+    zoomOut() {
+        const zoomLevel = this.canvasRenderer.zoomOut();
+        this.updateZoomDisplay(zoomLevel);
+        this.updateScreenshotDisplay();
+    }
+
+    resetZoom() {
+        const zoomLevel = this.canvasRenderer.resetZoom();
+        this.updateZoomDisplay(zoomLevel);
+        this.updateScreenshotDisplay();
+    }
+
+    updateZoomDisplay(zoomLevel) {
+        const display = document.getElementById('zoomLevel');
+        if (display) {
+            display.textContent = `${Math.round(zoomLevel * 100)}%`;
+        }
+    }
+
+    // Removed applyCanvasScale() - now using direct canvas resizing instead of CSS transform
+
     async handleElementClick(canvasX, canvasY) {
         // Convert canvas coordinates to device coordinates
-        const deviceCoords = this.canvasToDevice(canvasX, canvasY);
+        const deviceCoords = this.canvasRenderer.canvasToDevice(canvasX, canvasY);
 
         // Find clicked element from metadata
-        const clickedElement = this.findElementAtCoordinates(deviceCoords.x, deviceCoords.y);
+        const clickedElement = this.interactions.findElementAtCoordinates(
+            this.recorder.screenshotMetadata?.elements,
+            deviceCoords.x,
+            deviceCoords.y
+        );
 
         // Show selection dialog
-        const choice = await this.showElementSelectionDialog(clickedElement, deviceCoords);
+        const choice = await this.interactions.showElementSelectionDialog(clickedElement, deviceCoords);
 
         if (!choice) {
             return; // User cancelled
@@ -471,7 +536,7 @@ class FlowWizard {
                 break;
 
             case 'type':
-                const text = await this.promptForText();
+                const text = await this.interactions.promptForText();
                 if (text) {
                     await this.executeTap(deviceCoords.x, deviceCoords.y, clickedElement);
                     await this.recorder.typeText(text);
@@ -485,6 +550,10 @@ class FlowWizard {
 
             case 'sensor_image':
                 await this.createImageSensor(clickedElement, deviceCoords);
+                break;
+
+            case 'action':
+                await this.createAction(clickedElement, deviceCoords);
                 break;
 
             case 'refresh':
@@ -567,22 +636,11 @@ class FlowWizard {
      * Show visual tap indicator on canvas
      */
     showTapIndicator(x, y) {
-        const size = 40;
-        const radius = size / 2;
+        this.canvasRenderer.showTapIndicator(x, y);
 
-        // Draw pulsing circle
-        this.ctx.save();
-        this.ctx.strokeStyle = '#3b82f6';
-        this.ctx.lineWidth = 3;
-        this.ctx.globalAlpha = 0.8;
-        this.ctx.beginPath();
-        this.ctx.arc(x, y, radius, 0, Math.PI * 2);
-        this.ctx.stroke();
-        this.ctx.restore();
-
-        // Redraw overlays after short delay
+        // Redraw screenshot after short delay to clear tap indicator
         setTimeout(() => {
-            this.drawElementOverlays();
+            this.updateScreenshotDisplay();
         }, 300);
     }
 
@@ -811,163 +869,200 @@ class FlowWizard {
     }
 
     async createTextSensor(element, coords) {
-        const sensorName = await this.promptForSensorName('Text Sensor');
-        if (!sensorName) return;
+        const result = await this.interactions.createTextSensor(
+            element,
+            coords,
+            this.selectedDevice,
+            this.selectedApp
+        );
 
-        try {
-            // Build SensorDefinition object
-            const sensorDefinition = {
-                device_id: this.selectedDevice,
-                friendly_name: sensorName,
-                sensor_type: 'sensor',
-                device_class: 'none',
-                unit_of_measurement: null,
-                state_class: 'measurement',
-                icon: 'mdi:text',
-                source: {
-                    source_type: 'element',
-                    element_index: element?.index || 0,
-                    element_text: element?.text || '',
-                    element_class: element?.class || '',
-                    element_resource_id: element?.resource_id || '',
-                    custom_bounds: coords ? { x: coords.x, y: coords.y } : null
-                },
-                extraction_rule: {
-                    method: 'exact',
-                    regex_pattern: null,
-                    before_text: null,
-                    after_text: null,
-                    between_start: null,
-                    between_end: null,
-                    extract_numeric: false,
-                    remove_unit: false,
-                    fallback_value: null,
-                    pipeline: null
-                },
-                update_interval_seconds: 60,
-                enabled: true,
-                target_app: this.selectedApp,
-                prerequisite_actions: [],
-                navigation_sequence: null,
-                validation_element: null,
-                return_home_after: true,
-                max_navigation_attempts: 3,
-                navigation_timeout: 10
-            };
-
-            // Create sensor via API
-            const response = await fetch('/api/sensors', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(sensorDefinition)
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Failed to create sensor');
-            }
-
-            const result = await response.json();
-            const createdSensor = result.sensor;
-
-            console.log('[FlowWizard] Created sensor:', createdSensor);
-
-            // Add capture_sensors step to flow with real sensor_id
-            this.recorder.addStep({
-                step_type: 'capture_sensors',
-                sensor_ids: [createdSensor.sensor_id], // Array of sensor IDs
-                element: element || {},
-                x: coords.x,
-                y: coords.y,
-                description: `Capture ${sensorName} sensor`
-            });
-
-            showToast(`Sensor "${sensorName}" created successfully`, 'success');
-
-        } catch (error) {
-            console.error('[FlowWizard] Failed to create sensor:', error);
-            showToast(`Failed to create sensor: ${error.message}`, 'error', 5000);
+        if (result && result.step) {
+            this.recorder.addStep(result.step);
         }
     }
 
     async createImageSensor(element, coords) {
-        const sensorName = await this.promptForSensorName('Image Sensor');
-        if (!sensorName) return;
+        const result = await this.interactions.createImageSensor(
+            element,
+            coords,
+            this.selectedDevice,
+            this.selectedApp
+        );
 
+        if (result && result.step) {
+            this.recorder.addStep(result.step);
+        }
+    }
+
+    /**
+     * Show action configuration dialog
+     * Returns config object or null if cancelled
+     */
+    async promptForActionConfig(defaultName, stepCount) {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.id = 'action-config-overlay';
+            overlay.style.cssText = `
+                position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(0, 0, 0, 0.7); z-index: 10000;
+                display: flex; align-items: center; justify-content: center;
+            `;
+
+            const dialog = document.createElement('div');
+            dialog.style.cssText = `
+                background: white; border-radius: 12px; padding: 24px;
+                max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            `;
+
+            dialog.innerHTML = `
+                <h3 style="margin-top: 0;">Configure Action</h3>
+                <p style="color: #666; margin-bottom: 20px;">Creating action with ${stepCount} step${stepCount !== 1 ? 's' : ''}</p>
+
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 4px; font-weight: 600;">Action Name:</label>
+                    <input type="text" id="actionName" value="${defaultName}"
+                           style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 4px; font-weight: 600;">Description (optional):</label>
+                    <textarea id="actionDescription" rows="2" placeholder="What does this action do?"
+                              style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;"></textarea>
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 4px;">
+                        <input type="checkbox" id="stopOnError">
+                        Stop if any step fails
+                    </label>
+                    <p style="color: #666; font-size: 13px; margin: 4px 0 0 24px;">
+                        If checked, the action will stop executing when a step encounters an error.
+                    </p>
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 4px; font-weight: 600;">Tags (optional):</label>
+                    <input type="text" id="actionTags" placeholder="e.g., automation, setup, navigation"
+                           style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                    <p style="color: #666; font-size: 13px; margin: 4px 0 0 0;">
+                        Comma-separated tags for organizing actions
+                    </p>
+                </div>
+
+                <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px;">
+                    <button id="cancelBtn" style="padding: 10px 20px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer;">
+                        Cancel
+                    </button>
+                    <button id="defaultsBtn" style="padding: 10px 20px; border: none; background: #6b7280; color: white; border-radius: 4px; cursor: pointer;">
+                        Use Defaults
+                    </button>
+                    <button id="createBtn" style="padding: 10px 20px; border: none; background: #ec4899; color: white; border-radius: 4px; cursor: pointer;">
+                        Create Action
+                    </button>
+                </div>
+            `;
+
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+            // Handle button clicks
+            dialog.querySelector('#cancelBtn').addEventListener('click', () => {
+                document.body.removeChild(overlay);
+                resolve(null);
+            });
+
+            dialog.querySelector('#defaultsBtn').addEventListener('click', () => {
+                const name = dialog.querySelector('#actionName').value.trim();
+                if (!name) {
+                    alert('Please enter an action name');
+                    return;
+                }
+                document.body.removeChild(overlay);
+                resolve({
+                    name,
+                    description: null,
+                    stopOnError: false,
+                    tags: []
+                });
+            });
+
+            dialog.querySelector('#createBtn').addEventListener('click', () => {
+                const name = dialog.querySelector('#actionName').value.trim();
+                if (!name) {
+                    alert('Please enter an action name');
+                    return;
+                }
+
+                const description = dialog.querySelector('#actionDescription').value.trim() || null;
+                const stopOnError = dialog.querySelector('#stopOnError').checked;
+                const tagsInput = dialog.querySelector('#actionTags').value.trim();
+                const tags = tagsInput ? tagsInput.split(',').map(t => t.trim()).filter(t => t) : [];
+
+                document.body.removeChild(overlay);
+                resolve({
+                    name,
+                    description,
+                    stopOnError,
+                    tags
+                });
+            });
+        });
+    }
+
+    async createAction(element, coords) {
         try {
-            // Build SensorDefinition object for image capture
-            const sensorDefinition = {
-                device_id: this.selectedDevice,
-                friendly_name: sensorName,
-                sensor_type: 'camera',
-                device_class: 'none',
-                unit_of_measurement: null,
-                state_class: null,
-                icon: 'mdi:camera',
-                source: {
-                    source_type: 'element',
-                    element_index: element?.index || 0,
-                    element_text: element?.text || '',
-                    element_class: element?.class || '',
-                    element_resource_id: element?.resource_id || '',
-                    custom_bounds: element?.bounds || (coords ? { x: coords.x, y: coords.y } : null)
-                },
-                extraction_rule: {
-                    method: 'image_capture',
-                    regex_pattern: null,
-                    before_text: null,
-                    after_text: null,
-                    between_start: null,
-                    between_end: null,
-                    extract_numeric: false,
-                    remove_unit: false,
-                    fallback_value: null,
-                    pipeline: null
-                },
-                update_interval_seconds: 60,
-                enabled: true,
-                target_app: this.selectedApp,
-                prerequisite_actions: [],
-                navigation_sequence: null,
-                validation_element: null,
-                return_home_after: true,
-                max_navigation_attempts: 3,
-                navigation_timeout: 10
-            };
+            // Get all recorded steps up to this point
+            const steps = this.recorder.getSteps();
 
-            // Create sensor via API
-            const response = await fetch('/api/sensors', {
+            if (steps.length === 0) {
+                showToast('No steps recorded yet. Record some steps first!', 'warning', 3000);
+                return;
+            }
+
+            // Show configuration dialog
+            const config = await this.promptForActionConfig(element?.text || 'Custom Action', steps.length);
+            if (!config) return;
+
+            // Create action via API (using correct ActionCreateRequest structure)
+            const response = await fetch(`/api/actions?device_id=${encodeURIComponent(this.selectedDevice)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(sensorDefinition)
+                body: JSON.stringify({
+                    action: {
+                        action_type: 'macro',
+                        name: config.name,
+                        description: config.description,
+                        device_id: this.selectedDevice,
+                        enabled: true,
+                        actions: steps,
+                        stop_on_error: config.stopOnError
+                    },
+                    tags: config.tags
+                })
             });
 
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.detail || 'Failed to create sensor');
+
+                // Handle 422 validation errors (array of error objects)
+                if (response.status === 422 && Array.isArray(error.detail)) {
+                    const errorMessages = error.detail.map(e =>
+                        `${e.loc.join('.')}: ${e.msg}`
+                    ).join('; ');
+                    throw new Error(errorMessages || 'Validation failed');
+                }
+
+                throw new Error(error.detail || 'Failed to create action');
             }
 
             const result = await response.json();
-            const createdSensor = result.sensor;
+            showToast(`Action "${config.name}" created successfully! (ID: ${result.action.id})`, 'success', 5000);
 
-            console.log('[FlowWizard] Created image sensor:', createdSensor);
-
-            // Add capture_sensors step to flow with real sensor_id
-            this.recorder.addStep({
-                step_type: 'capture_sensors',
-                sensor_ids: [createdSensor.sensor_id], // Array of sensor IDs
-                element: element || {},
-                x: coords.x,
-                y: coords.y,
-                crop_bounds: element?.bounds,
-                description: `Capture ${sensorName} image`
-            });
-
-            showToast(`Image sensor "${sensorName}" created successfully`, 'success');
-
+            console.log('[FlowWizard] Created action:', result.action);
         } catch (error) {
-            console.error('[FlowWizard] Failed to create image sensor:', error);
-            showToast(`Failed to create image sensor: ${error.message}`, 'error', 5000);
+            console.error('[FlowWizard] Failed to create action:', error);
+            showToast(`Failed to create action: ${error.message}`, 'error', 5000);
         }
     }
 
@@ -978,15 +1073,10 @@ class FlowWizard {
 
     async handleRefreshWithRetries() {
         // Prompt for refresh configuration
-        const attemptsStr = prompt('Number of refresh attempts (1-5):', '2');
-        if (!attemptsStr) return;
+        const config = await this.interactions.promptForRefreshConfig();
+        if (!config) return;
 
-        const attempts = Math.min(Math.max(parseInt(attemptsStr) || 2, 1), 5);
-
-        const delayStr = prompt('Delay between refreshes in milliseconds (500-5000):', '1000');
-        if (!delayStr) return;
-
-        const delay = Math.min(Math.max(parseInt(delayStr) || 1000, 500), 5000);
+        const { attempts, delay } = config;
 
         console.log(`[FlowWizard] Refreshing ${attempts} times with ${delay}ms delay`);
 
@@ -1015,68 +1105,190 @@ class FlowWizard {
         showToast(`Completed ${attempts} refresh attempts`, 'success', 2000);
     }
 
-    updateScreenshotDisplay() {
+    async updateScreenshotDisplay() {
         const dataUrl = this.recorder.getScreenshotDataUrl();
         const metadata = this.recorder.screenshotMetadata;
         const loading = document.getElementById('screenshotLoading');
 
-        // Create image from base64 data
-        const img = new Image();
+        try {
+            // Render using canvas renderer module
+            const { displayWidth, displayHeight, scale } = await this.canvasRenderer.render(dataUrl, metadata);
 
-        img.onload = () => {
-            // Store current image
-            this.currentImage = img;
+            // Store scale for coordinate mapping
+            this.currentScale = scale;
 
-            // Resize canvas to match image dimensions exactly (no letterboxing)
-            this.canvas.width = img.width;
-            this.canvas.height = img.height;
-
-            // Draw screenshot image at full size
-            this.ctx.drawImage(img, 0, 0);
-
-            // Draw UI element overlays
+            // Update element panel if metadata available
             if (metadata && metadata.elements && metadata.elements.length > 0) {
-                this.drawElementOverlays();
-                this.updateElementPanel(metadata.elements);
+                this.elementPanel.updateElements(metadata.elements);
             }
 
-            // Show canvas, hide loading
-            this.canvas.style.display = 'block';
+            // Hide loading
             if (loading) loading.style.display = 'none';
 
-            console.log(`[FlowWizard] Rendered screenshot at ${img.width}x${img.height} (1:1 scale)`);
-        };
-
-        img.onerror = () => {
-            console.error('[FlowWizard] Failed to load screenshot');
+        } catch (error) {
+            console.error('[FlowWizard] Failed to render screenshot:', error);
             if (loading) {
                 loading.textContent = 'Error loading screenshot';
                 loading.style.display = 'block';
             }
-        };
-
-        img.src = dataUrl;
+        }
     }
 
     /**
-     * Toggle element panel visibility
+     * Show preview overlay with screenshot method selection
      */
-    toggleElementPanel() {
-        const panel = document.getElementById('elementPanel');
-        if (!panel) {
-            console.warn('[FlowWizard] Element panel not found');
-            return;
+    showPreviewOverlay() {
+        // Remove existing overlay if any
+        this.hidePreviewOverlay();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'previewOverlay';
+        overlay.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(2px);
+        `;
+
+        const messageBox = document.createElement('div');
+        messageBox.style.cssText = `
+            background: white;
+            padding: 30px 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            text-align: center;
+        `;
+
+        const title = document.createElement('h3');
+        title.textContent = '📸 Preview of Current Screen';
+        title.style.cssText = 'margin: 0 0 15px; color: #1f2937; font-size: 20px;';
+
+        const description = document.createElement('p');
+        description.textContent = 'This is a quick preview. Choose your capture method to begin recording:';
+        description.style.cssText = 'margin: 0 0 25px; color: #6b7280; font-size: 14px; line-height: 1.5;';
+
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.cssText = 'display: flex; gap: 12px; justify-content: center;';
+
+        const regularBtn = document.createElement('button');
+        regularBtn.textContent = '📋 Regular Screenshot';
+        regularBtn.className = 'btn btn-primary';
+        regularBtn.style.cssText = 'padding: 12px 24px; font-size: 14px;';
+        regularBtn.onclick = () => this.chooseRegularScreenshot();
+
+        const stitchBtn = document.createElement('button');
+        stitchBtn.textContent = '🧩 Stitch Capture';
+        stitchBtn.className = 'btn btn-secondary';
+        stitchBtn.style.cssText = 'padding: 12px 24px; font-size: 14px;';
+        stitchBtn.onclick = () => this.chooseStitchCapture();
+
+        buttonContainer.appendChild(regularBtn);
+        buttonContainer.appendChild(stitchBtn);
+
+        messageBox.appendChild(title);
+        messageBox.appendChild(description);
+        messageBox.appendChild(buttonContainer);
+        overlay.appendChild(messageBox);
+
+        // Add to screenshot container
+        const screenshotContainer = document.getElementById('screenshotContainer');
+        if (screenshotContainer) {
+            screenshotContainer.appendChild(overlay);
+            console.log('[FlowWizard] Preview overlay shown');
+        }
+    }
+
+    /**
+     * Hide preview overlay
+     */
+    hidePreviewOverlay() {
+        const overlay = document.getElementById('previewOverlay');
+        if (overlay) {
+            overlay.remove();
+            console.log('[FlowWizard] Preview overlay hidden');
+        }
+    }
+
+    /**
+     * User chose regular screenshot - capture with UI elements
+     */
+    async chooseRegularScreenshot() {
+        this.hidePreviewOverlay();
+
+        try {
+            await this.recorder.captureScreenshot();
+            await this.updateScreenshotDisplay();
+            showToast(`Full screenshot captured! (${this.recorder.screenshotMetadata?.elements?.length || 0} UI elements)`, 'success', 3000);
+        } catch (error) {
+            console.error('[FlowWizard] Regular screenshot failed:', error);
+            showToast(`Screenshot failed: ${error.message}`, 'error', 3000);
+        }
+    }
+
+    /**
+     * User chose stitch capture - capture stitched screenshot
+     */
+    async chooseStitchCapture() {
+        this.hidePreviewOverlay();
+
+        try {
+            await this.recorder.stitchCapture();
+            await this.updateScreenshotDisplay();
+        } catch (error) {
+            console.error('[FlowWizard] Stitch capture failed:', error);
+            // Error already handled by stitchCapture()
+        }
+    }
+
+    /**
+     * Collapse the element sidebar
+     */
+    collapseSidebar() {
+        const sidebar = document.getElementById('elementSidebar');
+        const expandBtn = document.getElementById('btnExpandSidebar');
+        const layout = document.querySelector('.recording-layout');
+
+        if (sidebar) {
+            sidebar.classList.add('collapsed');
+        }
+        if (expandBtn) {
+            expandBtn.style.display = 'block';
+        }
+        if (layout) {
+            layout.classList.add('sidebar-collapsed');
         }
 
-        const isVisible = panel.style.display !== 'none';
-        panel.style.display = isVisible ? 'none' : 'block';
+        console.log('[FlowWizard] Sidebar collapsed');
+    }
 
-        const btn = document.getElementById('btnToggleElementPanel');
-        if (btn) {
-            btn.textContent = isVisible ? '📋 Show Elements' : '❌ Hide Elements';
+    /**
+     * Expand the element sidebar
+     */
+    expandSidebar() {
+        const sidebar = document.getElementById('elementSidebar');
+        const expandBtn = document.getElementById('btnExpandSidebar');
+        const layout = document.querySelector('.recording-layout');
+
+        if (sidebar) {
+            sidebar.classList.remove('collapsed');
+        }
+        if (expandBtn) {
+            expandBtn.style.display = 'none';
+        }
+        if (layout) {
+            layout.classList.remove('sidebar-collapsed');
         }
 
-        console.log(`[FlowWizard] Element panel ${isVisible ? 'hidden' : 'shown'}`);
+        console.log('[FlowWizard] Sidebar expanded');
     }
 
     /**
@@ -1089,23 +1301,91 @@ class FlowWizard {
             return;
         }
 
-        if (!elements || elements.length === 0) {
+        // Store all elements for filtering
+        this.allElements = elements || [];
+
+        // Setup search and filter event listeners (once)
+        if (!this.elementFiltersInitialized) {
+            this.setupElementFilters();
+            this.elementFiltersInitialized = true;
+        }
+
+        // Apply filters and render
+        this.renderFilteredElements();
+    }
+
+    setupElementFilters() {
+        const searchInput = document.getElementById('elementSearchInput');
+        const clickableFilter = document.getElementById('filterSidebarClickable');
+        const textFilter = document.getElementById('filterSidebarText');
+
+        if (searchInput) {
+            searchInput.addEventListener('input', () => this.renderFilteredElements());
+        }
+        if (clickableFilter) {
+            clickableFilter.addEventListener('change', () => this.renderFilteredElements());
+        }
+        if (textFilter) {
+            textFilter.addEventListener('change', () => this.renderFilteredElements());
+        }
+    }
+
+    renderFilteredElements() {
+        const panel = document.getElementById('elementList');
+        if (!panel) return;
+
+        const searchInput = document.getElementById('elementSearchInput');
+        const clickableFilter = document.getElementById('filterSidebarClickable');
+        const textFilter = document.getElementById('filterSidebarText');
+
+        const searchTerm = searchInput?.value.toLowerCase() || '';
+        const showClickable = clickableFilter?.checked !== false;
+        const showWithText = textFilter?.checked !== false;
+
+        if (!this.allElements || this.allElements.length === 0) {
             panel.innerHTML = '<div class="empty-state">No elements detected in screenshot</div>';
             return;
         }
 
-        // Filter to clickable and text elements
-        const interactiveElements = elements.filter(el =>
-            el.clickable || (el.text && el.text.trim().length > 0)
-        );
+        // Apply filters (OR logic: show if matches ANY checked filter)
+        let filteredElements = this.allElements.filter(el => {
+            // If both filters are off, show all
+            if (!showClickable && !showWithText) return true;
 
-        console.log(`[FlowWizard] Rendering ${interactiveElements.length} interactive elements (${elements.length} total)`);
+            // Show if matches any checked filter
+            const isClickable = el.clickable;
+            const hasText = el.text && el.text.trim().length > 0;
+
+            if (showClickable && isClickable) return true;
+            if (showWithText && hasText) return true;
+
+            return false;
+        });
+
+        // Apply search
+        if (searchTerm) {
+            filteredElements = filteredElements.filter(el => {
+                const displayText = (el.text || el.content_desc || el.resource_id || '').toLowerCase();
+                return displayText.includes(searchTerm);
+            });
+        }
+
+        const interactiveElements = filteredElements;
+
+        console.log(`[FlowWizard] Rendering ${interactiveElements.length} interactive elements (${this.allElements.length} total)`);
 
         panel.innerHTML = interactiveElements.map((el, index) => {
             const displayText = el.text || el.content_desc || el.resource_id?.split('/').pop() || `Element ${index}`;
             const isClickable = el.clickable === true || el.clickable === 'true';
             const icon = isClickable ? '🔘' : '📝';
             const typeLabel = isClickable ? 'Clickable' : 'Text';
+
+            // Determine preview value (what would be captured as sensor)
+            const previewValue = el.text || el.content_desc || el.resource_id || '';
+            const hasPreview = previewValue.trim().length > 0;
+            const truncatedPreview = previewValue.length > 50
+                ? previewValue.substring(0, 50) + '...'
+                : previewValue;
 
             return `
                 <div class="element-item" data-element-index="${index}">
@@ -1116,6 +1396,12 @@ class FlowWizard {
                             <div class="element-meta">${typeLabel} • ${el.class?.split('.').pop() || 'Unknown'}</div>
                         </div>
                     </div>
+                    ${hasPreview ? `
+                    <div class="element-preview" title="${previewValue}">
+                        <span class="preview-label">Preview:</span>
+                        <span class="preview-value">${truncatedPreview}</span>
+                    </div>
+                    ` : ''}
                     <div class="element-actions">
                         <button class="btn-element-action btn-tap" data-index="${index}" title="Add tap step">
                             👆 Tap
@@ -1291,6 +1577,47 @@ class FlowWizard {
     }
 
     /**
+     * Draw UI element overlays with scaling
+     */
+    drawElementOverlaysScaled(scale) {
+        if (!this.currentImage || !this.recorder.screenshotMetadata) {
+            console.warn('[FlowWizard] Cannot draw overlays: no screenshot loaded');
+            return;
+        }
+
+        const elements = this.recorder.screenshotMetadata.elements || [];
+
+        elements.forEach(el => {
+            if (!el.bounds) return;
+
+            // Apply overlay filters
+            if (el.clickable && !this.overlayFilters.showClickable) return;
+            if (!el.clickable && !this.overlayFilters.showNonClickable) return;
+            if (this.overlayFilters.hideSmall && (el.bounds.width < 50 || el.bounds.height < 50)) return;
+            if (this.overlayFilters.textOnly && (!el.text || !el.text.trim())) return;
+
+            // Scale coordinates
+            const x = Math.floor(el.bounds.x * scale);
+            const y = Math.floor(el.bounds.y * scale);
+            const w = Math.floor(el.bounds.width * scale);
+            const h = Math.floor(el.bounds.height * scale);
+
+            // Skip elements outside canvas
+            if (x + w < 0 || x > this.canvas.width || y + h < 0 || y > this.canvas.height) return;
+
+            // Draw bounding box
+            this.ctx.strokeStyle = el.clickable ? '#22c55e' : '#3b82f6';
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeRect(x, y, w, h);
+
+            // Draw text label if element has text and showTextLabels is enabled
+            if (el.text && el.text.trim() && this.overlayFilters.showTextLabels) {
+                this.drawTextLabel(el.text.trim(), x, y, w, el.clickable);
+            }
+        });
+    }
+
+    /**
      * Draw text label for UI element on canvas (adapted from screenshot-capture.js)
      */
     drawTextLabel(text, x, y, w, isClickable) {
@@ -1348,153 +1675,15 @@ class FlowWizard {
         });
     }
 
-    async loadStep4() {
-        console.log('Loading Step 4: Review & Test');
-        const reviewContainer = document.getElementById('flowStepsReview');
-
-        if (this.flowSteps.length === 0) {
-            reviewContainer.innerHTML = `
-                <div class="empty-state">
-                    <p>No steps recorded</p>
-                </div>
-            `;
-            return;
-        }
-
-        // Render flow steps review
-        reviewContainer.innerHTML = `
-            <div class="flow-summary">
-                <h3>Flow Summary</h3>
-                <div class="summary-stats">
-                    <div class="stat-item">
-                        <span class="stat-label">Device:</span>
-                        <span class="stat-value">${this.selectedDevice}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">App:</span>
-                        <span class="stat-value">${this.selectedApp}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Total Steps:</span>
-                        <span class="stat-value">${this.flowSteps.length}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Mode:</span>
-                        <span class="stat-value">${this.recordMode === 'execute' ? 'Execute' : 'Record Only'}</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="steps-review-list">
-                ${this.flowSteps.map((step, index) => `
-                    <div class="step-review-item">
-                        <div class="step-review-number">${index + 1}</div>
-                        <div class="step-review-content">
-                            <div class="step-review-type">${this.formatStepType(step.step_type)}</div>
-                            <div class="step-review-description">${step.description || this.generateStepDescription(step)}</div>
-                            ${this.renderStepDetails(step)}
-                        </div>
-                        <div class="step-review-actions">
-                            <button class="btn btn-sm btn-danger" onclick="window.flowWizard.removeStepAt(${index})">
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-
-            <div id="testResults" class="test-results" style="display: none;">
-                <h3>Test Results</h3>
-                <div id="testResultsContent"></div>
-            </div>
-        `;
-
-        // Wire up test button
-        const btnTestFlow = document.getElementById('btnTestFlow');
-        if (btnTestFlow) {
-            btnTestFlow.onclick = () => this.testFlow();
-        }
-    }
-
-    formatStepType(stepType) {
-        const types = {
-            'launch_app': '🚀 Launch App',
-            'tap': '👆 Tap',
-            'swipe': '👉 Swipe',
-            'text': '⌨️ Type Text',
-            'keyevent': '🔘 Key Press',
-            'wait': '⏱️ Wait',
-            'go_back': '⬅️ Back',
-            'go_home': '🏠 Home',
-            'execute_action': '⚡ Action',
-            'capture_sensors': '📊 Capture Sensor',
-            'stitch_capture': '📸 Stitch Capture'
-        };
-        return types[stepType] || stepType;
-    }
-
-    generateStepDescription(step) {
-        switch (step.step_type) {
-            case 'launch_app':
-                return `Launch ${step.package}`;
-            case 'tap':
-                return `Tap at (${step.x}, ${step.y})`;
-            case 'swipe':
-                return `Swipe from (${step.x1}, ${step.y1}) to (${step.x2}, ${step.y2})`;
-            case 'text':
-                return `Type: "${step.text}"`;
-            case 'keyevent':
-                return `Press ${step.keycode}`;
-            case 'wait':
-                if (step.refresh_attempts) {
-                    return `Wait for UI update (${step.refresh_attempts} refreshes, ${step.refresh_delay}ms delay)`;
-                }
-                return `Wait ${step.duration}ms`;
-            case 'capture_sensors':
-                const sensorType = step.sensor_type || 'unknown';
-                const sensorName = step.sensor_name || 'unnamed';
-                return `Capture ${sensorType} sensor: "${sensorName}"`;
-            default:
-                return step.step_type;
-        }
-    }
-
-    renderStepDetails(step) {
-        let details = [];
-
-        if (step.x !== undefined) details.push(`x: ${step.x}`);
-        if (step.y !== undefined) details.push(`y: ${step.y}`);
-        if (step.x1 !== undefined) details.push(`start: (${step.x1}, ${step.y1})`);
-        if (step.x2 !== undefined) details.push(`end: (${step.x2}, ${step.y2})`);
-        if (step.duration !== undefined) {
-            if (step.refresh_attempts) {
-                details.push(`${step.refresh_attempts} refreshes`);
-                details.push(`${step.refresh_delay}ms delay`);
-            } else {
-                details.push(`duration: ${step.duration}ms`);
-            }
-        }
-        if (step.text) details.push(`text: "${step.text}"`);
-        if (step.package) details.push(`package: ${step.package}`);
-
-        // Sensor-specific details
-        if (step.step_type === 'capture_sensors') {
-            if (step.sensor_id) details.push(`id: ${step.sensor_id}`);
-            if (step.element?.text) details.push(`element text: "${step.element.text}"`);
-            if (step.element?.class) details.push(`element class: ${step.element.class}`);
-        }
-
-        if (details.length === 0) return '';
-
-        return `<div class="step-review-details">${details.join(' • ')}</div>`;
-    }
+    // NOTE: loadStep4() moved to flow-wizard-step4.js
+    // NOTE: formatStepType, generateStepDescription, renderStepDetails are in flow-step-manager.js
 
     removeStepAt(index) {
         if (index >= 0 && index < this.flowSteps.length) {
             const removed = this.flowSteps.splice(index, 1)[0];
             console.log(`Removed step ${index}:`, removed);
             showToast(`Step ${index + 1} removed`, 'info');
-            this.loadStep4(); // Refresh the review display
+            Step4.loadStep(this); // Refresh the review display
         }
     }
 
@@ -1523,7 +1712,7 @@ class FlowWizard {
 
             console.log('Testing flow:', flowPayload);
 
-            const response = await fetch('/api/flows', {
+            const response = await fetch(`${getApiBase()}/flows`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(flowPayload)
@@ -1538,7 +1727,7 @@ class FlowWizard {
             console.log('Test flow created:', createdFlow);
 
             // Execute the flow
-            const executeResponse = await fetch(`/api/flows/${this.selectedDevice}/${createdFlow.flow_id}/execute`, {
+            const executeResponse = await fetch(`${getApiBase()}/flows/${this.selectedDevice}/${createdFlow.flow_id}/execute`, {
                 method: 'POST'
             });
 
@@ -1583,7 +1772,7 @@ class FlowWizard {
             }
 
             // Clean up test flow
-            await fetch(`/api/flows/${this.selectedDevice}/${createdFlow.flow_id}`, {
+            await fetch(`${getApiBase()}/flows/${this.selectedDevice}/${createdFlow.flow_id}`, {
                 method: 'DELETE'
             });
 
@@ -1599,25 +1788,7 @@ class FlowWizard {
         }
     }
 
-    async loadStep5() {
-        console.log('Loading Step 5: Settings');
-        // Auto-generate flow name
-        const appName = this.selectedApp ? this.selectedApp.split('.').pop() : 'flow';
-        const flowNameInput = document.getElementById('flowName');
-        if (flowNameInput && !flowNameInput.value) {
-            flowNameInput.value = `${appName}_flow`;
-        }
-
-        // Setup quick interval buttons
-        document.querySelectorAll('[data-interval]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const seconds = parseInt(btn.dataset.interval);
-                const minutes = seconds / 60;
-                document.getElementById('intervalValue').value = minutes;
-                document.getElementById('intervalUnit').value = '60';
-            });
-        });
-    }
+    // NOTE: loadStep5() moved to flow-wizard-step5.js
 
     async saveFlow() {
         console.log('Saving flow...');
@@ -1653,7 +1824,7 @@ class FlowWizard {
             console.log('Saving flow:', flowPayload);
 
             // Save flow via API
-            const response = await fetch('/api/flows', {
+            const response = await fetch(`${getApiBase()}/flows`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(flowPayload)
@@ -1676,14 +1847,7 @@ class FlowWizard {
                 window.location.href = 'flows.html';
             } else if (result === 'create') {
                 // Reset wizard
-                this.currentStep = 1;
-                this.selectedDevice = null;
-                this.selectedApp = null;
-                this.recordMode = 'execute';
-                this.recorder = null;
-                this.flowSteps = [];
-                this.updateUI();
-                this.loadStep1();
+                this.reset();
             }
 
         } catch (error) {
