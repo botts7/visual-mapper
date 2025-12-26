@@ -41,6 +41,14 @@
                 </div>
 
                 <div class="control-group">
+                    <label for="streamMode">Mode:</label>
+                    <select id="streamMode">
+                        <option value="websocket" selected>WebSocket (Base64)</option>
+                        <option value="mjpeg">MJPEG Binary (~30% less bandwidth)</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
                     <button id="startBtn" class="btn btn-primary">Start Stream</button>
                     <button id="stopBtn" class="btn btn-secondary" disabled>Stop Stream</button>
                     <button id="refreshDevicesBtn" class="btn">Refresh Devices</button>
@@ -204,16 +212,89 @@
                     <span class="metric-label">Elements:</span>
                     <span id="elementsValue" class="metric-value">0</span>
                 </div>
+                <div class="metric">
+                    <span class="metric-label">Bandwidth:</span>
+                    <span id="bandwidthValue" class="metric-value">0 KB/s</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Mode:</span>
+                    <span id="streamModeValue" class="metric-value">--</span>
+                </div>
             </div>
         </div>
 
         <div class="card stream-card">
             <h2>Stream View</h2>
-            <div id="canvasContainer" class="canvas-container">
-                <canvas id="streamCanvas"></canvas>
-                <div id="tapIndicator" class="tap-indicator" style="display: none;"></div>
-                <div id="noStream" class="no-stream-overlay">
-                    <p>Select a device and click "Start Stream"</p>
+
+            <!-- Quick Actions Bar -->
+            <div id="quickActionsBar" class="quick-actions-bar">
+                <button class="quick-btn" id="qabRefresh" title="Refresh Elements">
+                    <span class="quick-icon">↻</span>
+                </button>
+                <button class="quick-btn" id="qabBack" title="Back">
+                    <span class="quick-icon">←</span>
+                </button>
+                <button class="quick-btn" id="qabHome" title="Home">
+                    <span class="quick-icon">●</span>
+                </button>
+                <button class="quick-btn" id="qabRecent" title="Recent Apps">
+                    <span class="quick-icon">▢</span>
+                </button>
+                <div class="quick-divider"></div>
+                <button class="quick-btn" id="qabZoomIn" title="Zoom In">
+                    <span class="quick-icon">+</span>
+                </button>
+                <button class="quick-btn" id="qabZoomOut" title="Zoom Out">
+                    <span class="quick-icon">−</span>
+                </button>
+                <button class="quick-btn" id="qabZoomReset" title="Reset Zoom (1:1)">
+                    <span class="quick-icon">1:1</span>
+                </button>
+                <span id="zoomLevel" class="zoom-level">100%</span>
+                <div class="quick-divider"></div>
+                <span id="connectionStatus" class="connection-status disconnected" title="Connection Status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Disconnected</span>
+                </span>
+                <div class="quick-divider"></div>
+                <button class="quick-btn" id="qabScreenshot" title="Save Screenshot">
+                    <span class="quick-icon">📷</span>
+                </button>
+                <button class="quick-btn" id="qabFullscreen" title="Toggle Fullscreen">
+                    <span class="quick-icon">⛶</span>
+                </button>
+                <button class="quick-btn" id="qabSplitView" title="Toggle Split View">
+                    <span class="quick-icon">◫</span>
+                </button>
+                <div class="quick-divider"></div>
+                <a href="http://localhost:8000/" target="_blank" class="quick-btn quick-btn-link" id="qabScrcpy" title="Open ws-scrcpy (Low Latency)">
+                    <span class="quick-icon">⚡</span>
+                </a>
+            </div>
+
+            <div id="splitViewContainer" class="split-view-container">
+                <div id="canvasContainer" class="canvas-container">
+                    <canvas id="streamCanvas"></canvas>
+                    <div id="tapIndicator" class="tap-indicator" style="display: none;"></div>
+                    <div id="swipePathContainer" class="swipe-path" style="display: none;"></div>
+                    <div id="hoverTooltip" class="hover-tooltip" style="display: none;">
+                        <div class="tooltip-header"></div>
+                        <div class="tooltip-body"></div>
+                    </div>
+                    <div id="noStream" class="no-stream-overlay">
+                        <p>Select a device and click "Start Stream"</p>
+                    </div>
+                </div>
+
+                <!-- Element Tree Panel (Split View) -->
+                <div id="elementTreePanel" class="element-tree-panel" style="display: none;">
+                    <div class="tree-header">
+                        <h3>Element Tree</h3>
+                        <input type="text" id="treeSearch" class="tree-search" placeholder="Search elements...">
+                    </div>
+                    <div id="elementTreeContent" class="tree-content">
+                        <p class="tree-empty">Click "Refresh Elements" to load</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -222,6 +303,22 @@
             <h2>Touch Controls</h2>
             <p><strong>Click</strong> = Tap &nbsp;|&nbsp; <strong>Click + Drag</strong> = Swipe</p>
             <div id="lastTap" class="tap-info">Last action: --</div>
+        </div>
+
+        <div class="card">
+            <h2>Gesture Recording</h2>
+            <div class="controls-row">
+                <button id="recordBtn" class="btn btn-record">Start Recording</button>
+                <button id="clearRecordingBtn" class="btn btn-secondary" disabled>Clear</button>
+                <button id="saveRecordingBtn" class="btn btn-primary" disabled>Save as Flow</button>
+            </div>
+            <div id="recordingStatus" class="recording-status">
+                <span id="recordingIndicator" class="recording-indicator"></span>
+                <span id="recordingText">Not recording</span>
+            </div>
+            <div id="recordedActions" class="recorded-actions">
+                <p class="empty-message">No actions recorded. Click "Start Recording" and interact with the device.</p>
+            </div>
         </div>
 
         <div class="card">
@@ -246,7 +343,7 @@
     </div>
 
     <script type="module">
-        import LiveStream from './js/modules/live-stream.js?v=0.0.6';
+        import LiveStream from './js/modules/live-stream.js?v=0.0.8';
         import ActionManager from './js/modules/action-manager.js?v=0.0.6';
 
         // API helper
@@ -304,6 +401,7 @@
 
         // DOM elements
         const deviceSelect = document.getElementById('deviceSelect');
+        const streamModeSelect = document.getElementById('streamMode');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const refreshDevicesBtn = document.getElementById('refreshDevicesBtn');
@@ -312,6 +410,10 @@
         const canvas = document.getElementById('streamCanvas');
         const noStream = document.getElementById('noStream');
         const lastTapDiv = document.getElementById('lastTap');
+
+        // New metric elements
+        const bandwidthValue = document.getElementById('bandwidthValue');
+        const streamModeValue = document.getElementById('streamModeValue');
 
         // Element overlay controls
         const refreshElementsBtn = document.getElementById('refreshElementsBtn');
@@ -360,6 +462,8 @@
             statusValue.className = 'metric-value status-disconnected';
             startBtn.disabled = false;
             stopBtn.disabled = true;
+            streamModeValue.textContent = '--';
+            bandwidthValue.textContent = '0 KB/s';
             stopAutoRefresh();
             autoRefreshElements.checked = false;
         };
@@ -376,12 +480,40 @@
             latencyValue.textContent = metrics.latency + ' ms';
             captureValue.textContent = metrics.captureTime + ' ms';
             frameValue.textContent = metrics.frameCount;
+            bandwidthValue.textContent = metrics.bandwidth + ' KB/s';
         };
 
         liveStream.onFrame = (data) => {
             if (data.elements && data.elements.length > 0) {
                 elementsValue.textContent = data.elements.length;
             }
+        };
+
+        // Connection state change handler (for auto-reconnect indicator)
+        const connectionStatus = document.getElementById('connectionStatus');
+        const statusText = connectionStatus.querySelector('.status-text');
+
+        liveStream.onConnectionStateChange = (state, attempts) => {
+            // Update indicator classes
+            connectionStatus.className = 'connection-status ' + state;
+
+            // Update text
+            switch (state) {
+                case 'disconnected':
+                    statusText.textContent = 'Disconnected';
+                    break;
+                case 'connecting':
+                    statusText.textContent = 'Connecting...';
+                    break;
+                case 'connected':
+                    statusText.textContent = 'Connected';
+                    break;
+                case 'reconnecting':
+                    statusText.textContent = `Reconnecting (${attempts + 1})`;
+                    break;
+            }
+
+            console.log(`[UI] Connection state: ${state}` + (attempts > 0 ? ` (attempt ${attempts})` : ''));
         };
 
         // Load devices
@@ -411,7 +543,9 @@
                 alert('Please select a device');
                 return;
             }
-            liveStream.start(deviceId);
+            const mode = streamModeSelect.value;
+            streamModeValue.textContent = mode === 'mjpeg' ? 'MJPEG Binary' : 'WebSocket Base64';
+            liveStream.start(deviceId, mode);
         });
 
         stopBtn.addEventListener('click', () => {
@@ -728,9 +862,18 @@
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
-            // Calculate position relative to actual canvas content (not container)
-            const relX = clientX - container.left - offsetX;
-            const relY = clientY - container.top - offsetY;
+            // Account for zoom and pan
+            // When zoomed, the canvas is scaled and translated
+            const zoomedWidth = actualWidth * zoomScale;
+            const zoomedHeight = actualHeight * zoomScale;
+
+            // Center of zoomed canvas
+            const zoomOffsetX = (container.width - zoomedWidth) / 2 + (panX * zoomScale);
+            const zoomOffsetY = (container.height - zoomedHeight) / 2 + (panY * zoomScale);
+
+            // Calculate position relative to zoomed canvas
+            const relX = (clientX - container.left - zoomOffsetX) / zoomScale;
+            const relY = (clientY - container.top - zoomOffsetY) / zoomScale;
 
             // Scale to canvas coordinates
             const scaleX = canvas.width / actualWidth;
@@ -741,7 +884,13 @@
                 y: Math.round(relY * scaleY)
             };
 
-            console.log(`[Coords] Canvas: ${canvas.width}x${canvas.height}, Actual display: ${Math.round(actualWidth)}x${Math.round(actualHeight)}, Offset: (${Math.round(offsetX)}, ${Math.round(offsetY)}), Click: (${coords.x}, ${coords.y})`);
+            // Clamp to valid canvas coordinates
+            coords.x = Math.max(0, Math.min(canvas.width - 1, coords.x));
+            coords.y = Math.max(0, Math.min(canvas.height - 1, coords.y));
+
+            if (zoomScale !== 1) {
+                console.log(`[Coords] Zoom: ${Math.round(zoomScale * 100)}%, Pan: (${Math.round(panX)}, ${Math.round(panY)}), Click: (${coords.x}, ${coords.y})`);
+            }
             return coords;
         }
 
@@ -776,34 +925,31 @@
                 console.log(`Tap at (${dragStart.x}, ${dragStart.y})`);
                 lastTapDiv.textContent = `Last tap: (${dragStart.x}, ${dragStart.y})`;
 
-                // Show persistent tap indicator at click position (display coords)
-                const tapIndicator = document.getElementById('tapIndicator');
-                const container = document.getElementById('canvasContainer').getBoundingClientRect();
+                // Show tap ripple effect at click position
+                const container = document.getElementById('canvasContainer');
+                const containerRect = container.getBoundingClientRect();
                 const canvasAspect = canvas.width / canvas.height;
-                const containerAspect = container.width / container.height;
+                const containerAspect = containerRect.width / containerRect.height;
 
                 let actualWidth, actualHeight, offsetX, offsetY;
                 if (canvasAspect > containerAspect) {
-                    actualWidth = container.width;
-                    actualHeight = container.width / canvasAspect;
+                    actualWidth = containerRect.width;
+                    actualHeight = containerRect.width / canvasAspect;
                     offsetX = 0;
-                    offsetY = (container.height - actualHeight) / 2;
+                    offsetY = (containerRect.height - actualHeight) / 2;
                 } else {
-                    actualHeight = container.height;
-                    actualWidth = container.height * canvasAspect;
-                    offsetX = (container.width - actualWidth) / 2;
+                    actualHeight = containerRect.height;
+                    actualWidth = containerRect.height * canvasAspect;
+                    offsetX = (containerRect.width - actualWidth) / 2;
                     offsetY = 0;
                 }
 
                 const displayX = (dragStart.x / canvas.width) * actualWidth + offsetX;
                 const displayY = (dragStart.y / canvas.height) * actualHeight + offsetY;
-                tapIndicator.style.left = displayX + 'px';
-                tapIndicator.style.top = displayY + 'px';
-                tapIndicator.style.display = 'block';
-                console.log(`[TapIndicator] Display pos: (${Math.round(displayX)}, ${Math.round(displayY)}), Canvas pos: (${dragStart.x}, ${dragStart.y}), Offset: (${Math.round(offsetX)}, ${Math.round(offsetY)})`);
 
-                // Hide after 3 seconds
-                setTimeout(() => { tapIndicator.style.display = 'none'; }, 3000);
+                // Show tap indicator with ripple animation
+                showTapRipple(container, displayX, displayY);
+                console.log(`[TapRipple] Display pos: (${Math.round(displayX)}, ${Math.round(displayY)}), Canvas pos: (${dragStart.x}, ${dragStart.y})`);
 
                 // Check for element at tap position (use filteredElements directly)
                 console.log(`[Tap] Checking ${filteredElements.length} elements for hit at (${dragStart.x}, ${dragStart.y})`);
@@ -835,6 +981,9 @@
                         y: dragStart.y
                     });
                     console.log(`[ADB] Tap result:`, tapResult);
+
+                    // Record the tap if recording
+                    recordAction('tap', { x: dragStart.x, y: dragStart.y });
                 } catch (error) {
                     console.error('Tap failed:', error);
                 }
@@ -842,6 +991,11 @@
                 // It's a swipe
                 console.log(`Swipe from (${dragStart.x},${dragStart.y}) to (${endCoords.x},${endCoords.y})`);
                 lastTapDiv.textContent = `Swipe: (${dragStart.x},${dragStart.y}) → (${endCoords.x},${endCoords.y})`;
+
+                // Show swipe path visualization
+                const container = document.getElementById('canvasContainer');
+                showSwipePath(container, dragStart.x, dragStart.y, endCoords.x, endCoords.y);
+
                 try {
                     await apiPost('/adb/swipe', {
                         device_id: deviceId,
@@ -851,6 +1005,9 @@
                         y2: endCoords.y,
                         duration: 300
                     });
+
+                    // Record the swipe if recording
+                    recordAction('swipe', { x1: dragStart.x, y1: dragStart.y, x2: endCoords.x, y2: endCoords.y });
                 } catch (error) {
                     console.error('Swipe failed:', error);
                 }
@@ -948,6 +1105,919 @@
         document.getElementById('btnSwipeDown').addEventListener('click', () => sendSwipe('down'));
         document.getElementById('btnSwipeLeft').addEventListener('click', () => sendSwipe('left'));
         document.getElementById('btnSwipeRight').addEventListener('click', () => sendSwipe('right'));
+
+        // ========================================
+        // Element Hover Preview
+        // ========================================
+
+        const hoverTooltip = document.getElementById('hoverTooltip');
+        let hoveredElement = null;
+        let lastHoverCoords = { x: 0, y: 0 };
+
+        /**
+         * Handle mouse move for element hover preview
+         */
+        function handleCanvasHover(e) {
+            if (!liveStream.isActive() || filteredElements.length === 0) {
+                hideHoverTooltip();
+                return;
+            }
+
+            const coords = getCanvasCoords(e);
+            lastHoverCoords = coords;
+
+            // Find ALL elements at hover position
+            let elementsAtPoint = [];
+            for (let i = filteredElements.length - 1; i >= 0; i--) {
+                const el = filteredElements[i];
+                if (!el.bounds) continue;
+                const b = el.bounds;
+                if (coords.x >= b.x && coords.x <= b.x + b.width &&
+                    coords.y >= b.y && coords.y <= b.y + b.height) {
+                    elementsAtPoint.push(el);
+                }
+            }
+
+            // Prioritize: clickable elements first, then smallest area
+            let foundElement = null;
+            if (elementsAtPoint.length > 0) {
+                // Separate clickable and non-clickable
+                const clickable = elementsAtPoint.filter(el => el.clickable);
+                const candidates = clickable.length > 0 ? clickable : elementsAtPoint;
+
+                // Pick smallest element (most specific)
+                foundElement = candidates.reduce((smallest, el) => {
+                    const area = el.bounds.width * el.bounds.height;
+                    const smallestArea = smallest.bounds.width * smallest.bounds.height;
+                    return area < smallestArea ? el : smallest;
+                });
+            }
+
+            if (foundElement && foundElement !== hoveredElement) {
+                hoveredElement = foundElement;
+                showHoverTooltip(e, foundElement);
+                highlightHoveredElement(foundElement);
+            } else if (!foundElement && hoveredElement) {
+                hoveredElement = null;
+                hideHoverTooltip();
+                // Re-render without hover highlight
+                if (liveStream.currentImage) {
+                    liveStream._renderFrame(liveStream.currentImage, filteredElements);
+                }
+            } else if (foundElement) {
+                // Update tooltip position
+                updateTooltipPosition(e);
+            }
+        }
+
+        /**
+         * Show hover tooltip with element info
+         */
+        function showHoverTooltip(e, element) {
+            const header = hoverTooltip.querySelector('.tooltip-header');
+            const body = hoverTooltip.querySelector('.tooltip-body');
+
+            // Header: element text or class name
+            const displayName = element.text?.trim() ||
+                               element.content_desc?.trim() ||
+                               element.class?.split('.').pop() ||
+                               'Element';
+            header.textContent = displayName;
+
+            // Body: element details
+            const clickableBadge = element.clickable
+                ? '<span class="clickable-badge">Clickable</span>'
+                : '<span class="not-clickable-badge">Not Clickable</span>';
+
+            let bodyHtml = `<div class="tooltip-row"><span class="tooltip-label">Class:</span><span class="tooltip-value">${element.class?.split('.').pop() || '-'}</span></div>`;
+
+            if (element.resource_id) {
+                const resId = element.resource_id.split('/').pop() || element.resource_id;
+                bodyHtml += `<div class="tooltip-row"><span class="tooltip-label">ID:</span><span class="tooltip-value">${resId}</span></div>`;
+            }
+
+            if (element.bounds) {
+                bodyHtml += `<div class="tooltip-row"><span class="tooltip-label">Size:</span><span class="tooltip-value">${element.bounds.width}x${element.bounds.height}</span></div>`;
+            }
+
+            bodyHtml += `<div class="tooltip-row"><span class="tooltip-label">Status:</span><span class="tooltip-value">${clickableBadge}</span></div>`;
+
+            body.innerHTML = bodyHtml;
+
+            updateTooltipPosition(e);
+            hoverTooltip.style.display = 'block';
+        }
+
+        /**
+         * Update tooltip position near cursor
+         */
+        function updateTooltipPosition(e) {
+            const container = document.getElementById('canvasContainer');
+            const containerRect = container.getBoundingClientRect();
+
+            // Position tooltip near cursor but within container
+            let x = e.clientX - containerRect.left + 15;
+            let y = e.clientY - containerRect.top + 15;
+
+            // Keep tooltip within container bounds
+            const tooltipRect = hoverTooltip.getBoundingClientRect();
+            if (x + tooltipRect.width > containerRect.width - 10) {
+                x = e.clientX - containerRect.left - tooltipRect.width - 15;
+            }
+            if (y + tooltipRect.height > containerRect.height - 10) {
+                y = e.clientY - containerRect.top - tooltipRect.height - 15;
+            }
+
+            hoverTooltip.style.left = Math.max(5, x) + 'px';
+            hoverTooltip.style.top = Math.max(5, y) + 'px';
+        }
+
+        /**
+         * Hide hover tooltip
+         */
+        function hideHoverTooltip() {
+            hoverTooltip.style.display = 'none';
+        }
+
+        /**
+         * Highlight hovered element on canvas
+         */
+        function highlightHoveredElement(element) {
+            if (!liveStream.currentImage) return;
+
+            // Re-render frame first
+            liveStream._renderFrame(liveStream.currentImage, filteredElements);
+
+            // Draw hover highlight
+            const ctx = liveStream.ctx;
+            const b = element.bounds;
+            if (b) {
+                // Cyan dashed border for hover
+                ctx.strokeStyle = '#00ffff';
+                ctx.lineWidth = 3;
+                ctx.setLineDash([8, 4]);
+                ctx.strokeRect(b.x, b.y, b.width, b.height);
+                ctx.setLineDash([]); // Reset
+
+                // Semi-transparent fill
+                ctx.fillStyle = element.clickable
+                    ? 'rgba(0, 255, 255, 0.15)'
+                    : 'rgba(255, 255, 0, 0.1)';
+                ctx.fillRect(b.x, b.y, b.width, b.height);
+            }
+        }
+
+        // Add hover event listener
+        canvas.addEventListener('mousemove', handleCanvasHover);
+        canvas.addEventListener('mouseleave', () => {
+            hoveredElement = null;
+            hideHoverTooltip();
+            if (liveStream.currentImage && liveStream.isActive()) {
+                liveStream._renderFrame(liveStream.currentImage, filteredElements);
+            }
+        });
+
+        // ========================================
+        // Gesture Recording
+        // ========================================
+
+        const recordBtn = document.getElementById('recordBtn');
+        const clearRecordingBtn = document.getElementById('clearRecordingBtn');
+        const saveRecordingBtn = document.getElementById('saveRecordingBtn');
+        const recordingIndicator = document.getElementById('recordingIndicator');
+        const recordingText = document.getElementById('recordingText');
+        const recordedActionsDiv = document.getElementById('recordedActions');
+
+        let isRecording = false;
+        let recordedActions = [];
+
+        /**
+         * Toggle recording state
+         */
+        function toggleRecording() {
+            isRecording = !isRecording;
+
+            if (isRecording) {
+                recordBtn.textContent = 'Stop Recording';
+                recordBtn.classList.add('recording');
+                recordingIndicator.classList.add('active');
+                recordingText.textContent = 'Recording... Tap or swipe on the device';
+                console.log('[Recording] Started');
+            } else {
+                recordBtn.textContent = 'Start Recording';
+                recordBtn.classList.remove('recording');
+                recordingIndicator.classList.remove('active');
+                recordingText.textContent = recordedActions.length > 0
+                    ? `Recorded ${recordedActions.length} action(s)`
+                    : 'Not recording';
+                console.log('[Recording] Stopped');
+            }
+        }
+
+        /**
+         * Record an action (tap or swipe)
+         */
+        function recordAction(type, data) {
+            if (!isRecording) return;
+
+            const action = {
+                type: type,
+                timestamp: Date.now(),
+                ...data
+            };
+
+            recordedActions.push(action);
+            updateRecordedActionsUI();
+
+            clearRecordingBtn.disabled = false;
+            saveRecordingBtn.disabled = false;
+
+            console.log(`[Recording] Recorded ${type}:`, data);
+        }
+
+        /**
+         * Update the recorded actions list UI
+         */
+        function updateRecordedActionsUI() {
+            if (recordedActions.length === 0) {
+                recordedActionsDiv.innerHTML = '<p class="empty-message">No actions recorded. Click "Start Recording" and interact with the device.</p>';
+                return;
+            }
+
+            let html = '';
+            recordedActions.forEach((action, index) => {
+                const typeClass = action.type === 'tap' ? 'tap' : 'swipe';
+                let coordsText = '';
+
+                if (action.type === 'tap') {
+                    coordsText = `(${action.x}, ${action.y})`;
+                } else if (action.type === 'swipe') {
+                    coordsText = `(${action.x1}, ${action.y1}) → (${action.x2}, ${action.y2})`;
+                }
+
+                html += `
+                    <div class="recorded-action-item" data-index="${index}">
+                        <span class="action-number">${index + 1}</span>
+                        <span class="action-type ${typeClass}">${action.type.toUpperCase()}</span>
+                        <span class="action-coords">${coordsText}</span>
+                        <button class="action-delete" onclick="deleteRecordedAction(${index})" title="Delete">×</button>
+                    </div>
+                `;
+            });
+
+            recordedActionsDiv.innerHTML = html;
+        }
+
+        /**
+         * Delete a recorded action
+         */
+        window.deleteRecordedAction = function(index) {
+            recordedActions.splice(index, 1);
+            updateRecordedActionsUI();
+
+            if (recordedActions.length === 0) {
+                clearRecordingBtn.disabled = true;
+                saveRecordingBtn.disabled = true;
+                recordingText.textContent = isRecording ? 'Recording...' : 'Not recording';
+            }
+        };
+
+        /**
+         * Clear all recorded actions
+         */
+        function clearRecording() {
+            recordedActions = [];
+            updateRecordedActionsUI();
+            clearRecordingBtn.disabled = true;
+            saveRecordingBtn.disabled = true;
+            recordingText.textContent = isRecording ? 'Recording...' : 'Not recording';
+            console.log('[Recording] Cleared');
+        }
+
+        /**
+         * Save recording as a Flow
+         */
+        async function saveRecordingAsFlow() {
+            if (recordedActions.length === 0) {
+                alert('No actions to save');
+                return;
+            }
+
+            const deviceId = deviceSelect.value;
+            if (!deviceId) {
+                alert('Please select a device');
+                return;
+            }
+
+            const flowName = prompt('Enter a name for this flow:', `Recorded Flow ${new Date().toLocaleTimeString()}`);
+            if (!flowName) return;
+
+            // Convert recorded actions to flow steps
+            const steps = recordedActions.map((action, index) => {
+                if (action.type === 'tap') {
+                    return {
+                        step_number: index + 1,
+                        action_type: 'tap',
+                        x: action.x,
+                        y: action.y,
+                        delay_after: 500
+                    };
+                } else if (action.type === 'swipe') {
+                    return {
+                        step_number: index + 1,
+                        action_type: 'swipe',
+                        x: action.x1,
+                        y: action.y1,
+                        x2: action.x2,
+                        y2: action.y2,
+                        duration: 300,
+                        delay_after: 500
+                    };
+                }
+            });
+
+            try {
+                saveRecordingBtn.disabled = true;
+                saveRecordingBtn.textContent = 'Saving...';
+
+                const response = await apiPost('/flows', {
+                    name: flowName,
+                    description: `Recorded from Live Stream on ${new Date().toLocaleString()}`,
+                    device_id: deviceId,
+                    steps: steps,
+                    enabled: true
+                });
+
+                console.log('[Recording] Flow saved:', response);
+                alert(`Flow "${flowName}" saved with ${steps.length} steps!`);
+
+                // Clear after save
+                clearRecording();
+
+            } catch (error) {
+                console.error('[Recording] Failed to save flow:', error);
+                alert('Failed to save flow: ' + error.message);
+            } finally {
+                saveRecordingBtn.disabled = recordedActions.length === 0;
+                saveRecordingBtn.textContent = 'Save as Flow';
+            }
+        }
+
+        // Recording button handlers
+        recordBtn.addEventListener('click', toggleRecording);
+        clearRecordingBtn.addEventListener('click', clearRecording);
+        saveRecordingBtn.addEventListener('click', saveRecordingAsFlow);
+
+        // ========================================
+        // Touch Feedback Visualization Functions
+        // ========================================
+
+        /**
+         * Show animated tap ripple at position
+         */
+        function showTapRipple(container, x, y) {
+            // Create main tap indicator
+            const tapIndicator = document.getElementById('tapIndicator');
+            tapIndicator.style.left = x + 'px';
+            tapIndicator.style.top = y + 'px';
+            tapIndicator.style.display = 'block';
+            // Reset animation by forcing reflow
+            tapIndicator.style.animation = 'none';
+            tapIndicator.offsetHeight;
+            tapIndicator.style.animation = '';
+
+            // Create expanding ripple ring
+            const ring = document.createElement('div');
+            ring.className = 'tap-ripple-ring';
+            ring.style.left = x + 'px';
+            ring.style.top = y + 'px';
+            container.appendChild(ring);
+
+            // Create second ring (delayed)
+            setTimeout(() => {
+                const ring2 = document.createElement('div');
+                ring2.className = 'tap-ripple-ring';
+                ring2.style.left = x + 'px';
+                ring2.style.top = y + 'px';
+                container.appendChild(ring2);
+                setTimeout(() => ring2.remove(), 800);
+            }, 150);
+
+            // Cleanup
+            setTimeout(() => {
+                ring.remove();
+                tapIndicator.style.display = 'none';
+            }, 1500);
+        }
+
+        /**
+         * Show animated swipe path from start to end
+         */
+        function showSwipePath(container, startX, startY, endX, endY) {
+            const swipeContainer = document.getElementById('swipePathContainer');
+            const containerRect = container.getBoundingClientRect();
+
+            // Convert canvas coords to display coords
+            const canvasAspect = canvas.width / canvas.height;
+            const containerAspect = containerRect.width / containerRect.height;
+
+            let actualWidth, actualHeight, offsetX, offsetY;
+            if (canvasAspect > containerAspect) {
+                actualWidth = containerRect.width;
+                actualHeight = containerRect.width / canvasAspect;
+                offsetX = 0;
+                offsetY = (containerRect.height - actualHeight) / 2;
+            } else {
+                actualHeight = containerRect.height;
+                actualWidth = containerRect.height * canvasAspect;
+                offsetX = (containerRect.width - actualWidth) / 2;
+                offsetY = 0;
+            }
+
+            const displayStartX = (startX / canvas.width) * actualWidth + offsetX;
+            const displayStartY = (startY / canvas.height) * actualHeight + offsetY;
+            const displayEndX = (endX / canvas.width) * actualWidth + offsetX;
+            const displayEndY = (endY / canvas.height) * actualHeight + offsetY;
+
+            // Calculate arrow direction
+            const dx = displayEndX - displayStartX;
+            const dy = displayEndY - displayStartY;
+            const angle = Math.atan2(dy, dx);
+            const arrowSize = 12;
+
+            // Create SVG path with arrow
+            swipeContainer.innerHTML = `
+                <svg style="width: 100%; height: 100%; position: absolute; top: 0; left: 0; overflow: visible;">
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" class="swipe-arrow"/>
+                        </marker>
+                    </defs>
+                    <line x1="${displayStartX}" y1="${displayStartY}"
+                          x2="${displayEndX}" y2="${displayEndY}"
+                          class="swipe-line" marker-end="url(#arrowhead)"/>
+                </svg>
+            `;
+
+            // Add start dot
+            const startDot = document.createElement('div');
+            startDot.className = 'swipe-dot swipe-dot-start';
+            startDot.style.left = displayStartX + 'px';
+            startDot.style.top = displayStartY + 'px';
+            swipeContainer.appendChild(startDot);
+
+            // Add end dot
+            const endDot = document.createElement('div');
+            endDot.className = 'swipe-dot swipe-dot-end';
+            endDot.style.left = displayEndX + 'px';
+            endDot.style.top = displayEndY + 'px';
+            swipeContainer.appendChild(endDot);
+
+            swipeContainer.style.display = 'block';
+
+            // Cleanup after animation
+            setTimeout(() => {
+                swipeContainer.style.display = 'none';
+                swipeContainer.innerHTML = '';
+            }, 1500);
+        }
+
+        // ========================================
+        // Zoom/Pan State
+        // ========================================
+
+        let zoomScale = 1;
+        let panX = 0;
+        let panY = 0;
+        let isPanning = false;
+        let panStartX = 0;
+        let panStartY = 0;
+        const MIN_ZOOM = 0.5;
+        const MAX_ZOOM = 5;
+        const ZOOM_STEP = 0.25;
+
+        const zoomLevelDisplay = document.getElementById('zoomLevel');
+
+        function updateZoomDisplay() {
+            zoomLevelDisplay.textContent = Math.round(zoomScale * 100) + '%';
+        }
+
+        function applyZoom() {
+            canvas.style.transform = `scale(${zoomScale}) translate(${panX}px, ${panY}px)`;
+            canvas.style.transformOrigin = 'center center';
+            updateZoomDisplay();
+        }
+
+        function zoomIn(centerX, centerY) {
+            if (zoomScale >= MAX_ZOOM) return;
+            zoomScale = Math.min(MAX_ZOOM, zoomScale + ZOOM_STEP);
+            applyZoom();
+        }
+
+        function zoomOut(centerX, centerY) {
+            if (zoomScale <= MIN_ZOOM) return;
+            zoomScale = Math.max(MIN_ZOOM, zoomScale - ZOOM_STEP);
+            // Reset pan if zooming back to 1x or less
+            if (zoomScale <= 1) {
+                panX = 0;
+                panY = 0;
+            }
+            applyZoom();
+        }
+
+        function resetZoom() {
+            zoomScale = 1;
+            panX = 0;
+            panY = 0;
+            applyZoom();
+        }
+
+        // Mouse wheel zoom
+        canvas.addEventListener('wheel', (e) => {
+            if (!liveStream.isActive()) return;
+            e.preventDefault();
+
+            if (e.deltaY < 0) {
+                zoomIn();
+            } else {
+                zoomOut();
+            }
+        }, { passive: false });
+
+        // Pan when zoomed (middle mouse or when scale > 1)
+        canvas.addEventListener('mousedown', (e) => {
+            // Middle mouse button or zoomed in + right click
+            if (e.button === 1 || (zoomScale > 1 && e.button === 2)) {
+                e.preventDefault();
+                isPanning = true;
+                panStartX = e.clientX - panX;
+                panStartY = e.clientY - panY;
+                canvas.style.cursor = 'grabbing';
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (isPanning) {
+                panX = e.clientX - panStartX;
+                panY = e.clientY - panStartY;
+                applyZoom();
+            }
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (isPanning) {
+                isPanning = false;
+                canvas.style.cursor = zoomScale > 1 ? 'grab' : 'crosshair';
+            }
+        });
+
+        // Prevent context menu when panning with right click
+        canvas.addEventListener('contextmenu', (e) => {
+            if (zoomScale > 1) {
+                e.preventDefault();
+            }
+        });
+
+        // Touch pinch zoom
+        let touchStartDistance = 0;
+        let touchStartScale = 1;
+
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                touchStartDistance = Math.sqrt(dx * dx + dy * dy);
+                touchStartScale = zoomScale;
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const scale = (distance / touchStartDistance) * touchStartScale;
+                zoomScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale));
+                applyZoom();
+            }
+        }, { passive: false });
+
+        // ========================================
+        // Quick Actions Bar
+        // ========================================
+
+        document.getElementById('qabRefresh').addEventListener('click', refreshElements);
+        document.getElementById('qabBack').addEventListener('click', () => sendKeyEvent(4, 'Back'));
+        document.getElementById('qabHome').addEventListener('click', () => sendKeyEvent(3, 'Home'));
+        document.getElementById('qabRecent').addEventListener('click', () => sendKeyEvent(187, 'Recent Apps'));
+
+        // Zoom controls
+        document.getElementById('qabZoomIn').addEventListener('click', () => zoomIn());
+        document.getElementById('qabZoomOut').addEventListener('click', () => zoomOut());
+        document.getElementById('qabZoomReset').addEventListener('click', () => resetZoom());
+
+        // Screenshot save
+        document.getElementById('qabScreenshot').addEventListener('click', () => {
+            if (!liveStream.currentImage) {
+                alert('No frame available');
+                return;
+            }
+
+            // Create a temporary canvas with just the screenshot (no overlays)
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = liveStream.currentImage.width;
+            tempCanvas.height = liveStream.currentImage.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(liveStream.currentImage, 0, 0);
+
+            // Download as PNG
+            const link = document.createElement('a');
+            link.download = `screenshot_${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+            link.href = tempCanvas.toDataURL('image/png');
+            link.click();
+
+            console.log('[Screenshot] Saved:', link.download);
+        });
+
+        // Fullscreen toggle
+        let isFullscreen = false;
+        document.getElementById('qabFullscreen').addEventListener('click', () => {
+            const streamCard = document.querySelector('.stream-card');
+            isFullscreen = !isFullscreen;
+
+            if (isFullscreen) {
+                streamCard.classList.add('fullscreen');
+                document.getElementById('qabFullscreen').querySelector('.quick-icon').textContent = '⛶';
+            } else {
+                streamCard.classList.remove('fullscreen');
+                document.getElementById('qabFullscreen').querySelector('.quick-icon').textContent = '⛶';
+            }
+        });
+
+        // ESC to exit fullscreen
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && isFullscreen) {
+                document.querySelector('.stream-card').classList.remove('fullscreen');
+                isFullscreen = false;
+            }
+        });
+
+        // ========================================
+        // Split View - Element Tree
+        // ========================================
+
+        let isSplitView = false;
+        const splitViewContainer = document.getElementById('splitViewContainer');
+        const elementTreePanel = document.getElementById('elementTreePanel');
+        const elementTreeContent = document.getElementById('elementTreeContent');
+        const treeSearch = document.getElementById('treeSearch');
+        let selectedTreeElement = null;
+
+        // Toggle split view
+        document.getElementById('qabSplitView').addEventListener('click', () => {
+            isSplitView = !isSplitView;
+
+            if (isSplitView) {
+                splitViewContainer.classList.add('split-active');
+                elementTreePanel.style.display = 'flex';
+                renderElementTree();
+            } else {
+                splitViewContainer.classList.remove('split-active');
+                elementTreePanel.style.display = 'none';
+            }
+        });
+
+        // Render element tree
+        function renderElementTree() {
+            const searchTerm = treeSearch.value.toLowerCase();
+
+            if (filteredElements.length === 0) {
+                elementTreeContent.innerHTML = '<p class="tree-empty">Click "Refresh Elements" to load</p>';
+                return;
+            }
+
+            // Filter by search
+            let displayElements = filteredElements;
+            if (searchTerm) {
+                displayElements = filteredElements.filter(el =>
+                    (el.text?.toLowerCase().includes(searchTerm)) ||
+                    (el.resource_id?.toLowerCase().includes(searchTerm)) ||
+                    (el.class?.toLowerCase().includes(searchTerm)) ||
+                    (el.content_desc?.toLowerCase().includes(searchTerm))
+                );
+            }
+
+            if (displayElements.length === 0) {
+                elementTreeContent.innerHTML = '<p class="tree-empty">No elements match search</p>';
+                return;
+            }
+
+            let html = '';
+            displayElements.forEach((el, index) => {
+                const displayText = el.text?.trim() || el.content_desc?.trim() || '';
+                const className = el.class?.split('.').pop() || 'Unknown';
+                const resId = el.resource_id?.split('/').pop() || '';
+                const isClickable = el.clickable;
+                const isSelected = selectedTreeElement === el;
+
+                html += `
+                    <div class="tree-item ${isClickable ? 'clickable' : 'not-clickable'} ${isSelected ? 'selected' : ''}"
+                         data-index="${index}">
+                        <div class="tree-item-header">
+                            <span class="tree-item-class">${className}</span>
+                            ${isClickable ? '<span class="tree-item-badge">Clickable</span>' : ''}
+                        </div>
+                        ${displayText ? `<div class="tree-item-text">"${displayText}"</div>` : ''}
+                        ${resId ? `<div class="tree-item-id">${resId}</div>` : ''}
+                        <div class="tree-item-actions">
+                            <button class="tree-btn tree-btn-highlight" onclick="highlightTreeElement(${index})" title="Highlight on screen">👁</button>
+                            <button class="tree-btn tree-btn-press" onclick="pressTreeElement(${index})" title="Tap this element">Press</button>
+                        </div>
+                        <div class="tree-item-actions">
+                            <button class="tree-btn tree-btn-action" onclick="createActionFromTree(${index})" title="Create action from element">+ Action</button>
+                            <button class="tree-btn tree-btn-sensor" onclick="createSensorFromTree(${index})" title="Create sensor from element">+ Sensor</button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            elementTreeContent.innerHTML = html;
+        }
+
+        // Get elements based on current search filter
+        function getDisplayedElements() {
+            return treeSearch.value
+                ? filteredElements.filter(el =>
+                    (el.text?.toLowerCase().includes(treeSearch.value.toLowerCase())) ||
+                    (el.resource_id?.toLowerCase().includes(treeSearch.value.toLowerCase())) ||
+                    (el.class?.toLowerCase().includes(treeSearch.value.toLowerCase())) ||
+                    (el.content_desc?.toLowerCase().includes(treeSearch.value.toLowerCase()))
+                  )
+                : filteredElements;
+        }
+
+        // Highlight element on canvas (temporary, just visual)
+        window.highlightTreeElement = function(index) {
+            const elements = getDisplayedElements();
+            if (index < 0 || index >= elements.length) return;
+
+            const element = elements[index];
+            highlightHoveredElement(element);
+            console.log('[Tree] Highlighted element:', element.class?.split('.').pop());
+        };
+
+        // Select element from tree (populates Selected Element card)
+        window.selectTreeElement = function(index) {
+            const elements = getDisplayedElements();
+            if (index < 0 || index >= elements.length) return;
+
+            const element = elements[index];
+            selectedTreeElement = element;
+
+            // Show in selected element card (enables Create Action)
+            showSelectedElement(element);
+
+            // Update tree UI to show selected state
+            renderElementTree();
+
+            // Scroll the selected element card into view
+            selectedElementCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            console.log('[Tree] Selected element:', element);
+        };
+
+        // Create action from tree element
+        window.createActionFromTree = function(index) {
+            const elements = getDisplayedElements();
+            if (index < 0 || index >= elements.length) return;
+
+            const element = elements[index];
+
+            // Select the element first (populates selectedElement)
+            selectedElement = element;
+            selectedTreeElement = element;
+
+            // Open the create action dialog
+            showCreateActionDialog();
+        };
+
+        // Create sensor from tree element
+        window.createSensorFromTree = async function(index) {
+            const elements = getDisplayedElements();
+            if (index < 0 || index >= elements.length) return;
+
+            const element = elements[index];
+            const deviceId = deviceSelect.value;
+
+            if (!deviceId) {
+                alert('Please select a device');
+                return;
+            }
+
+            // Generate sensor name from element
+            const sensorName = element.text?.trim() ||
+                              element.content_desc?.trim() ||
+                              element.resource_id?.split('/').pop() ||
+                              element.class?.split('.').pop() ||
+                              'Element Sensor';
+
+            const name = prompt('Enter sensor name:', sensorName);
+            if (!name) return;
+
+            try {
+                // Create sensor via API
+                const sensorConfig = {
+                    name: name,
+                    device_id: deviceId,
+                    element_selector: {}
+                };
+
+                // Build selector from element properties
+                if (element.resource_id) {
+                    sensorConfig.element_selector.resource_id = element.resource_id;
+                } else if (element.text) {
+                    sensorConfig.element_selector.text = element.text;
+                } else if (element.content_desc) {
+                    sensorConfig.element_selector.content_desc = element.content_desc;
+                } else if (element.class) {
+                    sensorConfig.element_selector.class_name = element.class;
+                    if (element.bounds) {
+                        // Use bounds as additional selector
+                        sensorConfig.element_selector.bounds = element.bounds;
+                    }
+                }
+
+                const result = await apiPost('/sensors', sensorConfig);
+                console.log('[Tree] Sensor created:', result);
+                alert(`Sensor "${name}" created!`);
+
+            } catch (error) {
+                console.error('[Tree] Failed to create sensor:', error);
+                alert('Failed to create sensor: ' + error.message);
+            }
+        };
+
+        // Press/tap element directly from tree
+        window.pressTreeElement = async function(index) {
+            const elements = getDisplayedElements();
+            if (index < 0 || index >= elements.length) return;
+
+            const element = elements[index];
+            const deviceId = deviceSelect.value;
+
+            if (!deviceId) {
+                alert('Please select a device');
+                return;
+            }
+
+            if (!element.bounds) {
+                alert('Element has no bounds');
+                return;
+            }
+
+            // Calculate center of element
+            const b = element.bounds;
+            const centerX = Math.round(b.x + b.width / 2);
+            const centerY = Math.round(b.y + b.height / 2);
+
+            // Highlight the element briefly
+            highlightHoveredElement(element);
+
+            try {
+                console.log(`[Tree] Pressing element at (${centerX}, ${centerY})`);
+                await apiPost('/adb/tap', {
+                    device_id: deviceId,
+                    x: centerX,
+                    y: centerY
+                });
+
+                lastTapDiv.textContent = `Last tap: (${centerX}, ${centerY}) - ${element.text || element.class?.split('.').pop() || 'element'}`;
+
+                // Record if recording
+                recordAction('tap', { x: centerX, y: centerY });
+
+                console.log('[Tree] Press successful');
+            } catch (error) {
+                console.error('[Tree] Press failed:', error);
+                alert('Failed to tap element: ' + error.message);
+            }
+        };
+
+        // Search input handler
+        treeSearch.addEventListener('input', () => {
+            renderElementTree();
+        });
+
+        // Update tree when elements are refreshed
+        const originalApplyFilters = applyFilters;
+        applyFilters = function() {
+            originalApplyFilters();
+            if (isSplitView) {
+                renderElementTree();
+            }
+        };
 
         // Initialize
         loadDevices();

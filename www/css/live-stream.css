@@ -1,6 +1,6 @@
 /**
  * Live Stream CSS
- * Version: 0.0.4
+ * Version: 0.0.8 - Touch feedback + hover preview + gesture recording + quick actions
  */
 
 /* Controls */
@@ -259,18 +259,704 @@
     margin-top: 20px;
 }
 
-/* Tap indicator */
+/* Tap indicator with ripple animation */
 .tap-indicator {
     position: absolute;
     width: 30px;
     height: 30px;
     border-radius: 50%;
-    background: rgba(255, 0, 0, 0.7);
-    border: 3px solid white;
+    background: rgba(33, 150, 243, 0.6);
+    border: 3px solid rgba(255, 255, 255, 0.9);
     transform: translate(-50%, -50%);
     pointer-events: none;
     z-index: 100;
-    box-shadow: 0 0 10px rgba(255, 0, 0, 0.8);
+    box-shadow: 0 0 15px rgba(33, 150, 243, 0.8);
+    animation: tap-ripple 0.6s ease-out forwards;
+}
+
+@keyframes tap-ripple {
+    0% {
+        transform: translate(-50%, -50%) scale(0.5);
+        opacity: 1;
+    }
+    50% {
+        transform: translate(-50%, -50%) scale(1.2);
+        opacity: 0.8;
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 0.6;
+    }
+}
+
+/* Ripple rings (outer expanding rings) */
+.tap-ripple-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 2px solid rgba(33, 150, 243, 0.6);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 99;
+    animation: ripple-expand 0.8s ease-out forwards;
+}
+
+@keyframes ripple-expand {
+    0% {
+        width: 30px;
+        height: 30px;
+        opacity: 1;
+    }
+    100% {
+        width: 80px;
+        height: 80px;
+        opacity: 0;
+    }
+}
+
+/* Swipe gesture path */
+.swipe-path {
+    position: absolute;
+    pointer-events: none;
+    z-index: 98;
+}
+
+.swipe-path svg {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.swipe-line {
+    stroke: rgba(76, 175, 80, 0.8);
+    stroke-width: 4;
+    stroke-linecap: round;
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 1000;
+    animation: draw-swipe 0.5s ease-out forwards;
+}
+
+@keyframes draw-swipe {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+.swipe-arrow {
+    fill: rgba(76, 175, 80, 0.9);
+    animation: fade-in 0.3s ease-out 0.2s forwards;
+    opacity: 0;
+}
+
+@keyframes fade-in {
+    to {
+        opacity: 1;
+    }
+}
+
+/* Swipe start/end indicators */
+.swipe-dot {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 100;
+}
+
+.swipe-dot-start {
+    background: rgba(76, 175, 80, 0.8);
+    border: 2px solid white;
+}
+
+.swipe-dot-end {
+    background: rgba(244, 67, 54, 0.8);
+    border: 2px solid white;
+    animation: pulse-dot 0.5s ease-out;
+}
+
+@keyframes pulse-dot {
+    0% {
+        transform: translate(-50%, -50%) scale(0.5);
+    }
+    50% {
+        transform: translate(-50%, -50%) scale(1.3);
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+/* Element Hover Tooltip */
+.hover-tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.9);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    max-width: 280px;
+    pointer-events: none;
+    z-index: 200;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tooltip-header {
+    font-weight: bold;
+    color: #4fc3f7;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tooltip-body {
+    font-family: monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #ccc;
+}
+
+.tooltip-body .tooltip-row {
+    display: flex;
+    gap: 6px;
+}
+
+.tooltip-body .tooltip-label {
+    color: #888;
+    min-width: 50px;
+}
+
+.tooltip-body .tooltip-value {
+    color: #fff;
+    word-break: break-word;
+}
+
+.tooltip-body .clickable-badge {
+    display: inline-block;
+    background: #4caf50;
+    color: white;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    margin-left: 4px;
+}
+
+.tooltip-body .not-clickable-badge {
+    display: inline-block;
+    background: #757575;
+    color: white;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    margin-left: 4px;
+}
+
+/* Gesture Recording */
+.btn-record {
+    background: #757575;
+    color: white;
+}
+
+.btn-record:hover {
+    background: #616161;
+}
+
+.btn-record.recording {
+    background: #f44336;
+    animation: pulse-record 1.5s infinite;
+}
+
+@keyframes pulse-record {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.recording-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0;
+    font-size: 14px;
+}
+
+.recording-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #757575;
+}
+
+.recording-indicator.active {
+    background: #f44336;
+    animation: blink-record 1s infinite;
+}
+
+@keyframes blink-record {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+.recorded-actions {
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 10px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.recorded-actions .empty-message {
+    color: #888;
+    font-style: italic;
+    margin: 0;
+    text-align: center;
+    padding: 10px;
+}
+
+.recorded-action-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    margin-bottom: 6px;
+}
+
+.recorded-action-item:last-child {
+    margin-bottom: 0;
+}
+
+.action-number {
+    background: #2196f3;
+    color: white;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.action-type {
+    font-weight: 600;
+    color: #333;
+    min-width: 50px;
+}
+
+.action-type.tap {
+    color: #4caf50;
+}
+
+.action-type.swipe {
+    color: #ff9800;
+}
+
+.action-coords {
+    font-family: monospace;
+    font-size: 12px;
+    color: #666;
+}
+
+.action-delete {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: #f44336;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 4px 8px;
+}
+
+.action-delete:hover {
+    background: #ffebee;
+    border-radius: 4px;
+}
+
+/* Quick Actions Bar */
+.quick-actions-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px;
+    background: linear-gradient(135deg, #2196f3, #1976d2);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
+}
+
+.quick-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.quick-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.05);
+}
+
+.quick-btn:active {
+    transform: scale(0.95);
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.quick-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.quick-icon {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.quick-divider {
+    width: 1px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.3);
+    margin: 0 8px;
+}
+
+.zoom-level {
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    min-width: 45px;
+    text-align: center;
+    padding: 0 4px;
+}
+
+/* Connection Status Indicator */
+.connection-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.connection-status .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    transition: all 0.3s;
+}
+
+.connection-status .status-text {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.connection-status.disconnected {
+    background: rgba(158, 158, 158, 0.3);
+    color: #ccc;
+}
+
+.connection-status.disconnected .status-dot {
+    background: #9e9e9e;
+}
+
+.connection-status.connecting {
+    background: rgba(255, 152, 0, 0.3);
+    color: #ffcc80;
+}
+
+.connection-status.connecting .status-dot {
+    background: #ff9800;
+    animation: pulse-connecting 1s infinite;
+}
+
+@keyframes pulse-connecting {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+.connection-status.connected {
+    background: rgba(76, 175, 80, 0.3);
+    color: #a5d6a7;
+}
+
+.connection-status.connected .status-dot {
+    background: #4caf50;
+    box-shadow: 0 0 6px #4caf50;
+}
+
+.connection-status.reconnecting {
+    background: rgba(255, 193, 7, 0.3);
+    color: #ffe082;
+}
+
+.connection-status.reconnecting .status-dot {
+    background: #ffc107;
+    animation: pulse-reconnecting 0.8s infinite;
+}
+
+@keyframes pulse-reconnecting {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* Fullscreen styles */
+.stream-card.fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    margin: 0;
+    border-radius: 0;
+    background: #000;
+    padding-bottom: 50px; /* Space for Windows taskbar */
+}
+
+.stream-card.fullscreen .canvas-container {
+    height: calc(100vh - 120px); /* Account for quick actions bar + taskbar */
+    max-height: none;
+}
+
+.stream-card.fullscreen #streamCanvas {
+    max-height: calc(100vh - 120px);
+}
+
+.stream-card.fullscreen h2 {
+    display: none;
+}
+
+.stream-card.fullscreen .quick-actions-bar {
+    margin-bottom: 5px;
+}
+
+/* Split View */
+.split-view-container {
+    display: flex;
+    gap: 15px;
+}
+
+.split-view-container .canvas-container {
+    flex: 1;
+    min-width: 0;
+}
+
+.split-view-container.split-active {
+    /* When split view is active */
+}
+
+.split-view-container.split-active .canvas-container {
+    flex: 0 0 60%;
+}
+
+.element-tree-panel {
+    flex: 0 0 38%;
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    max-height: 80vh;
+    overflow: hidden;
+}
+
+.tree-header {
+    padding: 14px;
+    background: #e9ecef;
+    border-bottom: 1px solid #ddd;
+}
+
+.tree-header h3 {
+    margin: 0 0 10px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+}
+
+.tree-search {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.tree-search::placeholder {
+    color: #999;
+}
+
+.tree-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.tree-empty {
+    color: #888;
+    font-style: italic;
+    text-align: center;
+    padding: 20px;
+}
+
+.tree-item {
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    transition: all 0.15s;
+    font-size: 13px;
+    background: white;
+}
+
+.tree-item:hover {
+    background: #e3f2fd;
+    border-color: #90caf9;
+}
+
+.tree-item.selected {
+    background: #bbdefb;
+    border-color: #2196f3;
+}
+
+.tree-item.clickable {
+    border-left: 3px solid #4caf50;
+}
+
+.tree-item.not-clickable {
+    border-left: 3px solid #bdbdbd;
+}
+
+.tree-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.tree-item-text {
+    font-weight: 600;
+    color: #1565c0;
+    word-break: break-word;
+    font-size: 14px;
+    margin: 4px 0;
+    line-height: 1.3;
+}
+
+.tree-item-class {
+    font-size: 12px;
+    color: #333;
+    font-family: monospace;
+    font-weight: 500;
+}
+
+.tree-item-id {
+    font-size: 11px;
+    color: #666;
+    font-family: monospace;
+    margin-top: 3px;
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 3px;
+    display: inline-block;
+}
+
+.tree-item-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: #4caf50;
+    color: white;
+    font-weight: 600;
+}
+
+/* Tree item action buttons */
+.tree-item-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.tree-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.15s;
+}
+
+.tree-btn-highlight {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.tree-btn-highlight:hover {
+    background: #bbdefb;
+}
+
+.tree-btn-select {
+    background: #2196f3;
+    color: white;
+}
+
+.tree-btn-select:hover {
+    background: #1976d2;
+}
+
+.tree-item.selected .tree-btn-select {
+    background: #4caf50;
+}
+
+.tree-item.selected .tree-btn-select:hover {
+    background: #388e3c;
+}
+
+.tree-btn-press {
+    background: #ff9800;
+    color: white;
+}
+
+.tree-btn-press:hover {
+    background: #f57c00;
+}
+
+.tree-btn-action {
+    background: #9c27b0;
+    color: white;
+}
+
+.tree-btn-action:hover {
+    background: #7b1fa2;
+}
+
+.tree-btn-sensor {
+    background: #00bcd4;
+    color: white;
+}
+
+.tree-btn-sensor:hover {
+    background: #0097a7;
 }
 
 /* Element status */
@@ -378,5 +1064,83 @@
     .modal-info {
         background: #333;
         color: #aaa;
+    }
+
+    .recorded-actions {
+        background: #2a2a2a;
+        border-color: #444;
+    }
+
+    .recorded-action-item {
+        background: #333;
+        border-color: #444;
+    }
+
+    .action-coords {
+        color: #aaa;
+    }
+
+    .action-delete:hover {
+        background: #442222;
+    }
+
+    /* Tree panel dark mode */
+    .element-tree-panel {
+        background: #2a2a2a;
+        border-color: #444;
+    }
+
+    .tree-header {
+        background: #333;
+        border-bottom-color: #444;
+    }
+
+    .tree-header h3 {
+        color: #eee;
+    }
+
+    .tree-search {
+        background: #444;
+        color: #fff;
+        border-color: #555;
+    }
+
+    .tree-item {
+        background: #333;
+    }
+
+    .tree-item:hover {
+        background: #3a3a3a;
+        border-color: #555;
+    }
+
+    .tree-item.selected {
+        background: #1e3a5f;
+        border-color: #2196f3;
+    }
+
+    .tree-item-class {
+        color: #aaa;
+    }
+
+    .tree-item-text {
+        color: #64b5f6;
+    }
+
+    .tree-item-id {
+        color: #777;
+    }
+
+    .tree-item-actions {
+        border-top-color: #444;
+    }
+
+    .tree-btn-highlight {
+        background: #1e3a5f;
+        color: #64b5f6;
+    }
+
+    .tree-btn-highlight:hover {
+        background: #2a4a70;
     }
 }
