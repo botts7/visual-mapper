@@ -68,6 +68,11 @@ class FlowWizard {
         this.streamQuality = 'medium'; // 'high', 'medium', 'low', 'fast'
         this.liveStream = null;
 
+        // Gesture recording (Phase 4 enhancement)
+        this.dragStart = null;
+        this.isDragging = false;
+        this.MIN_SWIPE_DISTANCE = 30; // Minimum pixels to count as swipe
+
         console.log('FlowWizard initialized');
         this.init();
     }
@@ -353,18 +358,20 @@ class FlowWizard {
         // Setup capture mode toggle (Polling/Streaming)
         this.setupCaptureMode();
 
-        // Canvas click handler
-        this.canvas.addEventListener('click', async (e) => {
-            // Ignore clicks during pinch gestures
-            if (this.canvasRenderer.isPinching) return;
-
-            const rect = this.canvas.getBoundingClientRect();
-            const canvasX = e.clientX - rect.left;
-            const canvasY = e.clientY - rect.top;
-
-            // Show element selection dialog
-            await this.handleElementClick(canvasX, canvasY);
+        // Canvas gesture handlers (mousedown/mouseup for drag detection)
+        this.canvas.addEventListener('mousedown', (e) => this.onGestureStart(e));
+        this.canvas.addEventListener('mouseup', (e) => this.onGestureEnd(e));
+        this.canvas.addEventListener('mouseleave', () => {
+            // Cancel drag if mouse leaves canvas
+            if (this.isDragging) {
+                this.isDragging = false;
+                this.dragStart = null;
+            }
         });
+
+        // Touch support for mobile
+        this.canvas.addEventListener('touchstart', (e) => this.onGestureStart(e), { passive: false });
+        this.canvas.addEventListener('touchend', (e) => this.onGestureEnd(e));
 
         // Listen for zoom changes from gestures (pinch/wheel)
         this.canvas.addEventListener('zoomChanged', (e) => {
@@ -849,6 +856,273 @@ class FlowWizard {
                 ctx.restore();
             }
         });
+    }
+
+    // ==========================================
+    // Phase 4: Gesture Recording Methods
+    // ==========================================
+
+    /**
+     * Handle gesture start (mousedown/touchstart)
+     */
+    onGestureStart(e) {
+        // Ignore during pinch gestures
+        if (this.canvasRenderer?.isPinching) return;
+
+        e.preventDefault();
+
+        const rect = this.canvas.getBoundingClientRect();
+        let clientX, clientY;
+
+        if (e.touches) {
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else {
+            clientX = e.clientX;
+            clientY = e.clientY;
+        }
+
+        this.dragStart = {
+            canvasX: clientX - rect.left,
+            canvasY: clientY - rect.top,
+            timestamp: Date.now()
+        };
+        this.isDragging = true;
+    }
+
+    /**
+     * Handle gesture end (mouseup/touchend)
+     */
+    async onGestureEnd(e) {
+        if (!this.isDragging || !this.dragStart) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        let clientX, clientY;
+
+        if (e.changedTouches) {
+            clientX = e.changedTouches[0].clientX;
+            clientY = e.changedTouches[0].clientY;
+        } else {
+            clientX = e.clientX;
+            clientY = e.clientY;
+        }
+
+        const endCanvasX = clientX - rect.left;
+        const endCanvasY = clientY - rect.top;
+
+        // Calculate distance
+        const dx = endCanvasX - this.dragStart.canvasX;
+        const dy = endCanvasY - this.dragStart.canvasY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        this.isDragging = false;
+
+        const container = document.getElementById('screenshotContainer');
+
+        if (distance < this.MIN_SWIPE_DISTANCE) {
+            // It's a tap
+            console.log(`[FlowWizard] Tap at canvas (${this.dragStart.canvasX}, ${this.dragStart.canvasY})`);
+
+            // Show tap ripple effect
+            this.showTapRipple(container, this.dragStart.canvasX, this.dragStart.canvasY);
+
+            // Handle element click (existing logic)
+            await this.handleElementClick(this.dragStart.canvasX, this.dragStart.canvasY);
+        } else {
+            // It's a swipe
+            console.log(`[FlowWizard] Swipe from (${this.dragStart.canvasX},${this.dragStart.canvasY}) to (${endCanvasX},${endCanvasY})`);
+
+            // Show swipe path visualization
+            this.showSwipePath(container, this.dragStart.canvasX, this.dragStart.canvasY, endCanvasX, endCanvasY);
+
+            // Execute swipe on device
+            await this.executeSwipeGesture(
+                this.dragStart.canvasX, this.dragStart.canvasY,
+                endCanvasX, endCanvasY
+            );
+        }
+
+        this.dragStart = null;
+    }
+
+    /**
+     * Execute swipe gesture on device
+     */
+    async executeSwipeGesture(startCanvasX, startCanvasY, endCanvasX, endCanvasY) {
+        // Convert canvas coordinates to device coordinates
+        const startDevice = this.canvasRenderer.canvasToDevice(startCanvasX, startCanvasY);
+        const endDevice = this.canvasRenderer.canvasToDevice(endCanvasX, endCanvasY);
+
+        console.log(`[FlowWizard] Executing swipe: (${startDevice.x},${startDevice.y}) → (${endDevice.x},${endDevice.y})`);
+
+        try {
+            const response = await fetch(`${getApiBase()}/adb/swipe`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_id: this.selectedDevice,
+                    x1: startDevice.x,
+                    y1: startDevice.y,
+                    x2: endDevice.x,
+                    y2: endDevice.y,
+                    duration: 300
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to execute swipe');
+            }
+
+            // Add swipe step to flow
+            this.recorder.addStep({
+                step_type: 'swipe',
+                x1: startDevice.x,
+                y1: startDevice.y,
+                x2: endDevice.x,
+                y2: endDevice.y,
+                duration: 300,
+                description: `Swipe from (${startDevice.x},${startDevice.y}) to (${endDevice.x},${endDevice.y})`
+            });
+
+            showToast('Swipe recorded', 'success', 1500);
+
+            // Refresh elements after swipe
+            this.refreshAfterAction(500);
+
+            // Update screenshot in polling mode
+            if (this.captureMode === 'polling') {
+                await this.recorder.wait(400);
+                await this.recorder.captureScreenshot();
+                this.updateScreenshotDisplay();
+            }
+
+        } catch (error) {
+            console.error('[FlowWizard] Swipe failed:', error);
+            showToast(`Swipe failed: ${error.message}`, 'error');
+        }
+    }
+
+    /**
+     * Show animated tap ripple at position
+     */
+    showTapRipple(container, x, y) {
+        // Create ripple ring
+        const ring = document.createElement('div');
+        ring.className = 'tap-ripple-ring';
+        ring.style.cssText = `
+            position: absolute;
+            left: ${x}px;
+            top: ${y}px;
+            width: 20px;
+            height: 20px;
+            margin-left: -10px;
+            margin-top: -10px;
+            border: 3px solid #3b82f6;
+            border-radius: 50%;
+            pointer-events: none;
+            animation: tapRippleExpand 0.5s ease-out forwards;
+            z-index: 100;
+        `;
+        container.appendChild(ring);
+
+        // Create second delayed ring for effect
+        setTimeout(() => {
+            const ring2 = document.createElement('div');
+            ring2.className = 'tap-ripple-ring';
+            ring2.style.cssText = ring.style.cssText;
+            ring2.style.animationDelay = '0.1s';
+            container.appendChild(ring2);
+            setTimeout(() => ring2.remove(), 600);
+        }, 100);
+
+        // Remove after animation
+        setTimeout(() => ring.remove(), 600);
+    }
+
+    /**
+     * Show animated swipe path from start to end
+     */
+    showSwipePath(container, startX, startY, endX, endY) {
+        // Create or reuse swipe path container
+        let swipeContainer = document.getElementById('swipePathContainer');
+        if (!swipeContainer) {
+            swipeContainer = document.createElement('div');
+            swipeContainer.id = 'swipePathContainer';
+            swipeContainer.className = 'swipe-path';
+            swipeContainer.style.cssText = `
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+                z-index: 100;
+            `;
+            container.appendChild(swipeContainer);
+        }
+
+        // Calculate SVG dimensions
+        const width = container.offsetWidth;
+        const height = container.offsetHeight;
+
+        // Create SVG with animated line
+        swipeContainer.innerHTML = `
+            <svg width="${width}" height="${height}" style="position: absolute; top: 0; left: 0;">
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" class="swipe-arrow" fill="#22c55e"/>
+                    </marker>
+                </defs>
+                <line x1="${startX}" y1="${startY}" x2="${endX}" y2="${endY}"
+                      stroke="#22c55e" stroke-width="3" stroke-linecap="round"
+                      class="swipe-line" marker-end="url(#arrowhead)"
+                      stroke-dasharray="1000" stroke-dashoffset="1000"
+                      style="animation: swipeLineDraw 0.3s ease-out forwards;"/>
+            </svg>
+        `;
+
+        // Add start dot
+        const startDot = document.createElement('div');
+        startDot.className = 'swipe-dot swipe-dot-start';
+        startDot.style.cssText = `
+            position: absolute;
+            left: ${startX}px;
+            top: ${startY}px;
+            width: 12px;
+            height: 12px;
+            margin-left: -6px;
+            margin-top: -6px;
+            background: #22c55e;
+            border-radius: 50%;
+            pointer-events: none;
+        `;
+        swipeContainer.appendChild(startDot);
+
+        // Add end dot
+        const endDot = document.createElement('div');
+        endDot.className = 'swipe-dot swipe-dot-end';
+        endDot.style.cssText = `
+            position: absolute;
+            left: ${endX}px;
+            top: ${endY}px;
+            width: 12px;
+            height: 12px;
+            margin-left: -6px;
+            margin-top: -6px;
+            background: #22c55e;
+            border: 2px solid white;
+            border-radius: 50%;
+            pointer-events: none;
+        `;
+        swipeContainer.appendChild(endDot);
+
+        swipeContainer.style.display = 'block';
+
+        // Auto-hide after animation
+        setTimeout(() => {
+            swipeContainer.style.display = 'none';
+            swipeContainer.innerHTML = '';
+        }, 800);
     }
 
     toggleScale() {

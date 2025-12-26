@@ -1088,3 +1088,79 @@ img.app-icon {
         font-size: 11px;
     }
 }
+
+/* ==========================================
+   Phase 4: Gesture Recording Animations
+   ========================================== */
+
+/* Tap ripple animation */
+@keyframes tapRippleExpand {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(3);
+        opacity: 0;
+    }
+}
+
+.tap-ripple-ring {
+    position: absolute;
+    pointer-events: none;
+}
+
+/* Swipe line animation */
+@keyframes swipeLineDraw {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+/* Swipe path container */
+.swipe-path {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 100;
+}
+
+.swipe-dot {
+    position: absolute;
+    pointer-events: none;
+    animation: dotFadeIn 0.2s ease-out;
+}
+
+@keyframes dotFadeIn {
+    from {
+        transform: scale(0);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Gesture hint text */
+.gesture-hint {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.screenshot-container:hover .gesture-hint {
+    opacity: 1;
+}
