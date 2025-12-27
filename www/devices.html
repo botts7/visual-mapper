@@ -104,6 +104,37 @@
             <p class="status" id="connectionStatus"></p>
         </div>
 
+        <!-- Network Device Discovery -->
+        <div class="card">
+            <h2>Network Device Discovery</h2>
+            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">
+                Automatically scan your local network for Android devices with ADB enabled.
+                The system will detect Android version and recommend the optimal connection method.
+            </p>
+
+            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
+                <button id="scanNetworkBtn" class="btn" style="padding: 10px 20px;">
+                    🔍 Scan Network
+                </button>
+                <span id="scanStatus" style="color: var(--text-secondary); font-size: 13px;"></span>
+            </div>
+
+            <div id="discoveredDevicesContainer" style="display: none;">
+                <h3 style="margin: 20px 0 10px 0;">Discovered Devices</h3>
+                <div id="discoveredDevicesList"></div>
+            </div>
+
+            <div id="noDevicesFound" style="display: none; padding: 15px; background: var(--background-color); border-radius: 6px; color: var(--text-secondary);">
+                No devices found on the network. Make sure:
+                <ul style="margin: 10px 0 0 20px;">
+                    <li>Device is connected to the same network</li>
+                    <li>ADB debugging is enabled (Developer Options)</li>
+                    <li>For Android 10 and older: WiFi ADB is enabled (adb tcpip 5555)</li>
+                    <li>For Android 11+: Wireless debugging is enabled</li>
+                </ul>
+            </div>
+        </div>
+
         <div class="card">
             <h2>Connected Devices</h2>
             <div id="devicesList"></div>
@@ -696,6 +727,190 @@
         });
 
         // Connect device
+        // === Network Device Discovery ===
+        document.getElementById('scanNetworkBtn').addEventListener('click', async () => {
+            const scanBtn = document.getElementById('scanNetworkBtn');
+            const scanStatus = document.getElementById('scanStatus');
+            const discoveredContainer = document.getElementById('discoveredDevicesContainer');
+            const discoveredList = document.getElementById('discoveredDevicesList');
+            const noDevicesFound = document.getElementById('noDevicesFound');
+
+            try {
+                // Disable button during scan
+                scanBtn.disabled = true;
+                scanBtn.textContent = '🔍 Scanning...';
+                scanStatus.textContent = 'Scanning network for Android devices...';
+                scanStatus.style.color = 'var(--text-secondary)';
+
+                // Hide previous results
+                discoveredContainer.style.display = 'none';
+                noDevicesFound.style.display = 'none';
+
+                // Call scan API
+                const response = await apiClient.get('/adb/scan');
+
+                console.log('[Network Scan] Found devices:', response);
+
+                if (response.devices && response.devices.length > 0) {
+                    // Show discovered devices
+                    discoveredContainer.style.display = 'block';
+
+                    let html = '<div style="display: grid; gap: 15px;">';
+
+                    for (const device of response.devices) {
+                        const androidVersion = device.android_version || 'Unknown';
+                        const sdkVersion = device.sdk_version ? `(SDK ${device.sdk_version})` : '';
+                        const model = device.model || 'Unknown Model';
+                        const state = device.state === 'connected' ? 'Already Connected' : 'Available';
+                        const stateColor = device.state === 'connected' ? 'var(--success-color)' : 'var(--text-secondary)';
+
+                        // Recommendation badge
+                        let recommendationBadge = '';
+                        let recommendationText = '';
+                        if (device.recommended_method === 'pairing') {
+                            recommendationBadge = '<span style="background: #2196f3; color: white; padding: 3px 8px; border-radius: 4px; font-size: 12px; margin-left: 10px;">⚡ Android 11+</span>';
+                            recommendationText = '<p style="margin: 10px 0 5px 0; font-size: 13px; color: var(--text-secondary);">📱 <strong>Recommended:</strong> Use Wireless Pairing (Android 11+) for best security</p>';
+                        } else {
+                            recommendationBadge = '<span style="background: #4CAF50; color: white; padding: 3px 8px; border-radius: 4px; font-size: 12px; margin-left: 10px;">✓ Legacy TCP</span>';
+                            recommendationText = '<p style="margin: 10px 0 5px 0; font-size: 13px; color: var(--text-secondary);">📱 <strong>Recommended:</strong> Use TCP/IP Connection (Port 5555)</p>';
+                        }
+
+                        html += `
+                            <div style="border: 1px solid var(--border-color); padding: 15px; border-radius: 8px; background: var(--card-background);">
+                                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                                    <div style="flex: 1;">
+                                        <strong style="font-size: 16px;">${device.ip}:${device.port}</strong>
+                                        ${recommendationBadge}
+                                        <br>
+                                        <span style="color: var(--text-secondary); font-size: 13px;">
+                                            📱 ${model} | Android ${androidVersion} ${sdkVersion}
+                                        </span>
+                                        <br>
+                                        <span style="color: ${stateColor}; font-size: 12px; font-weight: bold;">
+                                            ${state}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                ${recommendationText}
+
+                                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                    ${device.state === 'connected' ? '' : `
+                                        <button class="btn btn-primary quick-connect-btn"
+                                                data-ip="${device.ip}"
+                                                data-port="${device.port}"
+                                                data-method="${device.recommended_method}"
+                                                style="padding: 6px 12px; font-size: 13px;">
+                                            ⚡ Quick Connect (${device.recommended_method === 'pairing' ? 'Pairing' : 'TCP'})
+                                        </button>
+                                        ${device.recommended_method === 'pairing' ? `
+                                            <button class="btn btn-secondary try-tcp-btn"
+                                                    data-ip="${device.ip}"
+                                                    data-port="${device.port}"
+                                                    style="padding: 6px 12px; font-size: 13px;">
+                                                🔄 Try TCP Instead
+                                            </button>
+                                        ` : `
+                                            <button class="btn btn-secondary try-pairing-btn"
+                                                    data-ip="${device.ip}"
+                                                    data-port="${device.port}"
+                                                    style="padding: 6px 12px; font-size: 13px;">
+                                                🔄 Try Pairing Instead
+                                            </button>
+                                        `}
+                                    `}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    html += '</div>';
+                    discoveredList.innerHTML = html;
+
+                    // Add event listeners for quick connect buttons
+                    document.querySelectorAll('.quick-connect-btn').forEach(btn => {
+                        btn.addEventListener('click', async (e) => {
+                            const ip = e.target.dataset.ip;
+                            const port = e.target.dataset.port;
+                            const method = e.target.dataset.method;
+
+                            if (method === 'pairing') {
+                                // Pre-fill pairing form
+                                document.getElementById('connectionType').value = 'pairing';
+                                document.getElementById('connectionType').dispatchEvent(new Event('change'));
+                                document.getElementById('pairingHost').value = ip;
+                                alert('Please enable Wireless Debugging on your device and enter the pairing code and ports shown on the device.');
+                            } else {
+                                // Direct TCP connection
+                                try {
+                                    btn.disabled = true;
+                                    btn.textContent = 'Connecting...';
+
+                                    const response = await apiClient.post('/adb/connect', {
+                                        host: ip,
+                                        port: parseInt(port)
+                                    });
+
+                                    btn.textContent = '✓ Connected!';
+                                    btn.style.background = 'var(--success-color)';
+
+                                    // Refresh device list
+                                    setTimeout(() => loadDevices(), 500);
+                                } catch (err) {
+                                    btn.disabled = false;
+                                    btn.textContent = '❌ Failed';
+                                    alert('Connection failed: ' + (err.detail || err.message));
+                                }
+                            }
+                        });
+                    });
+
+                    // Add event listeners for "Try alternative method" buttons
+                    document.querySelectorAll('.try-tcp-btn, .try-pairing-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            const ip = e.target.dataset.ip;
+                            const port = e.target.dataset.port;
+                            const isTryingPairing = e.target.classList.contains('try-pairing-btn');
+
+                            if (isTryingPairing) {
+                                // Switch to pairing mode
+                                document.getElementById('connectionType').value = 'pairing';
+                                document.getElementById('connectionType').dispatchEvent(new Event('change'));
+                                document.getElementById('pairingHost').value = ip;
+                                alert('Switched to Pairing mode. Please enable Wireless Debugging on your device and enter the pairing code and ports.');
+                            } else {
+                                // Switch to TCP mode
+                                document.getElementById('connectionType').value = 'tcp';
+                                document.getElementById('connectionType').dispatchEvent(new Event('change'));
+                                document.getElementById('deviceHost').value = ip;
+                                document.getElementById('devicePort').value = port;
+                            }
+
+                            // Scroll to connection form
+                            document.querySelector('.card h2').scrollIntoView({ behavior: 'smooth' });
+                        });
+                    });
+
+                    scanStatus.textContent = `✓ Found ${response.devices.length} device(s) in ${response.scan_duration_ms}ms`;
+                    scanStatus.style.color = 'var(--success-color)';
+                } else {
+                    // No devices found
+                    noDevicesFound.style.display = 'block';
+                    scanStatus.textContent = '✗ No devices found on network';
+                    scanStatus.style.color = 'var(--error-color)';
+                }
+
+            } catch (error) {
+                console.error('[Network Scan] Error:', error);
+                scanStatus.textContent = '✗ Scan failed: ' + (error.detail || error.message);
+                scanStatus.style.color = 'var(--error-color)';
+            } finally {
+                // Re-enable button
+                scanBtn.disabled = false;
+                scanBtn.textContent = '🔍 Scan Network';
+            }
+        });
+
         document.getElementById('connectBtn').addEventListener('click', async () => {
             const connectionType = document.getElementById('connectionType').value;
             const status = document.getElementById('connectionStatus');

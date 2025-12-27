@@ -112,7 +112,8 @@ class SensorDefinition(BaseModel):
     """Complete sensor definition"""
     # Identity
     sensor_id: Optional[str] = Field(None, description="Unique sensor ID (auto-generated if not provided)")
-    device_id: str = Field(..., description="Device this sensor belongs to")
+    device_id: str = Field(..., description="Device this sensor belongs to (IP:port or USB serial)")
+    stable_device_id: Optional[str] = Field(None, description="Stable device identifier (Android ID hash) - survives IP changes")
 
     # Basic Configuration
     friendly_name: str = Field(..., min_length=1, max_length=100)

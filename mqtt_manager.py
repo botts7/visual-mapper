@@ -196,16 +196,22 @@ class MQTTManager:
         state_topic = self._get_state_topic(sensor)
         attributes_topic = self._get_attributes_topic(sensor)
         availability_topic = self._get_availability_topic(sensor.device_id)
+
+        # Use stable_device_id if available (survives IP/port changes), otherwise fall back to device_id
+        stable_id = sensor.stable_device_id or sensor.device_id
+        sanitized_stable_id = self._sanitize_device_id(stable_id)
         sanitized_device = self._sanitize_device_id(sensor.device_id)
 
         payload = {
             "name": sensor.friendly_name,
-            "unique_id": f"visual_mapper_{sanitized_device}_{sensor.sensor_id}",
+            # Use stable ID for unique_id so HA doesn't create duplicates when IP changes
+            "unique_id": f"visual_mapper_{sanitized_stable_id}_{sensor.sensor_id}",
             "state_topic": state_topic,
             "availability_topic": availability_topic,
             "json_attributes_topic": attributes_topic,
             "device": {
-                "identifiers": [f"visual_mapper_{sanitized_device}"],
+                # Use stable ID for identifiers so all sensors from same device group together
+                "identifiers": [f"visual_mapper_{sanitized_stable_id}"],
                 "name": f"Visual Mapper {sensor.device_id}",
                 "manufacturer": "Visual Mapper",
                 "model": "Android Device Monitor",

@@ -156,6 +156,7 @@ class ADBBridge:
             logger.debug(f"[ADBBridge] get-serialno failed: {e}")
 
         # Method 2: Try Android ID (most reliable for Android 8+)
+        # Hash it for privacy - still unique but not reversible
         if not serial:
             try:
                 result = await asyncio.wait_for(
@@ -163,8 +164,10 @@ class ADBBridge:
                     timeout=3.0
                 )
                 if result and result.strip() and result.strip() != "null":
-                    serial = result.strip()
-                    logger.debug(f"[ADBBridge] Got serial via android_id: {serial}")
+                    import hashlib
+                    # Hash the android_id for privacy
+                    serial = hashlib.sha256(result.strip().encode()).hexdigest()[:16]
+                    logger.debug(f"[ADBBridge] Got serial via android_id hash: {serial}")
             except Exception as e:
                 logger.debug(f"[ADBBridge] android_id failed: {e}")
 
@@ -526,6 +529,265 @@ class ADBBridge:
             logger.info(f"[ADBBridge] Disconnected from {device_id}")
         except Exception as e:
             logger.error(f"[ADBBridge] Error disconnecting {device_id}: {e}")
+
+    async def scan_network_for_devices(self, network_range: str = None) -> List[Dict]:
+        """
+        Scan local network for Android devices with ADB ports open.
+
+        This performs intelligent network scanning to find devices and detect
+        their Android version to recommend the optimal connection method.
+
+        Args:
+            network_range: Network to scan (e.g., "192.168.1.0/24")
+                          If None, will scan the local subnet automatically
+
+        Returns:
+            List of discovered device dicts with:
+            - ip: Device IP address
+            - port: Detected ADB port (5555 for legacy, or custom)
+            - android_version: Android version number (e.g., 11, 13)
+            - sdk_version: Android SDK version (e.g., 30, 33)
+            - model: Device model name
+            - recommended_method: "pairing" (Android 11+) or "tcp" (older)
+            - state: "available" or "connected"
+        """
+        async with self._adb_lock:
+            try:
+                import subprocess
+                import socket
+
+                logger.info(f"[ADBBridge] Starting network scan for Android devices...")
+
+                discovered_devices = []
+
+                # STEP 1: Find devices already connected via ADB
+                # This is fastest and most reliable for already-paired devices
+                logger.debug("[ADBBridge] Checking for ADB-connected devices...")
+                def _run_adb_devices():
+                    result = subprocess.run(
+                        ["adb", "devices", "-l"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    return result.returncode == 0, result.stdout
+
+                try:
+                    success, output = await asyncio.to_thread(_run_adb_devices)
+                    if success:
+                        for line in output.split('\n')[1:]:
+                            line = line.strip()
+                            if not line or '\t' not in line:
+                                continue
+
+                            parts = line.split()
+                            if len(parts) < 2:
+                                continue
+
+                            device_id = parts[0]
+                            state = parts[1]
+
+                            # Only process network devices (IP:port format)
+                            if ':' not in device_id:
+                                continue
+
+                            # Extract IP and port
+                            ip, port_str = device_id.rsplit(':', 1)
+                            port = int(port_str)
+
+                            # Extract model if available
+                            model = "Unknown"
+                            for part in parts[2:]:
+                                if part.startswith("model:"):
+                                    model = part.split(":")[1].replace("_", " ")
+                                    break
+
+                            # Get Android version for this device
+                            android_version = None
+                            sdk_version = None
+                            recommended_method = "tcp"  # Default fallback
+
+                            if state == "device":
+                                try:
+                                    # Device is already connected, we can query it directly
+                                    conn = self.devices.get(device_id)
+                                    if not conn:
+                                        # Create temporary connection to query version
+                                        conn = await self.manager.get_connection(ip, port)
+                                        await conn.connect()
+
+                                    # Get Android version
+                                    version_output = await conn.shell("getprop ro.build.version.release")
+                                    sdk_output = await conn.shell("getprop ro.build.version.sdk")
+
+                                    android_version = version_output.strip() if version_output else None
+                                    sdk_version = int(sdk_output.strip()) if sdk_output and sdk_output.strip().isdigit() else None
+
+                                    # Determine recommended method based on SDK version
+                                    # Android 11 = SDK 30+
+                                    if sdk_version and sdk_version >= 30:
+                                        recommended_method = "pairing"
+                                    else:
+                                        recommended_method = "tcp"
+
+                                    # Clean up temporary connection
+                                    if device_id not in self.devices:
+                                        await conn.close()
+
+                                except Exception as e:
+                                    logger.debug(f"[ADBBridge] Could not get version for {device_id}: {e}")
+
+                            discovered_devices.append({
+                                "ip": ip,
+                                "port": port,
+                                "android_version": android_version,
+                                "sdk_version": sdk_version,
+                                "model": model,
+                                "recommended_method": recommended_method,
+                                "state": "connected" if state == "device" else "available",
+                                "device_id": device_id
+                            })
+
+                            logger.info(f"[ADBBridge] Found ADB device: {ip}:{port} (Android {android_version}, SDK {sdk_version}) -> {recommended_method}")
+
+                except Exception as e:
+                    logger.warning(f"[ADBBridge] ADB devices check failed: {e}")
+
+                # STEP 2: Scan local network for port 5555 (legacy ADB)
+                # This finds devices that haven't been connected yet
+                if network_range is None:
+                    # Auto-detect local network
+                    try:
+                        # Get local IP address
+                        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                        s.connect(("8.8.8.8", 80))
+                        local_ip = s.getsockname()[0]
+                        s.close()
+
+                        # Calculate network range (assume /24)
+                        ip_parts = local_ip.split('.')
+                        network_range = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/24"
+                        logger.info(f"[ADBBridge] Auto-detected network range: {network_range}")
+                    except Exception as e:
+                        logger.warning(f"[ADBBridge] Could not auto-detect network range: {e}")
+                        # Return only ADB-connected devices if network scan fails
+                        return discovered_devices
+
+                # Parse network range (basic /24 support)
+                if network_range and network_range.endswith('/24'):
+                    base_ip = network_range.replace('/24', '')
+                    ip_parts = base_ip.split('.')
+
+                    logger.debug(f"[ADBBridge] Scanning network {network_range} for port 5555...")
+
+                    # Scan common IP range (limit to avoid timeout)
+                    # Only scan .1-.254 range
+                    async def check_port(ip: str, port: int = 5555, timeout: float = 0.5) -> bool:
+                        """Quick check if port is open"""
+                        try:
+                            def _check():
+                                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                                sock.settimeout(timeout)
+                                result = sock.connect_ex((ip, port))
+                                sock.close()
+                                return result == 0
+
+                            return await asyncio.to_thread(_check)
+                        except Exception:
+                            return False
+
+                    # Quick parallel scan of subnet (limit concurrent connections)
+                    scan_tasks = []
+                    for i in range(1, 255):
+                        ip = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.{i}"
+
+                        # Skip if already found via ADB
+                        if any(d['ip'] == ip for d in discovered_devices):
+                            continue
+
+                        scan_tasks.append(check_port(ip, 5555, timeout=0.3))
+
+                    # Run scans in batches to avoid overwhelming the network
+                    batch_size = 50
+                    for i in range(0, len(scan_tasks), batch_size):
+                        batch = scan_tasks[i:i+batch_size]
+                        results = await asyncio.gather(*batch)
+
+                        # Process results
+                        for idx, is_open in enumerate(results):
+                            if is_open:
+                                ip = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.{i + idx + 1}"
+                                logger.info(f"[ADBBridge] Found open ADB port: {ip}:5555")
+
+                                # Try to connect and get version
+                                android_version = None
+                                sdk_version = None
+                                model = "Unknown"
+                                recommended_method = "tcp"
+
+                                try:
+                                    # Quick connection to get device info
+                                    conn = await self.manager.get_connection(ip, 5555)
+                                    if await conn.connect():
+                                        # Get version info
+                                        version_output = await asyncio.wait_for(
+                                            conn.shell("getprop ro.build.version.release"),
+                                            timeout=2.0
+                                        )
+                                        sdk_output = await asyncio.wait_for(
+                                            conn.shell("getprop ro.build.version.sdk"),
+                                            timeout=2.0
+                                        )
+                                        model_output = await asyncio.wait_for(
+                                            conn.shell("getprop ro.product.model"),
+                                            timeout=2.0
+                                        )
+
+                                        android_version = version_output.strip() if version_output else None
+                                        sdk_version = int(sdk_output.strip()) if sdk_output and sdk_output.strip().isdigit() else None
+                                        model = model_output.strip() if model_output else "Unknown"
+
+                                        # Determine recommended method
+                                        if sdk_version and sdk_version >= 30:
+                                            recommended_method = "pairing"
+                                        else:
+                                            recommended_method = "tcp"
+
+                                        await conn.close()
+
+                                        discovered_devices.append({
+                                            "ip": ip,
+                                            "port": 5555,
+                                            "android_version": android_version,
+                                            "sdk_version": sdk_version,
+                                            "model": model,
+                                            "recommended_method": recommended_method,
+                                            "state": "available",
+                                            "device_id": f"{ip}:5555"
+                                        })
+
+                                        logger.info(f"[ADBBridge] Discovered device: {ip}:5555 (Android {android_version}, SDK {sdk_version}) -> {recommended_method}")
+
+                                except Exception as e:
+                                    logger.debug(f"[ADBBridge] Could not get info for {ip}:5555: {e}")
+                                    # Add device anyway, just without version info
+                                    discovered_devices.append({
+                                        "ip": ip,
+                                        "port": 5555,
+                                        "android_version": None,
+                                        "sdk_version": None,
+                                        "model": "Unknown",
+                                        "recommended_method": "tcp",
+                                        "state": "available",
+                                        "device_id": f"{ip}:5555"
+                                    })
+
+                logger.info(f"[ADBBridge] Network scan complete: Found {len(discovered_devices)} devices")
+                return discovered_devices
+
+            except Exception as e:
+                logger.error(f"[ADBBridge] Network scan failed: {e}")
+                return []
 
     async def discover_devices(self) -> List[Dict]:
         """

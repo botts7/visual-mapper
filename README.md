@@ -27,6 +27,8 @@ Visual Mapper is an open-source Home Assistant addon that lets you monitor, cont
 - ✅ **Action Management** - Save and execute device actions
 - ✅ **Multi-Device Support** - Manage multiple Android devices simultaneously
 - ✅ **WiFi ADB** - Wireless connection with pairing support (Android 11+)
+- ✅ **Network Device Discovery** - Auto-scan network for Android devices with version detection
+- ✅ **Smart Connection Method** - Automatic Android version detection and connection recommendations
 - ✅ **Performance Optimization** - 30-50% faster operations with batching and caching
 - ✅ **App Management** - Browse and launch apps with icon support
 - ✅ **Dark Mode** - Theme toggle with system preference detection

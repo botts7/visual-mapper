@@ -1318,6 +1318,57 @@ async def get_devices():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/adb/scan")
+async def scan_network(network_range: str = None):
+    """
+    Scan local network for Android devices with ADB enabled.
+
+    This endpoint performs intelligent network scanning to find devices and
+    automatically detects Android version to recommend the optimal connection method.
+
+    Query Parameters:
+        network_range: Optional network range to scan (e.g., "192.168.1.0/24")
+                      If not provided, will auto-detect and scan local subnet
+
+    Returns:
+        {
+            "devices": [
+                {
+                    "ip": "192.168.1.100",
+                    "port": 5555,
+                    "android_version": "13",
+                    "sdk_version": 33,
+                    "model": "SM-G998B",
+                    "recommended_method": "pairing",  # or "tcp"
+                    "state": "available"  # or "connected"
+                }
+            ],
+            "total": 2,
+            "scan_duration_ms": 1234
+        }
+    """
+    try:
+        import time
+        start_time = time.time()
+
+        logger.info(f"[API] Starting network scan (range: {network_range or 'auto'})")
+
+        devices = await adb_bridge.scan_network_for_devices(network_range)
+
+        duration_ms = (time.time() - start_time) * 1000
+
+        logger.info(f"[API] Network scan complete: Found {len(devices)} devices in {duration_ms:.0f}ms")
+
+        return {
+            "devices": devices,
+            "total": len(devices),
+            "scan_duration_ms": round(duration_ms, 1)
+        }
+    except Exception as e:
+        logger.error(f"[API] Network scan failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Screenshot Capture Endpoint
 @app.post("/api/adb/screenshot")
 async def capture_screenshot(request: ScreenshotRequest):
@@ -1555,6 +1606,94 @@ async def get_current_activity(device_id: str):
         }
     except Exception as e:
         logger.error(f"[API] Get activity failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/adb/stable-id/{device_id}")
+async def get_stable_device_id(device_id: str, force_refresh: bool = False):
+    """
+    Get stable device identifier (survives IP/port changes).
+    Uses Android ID hash as primary method with fallbacks.
+    """
+    try:
+        logger.info(f"[API] Getting stable device ID for {device_id}")
+        stable_id = await adb_bridge.get_device_serial(device_id, force_refresh)
+        return {
+            "success": True,
+            "device_id": device_id,
+            "stable_device_id": stable_id,
+            "cached": not force_refresh and adb_bridge.get_cached_serial(device_id) is not None
+        }
+    except Exception as e:
+        logger.error(f"[API] Get stable ID failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sensors/migrate-stable-ids")
+async def migrate_sensor_stable_ids():
+    """
+    Migrate existing sensors to use stable_device_id.
+    This ensures sensors survive device IP/port changes.
+    """
+    try:
+        logger.info("[API] Migrating sensors to stable device IDs")
+        migrated = 0
+        failed = 0
+        already_set = 0
+        devices_processed = 0
+
+        # Get all devices with sensors
+        device_list = sensor_manager.get_device_list()
+        logger.info(f"[API] Found {len(device_list)} devices with sensors")
+
+        for device_id in device_list:
+            if not device_id:
+                continue
+            devices_processed += 1
+
+            # Get all sensors for this device
+            sensors = sensor_manager.get_all_sensors(device_id)
+
+            # Get stable ID for this device
+            try:
+                stable_id = await adb_bridge.get_device_serial(device_id)
+            except Exception as e:
+                logger.warning(f"[API] Could not get stable ID for {device_id}: {e}")
+                failed += len(sensors)
+                continue
+
+            # Update each sensor
+            for sensor in sensors:
+                if sensor.stable_device_id:
+                    already_set += 1
+                    continue
+
+                try:
+                    sensor.stable_device_id = stable_id
+                    sensor_manager.update_sensor(sensor)
+                    migrated += 1
+                    logger.debug(f"[API] Migrated sensor {sensor.sensor_id} to stable ID {stable_id}")
+
+                    # Republish MQTT discovery with new stable ID
+                    if mqtt_manager:
+                        await mqtt_manager.publish_discovery(sensor)
+                except Exception as e:
+                    logger.error(f"[API] Failed to migrate sensor {sensor.sensor_id}: {e}")
+                    failed += 1
+
+        if migrated > 0:
+            logger.info(f"[API] Republished MQTT discoveries for {migrated} migrated sensors")
+
+        return {
+            "success": True,
+            "devices_processed": devices_processed,
+            "migrated": migrated,
+            "already_set": already_set,
+            "failed": failed,
+            "message": f"Migrated {migrated} sensors across {devices_processed} devices"
+        }
+    except Exception as e:
+        logger.error(f"[API] Sensor migration failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2014,6 +2153,17 @@ async def create_sensor(sensor: SensorDefinition):
     """Create a new sensor"""
     try:
         logger.info(f"[API] Creating sensor for device {sensor.device_id}")
+
+        # Get stable device ID if not already set (survives IP/port changes)
+        if not sensor.stable_device_id:
+            try:
+                stable_id = await adb_bridge.get_device_serial(sensor.device_id)
+                sensor.stable_device_id = stable_id
+                logger.info(f"[API] Set stable_device_id for sensor: {stable_id}")
+            except Exception as e:
+                logger.warning(f"[API] Could not get stable device ID: {e}")
+                # Continue without stable_device_id - will use device_id as fallback
+
         created_sensor = sensor_manager.create_sensor(sensor)
 
         # Publish MQTT discovery for the new sensor
