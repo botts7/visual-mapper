@@ -1643,10 +1643,10 @@ class FlowWizard {
             if (!this.recordingPaused) {
                 this.recorder.addStep({
                     step_type: 'swipe',
-                    x1: startDevice.x,
-                    y1: startDevice.y,
-                    x2: endDevice.x,
-                    y2: endDevice.y,
+                    start_x: startDevice.x,
+                    start_y: startDevice.y,
+                    end_x: endDevice.x,
+                    end_y: endDevice.y,
                     duration: 300,
                     description: `Swipe from (${startDevice.x},${startDevice.y}) to (${endDevice.x},${endDevice.y})`
                 });
@@ -2435,17 +2435,20 @@ class FlowWizard {
             return;
         }
 
-        // Get the sensor ID from the response
-        const sensorId = response?.sensor_id || sensorData?.sensor_id;
+        // Get the sensor ID from the response (API returns { sensor: { sensor_id: ... } })
+        const sensorId = response?.sensor?.sensor_id || response?.sensor_id || sensorData?.sensor_id;
         if (!sensorId) {
             console.warn('[FlowWizard] No sensor ID in response, cannot add flow step');
             return;
         }
 
+        // Get friendly name from response or sensorData
+        const friendlyName = response?.sensor?.friendly_name || sensorData?.friendly_name || 'Sensor';
+
         // Add a capture_sensors step for this sensor
         const step = {
             step_type: 'capture_sensors',
-            description: `Capture sensor: ${sensorData.friendly_name}`,
+            description: `Capture sensor: ${friendlyName}`,
             sensor_ids: [sensorId]
         };
 

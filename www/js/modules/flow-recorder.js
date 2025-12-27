@@ -1,12 +1,24 @@
 /**
  * Flow Recorder Module
- * Visual Mapper v0.0.3
+ * Visual Mapper v0.0.6
  *
  * Handles interactive flow recording with screenshot capture,
  * tap detection, and step management
  */
 
-import { showToast } from './toast.js?v=0.0.3';
+import { showToast } from './toast.js?v=0.0.5';
+
+/**
+ * Get API base URL for proper routing (supports Home Assistant ingress)
+ */
+function getApiBase() {
+    if (window.API_BASE) return window.API_BASE;
+    if (window.opener?.API_BASE) return window.opener.API_BASE;
+    const url = window.location.href;
+    const ingressMatch = url.match(/\/api\/hassio_ingress\/[^\/]+/);
+    if (ingressMatch) return ingressMatch[0] + '/api';
+    return '/api';
+}
 
 class FlowRecorder {
     constructor(deviceId, appPackage, recordMode = 'execute') {
@@ -16,6 +28,7 @@ class FlowRecorder {
         this.steps = [];
         this.currentScreenshot = null;
         this.screenshotMetadata = null;
+        this.apiBase = getApiBase();
 
         console.log(`[FlowRecorder] Initialized for ${deviceId} - ${appPackage} (mode: ${recordMode})`);
     }
@@ -484,7 +497,7 @@ class FlowRecorder {
     async goBack() {
         console.log('[FlowRecorder] Going back...');
 
-        const response = await fetch('/api/adb/back', {
+        const response = await fetch(`${this.apiBase}/adb/back`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ device_id: this.deviceId })
@@ -601,10 +614,10 @@ class FlowRecorder {
 
         await this.addStep({
             step_type: 'swipe',
-            x1: startX,
-            y1: startY,
-            x2: endX,
-            y2: endY,
+            start_x: startX,
+            start_y: startY,
+            end_x: endX,
+            end_y: endY,
             duration: 300,
             description: `Swipe ${direction}`
         });
@@ -949,6 +962,19 @@ class FlowRecorder {
                 detail: { index: index }
             }));
         }
+    }
+
+    /**
+     * Clear all steps
+     */
+    clearSteps() {
+        const count = this.steps.length;
+        this.steps = [];
+        console.log(`[FlowRecorder] Cleared ${count} steps`);
+
+        window.dispatchEvent(new CustomEvent('flowStepsCleared', {
+            detail: { count: count }
+        }));
     }
 
     /**

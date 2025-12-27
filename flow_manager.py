@@ -95,12 +95,33 @@ class FlowManager:
         flow_list = self._flows[device_id]
         return next((f for f in flow_list.flows if f.flow_id == flow_id), None)
 
-    def get_all_flows(self, device_id: str) -> List[SensorCollectionFlow]:
-        """Get all flows for a device"""
+    def get_device_flows(self, device_id: str) -> List[SensorCollectionFlow]:
+        """Get all flows for a specific device"""
         if device_id not in self._flows:
             self._flows[device_id] = self._load_flows(device_id)
 
         return self._flows[device_id].flows
+
+    def get_all_flows(self) -> List[SensorCollectionFlow]:
+        """
+        Get all flows across all devices
+
+        Returns:
+            List of all flows from all devices
+        """
+        all_flows = []
+
+        # Get all device flow files
+        for flow_file in self.storage_dir.glob("flows_*.json"):
+            try:
+                with open(flow_file, 'r') as f:
+                    data = json.load(f)
+                    flow_list = FlowList(**data)
+                    all_flows.extend(flow_list.flows)
+            except Exception as e:
+                logger.error(f"[FlowManager] Failed to load {flow_file}: {e}")
+
+        return all_flows
 
     def update_flow(self, flow: SensorCollectionFlow) -> bool:
         """Update an existing flow"""
@@ -167,7 +188,7 @@ class FlowManager:
 
     def get_enabled_flows(self, device_id: str) -> List[SensorCollectionFlow]:
         """Get all enabled flows for a device"""
-        all_flows = self.get_all_flows(device_id)
+        all_flows = self.get_device_flows(device_id)
         return [f for f in all_flows if f.enabled]
 
     def get_flows_for_sensor(self, device_id: str, sensor_id: str) -> List[SensorCollectionFlow]:
@@ -175,7 +196,7 @@ class FlowManager:
         Find all flows that capture a specific sensor
         Useful for determining if a sensor is already in a flow
         """
-        all_flows = self.get_all_flows(device_id)
+        all_flows = self.get_device_flows(device_id)
         matching_flows = []
 
         for flow in all_flows:

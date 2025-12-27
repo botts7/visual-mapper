@@ -4,7 +4,7 @@ Advanced sensor collection flows for efficient multi-sensor capture
 """
 
 from typing import Optional, List, Dict, Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 
@@ -20,7 +20,11 @@ class FlowStepType(str):
     CAPTURE_SENSORS = "capture_sensors"
     VALIDATE_SCREEN = "validate_screen"
     GO_HOME = "go_home"
+    GO_BACK = "go_back"
     CONDITIONAL = "conditional"
+    PULL_REFRESH = "pull_refresh"
+    RESTART_APP = "restart_app"
+    STITCH_CAPTURE = "stitch_capture"
 
 
 class FlowStep(BaseModel):
@@ -70,6 +74,19 @@ class FlowStep(BaseModel):
     # Description for UI
     description: Optional[str] = Field(None, description="Human-readable description of this step")
 
+    # State validation (Phase 8 - Hybrid: XML + Screenshot + Activity)
+    expected_ui_elements: Optional[List[Dict[str, Any]]] = Field(None, description="Expected UI elements (text, class, resource-id) for state validation")
+    expected_activity: Optional[str] = Field(None, description="Expected Android activity name for state validation")
+    expected_screenshot: Optional[str] = Field(None, description="Base64 encoded screenshot (fallback validation)")
+    state_match_threshold: float = Field(0.80, ge=0.0, le=1.0, description="Similarity threshold for state matching (0.0-1.0)")
+    validate_state: bool = Field(True, description="Whether to validate state before executing this step")
+    recovery_action: str = Field("force_restart_app", description="Recovery action on state mismatch: force_restart_app, skip_step, fail")
+    ui_elements_required: int = Field(1, ge=1, description="Minimum number of expected UI elements that must match")
+
+    # Screen awareness (Phase 1 - Activity Tracking)
+    screen_activity: Optional[str] = Field(None, description="Activity when step was recorded (e.g., 'MainActivity')")
+    screen_package: Optional[str] = Field(None, description="Package when step was recorded (e.g., 'com.example.app')")
+
 
 class SensorCollectionFlow(BaseModel):
     """
@@ -108,8 +125,8 @@ class SensorCollectionFlow(BaseModel):
     success_count: int = 0
     failure_count: int = 0
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "flow_id": "spotify_collection_001",
                 "device_id": "192.168.1.100:5555",
@@ -167,6 +184,7 @@ class SensorCollectionFlow(BaseModel):
                 "flow_timeout": 60
             }
         }
+    )
 
 
 class FlowExecutionResult(BaseModel):

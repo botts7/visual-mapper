@@ -71,6 +71,18 @@ export class FlowStepManager {
     }
 
     /**
+     * Render all steps (for refreshing the list)
+     */
+    render(steps) {
+        this.clear();
+        if (!steps || !Array.isArray(steps)) return;
+
+        steps.forEach((step, index) => {
+            this.onStepAdded({ step, index });
+        });
+    }
+
+    /**
      * Format step type with emoji
      */
     static formatStepType(stepType) {
@@ -100,7 +112,7 @@ export class FlowStepManager {
             case 'tap':
                 return `Tap at (${step.x}, ${step.y})`;
             case 'swipe':
-                return `Swipe from (${step.x1}, ${step.y1}) to (${step.x2}, ${step.y2})`;
+                return `Swipe from (${step.start_x}, ${step.start_y}) to (${step.end_x}, ${step.end_y})`;
             case 'text':
                 return `Type: "${step.text}"`;
             case 'keyevent':
@@ -127,8 +139,8 @@ export class FlowStepManager {
 
         if (step.x !== undefined) details.push(`x: ${step.x}`);
         if (step.y !== undefined) details.push(`y: ${step.y}`);
-        if (step.x1 !== undefined) details.push(`start: (${step.x1}, ${step.y1})`);
-        if (step.x2 !== undefined) details.push(`end: (${step.x2}, ${step.y2})`);
+        if (step.start_x !== undefined) details.push(`start: (${step.start_x}, ${step.start_y})`);
+        if (step.end_x !== undefined) details.push(`end: (${step.end_x}, ${step.end_y})`);
         if (step.duration !== undefined) {
             if (step.refresh_attempts) {
                 details.push(`${step.refresh_attempts} refreshes`);
@@ -142,7 +154,7 @@ export class FlowStepManager {
 
         // Sensor-specific details
         if (step.step_type === 'capture_sensors') {
-            if (step.sensor_id) details.push(`id: ${step.sensor_id}`);
+            if (step.sensor_ids?.length) details.push(`sensors: ${step.sensor_ids.length}`);
             if (step.element?.text) details.push(`element text: "${step.element.text}"`);
             if (step.element?.class) details.push(`element class: ${step.element.class}`);
         }

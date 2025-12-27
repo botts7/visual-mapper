@@ -544,6 +544,138 @@ async def health_check():
     }
 
 # =============================================================================
+# PERFORMANCE METRICS ENDPOINTS
+# =============================================================================
+
+@app.get("/api/performance/metrics")
+async def get_performance_metrics():
+    """
+    Get comprehensive performance metrics for monitoring and optimization.
+
+    Returns aggregated metrics from all subsystems:
+    - Screenshot cache hit rate
+    - ADB connection pool status
+    - Performance monitor statistics
+    - MQTT publishing stats
+    """
+    metrics = {
+        "timestamp": time.time(),
+        "version": "0.0.5",
+    }
+
+    # Screenshot cache statistics
+    if adb_bridge:
+        cache_stats = adb_bridge.get_cache_stats()
+        metrics["screenshot_cache"] = cache_stats
+
+    # ADB connection pool stats (if available)
+    if adb_bridge:
+        try:
+            # Get connected devices count
+            devices = await adb_bridge.list_devices()
+            metrics["adb_connections"] = {
+                "total_devices": len(devices),
+                "connected_devices": len([d for d in devices if d.get("connected", False)]),
+                "device_ids": [d["id"] for d in devices]
+            }
+        except Exception as e:
+            logger.error(f"[API] Failed to get ADB stats: {e}")
+            metrics["adb_connections"] = {"error": str(e)}
+
+    # Performance monitor stats (if available)
+    if performance_monitor:
+        try:
+            perf_stats = await performance_monitor.get_stats()
+            metrics["performance"] = perf_stats
+        except Exception as e:
+            logger.error(f"[API] Failed to get performance stats: {e}")
+            metrics["performance"] = {"error": str(e)}
+
+    # MQTT stats
+    if mqtt_manager:
+        metrics["mqtt"] = {
+            "connected": mqtt_manager.is_connected,
+            "broker": mqtt_manager.broker_host if hasattr(mqtt_manager, 'broker_host') else "unknown"
+        }
+
+    return metrics
+
+
+@app.get("/api/performance/cache")
+async def get_cache_stats():
+    """
+    Get detailed screenshot cache statistics.
+
+    Useful for tuning cache TTL and monitoring cache effectiveness.
+    High hit rate (>80%) indicates effective caching.
+    """
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB bridge not initialized")
+
+    return adb_bridge.get_cache_stats()
+
+
+@app.post("/api/performance/cache/clear")
+async def clear_cache():
+    """
+    Clear screenshot cache for all devices.
+
+    Useful for testing or forcing fresh captures.
+    """
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB bridge not initialized")
+
+    try:
+        # Clear the cache
+        adb_bridge._screenshot_cache.clear()
+        adb_bridge._screenshot_cache_hits = 0
+        adb_bridge._screenshot_cache_misses = 0
+
+        return {
+            "success": True,
+            "message": "Screenshot cache cleared",
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Failed to clear cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/performance/adb")
+async def get_adb_performance():
+    """
+    Get ADB subsystem performance metrics.
+
+    Includes connection health, response times, and optimization status.
+    """
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB bridge not initialized")
+
+    try:
+        devices = await adb_bridge.list_devices()
+
+        return {
+            "timestamp": time.time(),
+            "devices": {
+                "total": len(devices),
+                "connected": len([d for d in devices if d.get("connected", False)]),
+                "models": [d.get("model", "Unknown") for d in devices]
+            },
+            "cache": adb_bridge.get_cache_stats(),
+            "optimizations": {
+                "screenshot_cache_enabled": adb_bridge._screenshot_cache_enabled,
+                "cache_ttl_ms": adb_bridge._screenshot_cache_ttl_ms,
+                "bounds_only_mode": "Available",
+                "batch_commands": "Available",
+                "persistent_shell_pool": "Initialized"
+            }
+        }
+    except Exception as e:
+        logger.error(f"[API] Failed to get ADB performance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
 # DIAGNOSTICS ENDPOINTS
 # =============================================================================
 
@@ -1372,6 +1504,40 @@ async def send_keyevent(request: KeyEventRequest):
         }
     except Exception as e:
         logger.error(f"[API] Key event failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/adb/back")
+async def send_back_key(request: dict):
+    """Send BACK key event to device (convenience endpoint)"""
+    try:
+        device_id = request.get("device_id")
+        if not device_id:
+            raise HTTPException(status_code=400, detail="device_id required")
+        logger.info(f"[API] Back key on {device_id}")
+        await adb_bridge.keyevent(device_id, "KEYCODE_BACK")
+        return {"success": True, "device_id": device_id, "message": "Back key sent"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Back key failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/adb/home")
+async def send_home_key(request: dict):
+    """Send HOME key event to device (convenience endpoint)"""
+    try:
+        device_id = request.get("device_id")
+        if not device_id:
+            raise HTTPException(status_code=400, detail="device_id required")
+        logger.info(f"[API] Home key on {device_id}")
+        await adb_bridge.keyevent(device_id, "KEYCODE_HOME")
+        return {"success": True, "device_id": device_id, "message": "Home key sent"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Home key failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

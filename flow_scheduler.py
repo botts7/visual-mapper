@@ -79,6 +79,7 @@ class FlowScheduler:
 
         # Scheduler state
         self._running = False
+        self._paused = False  # Pause state for periodic scheduling
 
         logger.info("[FlowScheduler] Initialized")
 
@@ -379,3 +380,99 @@ class FlowScheduler:
             device_id: self.get_metrics(device_id)
             for device_id in self._queues.keys()
         }
+
+    async def pause(self):
+        """
+        Pause periodic scheduling (stops adding new flows to queue)
+        Note: Currently executing flows will complete
+        """
+        if self._paused:
+            logger.warning("[FlowScheduler] Already paused")
+            return
+
+        self._paused = True
+        logger.info("[FlowScheduler] Pausing periodic scheduling")
+
+        # Cancel all periodic tasks
+        for flow_id, task in list(self._periodic_tasks.items()):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        self._periodic_tasks.clear()
+        logger.info("[FlowScheduler] Periodic scheduling paused")
+
+    async def resume(self):
+        """
+        Resume periodic scheduling
+        """
+        if not self._paused:
+            logger.warning("[FlowScheduler] Not paused")
+            return
+
+        self._paused = False
+        logger.info("[FlowScheduler] Resuming periodic scheduling")
+
+        # Restart periodic scheduling
+        await self._start_periodic_scheduling()
+        logger.info("[FlowScheduler] Periodic scheduling resumed")
+
+    def get_status(self) -> Dict:
+        """
+        Get overall scheduler status
+
+        Returns:
+            Dictionary with scheduler state and per-device info
+        """
+        device_status = {}
+        for device_id in self._queues.keys():
+            device_status[device_id] = {
+                "queue_depth": self.get_queue_depth(device_id),
+                "scheduler_active": device_id in self._scheduler_tasks and not self._scheduler_tasks[device_id].done(),
+                "last_execution": self.get_last_execution(device_id).isoformat() if self.get_last_execution(device_id) else None,
+                "total_executions": self._total_executions.get(device_id, 0)
+            }
+
+        return {
+            "running": self._running,
+            "paused": self._paused,
+            "total_periodic_tasks": len(self._periodic_tasks),
+            "devices": device_status
+        }
+
+    def get_queued_flows(self, device_id: str) -> List[Dict]:
+        """
+        Get list of pending flows in queue for a device
+
+        Note: This returns a snapshot of the queue contents.
+        Due to asyncio.PriorityQueue implementation, we cannot peek without
+        consuming, so we return basic info from available metrics.
+
+        Args:
+            device_id: Device ID to check
+
+        Returns:
+            List of queued flow info dictionaries
+        """
+        if device_id not in self._queues:
+            return []
+
+        queue_depth = self._queue_depths.get(device_id, 0)
+
+        # Since PriorityQueue doesn't allow peeking, return summary info
+        # For detailed queue contents, we'd need to track separately
+        return {
+            "device_id": device_id,
+            "queue_depth": queue_depth,
+            "message": f"{queue_depth} flow(s) queued for execution"
+        }
+
+    def is_paused(self) -> bool:
+        """Check if scheduler is paused"""
+        return self._paused
+
+    def is_running(self) -> bool:
+        """Check if scheduler is running"""
+        return self._running

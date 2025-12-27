@@ -1,0 +1,66 @@
+{
+  "name": "Visual Mapper - Android Device Monitor v0.0.5",
+  "short_name": "Visual Mapper",
+  "description": "Android Device Monitor for Home Assistant with visual element detection, screenshot stitching, and automated control",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#3b82f6",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "apple-touch-icon.svg",
+      "sizes": "180x180",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "branding/icon-only.svg",
+      "sizes": "128x128",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": [
+    "utilities",
+    "productivity",
+    "developer tools"
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Devices",
+      "short_name": "Devices",
+      "description": "View and manage connected devices",
+      "url": "/devices.html",
+      "icons": []
+    },
+    {
+      "name": "Sensors",
+      "short_name": "Sensors",
+      "description": "Manage device sensors",
+      "url": "/sensors.html",
+      "icons": []
+    },
+    {
+      "name": "Actions",
+      "short_name": "Actions",
+      "description": "Manage device actions",
+      "url": "/actions.html",
+      "icons": []
+    },
+    {
+      "name": "Flow Wizard",
+      "short_name": "Flows",
+      "description": "Create automated flows",
+      "url": "/flow-wizard.html",
+      "icons": []
+    }
+  ]
+}

@@ -307,7 +307,7 @@ class ScreenshotStitcher:
                     break
 
             # Skip refresh for browsers only (they have their own gestures that interfere)
-            # Keep refresh for other apps - needed for stale data
+            # Keep refresh for other apps - it helps reset the page to a known state
             skip_refresh_packages = [
                 'chrome', 'browser', 'firefox', 'opera', 'edge', 'brave', 'samsung.sbrowser'
             ]
@@ -316,6 +316,7 @@ class ScreenshotStitcher:
             if is_browser:
                 logger.info("  STEP 0: Skipping refresh (browser detected)")
             else:
+                # Do refresh for non-browser apps (matches stable stitcher)
                 logger.info("  STEP 0: Refreshing page 3 times...")
                 await self._refresh_page(device_id, times=3)
 
@@ -348,57 +349,83 @@ class ScreenshotStitcher:
             elements_bottom = await self._get_ui_elements_with_retry(device_id)
             logger.info(f"  BOTTOM: {len(elements_bottom)} UI elements")
 
-            # === STEP 3: DYNAMICALLY detect fixed vs scrollable elements ===
-            # Compare element positions between TOP and BOTTOM:
-            # - Same fingerprint at SAME Y position = FIXED (header/footer/nav)
-            # - Same fingerprint at DIFFERENT Y position = SCROLLABLE content that overlaps
-            # - Fingerprint only in TOP or BOTTOM = SCROLLABLE content (no overlap)
-
-            # Build position maps: fingerprint -> y_center
-            fp_to_y_top = {}
+            # === STEP 3: Simple overlap check (matches stable stitcher logic) ===
+            # Build fingerprint sets for TOP and BOTTOM
+            fp_top = set()
             for elem in elements_top:
                 fp = self._get_element_fingerprint(elem)
                 if fp:
-                    fp_to_y_top[fp] = self._get_element_y_center(elem)
+                    fp_top.add(fp)
 
-            fp_to_y_bottom = {}
+            fp_bottom = set()
             for elem in elements_bottom:
                 fp = self._get_element_fingerprint(elem)
                 if fp:
-                    fp_to_y_bottom[fp] = self._get_element_y_center(elem)
+                    fp_bottom.add(fp)
 
-            # Categorize elements
-            fixed_elements = set()      # Same position in both = fixed UI
-            scrollable_overlap = set()  # Different position = scrollable content that overlaps
-            y_tolerance = 20  # Allow small Y difference for "same position"
+            # Find common elements between TOP and BOTTOM
+            overlap = fp_top & fp_bottom
+            logger.info(f"  OVERLAP CHECK: {len(overlap)} common elements between TOP and BOTTOM")
 
-            for fp in fp_to_y_top:
-                if fp in fp_to_y_bottom:
-                    y_diff = abs(fp_to_y_top[fp] - fp_to_y_bottom[fp])
-                    if y_diff <= y_tolerance:
-                        fixed_elements.add(fp)
-                    else:
-                        scrollable_overlap.add(fp)
+            # Build position maps to check which elements actually MOVED
+            pos_top = {}  # fingerprint -> y_center
+            for elem in elements_top:
+                fp = self._get_element_fingerprint(elem)
+                if fp:
+                    pos_top[fp] = self._get_element_y_center(elem)
 
-            # Elements only in TOP or only in BOTTOM are unique scrollable content
-            fp_only_top = set(fp_to_y_top.keys()) - set(fp_to_y_bottom.keys())
-            fp_only_bottom = set(fp_to_y_bottom.keys()) - set(fp_to_y_top.keys())
+            pos_bottom = {}
+            for elem in elements_bottom:
+                fp = self._get_element_fingerprint(elem)
+                if fp:
+                    pos_bottom[fp] = self._get_element_y_center(elem)
 
-            logger.info(f"  DYNAMIC DETECTION:")
-            logger.info(f"    Fixed elements (same Y): {len(fixed_elements)}")
-            logger.info(f"    Scrollable overlap (different Y): {len(scrollable_overlap)}")
-            logger.info(f"    Only in TOP: {len(fp_only_top)}")
-            logger.info(f"    Only in BOTTOM: {len(fp_only_bottom)}")
+            # Count MOVING elements (same element at DIFFERENT Y positions)
+            # These indicate actual scrollable content that overlaps
+            # FIXED elements (same Y in both) don't count - they're headers/navbars
+            moving_elements = 0
+            fixed_elements = 0
+            for fp in overlap:
+                y_top = pos_top.get(fp, 0)
+                y_bottom = pos_bottom.get(fp, 0)
+                offset = abs(y_top - y_bottom)
+                if offset > 20:  # Element moved more than 20px
+                    moving_elements += 1
+                else:
+                    fixed_elements += 1
 
-            # Content overlap = elements that exist in BOTH but at DIFFERENT positions
-            overlap = scrollable_overlap
-            logger.info(f"  CONTENT OVERLAP CHECK: {len(overlap)} scrollable elements overlap")
+            logger.info(f"  ELEMENT ANALYSIS: {moving_elements} moving, {fixed_elements} fixed")
 
-            # Build fp_bottom set for later use (checking if we reached bottom content)
-            fp_bottom = set(fp_to_y_bottom.keys())
+            # Short page detection logic:
+            # - If MANY MOVING elements (>= 5), content overlaps = short page
+            # - If FEW MOVING elements, TOP and BOTTOM show different content = long page
+            # - Also check image similarity as backup
+            if moving_elements >= 5:
+                # Many moving elements = content overlaps = short page
+                is_short_page = True
+                logger.info(f"  SHORT PAGE: {moving_elements} moving elements (>= 5)")
+            elif moving_elements >= 2:
+                # Some moving elements - check image difference to confirm
+                import numpy as np
+                arr_top = np.array(img_top.convert('RGB'))
+                arr_bottom = np.array(img_bottom.convert('RGB'))
+                margin_y = int(height * 0.2)
+                center_top = arr_top[margin_y:height-margin_y, :, :]
+                center_bottom = arr_bottom[margin_y:height-margin_y, :, :]
+                pixel_diff = np.mean(center_top != center_bottom) * 100
+                logger.info(f"  IMAGE DIFFERENCE: {pixel_diff:.1f}% (center region)")
 
-            # If TOP and BOTTOM share scrollable content elements, we can stitch them directly
-            if len(overlap) >= 3:
+                # Low diff + some moving elements = short page
+                is_short_page = pixel_diff < 30
+                if is_short_page:
+                    logger.info(f"  SHORT PAGE: {moving_elements} moving + {pixel_diff:.1f}% diff")
+            else:
+                # Few/no moving elements = different content = LONG page
+                is_short_page = False
+                logger.info(f"  LONG PAGE: only {moving_elements} moving elements (need middle captures)")
+
+            # If TOP and BOTTOM share scrollable content elements AND look similar, stitch directly
+            if is_short_page:
                 # Short page - just 2 screenshots needed!
                 logger.info("  Short page detected - using 2-screenshot stitch")
                 overlap_end_y = self._find_overlap_end_y(elements_top, elements_bottom, height)
@@ -433,10 +460,13 @@ class ScreenshotStitcher:
                 # Detect fixed header height from first capture
                 fixed_header = 80  # Default Android status bar
 
-                # Use 45% of scrollable area per swipe for good overlap
+                # Use 30% of scrollable area per swipe for MORE overlap
+                # Smaller scrolls = more captures = better stitch point options
                 scrollable_height = height - fixed_header - 100  # Subtract header and some footer
-                swipe_distance = int(scrollable_height * 0.45)  # ~450px on 1200px screen
+                swipe_distance = int(scrollable_height * 0.30)  # ~520px, gives more overlap
 
+                # Use CENTER of screen (same as scroll_to_top/bottom)
+                # 20% was hitting non-scrollable sidebars in some apps
                 swipe_x = width // 2
                 swipe_start_y = int(height * 0.70)  # Start at 70%
                 swipe_end_y = swipe_start_y - swipe_distance  # End higher
@@ -560,9 +590,9 @@ class ScreenshotStitcher:
         """Delegate to overlap detector."""
         return self.overlap_detector.find_overlap_by_image(img1, img2, screen_height)
 
-    async def _scroll_to_bottom(self, device_id: str, max_attempts: int = 5, use_keyevent: bool = True):
+    async def _scroll_to_bottom(self, device_id: str, max_attempts: int = 5):
         """Delegate to device controller."""
-        return await self.device_controller.scroll_to_bottom(device_id, max_attempts, use_keyevent)
+        return await self.device_controller.scroll_to_bottom(device_id, max_attempts)
 
     def _find_safe_scroll_x(self, screen_width: int, elements: list) -> int:
         """Delegate to device controller."""

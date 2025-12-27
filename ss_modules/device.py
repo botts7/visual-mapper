@@ -136,13 +136,11 @@ class DeviceController:
         except Exception as e:
             logger.warning(f"  Page refresh failed: {e}")
 
-    async def scroll_to_bottom(self, device_id: str, max_attempts: int = 5, use_keyevent: bool = True):
+    async def scroll_to_bottom(self, device_id: str, max_attempts: int = 5):
         """
         Scroll to the bottom of the current scrollable view.
-
-        Args:
-            use_keyevent: If True, use PAGE_DOWN keyevent (safer for browsers).
-                          If False, use swipe gestures.
+        Uses multiple swipe up gestures until we can't scroll anymore.
+        Matches stable stitcher behavior exactly.
         """
         try:
             for attempt in range(max_attempts):
@@ -150,21 +148,14 @@ class DeviceController:
                 if not img_before:
                     break
 
-                if use_keyevent:
-                    # Use PAGE_DOWN keyevent - safer, no accidental clicks
-                    # Send multiple PAGE_DOWN for faster scrolling
-                    for _ in range(3):
-                        await self.adb_bridge.keyevent(device_id, "93")  # KEYCODE_PAGE_DOWN
-                        await asyncio.sleep(0.1)
-                else:
-                    # Fallback to swipe
-                    width, height = img_before.size
-                    swipe_x = width // 2
-                    swipe_start_y = int(height * 0.65)
-                    swipe_end_y = int(height * 0.25)
-                    await self.adb_bridge.swipe(device_id, swipe_x, swipe_start_y, swipe_x, swipe_end_y, duration=400)
+                width, height = img_before.size
+                swipe_x = width // 2
+                # Swipe UP (finger moves up) to scroll DOWN
+                swipe_start_y = int(height * 0.70)
+                swipe_end_y = int(height * 0.30)
 
-                await asyncio.sleep(0.4)
+                await self.adb_bridge.swipe(device_id, swipe_x, swipe_start_y, swipe_x, swipe_end_y, duration=300)
+                await asyncio.sleep(0.3)
 
                 img_after = await self.capture_screenshot_pil(device_id)
                 if not img_after:
@@ -180,60 +171,40 @@ class DeviceController:
         except Exception as e:
             logger.warning(f"  Scroll to bottom failed: {e}")
 
-    async def scroll_to_top(self, device_id: str, max_attempts: int = 10):
+    async def scroll_to_top(self, device_id: str, max_attempts: int = 3):
         """
         Scroll to the top of the current scrollable view.
-
-        Uses combination of keyevents and swipe gestures for reliability.
+        Matches stable stitcher behavior exactly.
         """
         try:
-            # Get screen size for swipe calculations
-            img = await self.capture_screenshot_pil(device_id)
-            if not img:
-                return
-            width, height = img.size
-
-            # First try MOVE_HOME to jump to top instantly
-            await self.adb_bridge.keyevent(device_id, "122")  # KEYCODE_MOVE_HOME
-            await asyncio.sleep(0.5)
-
-            # Do a few aggressive swipes first to ensure we're near top
-            swipe_x = width // 2
-            for _ in range(3):
-                await self.adb_bridge.swipe(
-                    device_id,
-                    swipe_x, int(height * 0.2),
-                    swipe_x, int(height * 0.9),
-                    duration=150
-                )
-                await asyncio.sleep(0.2)
-
-            # Then use swipe gestures (more reliable than keyevents in many apps)
             for attempt in range(max_attempts):
+                # Capture before scroll
                 img_before = await self.capture_screenshot_pil(device_id)
                 if not img_before:
                     break
 
-                # Swipe DOWN on screen (finger moves down = content scrolls up = go to top)
-                # Start high, end low
+                # Swipe DOWN to scroll UP (opposite of normal scrolling)
+                width, height = img_before.size
                 swipe_x = width // 2
-                swipe_start_y = int(height * 0.2)  # Start near top
-                swipe_end_y = int(height * 0.8)    # End near bottom (finger drags down)
+                swipe_start_y = int(height * 0.30)
+                swipe_end_y = int(height * 0.70)
 
                 await self.adb_bridge.swipe(
                     device_id,
                     swipe_x, swipe_start_y,
                     swipe_x, swipe_end_y,
-                    duration=200
+                    duration=300
                 )
                 await asyncio.sleep(0.3)
 
+                # Capture after scroll
                 img_after = await self.capture_screenshot_pil(device_id)
                 if not img_after:
                     break
 
+                # Check if we actually scrolled (images different)
                 similarity = self._compare_images(img_before, img_after)
-                if similarity > 0.98:
+                if similarity > 0.98:  # Images nearly identical = at top
                     logger.debug(f"  Reached top after {attempt + 1} scroll(s)")
                     break
 

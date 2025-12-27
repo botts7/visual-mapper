@@ -59,6 +59,9 @@ class ADBBridge:
         self._stream_active: Dict[str, bool] = {}  # Track active streams per device
         self._stream_frame_count: Dict[str, int] = {}  # Frame counter per device
 
+        # Stable device identifier cache (survives IP/port changes)
+        self._device_serial_cache: Dict[str, str] = {}  # {device_id: serial_number}
+
         # Initialize Play Store scraper for app name extraction
         self.playstore_scraper = PlayStoreIconScraper()
 
@@ -108,6 +111,121 @@ class ADBBridge:
             "misses": self._ui_cache_misses,
             "hit_rate_percent": round(hit_rate, 1)
         }
+
+    # === Stable Device Identifier Methods ===
+
+    async def get_device_serial(self, device_id: str, force_refresh: bool = False) -> str:
+        """
+        Get stable device identifier that survives IP/port changes.
+
+        Tries multiple methods with fallbacks:
+        1. ADB serial number (adb get-serialno)
+        2. Android ID (settings get secure android_id)
+        3. Build fingerprint hash (ro.build.fingerprint)
+        4. Fallback: hash of model + manufacturer
+
+        Args:
+            device_id: Current device ID (IP:port or USB serial)
+            force_refresh: If True, bypass cache and fetch fresh
+
+        Returns:
+            Stable unique identifier string
+        """
+        # Check cache first
+        if not force_refresh and device_id in self._device_serial_cache:
+            return self._device_serial_cache[device_id]
+
+        conn = self.devices.get(device_id)
+        if not conn or not conn.available:
+            # Return sanitized device_id as fallback
+            logger.warning(f"[ADBBridge] Device {device_id} not available, using device_id as identifier")
+            return self._sanitize_identifier(device_id)
+
+        serial = None
+
+        # Method 1: Try adb get-serialno
+        try:
+            result = await asyncio.wait_for(
+                conn.execute_command("get-serialno"),
+                timeout=3.0
+            )
+            if result and result.strip() and result.strip() != "unknown":
+                serial = result.strip()
+                logger.debug(f"[ADBBridge] Got serial via get-serialno: {serial}")
+        except Exception as e:
+            logger.debug(f"[ADBBridge] get-serialno failed: {e}")
+
+        # Method 2: Try Android ID (most reliable for Android 8+)
+        if not serial:
+            try:
+                result = await asyncio.wait_for(
+                    conn.shell("settings get secure android_id"),
+                    timeout=3.0
+                )
+                if result and result.strip() and result.strip() != "null":
+                    serial = result.strip()
+                    logger.debug(f"[ADBBridge] Got serial via android_id: {serial}")
+            except Exception as e:
+                logger.debug(f"[ADBBridge] android_id failed: {e}")
+
+        # Method 3: Try build fingerprint
+        if not serial:
+            try:
+                result = await asyncio.wait_for(
+                    conn.shell("getprop ro.build.fingerprint"),
+                    timeout=3.0
+                )
+                if result and result.strip():
+                    # Hash the fingerprint to get a shorter ID
+                    import hashlib
+                    serial = hashlib.md5(result.strip().encode()).hexdigest()[:16]
+                    logger.debug(f"[ADBBridge] Got serial via fingerprint hash: {serial}")
+            except Exception as e:
+                logger.debug(f"[ADBBridge] fingerprint failed: {e}")
+
+        # Method 4: Fallback - hash of model + manufacturer
+        if not serial:
+            try:
+                model = await asyncio.wait_for(
+                    conn.shell("getprop ro.product.model"),
+                    timeout=3.0
+                )
+                manufacturer = await asyncio.wait_for(
+                    conn.shell("getprop ro.product.manufacturer"),
+                    timeout=3.0
+                )
+                combo = f"{manufacturer.strip()}_{model.strip()}"
+                import hashlib
+                serial = hashlib.md5(combo.encode()).hexdigest()[:16]
+                logger.debug(f"[ADBBridge] Got serial via model hash: {serial}")
+            except Exception as e:
+                logger.debug(f"[ADBBridge] model hash failed: {e}")
+
+        # Final fallback: sanitized device_id
+        if not serial:
+            serial = self._sanitize_identifier(device_id)
+            logger.warning(f"[ADBBridge] All serial methods failed, using device_id: {serial}")
+
+        # Cache the result
+        self._device_serial_cache[device_id] = serial
+        logger.info(f"[ADBBridge] Device {device_id} -> stable ID: {serial}")
+
+        return serial
+
+    def _sanitize_identifier(self, identifier: str) -> str:
+        """Sanitize an identifier for use in MQTT topics and unique_ids"""
+        import re
+        # Replace colons, dots, and other special chars with underscores
+        return re.sub(r'[^a-zA-Z0-9]', '_', identifier)
+
+    def get_cached_serial(self, device_id: str) -> Optional[str]:
+        """Get cached serial without fetching (returns None if not cached)"""
+        return self._device_serial_cache.get(device_id)
+
+    def set_cached_serial(self, device_id: str, serial: str):
+        """Manually set cached serial (useful for migration)"""
+        self._device_serial_cache[device_id] = serial
+        logger.debug(f"[ADBBridge] Manually cached serial for {device_id}: {serial}")
 
     def _get_cached_ui_elements(self, device_id: str) -> Optional[List[Dict]]:
         """Get cached UI elements if still valid"""
@@ -541,28 +659,43 @@ class ADBBridge:
 
         return devices_list
 
-    async def capture_screenshot(self, device_id: str, timeout: float = 5.0, force_refresh: bool = False) -> bytes:
+    async def capture_screenshot(
+        self,
+        device_id: str,
+        timeout: float = 5.0,
+        force_refresh: bool = False,
+        format: str = "png"
+    ) -> bytes:
         """
-        Capture PNG screenshot from device with caching for rapid consecutive calls.
+        Capture screenshot from device with caching for rapid consecutive calls.
 
         Args:
             device_id: Device identifier
             timeout: Max time for capture in seconds (default 5s for streaming)
             force_refresh: If True, bypass cache and capture fresh screenshot
+            format: Screenshot format - "png" (default, compressed) or "raw" (uncompressed, 10-20% faster)
 
         Returns:
-            PNG image bytes
+            Screenshot image bytes (PNG or raw RGBA depending on format)
 
         Raises:
-            ValueError: If device not connected
+            ValueError: If device not connected or invalid format
+
+        Performance:
+            - PNG format: Compressed, smaller network transfer, slower (default)
+            - Raw format: Uncompressed RGBA, 10-20% faster capture, larger data
         """
+        if format not in ("png", "raw"):
+            raise ValueError(f"Invalid format: {format}. Must be 'png' or 'raw'.")
         conn = self.devices.get(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
         # Check cache first (unless force_refresh)
+        # Note: Cache key includes format to avoid mixing PNG/raw cached data
+        cache_key = f"{device_id}_{format}"
         if not force_refresh:
-            cached = self._get_cached_screenshot(device_id)
+            cached = self._get_cached_screenshot(cache_key)
             if cached is not None:
                 return cached
 
@@ -570,13 +703,23 @@ class ADBBridge:
         async with self._adb_lock:
             start_time = time.time()
 
+            # Determine screencap command based on format
+            if format == "png":
+                screencap_cmd = ["screencap", "-p"]  # PNG format (compressed)
+                shell_cmd = "screencap -p"
+                min_size = 1000  # Valid PNG should be > 1KB
+            else:  # raw
+                screencap_cmd = ["screencap"]  # Raw RGBA format (no compression, 10-20% faster)
+                shell_cmd = "screencap"
+                min_size = 10000  # Raw should be much larger (width * height * 4 bytes)
+
             try:
                 # Try using subprocess with exec-out for more reliable binary data transfer
                 import subprocess
 
                 def _run_screencap():
                     result = subprocess.run(
-                        ["adb", "-s", device_id, "exec-out", "screencap", "-p"],
+                        ["adb", "-s", device_id, "exec-out"] + screencap_cmd,
                         capture_output=True,
                         timeout=timeout  # Use provided timeout instead of 60s
                     )
@@ -585,36 +728,36 @@ class ADBBridge:
                 result = await asyncio.to_thread(_run_screencap)
                 elapsed = (time.time() - start_time) * 1000
 
-                if result and len(result) > 1000:  # Valid PNG should be > 1KB
-                    logger.debug(f"[ADBBridge] Screenshot captured: {len(result)} bytes in {elapsed:.0f}ms")
+                if result and len(result) > min_size:  # Valid screenshot
+                    logger.debug(f"[ADBBridge] Screenshot captured ({format}): {len(result)} bytes in {elapsed:.0f}ms")
                     # Store in cache
-                    self._set_cached_screenshot(device_id, result)
+                    self._set_cached_screenshot(cache_key, result)
                     return result
 
                 # Fallback to shell method if exec-out fails (only if we have time)
                 if elapsed < (timeout * 1000 - 500):  # At least 500ms remaining
-                    logger.debug("[ADBBridge] exec-out failed, trying shell method")
-                    result = await conn.shell("screencap -p")
+                    logger.debug(f"[ADBBridge] exec-out failed, trying shell method ({format})")
+                    result = await conn.shell(shell_cmd)
 
-                    # Result should be bytes for PNG data
+                    # Result should be bytes for binary data
                     if isinstance(result, str):
                         result = result.encode('latin1')
 
-                    logger.debug(f"[ADBBridge] Screenshot via shell: {len(result)} bytes")
+                    logger.debug(f"[ADBBridge] Screenshot via shell ({format}): {len(result)} bytes")
                     # Store in cache
-                    if result and len(result) > 1000:
-                        self._set_cached_screenshot(device_id, result)
+                    if result and len(result) > min_size:
+                        self._set_cached_screenshot(cache_key, result)
                     return result
                 else:
-                    logger.warning(f"[ADBBridge] exec-out failed, no time for fallback")
+                    logger.warning(f"[ADBBridge] exec-out failed, no time for fallback ({format})")
                     return b""
 
             except subprocess.TimeoutExpired:
                 elapsed = (time.time() - start_time) * 1000
-                logger.warning(f"[ADBBridge] Screenshot timeout after {elapsed:.0f}ms")
+                logger.warning(f"[ADBBridge] Screenshot timeout after {elapsed:.0f}ms ({format})")
                 return b""
             except Exception as e:
-                logger.error(f"[ADBBridge] Screenshot failed: {e}")
+                logger.error(f"[ADBBridge] Screenshot failed ({format}): {e}")
                 raise
 
     async def get_ui_elements(self, device_id: str, force_refresh: bool = False, bounds_only: bool = False) -> List[Dict]:
