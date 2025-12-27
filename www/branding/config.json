@@ -1,0 +1,28 @@
+{
+  "version": "0.0.5",
+  "buildDate": "2025-12-27",
+  "name": "Visual Mapper",
+  "tagline": "ANDROID DEVICE MONITOR",
+  "description": "Visual Mapper - Android Device Monitor for Home Assistant. Visual element detection, screenshot stitching, and automated device control.",
+  "url": "https://your-domain.com",
+  "colors": {
+    "primary": "#3b82f6",
+    "primaryDark": "#2563eb",
+    "navy": "#1e40af",
+    "accent": "#ec4899",
+    "lightBlue": "#60a5fa",
+    "success": "#10b981",
+    "darkGray": "#1e293b",
+    "mediumGray": "#64748b",
+    "lightGray": "#94a3b8"
+  },
+  "social": {
+    "twitter": "@VisualMapper",
+    "github": "https://github.com/your-username/visual-mapper"
+  },
+  "features": [
+    "Visual Element Detection",
+    "Screenshot Stitching",
+    "Home Assistant Integration"
+  ]
+}

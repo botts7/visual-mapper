@@ -1,8 +1,9 @@
 /**
  * Element Tree Module
- * Visual Mapper v0.0.3
+ * Visual Mapper v0.0.4
  *
  * Hierarchical view of UI elements with search, filtering, and actions
+ * v0.0.4: Enhanced element display with names and values
  */
 
 class ElementTree {
@@ -148,26 +149,47 @@ class ElementTree {
     }
 
     /**
-     * Render a single element
+     * Render a single element with name and value details
      */
     renderElement(element, index) {
         const text = element.text?.trim() || '';
         const resourceId = element['resource-id'] || '';
         const shortId = resourceId.split('/').pop() || '';
+        const contentDesc = element['content-desc'] || '';
         const isClickable = element.clickable;
         const bounds = element.bounds;
 
-        const displayText = text || shortId || `Element ${index + 1}`;
-        const truncatedText = displayText.length > 30 ? displayText.substring(0, 30) + '...' : displayText;
+        // Primary display: text > content-desc > resource-id > generic
+        const primaryText = text || contentDesc || shortId || `Element ${index + 1}`;
+        const truncatedPrimary = primaryText.length > 35 ? primaryText.substring(0, 32) + '...' : primaryText;
+
+        // Build info lines for details
+        const infoLines = [];
+        if (shortId) {
+            infoLines.push(`<span class="tree-detail-label">id:</span> <span class="tree-detail-value">${this.escapeHtml(shortId)}</span>`);
+        }
+        if (contentDesc && contentDesc !== text) {
+            const truncDesc = contentDesc.length > 30 ? contentDesc.substring(0, 27) + '...' : contentDesc;
+            infoLines.push(`<span class="tree-detail-label">desc:</span> <span class="tree-detail-value">${this.escapeHtml(truncDesc)}</span>`);
+        }
+        if (text && text !== contentDesc) {
+            const truncText = text.length > 30 ? text.substring(0, 27) + '...' : text;
+            infoLines.push(`<span class="tree-detail-label">text:</span> <span class="tree-detail-value">"${this.escapeHtml(truncText)}"</span>`);
+        }
+
+        const detailsHtml = infoLines.length > 0
+            ? `<div class="tree-element-details">${infoLines.join('<br>')}</div>`
+            : '';
 
         return `
             <div class="tree-element ${isClickable ? 'clickable' : ''}"
                  data-index="${index}"
                  data-bounds='${JSON.stringify(bounds)}'>
                 <div class="tree-element-content">
-                    <span class="tree-element-text" title="${displayText}">${truncatedText}</span>
+                    <span class="tree-element-text" title="${this.escapeHtml(primaryText)}">${this.escapeHtml(truncatedPrimary)}</span>
                     ${isClickable ? '<span class="tree-badge clickable-badge">tap</span>' : ''}
                 </div>
+                ${detailsHtml}
                 <div class="tree-element-actions">
                     ${isClickable ? `<button class="tree-btn tree-btn-tap" title="Add tap action">👆</button>` : ''}
                     <button class="tree-btn tree-btn-sensor" title="Add as sensor">📊</button>
@@ -175,6 +197,19 @@ class ElementTree {
                 </div>
             </div>
         `;
+    }
+
+    /**
+     * Escape HTML special characters
+     */
+    escapeHtml(str) {
+        if (!str) return '';
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     /**

@@ -54,6 +54,8 @@ from playstore_icon_scraper import PlayStoreIconScraper
 from device_icon_scraper import DeviceIconScraper
 from icon_background_fetcher import IconBackgroundFetcher
 from app_name_background_fetcher import AppNameBackgroundFetcher
+from stream_manager import StreamManager, get_stream_manager
+from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 
 # Configure logging
 logging.basicConfig(
@@ -64,10 +66,90 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+
+# === WebSocket Log Handler for Real-Time Log Viewer ===
+
+class WebSocketLogHandler(logging.Handler):
+    """
+    Custom logging handler that broadcasts log messages to WebSocket clients.
+    Maintains a circular buffer of recent logs for new connections.
+    """
+
+    def __init__(self, max_buffer: int = 200):
+        super().__init__()
+        self.clients: set = set()
+        self.log_buffer: list = []
+        self.max_buffer = max_buffer
+        self._lock = asyncio.Lock()
+
+    def emit(self, record):
+        """Handle a log record by broadcasting to all connected clients"""
+        try:
+            log_entry = {
+                "timestamp": self.formatter.formatTime(record) if self.formatter else record.created,
+                "level": record.levelname,
+                "message": record.getMessage(),
+                "logger": record.name,
+                "module": record.module
+            }
+
+            # Add to buffer (thread-safe)
+            self.log_buffer.append(log_entry)
+            if len(self.log_buffer) > self.max_buffer:
+                self.log_buffer.pop(0)
+
+            # Broadcast to all connected clients (async-safe)
+            if self.clients:
+                import json
+                message = json.dumps({"type": "log", "data": log_entry})
+                # Schedule broadcast in event loop
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(self._broadcast(message))
+                except RuntimeError:
+                    pass  # No event loop available
+
+        except Exception:
+            self.handleError(record)
+
+    async def _broadcast(self, message: str):
+        """Broadcast message to all connected WebSocket clients"""
+        disconnected = set()
+        for client in self.clients.copy():
+            try:
+                await client.send_text(message)
+            except Exception:
+                disconnected.add(client)
+
+        # Remove disconnected clients
+        self.clients -= disconnected
+
+    def add_client(self, websocket):
+        """Add a WebSocket client"""
+        self.clients.add(websocket)
+
+    def remove_client(self, websocket):
+        """Remove a WebSocket client"""
+        self.clients.discard(websocket)
+
+    def get_recent_logs(self, count: int = 50) -> list:
+        """Get recent log entries from buffer"""
+        return self.log_buffer[-count:]
+
+
+# Create global log handler instance
+ws_log_handler = WebSocketLogHandler()
+ws_log_handler.setLevel(logging.DEBUG)
+ws_log_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s', '%H:%M:%S'))
+
+# Add to root logger to capture all logs
+logging.getLogger().addHandler(ws_log_handler)
+
 # Create FastAPI app
 app = FastAPI(
     title="Visual Mapper API",
-    version="0.0.4",
+    version="0.0.5",
     description="Android Device Monitoring & Automation for Home Assistant"
 )
 
@@ -137,6 +219,9 @@ playstore_icon_scraper: Optional[PlayStoreIconScraper] = None
 device_icon_scraper: Optional[DeviceIconScraper] = None
 icon_background_fetcher: Optional['IconBackgroundFetcher'] = None
 app_name_background_fetcher: Optional['AppNameBackgroundFetcher'] = None
+stream_manager: Optional['StreamManager'] = None
+adb_maintenance: Optional['ADBMaintenance'] = None
+shell_pool: Optional['PersistentShellPool'] = None
 
 # MQTT Configuration (loaded from environment or config)
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
@@ -208,11 +293,19 @@ class PairingRequest(BaseModel):
     connection_port: int  # The actual ADB port to connect to after pairing
 
 
+class ShellExecuteRequest(BaseModel):
+    command: str
+
+
+class ShellBatchRequest(BaseModel):
+    commands: list
+
+
 # Startup and Shutdown Events
 @app.on_event("startup")
 async def startup_event():
     """Initialize MQTT connection on startup"""
-    global mqtt_manager, sensor_updater, flow_manager, flow_executor, flow_scheduler, performance_monitor, screenshot_stitcher, app_icon_extractor, playstore_icon_scraper, device_icon_scraper, icon_background_fetcher, app_name_background_fetcher
+    global mqtt_manager, sensor_updater, flow_manager, flow_executor, flow_scheduler, performance_monitor, screenshot_stitcher, app_icon_extractor, playstore_icon_scraper, device_icon_scraper, icon_background_fetcher, app_name_background_fetcher, stream_manager, adb_maintenance, shell_pool
 
     logger.info("[Server] Starting Visual Mapper v0.0.5")
     logger.info(f"[Server] MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
@@ -262,6 +355,18 @@ async def startup_event():
         playstore_scraper=playstore_icon_scraper
     )
     logger.info(f"[Server] ✅ Background App Name Fetcher initialized (async name loading)")
+
+    # Initialize Stream Manager (enhanced capture with adbutils)
+    stream_manager = get_stream_manager(adb_bridge)
+    logger.info("[Server] ✅ Stream Manager initialized (enhanced capture)")
+
+    # Initialize ADB Maintenance utilities
+    adb_maintenance = ADBMaintenance(adb_bridge)
+    logger.info("[Server] ✅ ADB Maintenance utilities initialized")
+
+    # Initialize Persistent Shell Pool for batch command optimization
+    shell_pool = PersistentShellPool(max_sessions_per_device=2)
+    logger.info("[Server] ✅ Persistent Shell Pool initialized")
 
     # Connect to MQTT broker
     connected = await mqtt_manager.connect()
@@ -438,15 +543,532 @@ async def health_check():
         "mqtt_status": mqtt_status
     }
 
+# =============================================================================
+# DIAGNOSTICS ENDPOINTS
+# =============================================================================
+
+@app.get("/api/diagnostics/adb/{device_id}")
+async def get_adb_diagnostics(device_id: str, samples: int = 5):
+    """
+    Run ADB diagnostic tests and return comprehensive timing info.
+    Helps debug performance issues by benchmarking capture speed.
+
+    Args:
+        device_id: The ADB device ID
+        samples: Number of screenshot samples to take (1-10, default 5)
+    """
+    import time
+    import subprocess
+
+    # Clamp samples to reasonable range
+    samples = max(1, min(10, samples))
+
+    results = {
+        "device_id": device_id,
+        "timestamp": time.time(),
+        "connection_type": "unknown",
+        "adb_version": None,
+        "device_info": {},
+        "screenshot_benchmark": {
+            "samples_ms": [],
+            "min_ms": None,
+            "max_ms": None,
+            "avg_ms": None,
+            "success_count": 0,
+            "failure_count": 0
+        },
+        "ui_dump_timing": {
+            "time_ms": None,
+            "element_count": 0
+        },
+        "errors": []
+    }
+
+    # Get ADB version
+    try:
+        adb_version = subprocess.run(["adb", "version"], capture_output=True, text=True, timeout=5)
+        if adb_version.returncode == 0:
+            results["adb_version"] = adb_version.stdout.strip().split('\n')[0]
+    except Exception as e:
+        results["errors"].append(f"ADB version check failed: {e}")
+
+    # Check connection type (USB vs WiFi)
+    try:
+        if ':' in device_id and not device_id.startswith('emulator'):
+            results["connection_type"] = "wifi"
+        else:
+            results["connection_type"] = "usb"
+    except:
+        pass
+
+    # Get device info
+    try:
+        device_info = await adb_bridge.get_device_info(device_id)
+        results["device_info"] = device_info
+    except Exception as e:
+        results["errors"].append(f"Device info failed: {e}")
+
+    # Screenshot benchmark (configurable samples)
+    logger.info(f"[Diagnostics] Running screenshot benchmark for {device_id} ({samples} samples)")
+    sample_times = []
+    for i in range(samples):
+        try:
+            start = time.time()
+            screenshot = await adb_bridge.capture_screenshot(device_id)
+            elapsed = (time.time() - start) * 1000  # ms
+
+            if screenshot and len(screenshot) > 1000:
+                sample_times.append(elapsed)
+                results["screenshot_benchmark"]["success_count"] += 1
+            else:
+                results["screenshot_benchmark"]["failure_count"] += 1
+                results["errors"].append(f"Sample {i+1}: Empty screenshot")
+        except Exception as e:
+            results["screenshot_benchmark"]["failure_count"] += 1
+            results["errors"].append(f"Sample {i+1}: {e}")
+
+    if sample_times:
+        results["screenshot_benchmark"]["samples_ms"] = [round(s, 1) for s in sample_times]
+        results["screenshot_benchmark"]["min_ms"] = round(min(sample_times), 1)
+        results["screenshot_benchmark"]["max_ms"] = round(max(sample_times), 1)
+        results["screenshot_benchmark"]["avg_ms"] = round(sum(sample_times) / len(sample_times), 1)
+
+    # UI dump timing
+    try:
+        start = time.time()
+        elements = await adb_bridge.get_ui_elements(device_id)
+        elapsed = (time.time() - start) * 1000
+        results["ui_dump_timing"]["time_ms"] = round(elapsed, 1)
+        results["ui_dump_timing"]["element_count"] = len(elements) if elements else 0
+    except Exception as e:
+        results["errors"].append(f"UI dump failed: {e}")
+
+    logger.info(f"[Diagnostics] Benchmark complete: avg={results['screenshot_benchmark']['avg_ms']}ms")
+    return results
+
+
+# Global streaming metrics (updated by streaming endpoints)
+streaming_metrics = {}
+
+@app.get("/api/diagnostics/streaming/{device_id}")
+async def get_streaming_diagnostics(device_id: str):
+    """Get current streaming performance metrics for a device."""
+    # First try stream_manager metrics (enhanced)
+    if stream_manager:
+        sm_metrics = stream_manager.get_metrics(device_id)
+        if sm_metrics:
+            return {
+                "active": True,
+                "mode": "enhanced",
+                "source": "stream_manager",
+                **sm_metrics
+            }
+
+    # Fall back to global streaming_metrics
+    metrics = streaming_metrics.get(device_id, {
+        "active": False,
+        "mode": None,
+        "current_fps": 0,
+        "avg_capture_time_ms": 0,
+        "frames_sent": 0,
+        "frames_dropped": 0,
+        "last_frame_time": None,
+        "connection_duration_s": 0
+    })
+    return metrics
+
+
+@app.get("/api/diagnostics/benchmark/{device_id}")
+async def benchmark_capture(device_id: str, iterations: int = 5):
+    """
+    Benchmark capture performance across different backends.
+
+    Compares adbutils vs adb_bridge capture speeds.
+    """
+    if not stream_manager:
+        raise HTTPException(status_code=503, detail="Stream manager not initialized")
+
+    if device_id not in adb_bridge.devices:
+        raise HTTPException(status_code=404, detail=f"Device not found: {device_id}")
+
+    logger.info(f"[Diagnostics] Running capture benchmark for {device_id} ({iterations} iterations)")
+    results = await stream_manager.benchmark_capture(device_id, iterations)
+    logger.info(f"[Diagnostics] Benchmark complete: recommended={results.get('recommended_backend')}")
+    return results
+
+
+@app.get("/api/diagnostics/system")
+async def get_system_diagnostics():
+    """Get overall system diagnostics - CPU, memory, connected devices."""
+    import platform
+
+    result = {
+        "platform": platform.system(),
+        "python_version": platform.python_version(),
+        "cpu_percent": 0.0,
+        "memory_used_mb": 0,
+        "memory_total_mb": 0,
+        "connected_devices": len(adb_bridge.devices),
+        "active_streams": len([d for d, m in streaming_metrics.items() if m.get("active")]),
+        "mqtt_connected": mqtt_manager.is_connected if mqtt_manager else False,
+        "uptime_seconds": 0,
+        # Flow scheduler status
+        "flow_scheduler": {
+            "running": flow_scheduler.is_running if flow_scheduler else False,
+            "paused": flow_scheduler.is_paused if flow_scheduler else False,
+            "active_flows": len(flow_scheduler.device_tasks) if flow_scheduler else 0
+        } if flow_scheduler else None
+    }
+
+    # Try to get psutil metrics (optional dependency)
+    try:
+        import psutil
+        result["cpu_percent"] = psutil.cpu_percent(interval=0.1)
+        mem = psutil.virtual_memory()
+        result["memory_used_mb"] = round(mem.used / (1024 * 1024))
+        result["memory_total_mb"] = round(mem.total / (1024 * 1024))
+
+        # Get process uptime
+        import os
+        process = psutil.Process(os.getpid())
+        result["uptime_seconds"] = int(time.time() - process.create_time())
+    except ImportError:
+        logger.warning("[Diagnostics] psutil not installed - system metrics unavailable")
+    except Exception as e:
+        logger.error(f"[Diagnostics] Error getting system metrics: {e}")
+
+    return result
+
+
+# === ADB Maintenance Endpoints ===
+
+@app.post("/api/maintenance/server/restart")
+async def restart_adb_server():
+    """Restart ADB server to fix zombie processes and connection issues"""
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    return await adb_maintenance.restart_adb_server()
+
+
+@app.get("/api/maintenance/server/status")
+async def get_adb_server_status():
+    """Get ADB server status and connected devices"""
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    return await adb_maintenance.get_server_status()
+
+
+@app.post("/api/maintenance/{device_id}/trim-cache")
+async def trim_device_cache(device_id: str):
+    """Clear all app caches on device to free storage and improve performance"""
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    return await adb_maintenance.trim_cache(device_id)
+
+
+@app.post("/api/maintenance/{device_id}/compile-apps")
+async def compile_device_apps(device_id: str, mode: str = "speed-profile"):
+    """Force ART compilation for faster app launches (takes 5-15 minutes)
+
+    Modes: speed-profile (recommended), speed, verify, quicken
+    """
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    return await adb_maintenance.compile_apps(device_id, mode)
+
+
+@app.post("/api/maintenance/{device_id}/optimize-ui")
+async def optimize_device_ui(device_id: str):
+    """Disable visual effects for faster UI operations"""
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    return await adb_maintenance.optimize_ui(device_id)
+
+
+@app.post("/api/maintenance/{device_id}/reset-ui")
+async def reset_device_ui(device_id: str):
+    """Reset UI animations and effects to defaults"""
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    return await adb_maintenance.reset_ui_optimizations(device_id)
+
+
+@app.post("/api/maintenance/{device_id}/full-optimize")
+async def full_device_optimize(device_id: str):
+    """Run full optimization suite (cache + UI)"""
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    return await adb_maintenance.full_optimize(device_id)
+
+
+@app.post("/api/maintenance/{device_id}/reset-display")
+async def reset_device_display(device_id: str):
+    """Emergency reset of display size and density"""
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    return await adb_maintenance.reset_display(device_id)
+
+
+@app.get("/api/maintenance/{device_id}/background-limit")
+async def get_background_limit(device_id: str):
+    """Get current background process limit"""
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    return await adb_maintenance.get_background_limit(device_id)
+
+
+@app.post("/api/maintenance/{device_id}/background-limit")
+async def set_background_limit(device_id: str, limit: int = 4):
+    """Set background process limit (0-4, -1 for default)"""
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    return await adb_maintenance.set_background_limit(device_id, limit)
+
+
+@app.get("/api/maintenance/metrics")
+async def get_all_connection_metrics():
+    """Get connection health metrics for all devices"""
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    return {"success": True, "metrics": adb_maintenance.get_all_metrics()}
+
+
+@app.get("/api/maintenance/{device_id}/metrics")
+async def get_device_connection_metrics(device_id: str):
+    """Get connection health metrics for a specific device"""
+    if not adb_maintenance:
+        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+    metrics = adb_maintenance.get_connection_metrics(device_id)
+    if not metrics:
+        return {"success": True, "metrics": None, "message": "No metrics yet for this device"}
+    return {"success": True, "metrics": metrics}
+
+
+# === UI Hierarchy Cache Endpoints ===
+
+@app.get("/api/cache/ui/stats")
+async def get_ui_cache_stats():
+    """Get UI hierarchy cache statistics"""
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+    return {"success": True, "cache": adb_bridge.get_ui_cache_stats()}
+
+
+@app.post("/api/cache/ui/clear")
+async def clear_ui_cache(device_id: str = None):
+    """Clear UI hierarchy cache for a device or all devices"""
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+    adb_bridge.clear_ui_cache(device_id)
+    return {
+        "success": True,
+        "message": f"UI cache cleared for {device_id}" if device_id else "UI cache cleared for all devices"
+    }
+
+
+@app.post("/api/cache/ui/settings")
+async def update_ui_cache_settings(enabled: bool = None, ttl_ms: float = None):
+    """Update UI hierarchy cache settings"""
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+
+    if enabled is not None:
+        adb_bridge.set_ui_cache_enabled(enabled)
+    if ttl_ms is not None:
+        adb_bridge.set_ui_cache_ttl(ttl_ms)
+
+    return {"success": True, "cache": adb_bridge.get_ui_cache_stats()}
+
+
+# === Screenshot Cache Endpoints ===
+
+@app.get("/api/cache/screenshot/stats")
+async def get_screenshot_cache_stats():
+    """Get screenshot cache statistics"""
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+    return {"success": True, "cache": adb_bridge.get_screenshot_cache_stats()}
+
+
+@app.post("/api/cache/screenshot/settings")
+async def update_screenshot_cache_settings(enabled: bool = None, ttl_ms: float = None):
+    """Update screenshot cache settings"""
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+
+    if enabled is not None:
+        adb_bridge.set_screenshot_cache_enabled(enabled)
+    if ttl_ms is not None:
+        adb_bridge.set_screenshot_cache_ttl(ttl_ms)
+
+    return {"success": True, "cache": adb_bridge.get_screenshot_cache_stats()}
+
+
+@app.get("/api/cache/all/stats")
+async def get_all_cache_stats():
+    """Get all cache statistics (UI + Screenshot)"""
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+    return {
+        "success": True,
+        "ui_cache": adb_bridge.get_ui_cache_stats(),
+        "screenshot_cache": adb_bridge.get_screenshot_cache_stats()
+    }
+
+
+# === Stream Isolation Stats ===
+
+@app.get("/api/stream/stats")
+async def get_stream_isolation_stats():
+    """Get streaming isolation statistics (separate from screenshots)"""
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+    return {"success": True, "stream": adb_bridge.get_stream_stats()}
+
+
+@app.get("/api/stream/{device_id}/stats")
+async def get_device_stream_stats(device_id: str):
+    """Get streaming stats for a specific device"""
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+    return {"success": True, "stream": adb_bridge.get_stream_stats(device_id)}
+
+
+# === Persistent Shell Pool Endpoints ===
+
+@app.get("/api/shell/stats")
+async def get_shell_pool_stats():
+    """Get persistent shell pool statistics"""
+    if not shell_pool:
+        raise HTTPException(status_code=503, detail="Shell pool not initialized")
+    return {"success": True, "stats": shell_pool.get_stats()}
+
+
+@app.post("/api/shell/{device_id}/execute")
+async def execute_shell_command(device_id: str, request: ShellExecuteRequest):
+    """Execute a command using persistent shell session (faster than individual adb shell calls)"""
+    if not shell_pool:
+        raise HTTPException(status_code=503, detail="Shell pool not initialized")
+
+    try:
+        shell = await shell_pool.get_shell(device_id)
+        success, output = await shell.execute(request.command)
+        return {
+            "success": success,
+            "output": output,
+            "session": shell.stats
+        }
+    except Exception as e:
+        logger.error(f"[Shell] Execute error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/shell/{device_id}/batch")
+async def execute_shell_batch(device_id: str, request: ShellBatchRequest):
+    """Execute multiple commands in a persistent shell session"""
+    if not shell_pool:
+        raise HTTPException(status_code=503, detail="Shell pool not initialized")
+
+    try:
+        shell = await shell_pool.get_shell(device_id)
+        results = await shell.execute_batch(request.commands)
+        return {
+            "success": True,
+            "results": [{"success": r[0], "output": r[1]} for r in results],
+            "session": shell.stats
+        }
+    except Exception as e:
+        logger.error(f"[Shell] Batch execute error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/shell/{device_id}/benchmark")
+async def benchmark_shell_session(device_id: str, iterations: int = 10):
+    """Benchmark persistent shell vs regular adb shell performance"""
+    if not shell_pool:
+        raise HTTPException(status_code=503, detail="Shell pool not initialized")
+    if not adb_bridge:
+        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+
+    test_command = "echo test"
+    results = {
+        "persistent_shell": {"times_ms": [], "avg_ms": 0},
+        "regular_adb": {"times_ms": [], "avg_ms": 0},
+        "improvement_percent": 0
+    }
+
+    # Benchmark persistent shell
+    try:
+        shell = await shell_pool.get_shell(device_id)
+        for _ in range(iterations):
+            start = time.time()
+            await shell.execute(test_command)
+            elapsed = (time.time() - start) * 1000
+            results["persistent_shell"]["times_ms"].append(round(elapsed, 1))
+    except Exception as e:
+        logger.error(f"[Shell] Benchmark persistent shell error: {e}")
+        results["persistent_shell"]["error"] = str(e)
+
+    # Benchmark regular adb shell (spawning new process each time)
+    try:
+        for _ in range(iterations):
+            start = time.time()
+            proc = await asyncio.create_subprocess_exec(
+                'adb', '-s', device_id, 'shell', test_command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await proc.communicate()
+            elapsed = (time.time() - start) * 1000
+            results["regular_adb"]["times_ms"].append(round(elapsed, 1))
+    except Exception as e:
+        logger.error(f"[Shell] Benchmark regular adb error: {e}")
+        results["regular_adb"]["error"] = str(e)
+
+    # Calculate averages
+    if results["persistent_shell"]["times_ms"]:
+        results["persistent_shell"]["avg_ms"] = round(
+            sum(results["persistent_shell"]["times_ms"]) / len(results["persistent_shell"]["times_ms"]), 1
+        )
+    if results["regular_adb"]["times_ms"]:
+        results["regular_adb"]["avg_ms"] = round(
+            sum(results["regular_adb"]["times_ms"]) / len(results["regular_adb"]["times_ms"]), 1
+        )
+
+    # Calculate improvement
+    if results["regular_adb"]["avg_ms"] > 0 and results["persistent_shell"]["avg_ms"] > 0:
+        improvement = (
+            (results["regular_adb"]["avg_ms"] - results["persistent_shell"]["avg_ms"])
+            / results["regular_adb"]["avg_ms"]
+        ) * 100
+        results["improvement_percent"] = round(improvement, 1)
+
+    return {"success": True, "benchmark": results, "iterations": iterations}
+
+
+@app.delete("/api/shell/{device_id}")
+async def close_device_shells(device_id: str):
+    """Close all persistent shell sessions for a device"""
+    if not shell_pool:
+        raise HTTPException(status_code=503, detail="Shell pool not initialized")
+
+    await shell_pool.close_device_sessions(device_id)
+    return {"success": True, "message": f"Closed all shell sessions for {device_id}"}
+
+
 # Root API info
 @app.get("/api/")
 async def api_root():
     """API root endpoint"""
     return {
         "name": "Visual Mapper API",
-        "version": "0.0.4",
+        "version": "0.0.5",
         "endpoints": {
             "health": "/api/health",
+            "diagnostics_adb": "/api/diagnostics/adb/{device_id}",
+            "diagnostics_streaming": "/api/diagnostics/streaming/{device_id}",
+            "diagnostics_benchmark": "/api/diagnostics/benchmark/{device_id}",
+            "diagnostics_system": "/api/diagnostics/system",
             "connect": "/api/adb/connect",
             "pair": "/api/adb/pair",
             "disconnect": "/api/adb/disconnect",
@@ -455,7 +1077,13 @@ async def api_root():
             "sensors": "/api/sensors",
             "sensors_by_device": "/api/sensors/{device_id}",
             "sensor_detail": "/api/sensors/{device_id}/{sensor_id}",
-            "device_classes": "/api/device-classes"
+            "device_classes": "/api/device-classes",
+            "shell_stats": "/api/shell/stats",
+            "shell_execute": "/api/shell/{device_id}/execute",
+            "shell_batch": "/api/shell/{device_id}/batch",
+            "shell_benchmark": "/api/shell/{device_id}/benchmark",
+            "maintenance_server_restart": "/api/maintenance/server/restart",
+            "maintenance_metrics": "/api/maintenance/metrics"
         }
     }
 
@@ -598,6 +1226,33 @@ async def capture_screenshot(request: ScreenshotRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Fast Elements-Only Endpoint (for streaming mode)
+@app.get("/api/adb/elements/{device_id}")
+async def get_elements_only(device_id: str):
+    """Get UI elements without capturing screenshot (faster for streaming mode)"""
+    try:
+        logger.info(f"[API] Getting elements only from {device_id}")
+        elements = await adb_bridge.get_ui_elements(device_id)
+        logger.info(f"[API] Got {len(elements)} elements")
+
+        # Note: Device dimensions are provided by MJPEG config when streaming starts.
+        # This endpoint returns elements-only for speed. If dimensions are needed,
+        # they should come from the stream config or a separate dimensions endpoint.
+
+        return {
+            "success": True,
+            "elements": elements,
+            "count": len(elements),
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        logger.warning(f"[API] Elements request failed: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[API] Elements failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Screenshot Stitching Endpoint
 @app.post("/api/adb/screenshot/stitch")
 async def capture_stitched_screenshot(request: ScreenshotStitchRequest):
@@ -734,6 +1389,34 @@ async def get_current_activity(device_id: str):
         }
     except Exception as e:
         logger.error(f"[API] Get activity failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/screen/current/{device_id}")
+async def get_current_screen(device_id: str):
+    """
+    Get current screen info (activity with package/activity breakdown).
+    Used for screen awareness in Flow Wizard.
+
+    Returns:
+        activity: {package, activity, full_name}
+        element_count: Number of UI elements on screen
+        timestamp: Current time
+    """
+    try:
+        logger.info(f"[API] Getting current screen info for {device_id}")
+
+        # Get activity info as dict (with package breakdown)
+        activity_info = await adb_bridge.get_current_activity(device_id, as_dict=True)
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            "activity": activity_info,
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Get screen info failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1134,6 +1817,31 @@ async def launch_app(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/adb/stop-app")
+async def stop_app(request: Request):
+    """Force stop an app by package name"""
+    try:
+        data = await request.json()
+        device_id = data.get("device_id")
+        package = data.get("package")
+
+        if not device_id or not package:
+            raise HTTPException(status_code=400, detail="device_id and package required")
+
+        logger.info(f"[API] Force stopping {package} on {device_id}")
+        success = await adb_bridge.stop_app(device_id, package)
+
+        return {
+            "success": success,
+            "device_id": device_id,
+            "package": package,
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Stop app failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Sensor Management Endpoints
 @app.post("/api/sensors")
 async def create_sensor(sensor: SensorDefinition):
@@ -1141,6 +1849,21 @@ async def create_sensor(sensor: SensorDefinition):
     try:
         logger.info(f"[API] Creating sensor for device {sensor.device_id}")
         created_sensor = sensor_manager.create_sensor(sensor)
+
+        # Publish MQTT discovery for the new sensor
+        if mqtt_manager:
+            try:
+                success = await mqtt_manager.publish_discovery(created_sensor)
+                if success:
+                    logger.info(f"[API] Published MQTT discovery for new sensor {created_sensor.sensor_id}")
+                    # Also publish initial state if available
+                    if created_sensor.current_value:
+                        await mqtt_manager.publish_state(created_sensor, created_sensor.current_value)
+                else:
+                    logger.warning(f"[API] Failed to publish MQTT discovery for {created_sensor.sensor_id}")
+            except Exception as e:
+                logger.error(f"[API] MQTT discovery failed for {created_sensor.sensor_id}: {e}")
+
         return {
             "success": True,
             "sensor": created_sensor.model_dump(mode='json')
@@ -2064,6 +2787,97 @@ async def get_flow_alerts(device_id: Optional[str] = None, limit: int = 10):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# Scheduler Control Endpoints
+# ============================================================================
+
+@app.get("/api/scheduler/status")
+async def get_scheduler_status():
+    """
+    Get overall scheduler status
+
+    Returns:
+        Scheduler state including running/paused status and per-device info
+    """
+    try:
+        if not flow_scheduler:
+            raise HTTPException(status_code=503, detail="Flow scheduler not initialized")
+
+        status = flow_scheduler.get_status()
+        return {"success": True, "status": status}
+
+    except Exception as e:
+        logger.error(f"[API] Failed to get scheduler status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/scheduler/pause")
+async def pause_scheduler():
+    """
+    Pause periodic scheduling
+
+    Note: Currently executing flows will complete, but no new periodic
+    flows will be queued until resumed.
+    """
+    try:
+        if not flow_scheduler:
+            raise HTTPException(status_code=503, detail="Flow scheduler not initialized")
+
+        await flow_scheduler.pause()
+        return {"success": True, "message": "Scheduler paused"}
+
+    except Exception as e:
+        logger.error(f"[API] Failed to pause scheduler: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/scheduler/resume")
+async def resume_scheduler():
+    """
+    Resume periodic scheduling
+    """
+    try:
+        if not flow_scheduler:
+            raise HTTPException(status_code=503, detail="Flow scheduler not initialized")
+
+        await flow_scheduler.resume()
+        return {"success": True, "message": "Scheduler resumed"}
+
+    except Exception as e:
+        logger.error(f"[API] Failed to resume scheduler: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scheduler/queue/{device_id}")
+async def get_scheduler_queue(device_id: str):
+    """
+    Get queue information for a device
+
+    Args:
+        device_id: Device ID to check
+
+    Returns:
+        Queue depth and status for the device
+    """
+    try:
+        if not flow_scheduler:
+            raise HTTPException(status_code=503, detail="Flow scheduler not initialized")
+
+        queue_info = flow_scheduler.get_queued_flows(device_id)
+        metrics = flow_scheduler.get_metrics(device_id)
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            "queue": queue_info,
+            "metrics": metrics
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Failed to get scheduler queue: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.delete("/api/flows/alerts")
 async def clear_flow_alerts(device_id: Optional[str] = None):
     """
@@ -2293,13 +3107,43 @@ async def stream_device(websocket: WebSocket, device_id: str):
     frame_number = 0
 
     try:
+        # Capture initial screenshot to get native device dimensions
+        try:
+            init_screenshot = await adb_bridge.capture_screenshot(device_id)
+            if len(init_screenshot) > 1000:
+                from PIL import Image
+                import io
+                init_img = Image.open(io.BytesIO(init_screenshot))
+                device_width, device_height = init_img.size
+                # Send config with native device dimensions
+                await websocket.send_json({
+                    "type": "config",
+                    "width": device_width,
+                    "height": device_height,
+                    "quality": quality,
+                    "target_fps": preset['target_fps']
+                })
+                logger.info(f"[WS-Stream] Device dimensions: {device_width}x{device_height}")
+        except Exception as init_err:
+            logger.warning(f"[WS-Stream] Failed to get device dimensions: {init_err}")
+
         while True:
             frame_number += 1
             capture_start = time.time()
 
             try:
-                # Capture screenshot only - elements fetched on-demand for performance
-                screenshot_bytes = await adb_bridge.capture_screenshot(device_id)
+                # Capture screenshot with per-frame timeout (3 seconds max)
+                # This prevents a single slow capture from blocking the stream
+                try:
+                    screenshot_bytes = await asyncio.wait_for(
+                        adb_bridge.capture_screenshot(device_id),
+                        timeout=3.0  # 3 second max per frame
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"[WS-Stream] Frame {frame_number}: Capture timeout (>3s), skipping")
+                    await asyncio.sleep(0.5)
+                    continue
+
                 capture_time = (time.time() - capture_start) * 1000  # ms
 
                 # Skip if invalid/empty screenshot
@@ -2392,10 +3236,25 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
     frame_number = 0
 
     try:
-        # Send initial config as JSON
+        # Capture initial screenshot to get native device dimensions
+        device_width, device_height = 1080, 1920  # Defaults
+        try:
+            init_screenshot = await adb_bridge.capture_screenshot(device_id)
+            if len(init_screenshot) > 1000:
+                from PIL import Image
+                import io
+                init_img = Image.open(io.BytesIO(init_screenshot))
+                device_width, device_height = init_img.size
+                logger.info(f"[WS-MJPEG] Device dimensions: {device_width}x{device_height}")
+        except Exception as init_err:
+            logger.warning(f"[WS-MJPEG] Failed to get device dimensions: {init_err}")
+
+        # Send initial config as JSON with device dimensions
         await websocket.send_json({
             "type": "config",
             "format": "mjpeg",
+            "width": device_width,
+            "height": device_height,
             "quality": quality,
             "target_fps": preset['target_fps'],
             "message": "MJPEG binary streaming ready. Subsequent frames are binary."
@@ -2406,8 +3265,18 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
             capture_start = time.time()
 
             try:
-                # Capture screenshot (PNG from ADB)
-                screenshot_bytes = await adb_bridge.capture_screenshot(device_id)
+                # Capture screenshot with per-frame timeout (3 seconds max)
+                # This prevents a single slow capture from blocking the stream
+                try:
+                    screenshot_bytes = await asyncio.wait_for(
+                        adb_bridge.capture_screenshot(device_id),
+                        timeout=3.0  # 3 second max per frame
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"[WS-MJPEG] Frame {frame_number}: Capture timeout (>3s), skipping")
+                    await asyncio.sleep(0.5)
+                    continue
+
                 capture_time = int((time.time() - capture_start) * 1000)  # ms as int
 
                 # Skip if invalid/empty screenshot
@@ -2455,6 +3324,75 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
         logger.error(f"[WS-MJPEG] Connection error: {e}")
     finally:
         logger.info(f"[WS-MJPEG] Stream ended for device: {device_id}, frames sent: {frame_number}")
+
+
+# === Real-Time Log Viewer ===
+
+@app.get("/api/logs/recent")
+async def get_recent_logs(count: int = 50):
+    """Get recent log entries from buffer"""
+    return {
+        "success": True,
+        "logs": ws_log_handler.get_recent_logs(count),
+        "connected_clients": len(ws_log_handler.clients)
+    }
+
+
+@app.websocket("/ws/logs")
+async def websocket_logs(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time log streaming.
+
+    Clients receive:
+    - Initial batch of recent logs on connect
+    - Real-time log messages as they occur
+
+    Message format:
+    {
+        "type": "log" | "history",
+        "data": { timestamp, level, message, logger, module } | [logs...]
+    }
+    """
+    await websocket.accept()
+    logger.info("[WS-Logs] Client connected")
+
+    # Register client
+    ws_log_handler.add_client(websocket)
+
+    try:
+        # Send recent log history on connect
+        recent_logs = ws_log_handler.get_recent_logs(100)
+        await websocket.send_json({
+            "type": "history",
+            "data": recent_logs
+        })
+
+        # Keep connection alive and handle client messages
+        while True:
+            try:
+                # Wait for client messages (ping/pong, filter requests, etc.)
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+
+                # Handle filter commands
+                if message.startswith("filter:"):
+                    # Future: implement log filtering
+                    pass
+                elif message == "ping":
+                    await websocket.send_json({"type": "pong"})
+
+            except asyncio.TimeoutError:
+                # Send keepalive ping
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except:
+                    break
+
+    except WebSocketDisconnect:
+        logger.info("[WS-Logs] Client disconnected")
+    except Exception as e:
+        logger.error(f"[WS-Logs] Error: {e}")
+    finally:
+        ws_log_handler.remove_client(websocket)
 
 
 # Mount static files LAST (catch-all route)

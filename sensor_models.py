@@ -111,7 +111,7 @@ class SensorSource(BaseModel):
 class SensorDefinition(BaseModel):
     """Complete sensor definition"""
     # Identity
-    sensor_id: str = Field(..., description="Unique sensor ID (generated)")
+    sensor_id: Optional[str] = Field(None, description="Unique sensor ID (auto-generated if not provided)")
     device_id: str = Field(..., description="Device this sensor belongs to")
 
     # Basic Configuration
@@ -183,7 +183,7 @@ class SensorList(BaseModel):
     """List of sensors for a device"""
     device_id: str
     sensors: List[SensorDefinition] = []
-    version: str = "0.0.4"
+    version: str = "0.0.5"
     last_modified: datetime = Field(default_factory=datetime.now)
 
 

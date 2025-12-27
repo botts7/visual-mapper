@@ -1,24 +1,28 @@
 /**
  * Flow Wizard Module
- * Visual Mapper v0.0.6
+ * Visual Mapper v0.0.9
  *
  * Interactive wizard for creating flows with recording mode
  * Refactored: Steps 1,2,4,5 use separate modules
+ * v0.0.7: New toolbar UI, localStorage preferences, simplified layout
+ * v0.0.8: Tabbed panel, loading overlay, fixed ripple offset
+ * v0.0.9: Pass overlay filters to findElementAtCoordinates for container filtering
  */
 
 import { showToast } from './toast.js?v=0.0.5';
 import FlowRecorder from './flow-recorder.js?v=0.0.6';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.5';
-import FlowElementPanel from './flow-element-panel.js?v=0.0.5';
-import FlowInteractions from './flow-interactions.js?v=0.0.9';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.7';
+import FlowInteractions from './flow-interactions.js?v=0.0.12';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
-import LiveStream from './live-stream.js?v=0.0.7';
-import ElementTree from './element-tree.js?v=0.0.3';
+import LiveStream from './live-stream.js?v=0.0.13';
+import ElementTree from './element-tree.js?v=0.0.4';
+import APIClient from './api-client.js?v=0.0.4';
+import SensorCreator from './sensor-creator.js?v=0.0.9';
 
 // Step modules
 import * as Step1 from './flow-wizard-step1.js?v=0.0.5';
 import * as Step2 from './flow-wizard-step2.js?v=0.0.5';
-import * as Step4 from './flow-wizard-step4.js?v=0.0.5';
+import * as Step4 from './flow-wizard-step4.js?v=0.0.6';
 import * as Step5 from './flow-wizard-step5.js?v=0.0.5';
 
 // Helper to get API base (from global set by init.js)
@@ -35,12 +39,16 @@ class FlowWizard {
         this.recordMode = 'execute';
         this.recorder = null;
         this.flowSteps = [];
+        this.schedulerWasPaused = false;  // Track if we paused the scheduler
         this.overlayFilters = {
             showClickable: true,
-            showNonClickable: true,
+            showNonClickable: false,  // Off by default - clickable elements are most useful
             showTextLabels: true,
-            hideSmall: false,
-            textOnly: false
+            hideSmall: true,          // On by default - hide tiny elements
+            textOnly: false,
+            hideDividers: true,       // Hide full-width horizontal line elements
+            hideContainers: true,     // Hide layout/container elements (View, FrameLayout, etc.)
+            hideEmptyElements: true   // Hide elements without text or content-desc
         };
 
         // Capture state tracking (prevent concurrent captures)
@@ -60,23 +68,35 @@ class FlowWizard {
 
         // Helper modules (initialized in loadStep3)
         this.canvasRenderer = null;
-        this.elementPanel = null;
         this.interactions = null;
         this.stepManager = null;
 
         // Live streaming (Phase 1 enhancement)
         this.captureMode = 'polling'; // 'polling' or 'streaming'
+        this.streamMode = 'mjpeg'; // 'mjpeg' or 'websocket'
         this.streamQuality = 'medium'; // 'high', 'medium', 'low', 'fast'
         this.liveStream = null;
 
         // Gesture recording (Phase 4 enhancement)
         this.dragStart = null;
         this.isDragging = false;
+
+        // Recording pause toggle - when paused, gestures are executed but not recorded
+        this.recordingPaused = false;
         this.MIN_SWIPE_DISTANCE = 30; // Minimum pixels to count as swipe
 
         // Element tree (Phase 5 enhancement)
         this.elementTree = null;
         this.isTreeViewOpen = false;
+
+        // API client and sensor creator (for advanced sensor dialog)
+        this.apiClient = new APIClient();
+        this.sensorCreator = new SensorCreator(this.apiClient);
+
+        // Set callback for when sensor is created - add capture step to flow
+        this.sensorCreator.onSensorCreated = (response, sensorData) => {
+            this._handleSensorCreated(response, sensorData);
+        };
 
         console.log('FlowWizard initialized');
         this.init();
@@ -93,8 +113,79 @@ class FlowWizard {
 
     setup() {
         this.setupNavigation();
+        this.setupCleanup();
+        this.pauseSchedulerForEditing();
         Step1.loadStep(this); // Load first step immediately
         console.log('FlowWizard setup complete');
+    }
+
+    /**
+     * Setup cleanup handlers for page unload
+     */
+    setupCleanup() {
+        // Resume scheduler when leaving the page
+        window.addEventListener('beforeunload', () => {
+            this.resumeSchedulerAfterEditing();
+        });
+
+        // Also handle visibility change (tab switch)
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                // Don't resume on tab switch - only on page close
+            }
+        });
+    }
+
+    /**
+     * Pause the flow scheduler while editing flows
+     * This prevents ADB contention and improves streaming performance
+     */
+    async pauseSchedulerForEditing() {
+        try {
+            const response = await this.apiClient.post('/scheduler/pause');
+            if (response.success) {
+                console.log('[FlowWizard] Paused flow scheduler for editing');
+                this.schedulerWasPaused = true;
+                this.showSchedulerStatus('paused');
+            }
+        } catch (e) {
+            console.warn('[FlowWizard] Could not pause scheduler:', e);
+        }
+    }
+
+    /**
+     * Resume the flow scheduler after editing
+     */
+    async resumeSchedulerAfterEditing() {
+        if (!this.schedulerWasPaused) return;
+
+        try {
+            await this.apiClient.post('/scheduler/resume');
+            console.log('[FlowWizard] Resumed flow scheduler after editing');
+            this.schedulerWasPaused = false;
+        } catch (e) {
+            console.warn('[FlowWizard] Could not resume scheduler:', e);
+        }
+    }
+
+    /**
+     * Show scheduler status indicator
+     */
+    showSchedulerStatus(status) {
+        // Add a subtle indicator that scheduler is paused
+        const nav = document.querySelector('nav');
+        if (nav && status === 'paused') {
+            // Check if indicator already exists
+            if (!document.getElementById('scheduler-pause-indicator')) {
+                const indicator = document.createElement('li');
+                indicator.id = 'scheduler-pause-indicator';
+                indicator.innerHTML = '<span style="color: #ff9800; font-size: 12px;" title="Flow scheduler is paused during editing">⏸ Flows Paused</span>';
+                nav.querySelector('ul').appendChild(indicator);
+            }
+        } else {
+            const indicator = document.getElementById('scheduler-pause-indicator');
+            if (indicator) indicator.remove();
+        }
     }
 
     /**
@@ -272,6 +363,9 @@ class FlowWizard {
         // Populate app info header
         this.populateAppInfo();
 
+        // Phase 1 Screen Awareness: Update screen info initially
+        this.updateScreenInfo();
+
         // Get canvas and context for rendering
         this.canvas = document.getElementById('screenshotCanvas');
         this.ctx = this.canvas.getContext('2d');
@@ -281,12 +375,8 @@ class FlowWizard {
         this.canvasRenderer = new FlowCanvasRenderer(this.canvas, this.ctx);
         this.canvasRenderer.setOverlayFilters(this.overlayFilters);
 
-        this.elementPanel = new FlowElementPanel(document.getElementById('elementList'));
-        this.elementPanel.setCallbacks({
-            onTap: (el) => this.addTapStepFromElement(el),
-            onType: (el) => this.addTypeStepFromElement(el),
-            onSensor: (el, idx) => this.addSensorCaptureFromElement(el, idx)
-        });
+        // Note: Element panel replaced by ElementTree in right panel
+        // ElementTree is initialized in setupElementTree()
 
         this.interactions = new FlowInteractions(getApiBase());
 
@@ -303,29 +393,26 @@ class FlowWizard {
         const started = await this.recorder.start();
 
         if (started) {
-            // Display initial screenshot
-            await this.updateScreenshotDisplay();
-
-            // Show preview overlay if quick screenshot was loaded
-            if (this.recorder.screenshotMetadata?.quick) {
-                this.showPreviewOverlay();
+            // Only load initial screenshot in polling mode
+            // Streaming mode will handle display via LiveStream callbacks
+            if (this.captureMode !== 'streaming') {
+                await this.updateScreenshotDisplay();
+                // Auto-fetch full screenshot with elements after initial quick preview
+                // This runs in background while user sees the quick preview
+                this.refreshElements().then(() => {
+                    this.updateScreenshotDisplay();
+                }).catch(e => console.warn('[FlowWizard] Auto-refresh failed:', e));
             }
         }
     }
 
     populateAppInfo() {
         console.log('[FlowWizard] populateAppInfo() called');
-        console.log('[FlowWizard] this.selectedApp:', this.selectedApp);
-        console.log('[FlowWizard] this.selectedDevice:', this.selectedDevice);
 
-        const appInfoHeader = document.getElementById('appInfoHeader');
         const appIcon = document.getElementById('appIcon');
         const appName = document.getElementById('appName');
-        const appPackage = document.getElementById('appPackage');
 
-        console.log('[FlowWizard] DOM elements:', { appInfoHeader, appIcon, appName, appPackage });
-
-        if (!appInfoHeader || !appIcon || !appName || !appPackage) {
+        if (!appIcon || !appName) {
             console.warn('[FlowWizard] App info elements not found in DOM');
             return;
         }
@@ -334,29 +421,53 @@ class FlowWizard {
         const packageName = this.selectedApp?.package || this.selectedApp;
         const label = this.selectedApp?.label || packageName;
 
-        console.log('[FlowWizard] Extracted data:', { packageName, label });
-
-        // Set app name and package
-        appName.textContent = label;
-        appPackage.textContent = packageName;
+        // Set app name (truncated for toolbar)
+        const shortLabel = label.length > 20 ? label.substring(0, 18) + '...' : label;
+        appName.textContent = shortLabel;
+        appName.title = `${label} (${packageName})`;
 
         // Fetch and set app icon
         const iconUrl = `${getApiBase()}/adb/app-icon/${encodeURIComponent(this.selectedDevice)}/${encodeURIComponent(packageName)}`;
-        console.log('[FlowWizard] App icon URL:', iconUrl);
-
         appIcon.src = iconUrl;
         appIcon.onerror = () => {
-            console.warn('[FlowWizard] App icon failed to load, using fallback');
-            // Fallback to emoji if icon fails to load
-            appIcon.style.display = 'none';
-            appIcon.insertAdjacentHTML('afterend', '<div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; font-size: 32px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">📱</div>');
+            appIcon.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="16">📱</text></svg>';
         };
 
-        // Show the header
-        appInfoHeader.style.display = 'flex';
-        console.log('[FlowWizard] App info header display set to flex');
+        console.log(`[FlowWizard] App info populated: ${label}`);
+    }
 
-        console.log(`[FlowWizard] App info populated: ${label} (${packageName})`);
+    /**
+     * Phase 1 Screen Awareness: Update current screen info in toolbar
+     * Shows the current Android activity name
+     */
+    async updateScreenInfo() {
+        const activityEl = document.getElementById('currentActivity');
+        if (!activityEl) return;
+
+        try {
+            const response = await fetch(`${getApiBase()}/screen/current/${encodeURIComponent(this.selectedDevice)}`);
+            if (!response.ok) {
+                console.warn('[FlowWizard] Failed to get screen info');
+                activityEl.textContent = '--';
+                return;
+            }
+
+            const data = await response.json();
+            const activityInfo = data.activity;
+
+            if (activityInfo?.activity) {
+                // Show short activity name (e.g., "MainActivity" not full path)
+                const shortName = activityInfo.activity.split('.').pop();
+                activityEl.textContent = shortName;
+                activityEl.title = activityInfo.full_name || activityInfo.activity;
+                console.log(`[FlowWizard] Screen: ${shortName} (${activityInfo.package})`);
+            } else {
+                activityEl.textContent = '--';
+            }
+        } catch (e) {
+            console.warn('[FlowWizard] Error updating screen info:', e);
+            activityEl.textContent = '--';
+        }
     }
 
     setupRecordingUI() {
@@ -386,83 +497,20 @@ class FlowWizard {
         // Setup hover tooltip for element preview
         this.setupHoverTooltip();
 
-        // Sidebar collapse/expand buttons
-        document.getElementById('btnCollapseSidebar')?.addEventListener('click', () => {
-            this.collapseSidebar();
-        });
+        // Setup toolbar handlers
+        this.setupToolbarHandlers();
 
-        document.getElementById('btnExpandSidebar')?.addEventListener('click', () => {
-            this.expandSidebar();
-        });
+        // Setup panel toggle (mobile FAB + backdrop)
+        this.setupPanelToggle();
 
-        // Navigation controls
-        document.getElementById('btnRefreshScreen')?.addEventListener('click', async () => {
-            await this.recorder.refresh();
-            this.updateScreenshotDisplay();
-        });
+        // Setup tab switching
+        this.setupPanelTabs();
 
-        document.getElementById('btnStitchCapture')?.addEventListener('click', async () => {
-            const btn = document.getElementById('btnStitchCapture');
-            const originalText = btn.textContent;
+        // Setup element tree
+        this.setupElementTree();
 
-            try {
-                // Disable button and show feedback
-                btn.disabled = true;
-                btn.textContent = '⏳ Stitching...';
-                showToast('Starting stitch capture... This may take 30-60 seconds', 'info', 3000);
-
-                await this.recorder.stitchCapture();
-                this.updateScreenshotDisplay();
-
-                showToast('Stitch capture complete!', 'success', 2000);
-            } catch (error) {
-                showToast(`Stitch capture failed: ${error.message}`, 'error', 3000);
-            } finally {
-                // Re-enable button
-                btn.disabled = false;
-                btn.textContent = originalText;
-            }
-        });
-
-        document.getElementById('btnGoBack')?.addEventListener('click', async () => {
-            await this.recorder.goBack();
-            this.updateScreenshotDisplay();
-            this.refreshAfterAction(600); // Refresh elements after navigation
-        });
-
-        document.getElementById('btnGoHome')?.addEventListener('click', async () => {
-            await this.recorder.goHome();
-            this.updateScreenshotDisplay();
-            this.refreshAfterAction(600); // Refresh elements after navigation
-        });
-
-        // Zoom controls
-        document.getElementById('btnZoomIn')?.addEventListener('click', () => {
-            this.zoomIn();
-        });
-
-        document.getElementById('btnZoomOut')?.addEventListener('click', () => {
-            this.zoomOut();
-        });
-
-        document.getElementById('btnZoomReset')?.addEventListener('click', () => {
-            this.resetZoom();
-        });
-
-        // Swipe controls
-        document.querySelectorAll('[data-swipe]').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const direction = btn.dataset.swipe;
-                await this.recorder.swipe(direction);
-                this.updateScreenshotDisplay();
-                this.refreshAfterAction(500); // Refresh elements after swipe
-            });
-        });
-
-        // Scale toggle button
-        document.getElementById('btnToggleScale')?.addEventListener('click', () => {
-            this.toggleScale();
-        });
+        // Setup overlay filter controls
+        this.setupOverlayFilters();
 
         // Done recording button
         document.getElementById('btnDoneRecording')?.addEventListener('click', () => {
@@ -471,20 +519,232 @@ class FlowWizard {
             this.nextStep();
         });
 
-        // Tree view toggle button
-        document.getElementById('btnToggleTree')?.addEventListener('click', () => {
-            this.toggleTreeView();
+        // Clear flow button
+        document.getElementById('btnClearFlow')?.addEventListener('click', () => {
+            if (confirm('Clear all recorded steps?')) {
+                this.recorder?.clearSteps();
+                this.updateFlowStepsUI();
+            }
+        });
+    }
+
+    /**
+     * Setup panel tab switching
+     */
+    setupPanelTabs() {
+        const tabs = document.querySelectorAll('.panel-tab');
+        const tabContents = {
+            'elements': document.getElementById('tabElements'),
+            'flow': document.getElementById('tabFlow')
+        };
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+
+                // Update active tab
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                // Show corresponding content
+                Object.entries(tabContents).forEach(([name, content]) => {
+                    if (content) {
+                        content.classList.toggle('active', name === tabName);
+                    }
+                });
+            });
         });
 
-        document.getElementById('btnCloseTree')?.addEventListener('click', () => {
-            this.toggleTreeView(false);
+        console.log('[FlowWizard] Panel tabs initialized');
+    }
+
+    /**
+     * Switch to a specific tab (elements or flow)
+     */
+    switchToTab(tabName) {
+        const tabs = document.querySelectorAll('.panel-tab');
+        const tabContents = {
+            'elements': document.getElementById('tabElements'),
+            'flow': document.getElementById('tabFlow')
+        };
+
+        tabs.forEach(tab => {
+            const isTarget = tab.dataset.tab === tabName;
+            tab.classList.toggle('active', isTarget);
         });
 
-        // Setup element tree
-        this.setupElementTree();
+        Object.entries(tabContents).forEach(([name, content]) => {
+            if (content) {
+                content.classList.toggle('active', name === tabName);
+            }
+        });
+    }
 
-        // Setup overlay filter controls
-        this.setupOverlayFilters();
+    /**
+     * Setup Quick Actions Toolbar handlers
+     */
+    setupToolbarHandlers() {
+        // Refresh button
+        document.getElementById('qabRefresh')?.addEventListener('click', async () => {
+            const btn = document.getElementById('qabRefresh');
+            btn.classList.add('active');
+            await this.recorder.refresh();
+            // Only update screenshot in polling mode - streaming updates automatically
+            if (this.captureMode !== 'streaming') {
+                await this.updateScreenshotDisplay();
+            }
+            btn.classList.remove('active');
+        });
+
+        // Back button
+        document.getElementById('qabBack')?.addEventListener('click', async () => {
+            await this.recorder.goBack();
+            // Only update screenshot in polling mode - streaming updates automatically
+            if (this.captureMode !== 'streaming') {
+                this.updateScreenshotDisplay();
+            }
+            this.refreshAfterAction(600);
+        });
+
+        // Home button
+        document.getElementById('qabHome')?.addEventListener('click', async () => {
+            await this.recorder.goHome();
+            // Only update screenshot in polling mode - streaming updates automatically
+            if (this.captureMode !== 'streaming') {
+                this.updateScreenshotDisplay();
+            }
+            this.refreshAfterAction(600);
+        });
+
+        // Zoom controls
+        document.getElementById('qabZoomOut')?.addEventListener('click', () => this.zoomOut());
+        document.getElementById('qabZoomIn')?.addEventListener('click', () => this.zoomIn());
+        document.getElementById('qabFit')?.addEventListener('click', () => this.fitToScreen());
+        document.getElementById('qabScale')?.addEventListener('click', () => this.toggleScale());
+
+        // Recording toggle - pause/resume action recording
+        document.getElementById('qabRecordToggle')?.addEventListener('click', () => this.toggleRecording());
+
+        // Pull-to-refresh button - sends swipe down gesture to Android app (recordable)
+        document.getElementById('qabPullRefresh')?.addEventListener('click', async () => {
+            const btn = document.getElementById('qabPullRefresh');
+            btn.classList.add('active');
+
+            try {
+                showToast('Sending pull-to-refresh...', 'info', 1500);
+
+                // Use recorder's pullRefresh method which adds it as a flow step
+                await this.recorder.pullRefresh();
+
+                // Wait for app to refresh, then update screenshot
+                this.refreshAfterAction(800);
+
+                showToast('App refreshed! (Added to flow)', 'success', 1500);
+            } catch (error) {
+                console.error('[FlowWizard] Pull-to-refresh failed:', error);
+                showToast(`Refresh failed: ${error.message}`, 'error');
+            } finally {
+                btn.classList.remove('active');
+            }
+        });
+
+        // Restart app button - force stop and relaunch (for apps without pull-to-refresh)
+        document.getElementById('qabRestartApp')?.addEventListener('click', async () => {
+            const btn = document.getElementById('qabRestartApp');
+            btn.classList.add('active');
+
+            try {
+                showToast('Restarting app...', 'info', 2000);
+
+                // Use recorder's restartApp method which adds it as a flow step
+                await this.recorder.restartApp();
+
+                // Wait for app to fully restart, then update screenshot
+                this.refreshAfterAction(2000);
+
+                showToast('App restarted! (Added to flow)', 'success', 1500);
+            } catch (error) {
+                console.error('[FlowWizard] Restart app failed:', error);
+                showToast(`Restart failed: ${error.message}`, 'error');
+            } finally {
+                btn.classList.remove('active');
+            }
+        });
+
+        // Stitch capture button
+        document.getElementById('qabStitch')?.addEventListener('click', async () => {
+            const btn = document.getElementById('qabStitch');
+            btn.classList.add('active');
+            showToast('Starting stitch capture... This may take 30-60 seconds', 'info', 3000);
+
+            try {
+                await this.recorder.stitchCapture();
+                this.updateScreenshotDisplay();
+                showToast('Stitch capture complete!', 'success', 2000);
+            } catch (error) {
+                showToast(`Stitch capture failed: ${error.message}`, 'error', 3000);
+            } finally {
+                btn.classList.remove('active');
+            }
+        });
+
+        // Overlay settings toggle
+        document.getElementById('qabOverlay')?.addEventListener('click', () => {
+            const settings = document.getElementById('overlaySettings');
+            const btn = document.getElementById('qabOverlay');
+            if (settings) {
+                const isVisible = settings.style.display !== 'none';
+                settings.style.display = isVisible ? 'none' : 'flex';
+                btn?.classList.toggle('active', !isVisible);
+            }
+        });
+
+        // Reconnect stream button
+        document.getElementById('qabReconnect')?.addEventListener('click', () => {
+            this.reconnectStream();
+        });
+
+        // Panel toggle button (desktop)
+        document.getElementById('qabPanel')?.addEventListener('click', () => {
+            this.toggleRightPanel();
+        });
+
+        console.log('[FlowWizard] Toolbar handlers initialized');
+    }
+
+    /**
+     * Setup panel toggle for mobile (FAB + backdrop)
+     */
+    setupPanelToggle() {
+        const fab = document.getElementById('panelToggleFab');
+        const backdrop = document.getElementById('panelBackdrop');
+        const rightPanel = document.getElementById('rightPanel');
+
+        fab?.addEventListener('click', () => {
+            rightPanel?.classList.toggle('open');
+            backdrop?.classList.toggle('visible');
+        });
+
+        backdrop?.addEventListener('click', () => {
+            rightPanel?.classList.remove('open');
+            backdrop?.classList.remove('visible');
+        });
+
+        console.log('[FlowWizard] Panel toggle initialized');
+    }
+
+    /**
+     * Toggle right panel visibility (for desktop)
+     */
+    toggleRightPanel() {
+        const rightPanel = document.getElementById('rightPanel');
+        const btn = document.getElementById('qabPanel');
+
+        if (rightPanel) {
+            const isHidden = rightPanel.style.display === 'none';
+            rightPanel.style.display = isHidden ? 'flex' : 'none';
+            btn?.classList.toggle('active', isHidden);
+        }
     }
 
     setupOverlayFilters() {
@@ -493,7 +753,9 @@ class FlowWizard {
             showNonClickable: 'filterNonClickable',
             showTextLabels: 'filterTextLabels',
             hideSmall: 'filterMinSize',
-            textOnly: 'filterTextOnly'
+            hideDividers: 'filterDividers',
+            hideContainers: 'filterContainers',
+            hideEmptyElements: 'filterEmptyElements'
         };
 
         Object.entries(filterIds).forEach(([filterName, elementId]) => {
@@ -510,12 +772,41 @@ class FlowWizard {
                     this.canvasRenderer.setOverlayFilters(this.overlayFilters);
                 }
                 console.log(`[FlowWizard] ${filterName} = ${checkbox.checked}`);
-                this.updateScreenshotDisplay();
+
+                // Only refresh display in polling mode WITH valid screenshot data
+                if (this.captureMode === 'streaming') {
+                    // Streaming mode: just update LiveStream overlay settings
+                    if (this.liveStream) {
+                        this.liveStream.setOverlaysVisible(
+                            this.overlayFilters.showClickable || this.overlayFilters.showNonClickable
+                        );
+                        this.liveStream.setTextLabelsVisible(this.overlayFilters.showTextLabels);
+                        this.liveStream.setHideContainers(this.overlayFilters.hideContainers);
+                        this.liveStream.setHideEmptyElements(this.overlayFilters.hideEmptyElements);
+                    }
+                } else if (this.recorder?.currentScreenshot) {
+                    // Polling mode: only redraw if we have valid screenshot data
+                    this.updateScreenshotDisplay();
+                }
             });
 
             // Set initial state
             checkbox.checked = this.overlayFilters[filterName];
         });
+
+        // Setup refresh interval dropdown
+        const refreshSelect = document.getElementById('elementRefreshInterval');
+        if (refreshSelect) {
+            refreshSelect.addEventListener('change', () => {
+                const newInterval = parseInt(refreshSelect.value);
+                console.log(`[FlowWizard] Refresh interval changed to ${newInterval / 1000}s`);
+
+                // Restart auto-refresh with new interval if streaming
+                if (this.captureMode === 'streaming' && this.liveStream?.connectionState === 'connected') {
+                    this.startElementAutoRefresh();
+                }
+            });
+        }
 
         console.log('[FlowWizard] Overlay filters initialized');
     }
@@ -524,24 +815,50 @@ class FlowWizard {
      * Setup capture mode toggle (Polling vs Streaming)
      */
     setupCaptureMode() {
-        const captureModeInputs = document.querySelectorAll('input[name="captureMode"]');
+        const captureModeSelect = document.getElementById('captureMode');
+        const streamModeSelect = document.getElementById('streamMode');
         const qualitySelect = document.getElementById('streamQuality');
-        const statusEl = document.getElementById('streamStatus');
 
-        if (!captureModeInputs.length) return;
+        // Load saved preferences from localStorage
+        const savedMode = localStorage.getItem('flowWizard.captureMode') || 'polling';
+        const savedStreamMode = localStorage.getItem('flowWizard.streamMode') || 'mjpeg';
+        const savedQuality = localStorage.getItem('flowWizard.streamQuality') || 'medium';
 
-        // Handle capture mode change
-        captureModeInputs.forEach(input => {
-            input.addEventListener('change', (e) => {
+        // Handle capture mode change (select dropdown)
+        if (captureModeSelect) {
+            captureModeSelect.value = savedMode;
+            this.setCaptureMode(savedMode);
+
+            captureModeSelect.addEventListener('change', (e) => {
                 const mode = e.target.value;
+                localStorage.setItem('flowWizard.captureMode', mode);
                 this.setCaptureMode(mode);
             });
-        });
+        }
+
+        // Handle stream mode change (mjpeg vs websocket)
+        if (streamModeSelect) {
+            streamModeSelect.value = savedStreamMode;
+            this.streamMode = savedStreamMode;
+
+            streamModeSelect.addEventListener('change', (e) => {
+                this.streamMode = e.target.value;
+                localStorage.setItem('flowWizard.streamMode', e.target.value);
+                // If streaming, restart with new mode
+                if (this.captureMode === 'streaming' && this.liveStream?.isActive()) {
+                    this.startStreaming();
+                }
+            });
+        }
 
         // Handle quality change
         if (qualitySelect) {
+            qualitySelect.value = savedQuality;
+            this.streamQuality = savedQuality;
+
             qualitySelect.addEventListener('change', (e) => {
                 this.streamQuality = e.target.value;
+                localStorage.setItem('flowWizard.streamQuality', e.target.value);
                 // If streaming, restart with new quality
                 if (this.captureMode === 'streaming' && this.liveStream?.isActive()) {
                     this.startStreaming();
@@ -556,15 +873,48 @@ class FlowWizard {
      * Set capture mode (polling or streaming)
      */
     setCaptureMode(mode) {
+        const streamModeSelect = document.getElementById('streamMode');
         const qualitySelect = document.getElementById('streamQuality');
+
+        // Get buttons that are mode-specific
+        const refreshBtn = document.getElementById('qabRefresh');
+        const stitchBtn = document.getElementById('qabStitch');
+        const zoomOutBtn = document.getElementById('qabZoomOut');
+        const zoomInBtn = document.getElementById('qabZoomIn');
+        const scaleBtn = document.getElementById('qabScale');
 
         if (mode === 'streaming') {
             this.captureMode = 'streaming';
+            if (streamModeSelect) streamModeSelect.disabled = false;
             if (qualitySelect) qualitySelect.disabled = false;
+
+            // Disable polling-only buttons in streaming mode
+            if (refreshBtn) {
+                refreshBtn.disabled = true;
+                refreshBtn.title = 'Refresh not available in streaming mode';
+            }
+            if (stitchBtn) {
+                stitchBtn.disabled = true;
+                stitchBtn.title = 'Stitch not available in streaming mode';
+            }
+            // Zoom controls work in streaming mode
+
             this.startStreaming();
         } else {
             this.captureMode = 'polling';
+            if (streamModeSelect) streamModeSelect.disabled = true;
             if (qualitySelect) qualitySelect.disabled = true;
+
+            // Enable polling buttons
+            if (refreshBtn) {
+                refreshBtn.disabled = false;
+                refreshBtn.title = 'Refresh Screen';
+            }
+            if (stitchBtn) {
+                stitchBtn.disabled = false;
+                stitchBtn.title = 'Full Page Capture';
+            }
+
             this.stopStreaming();
         }
 
@@ -580,6 +930,12 @@ class FlowWizard {
             return;
         }
 
+        // Show loading indicator immediately
+        this.showLoadingOverlay('Connecting to device...');
+
+        // Pre-fetch elements while stream is connecting (faster startup)
+        this.refreshElements().catch(e => console.warn('[FlowWizard] Pre-fetch elements failed:', e));
+
         // Stop any existing stream
         this.stopStreaming();
 
@@ -587,16 +943,30 @@ class FlowWizard {
         if (!this.liveStream) {
             this.liveStream = new LiveStream(this.canvas);
 
+            // Handle each frame - hide loading and reapply zoom
+            this.liveStream.onFrame = (data) => {
+                this.hideLoadingOverlay();
+                // Reapply zoom after each frame to ensure CSS sizing persists
+                // This is needed because LiveStream updates canvas bitmap dimensions
+                if (this.canvasRenderer) {
+                    this.canvasRenderer.applyZoom();
+                }
+            };
+
             // Wire up callbacks
             this.liveStream.onConnect = () => {
                 this.updateStreamStatus('connected', 'Live');
+                this.showLoadingOverlay('Loading stream...');
                 showToast('Streaming started', 'success', 2000);
-                // Fetch initial elements
+                // Fetch elements (may already be loaded from pre-fetch)
                 this.refreshElements();
+                // Start periodic element refresh (every 3 seconds)
+                this.startElementAutoRefresh();
             };
 
             this.liveStream.onDisconnect = () => {
                 this.updateStreamStatus('disconnected', 'Offline');
+                showToast('Device disconnected', 'warning', 3000);
             };
 
             this.liveStream.onConnectionStateChange = (state, attempts) => {
@@ -606,27 +976,67 @@ class FlowWizard {
                         break;
                     case 'reconnecting':
                         this.updateStreamStatus('reconnecting', `Retry ${attempts}...`);
+                        if (attempts === 1) {
+                            showToast('Connection lost, reconnecting...', 'warning', 3000);
+                        }
                         break;
                     case 'connected':
                         this.updateStreamStatus('connected', 'Live');
                         break;
                     case 'disconnected':
                         this.updateStreamStatus('disconnected', 'Offline');
+                        if (attempts >= 10) {
+                            showToast('Device connection failed after 10 attempts', 'error', 5000);
+                        }
                         break;
                 }
             };
 
             this.liveStream.onError = (error) => {
                 console.error('[FlowWizard] Stream error:', error);
+                showToast(`Stream error: ${error.message || 'Connection failed'}`, 'error', 3000);
+            };
+
+            // Show FPS and capture time in status (updates every few frames)
+            this.liveStream.onMetricsUpdate = (metrics) => {
+                if (this.captureMode === 'streaming' && this.liveStream?.connectionState === 'connected') {
+                    // Determine connection quality based on capture time
+                    const captureTime = metrics.captureTime || 0;
+                    let quality = 'connected'; // CSS class
+                    let statusText = `${metrics.fps} FPS`;
+
+                    if (captureTime > 0) {
+                        statusText = `${metrics.fps} FPS (${captureTime}ms)`;
+
+                        // Quality indicator based on capture time
+                        if (captureTime > 1000) {
+                            quality = 'slow'; // > 1 second = very slow
+                        } else if (captureTime > 500) {
+                            quality = 'ok'; // 500ms-1s = acceptable but slow
+                        } else {
+                            quality = 'good'; // < 500ms = good
+                        }
+                    }
+
+                    this.updateStreamStatus(quality, statusText);
+
+                    // Warn user once if connection is very slow (only on first slow frame detection)
+                    if (captureTime > 2000 && !this._slowConnectionWarned) {
+                        this._slowConnectionWarned = true;
+                        showToast('Slow connection - try USB for better performance', 'warning', 5000);
+                    }
+                }
             };
 
             // Apply current overlay settings
             this.liveStream.setOverlaysVisible(this.overlayFilters.showClickable || this.overlayFilters.showNonClickable);
             this.liveStream.setTextLabelsVisible(this.overlayFilters.showTextLabels);
+            this.liveStream.setHideContainers(this.overlayFilters.hideContainers);
+            this.liveStream.setHideEmptyElements(this.overlayFilters.hideEmptyElements);
         }
 
-        // Start streaming with MJPEG mode for lower bandwidth
-        this.liveStream.start(this.selectedDevice, 'mjpeg', this.streamQuality);
+        // Start streaming with selected mode (mjpeg or websocket)
+        this.liveStream.start(this.selectedDevice, this.streamMode, this.streamQuality);
         this.updateStreamStatus('connecting', 'Connecting...');
     }
 
@@ -634,6 +1044,9 @@ class FlowWizard {
      * Stop live streaming
      */
     stopStreaming() {
+        // Stop element auto-refresh
+        this.stopElementAutoRefresh();
+
         if (this.liveStream) {
             this.liveStream.stop();
         }
@@ -641,33 +1054,135 @@ class FlowWizard {
     }
 
     /**
+     * Reconnect the stream (stop and restart)
+     * Resets slow connection warning flag
+     */
+    reconnectStream() {
+        if (this.captureMode !== 'streaming') {
+            showToast('Not in streaming mode', 'info', 2000);
+            return;
+        }
+
+        showToast('Reconnecting stream...', 'info', 2000);
+
+        // Reset slow connection warning
+        this._slowConnectionWarned = false;
+
+        // Stop and restart the stream
+        this.stopStreaming();
+
+        // Small delay before reconnecting
+        setTimeout(() => {
+            this.startStreaming();
+        }, 500);
+    }
+
+    /**
+     * Start periodic element auto-refresh (for streaming mode)
+     */
+    startElementAutoRefresh() {
+        // Clear any existing interval
+        this.stopElementAutoRefresh();
+
+        // Get configurable interval from dropdown (default 3000ms)
+        const intervalSelect = document.getElementById('elementRefreshInterval');
+        const intervalMs = intervalSelect ? parseInt(intervalSelect.value) : 3000;
+
+        // Start refresh with configured interval
+        this.elementRefreshIntervalTimer = setInterval(() => {
+            if (this.captureMode === 'streaming' && this.liveStream?.connectionState === 'connected') {
+                // Log with timestamp so user can verify actual interval
+                const now = new Date().toLocaleTimeString();
+                console.log(`[FlowWizard] Timer tick at ${now} - refreshing elements...`);
+                this.refreshElements();
+            }
+        }, intervalMs);
+
+        console.log(`[FlowWizard] Element auto-refresh started (${intervalMs / 1000}s interval)`);
+    }
+
+    /**
+     * Stop periodic element auto-refresh
+     */
+    stopElementAutoRefresh() {
+        if (this.elementRefreshIntervalTimer) {
+            clearInterval(this.elementRefreshIntervalTimer);
+            this.elementRefreshIntervalTimer = null;
+            console.log('[FlowWizard] Element auto-refresh stopped');
+        }
+    }
+
+    /**
      * Update stream status display
      */
     updateStreamStatus(className, text) {
-        const statusEl = document.getElementById('streamStatus');
+        const statusEl = document.getElementById('connectionStatus');
         if (statusEl) {
-            statusEl.className = `stream-status ${className}`;
+            statusEl.className = `connection-status ${className}`;
             statusEl.textContent = text;
         }
     }
 
     /**
-     * Refresh elements in background (for streaming mode)
-     * Fetches fresh element data without capturing a new screenshot
+     * Refresh elements in background
+     * In streaming mode: uses fast elements-only endpoint
+     * In polling mode: fetches full screenshot with elements
      */
     async refreshElements() {
         if (!this.selectedDevice) return;
 
         try {
-            const response = await fetch(`${getApiBase()}/adb/screenshot/${this.selectedDevice}?quick=true`);
-            if (!response.ok) return;
+            let elements = [];
 
-            const data = await response.json();
-            const elements = data.elements || [];
+            if (this.captureMode === 'streaming') {
+                // Fast path: elements-only endpoint (no screenshot capture)
+                const response = await fetch(`${getApiBase()}/adb/elements/${encodeURIComponent(this.selectedDevice)}`);
+                if (!response.ok) return;
 
-            // Update element panel
-            if (this.elementPanel && elements.length > 0) {
-                this.elementPanel.updateElements(elements);
+                const data = await response.json();
+                elements = data.elements || [];
+
+                // Update device dimensions for proper overlay scaling
+                if (data.device_width && data.device_height && this.liveStream) {
+                    this.liveStream.setDeviceDimensions(data.device_width, data.device_height);
+                }
+
+                console.log(`[FlowWizard] Fast elements refresh: ${elements.length} elements`);
+            } else {
+                // Polling mode: full screenshot with elements
+                const response = await fetch(`${getApiBase()}/adb/screenshot`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device_id: this.selectedDevice, quick: false })
+                });
+
+                if (!response.ok) return;
+
+                const data = await response.json();
+                elements = data.elements || [];
+
+                // Extract device dimensions from screenshot (native resolution)
+                if (data.screenshot && this.liveStream) {
+                    const img = new Image();
+                    img.onload = () => {
+                        this.liveStream.deviceWidth = img.width;
+                        this.liveStream.deviceHeight = img.height;
+                        console.log(`[FlowWizard] Device dimensions: ${img.width}x${img.height}`);
+                    };
+                    img.src = 'data:image/png;base64,' + data.screenshot;
+                }
+
+                // Store metadata if recorder exists (for updateScreenshotDisplay)
+                if (this.recorder) {
+                    this.recorder.currentScreenshot = data.screenshot;
+                    this.recorder.screenshotMetadata = {
+                        elements: elements,
+                        timestamp: data.timestamp,
+                        width: this.recorder.screenshotMetadata?.width,
+                        height: this.recorder.screenshotMetadata?.height,
+                        quick: false
+                    };
+                }
             }
 
             // Update LiveStream elements for overlay
@@ -675,8 +1190,9 @@ class FlowWizard {
                 this.liveStream.elements = elements;
             }
 
-            // Update element tree if open
+            // Update element tree
             this.updateElementTree(elements);
+            this.updateElementCount(elements.length);
 
             console.log(`[FlowWizard] Elements refreshed: ${elements.length} elements`);
         } catch (error) {
@@ -734,19 +1250,50 @@ class FlowWizard {
             return;
         }
 
-        // Get canvas coordinates
+        // Get canvas coordinates (CSS display coords → canvas bitmap coords)
         const rect = this.canvas.getBoundingClientRect();
-        const canvasX = e.clientX - rect.left;
-        const canvasY = e.clientY - rect.top;
+        const cssToCanvas = this.canvas.width / rect.width;
+        const canvasX = (e.clientX - rect.left) * cssToCanvas;
+        const canvasY = (e.clientY - rect.top) * cssToCanvas;
 
-        // Convert to device coordinates
-        const deviceCoords = this.canvasRenderer.canvasToDevice(canvasX, canvasY);
+        // Convert to device coordinates (use appropriate converter based on mode)
+        let deviceCoords;
+        if (this.captureMode === 'streaming' && this.liveStream) {
+            deviceCoords = this.liveStream.canvasToDevice(canvasX, canvasY);
+        } else {
+            deviceCoords = this.canvasRenderer.canvasToDevice(canvasX, canvasY);
+        }
 
-        // Find elements at hover position
+        // Container classes to filter out (same as FlowInteractions)
+        const containerClasses = [
+            'android.view.View', 'android.view.ViewGroup', 'android.widget.FrameLayout',
+            'android.widget.LinearLayout', 'android.widget.RelativeLayout',
+            'android.widget.ScrollView', 'android.widget.HorizontalScrollView',
+            'androidx.constraintlayout.widget.ConstraintLayout',
+            'androidx.recyclerview.widget.RecyclerView', 'androidx.cardview.widget.CardView'
+        ];
+
+        // Find elements at hover position (filter containers)
         let elementsAtPoint = [];
         for (let i = elements.length - 1; i >= 0; i--) {
             const el = elements[i];
             if (!el.bounds) continue;
+
+            // Skip containers if filter is enabled
+            if (this.overlayFilters?.hideContainers && el.class && containerClasses.includes(el.class)) {
+                continue;
+            }
+
+            // Skip empty elements if filter is enabled
+            if (this.overlayFilters?.hideEmptyElements) {
+                const hasText = el.text && el.text.trim();
+                const hasContentDesc = el['content-desc'] && el['content-desc'].trim();
+                const hasResourceId = el['resource-id'] && el['resource-id'].trim();
+                if (!hasText && !hasContentDesc && !(el.clickable && hasResourceId)) {
+                    continue;
+                }
+            }
+
             const b = el.bounds;
             if (deviceCoords.x >= b.x && deviceCoords.x <= b.x + b.width &&
                 deviceCoords.y >= b.y && deviceCoords.y <= b.y + b.height) {
@@ -754,11 +1301,13 @@ class FlowWizard {
             }
         }
 
-        // Prioritize: clickable elements first, then smallest area
+        // Prioritize: elements with text first, then clickable, then smallest area
         let foundElement = null;
         if (elementsAtPoint.length > 0) {
+            // Prefer elements with text
+            const withText = elementsAtPoint.filter(el => el.text?.trim() || el['content-desc']?.trim());
             const clickable = elementsAtPoint.filter(el => el.clickable);
-            const candidates = clickable.length > 0 ? clickable : elementsAtPoint;
+            const candidates = withText.length > 0 ? withText : (clickable.length > 0 ? clickable : elementsAtPoint);
 
             foundElement = candidates.reduce((smallest, el) => {
                 const area = el.bounds.width * el.bounds.height;
@@ -767,17 +1316,26 @@ class FlowWizard {
             });
         }
 
-        if (foundElement && foundElement !== this.hoveredElement) {
+        // Check if element changed (compare by bounds, not object reference)
+        const isSameElement = foundElement && this.hoveredElement &&
+            foundElement.bounds?.x === this.hoveredElement.bounds?.x &&
+            foundElement.bounds?.y === this.hoveredElement.bounds?.y &&
+            foundElement.bounds?.width === this.hoveredElement.bounds?.width;
+
+        if (foundElement && !isSameElement) {
+            // New element - rebuild tooltip content
             this.hoveredElement = foundElement;
             this.showHoverTooltip(e, foundElement, hoverTooltip, container);
             this.highlightHoveredElement(foundElement);
         } else if (!foundElement && this.hoveredElement) {
+            // No longer hovering any element
             this.hoveredElement = null;
             this.hideHoverTooltip(hoverTooltip);
-            // Re-render without hover highlight
-            this.updateScreenshotDisplay();
-        } else if (foundElement) {
-            // Update tooltip position
+            this.clearHoverHighlight();
+        }
+
+        // ALWAYS update position when hovering an element (fixes cursor following)
+        if (foundElement) {
             this.updateTooltipPosition(e, hoverTooltip, container);
         }
     }
@@ -789,8 +1347,9 @@ class FlowWizard {
         const header = hoverTooltip.querySelector('.tooltip-header');
         const body = hoverTooltip.querySelector('.tooltip-body');
 
-        // Header: element text or class name
+        // Header: element text or class name (handle hyphenated property names)
         const displayName = element.text?.trim() ||
+                           element['content-desc']?.trim() ||
                            element.content_desc?.trim() ||
                            element.class?.split('.').pop() ||
                            'Element';
@@ -803,8 +1362,10 @@ class FlowWizard {
 
         let bodyHtml = `<div class="tooltip-row"><span class="tooltip-label">Class:</span><span class="tooltip-value">${element.class?.split('.').pop() || '-'}</span></div>`;
 
-        if (element.resource_id) {
-            const resId = element.resource_id.split('/').pop() || element.resource_id;
+        // Handle both hyphenated and underscore property names
+        const resourceId = element['resource-id'] || element.resource_id;
+        if (resourceId) {
+            const resId = resourceId.split('/').pop() || resourceId;
             bodyHtml += `<div class="tooltip-row"><span class="tooltip-label">ID:</span><span class="tooltip-value">${resId}</span></div>`;
         }
 
@@ -825,20 +1386,38 @@ class FlowWizard {
      */
     updateTooltipPosition(e, hoverTooltip, container) {
         const containerRect = container.getBoundingClientRect();
-        let x = e.clientX - containerRect.left + 15;
-        let y = e.clientY - containerRect.top + 15;
 
-        // Keep tooltip within container bounds
-        const tooltipRect = hoverTooltip.getBoundingClientRect();
-        if (x + tooltipRect.width > containerRect.width - 10) {
-            x = e.clientX - containerRect.left - tooltipRect.width - 15;
+        // Account for container scroll offset
+        const scrollLeft = container.scrollLeft || 0;
+        const scrollTop = container.scrollTop || 0;
+
+        // Position tooltip near cursor (add scroll offset for scrolled containers)
+        let x = e.clientX - containerRect.left + scrollLeft + 15;
+        let y = e.clientY - containerRect.top + scrollTop + 15;
+
+        // Get tooltip dimensions (use cached if not visible yet)
+        const tooltipWidth = hoverTooltip.offsetWidth || 280;
+        const tooltipHeight = hoverTooltip.offsetHeight || 100;
+
+        // Keep tooltip within visible viewport (not scrolled content)
+        const visibleWidth = containerRect.width;
+        const visibleHeight = containerRect.height;
+
+        // Flip to left if would overflow right
+        if (x - scrollLeft + tooltipWidth > visibleWidth - 10) {
+            x = e.clientX - containerRect.left + scrollLeft - tooltipWidth - 15;
         }
-        if (y + tooltipRect.height > containerRect.height - 10) {
-            y = e.clientY - containerRect.top - tooltipRect.height - 15;
+        // Flip to top if would overflow bottom
+        if (y - scrollTop + tooltipHeight > visibleHeight - 10) {
+            y = e.clientY - containerRect.top + scrollTop - tooltipHeight - 15;
         }
 
-        hoverTooltip.style.left = Math.max(5, x) + 'px';
-        hoverTooltip.style.top = Math.max(5, y) + 'px';
+        // Ensure minimum position
+        x = Math.max(scrollLeft + 5, x);
+        y = Math.max(scrollTop + 5, y);
+
+        hoverTooltip.style.left = x + 'px';
+        hoverTooltip.style.top = y + 'px';
     }
 
     /**
@@ -851,31 +1430,73 @@ class FlowWizard {
     }
 
     /**
-     * Highlight hovered element on canvas
+     * Highlight hovered element using CSS overlay (no canvas re-render)
+     * Handles both polling mode (screenshot) and streaming mode (live stream)
      */
     highlightHoveredElement(element) {
-        // Re-render current screenshot with highlight
-        const dataUrl = this.recorder?.getScreenshotDataUrl();
-        const metadata = this.recorder?.screenshotMetadata;
+        const container = document.getElementById('screenshotContainer');
+        if (!container || !element?.bounds) {
+            this.clearHoverHighlight();
+            return;
+        }
 
-        if (!dataUrl || !this.canvasRenderer) return;
+        // Create or reuse highlight overlay
+        let highlight = document.getElementById('hoverHighlight');
+        if (!highlight) {
+            highlight = document.createElement('div');
+            highlight.id = 'hoverHighlight';
+            highlight.className = 'hover-highlight';
+            container.appendChild(highlight);
+        }
 
-        // Render with custom highlight callback
-        this.canvasRenderer.render(dataUrl, metadata).then(() => {
-            // Draw hover highlight
-            if (element.bounds) {
-                const b = element.bounds;
-                const ctx = this.canvasRenderer.ctx;
-                const scale = this.canvasRenderer.currentScale || 1;
+        // Calculate position relative to canvas
+        const canvasRect = this.canvas.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const offsetX = canvasRect.left - containerRect.left + container.scrollLeft;
+        const offsetY = canvasRect.top - containerRect.top + container.scrollTop;
 
-                ctx.save();
-                ctx.strokeStyle = '#00ffff'; // Cyan for hover
-                ctx.lineWidth = 3;
-                ctx.setLineDash([5, 5]);
-                ctx.strokeRect(b.x * scale, b.y * scale, b.width * scale, b.height * scale);
-                ctx.restore();
-            }
-        });
+        // Get CSS scale (canvas bitmap size to display size)
+        const cssScale = canvasRect.width / this.canvas.width;
+
+        // In streaming mode, element bounds are in device coords, canvas may be at lower res
+        // We need to scale: device coords → canvas coords → CSS display coords
+        let deviceToCanvasScale = 1;
+        if (this.captureMode === 'streaming' && this.liveStream) {
+            // Scale from device resolution to canvas resolution
+            deviceToCanvasScale = this.canvas.width / this.liveStream.deviceWidth;
+        }
+
+        const b = element.bounds;
+        // First scale from device to canvas, then from canvas to CSS display
+        const totalScale = deviceToCanvasScale * cssScale;
+        const x = b.x * totalScale + offsetX;
+        const y = b.y * totalScale + offsetY;
+        const w = b.width * totalScale;
+        const h = b.height * totalScale;
+
+        highlight.style.cssText = `
+            position: absolute;
+            left: ${x}px;
+            top: ${y}px;
+            width: ${w}px;
+            height: ${h}px;
+            border: 2px solid #00ffff;
+            border-radius: 4px;
+            background: rgba(0, 255, 255, 0.1);
+            pointer-events: none;
+            z-index: 50;
+            transition: all 0.1s ease-out;
+        `;
+    }
+
+    /**
+     * Clear hover highlight overlay
+     */
+    clearHoverHighlight() {
+        const highlight = document.getElementById('hoverHighlight');
+        if (highlight) {
+            highlight.remove();
+        }
     }
 
     // ==========================================
@@ -902,9 +1523,11 @@ class FlowWizard {
             clientY = e.clientY;
         }
 
+        // Convert CSS coordinates to canvas bitmap coordinates
+        const cssToCanvas = this.canvas.width / rect.width;
         this.dragStart = {
-            canvasX: clientX - rect.left,
-            canvasY: clientY - rect.top,
+            canvasX: (clientX - rect.left) * cssToCanvas,
+            canvasY: (clientY - rect.top) * cssToCanvas,
             timestamp: Date.now()
         };
         this.isDragging = true;
@@ -927,8 +1550,10 @@ class FlowWizard {
             clientY = e.clientY;
         }
 
-        const endCanvasX = clientX - rect.left;
-        const endCanvasY = clientY - rect.top;
+        // Convert CSS coordinates to canvas bitmap coordinates
+        const cssToCanvas = this.canvas.width / rect.width;
+        const endCanvasX = (clientX - rect.left) * cssToCanvas;
+        const endCanvasY = (clientY - rect.top) * cssToCanvas;
 
         // Calculate distance
         const dx = endCanvasX - this.dragStart.canvasX;
@@ -939,12 +1564,23 @@ class FlowWizard {
 
         const container = document.getElementById('screenshotContainer');
 
+        // Get canvas offset within container for accurate ripple/path position
+        const canvasRect = this.canvas.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const canvasOffsetX = canvasRect.left - containerRect.left + container.scrollLeft;
+        const canvasOffsetY = canvasRect.top - containerRect.top + container.scrollTop;
+
+        // CSS scale factor: canvas bitmap coords to display coords (accounts for zoom)
+        const cssScale = canvasRect.width / this.canvas.width;
+
         if (distance < this.MIN_SWIPE_DISTANCE) {
             // It's a tap
             console.log(`[FlowWizard] Tap at canvas (${this.dragStart.canvasX}, ${this.dragStart.canvasY})`);
 
-            // Show tap ripple effect
-            this.showTapRipple(container, this.dragStart.canvasX, this.dragStart.canvasY);
+            // Show tap ripple effect (convert canvas coords to display coords, then add offset)
+            const rippleX = this.dragStart.canvasX * cssScale + canvasOffsetX;
+            const rippleY = this.dragStart.canvasY * cssScale + canvasOffsetY;
+            this.showTapRipple(container, rippleX, rippleY);
 
             // Handle element click (existing logic)
             await this.handleElementClick(this.dragStart.canvasX, this.dragStart.canvasY);
@@ -952,8 +1588,12 @@ class FlowWizard {
             // It's a swipe
             console.log(`[FlowWizard] Swipe from (${this.dragStart.canvasX},${this.dragStart.canvasY}) to (${endCanvasX},${endCanvasY})`);
 
-            // Show swipe path visualization
-            this.showSwipePath(container, this.dragStart.canvasX, this.dragStart.canvasY, endCanvasX, endCanvasY);
+            // Show swipe path visualization (convert canvas coords to display coords, then add offset)
+            this.showSwipePath(container,
+                this.dragStart.canvasX * cssScale + canvasOffsetX,
+                this.dragStart.canvasY * cssScale + canvasOffsetY,
+                endCanvasX * cssScale + canvasOffsetX,
+                endCanvasY * cssScale + canvasOffsetY);
 
             // Execute swipe on device
             await this.executeSwipeGesture(
@@ -969,9 +1609,15 @@ class FlowWizard {
      * Execute swipe gesture on device
      */
     async executeSwipeGesture(startCanvasX, startCanvasY, endCanvasX, endCanvasY) {
-        // Convert canvas coordinates to device coordinates
-        const startDevice = this.canvasRenderer.canvasToDevice(startCanvasX, startCanvasY);
-        const endDevice = this.canvasRenderer.canvasToDevice(endCanvasX, endCanvasY);
+        // Convert canvas coordinates to device coordinates (use appropriate converter)
+        let startDevice, endDevice;
+        if (this.captureMode === 'streaming' && this.liveStream) {
+            startDevice = this.liveStream.canvasToDevice(startCanvasX, startCanvasY);
+            endDevice = this.liveStream.canvasToDevice(endCanvasX, endCanvasY);
+        } else {
+            startDevice = this.canvasRenderer.canvasToDevice(startCanvasX, startCanvasY);
+            endDevice = this.canvasRenderer.canvasToDevice(endCanvasX, endCanvasY);
+        }
 
         console.log(`[FlowWizard] Executing swipe: (${startDevice.x},${startDevice.y}) → (${endDevice.x},${endDevice.y})`);
 
@@ -993,21 +1639,29 @@ class FlowWizard {
                 throw new Error('Failed to execute swipe');
             }
 
-            // Add swipe step to flow
-            this.recorder.addStep({
-                step_type: 'swipe',
-                x1: startDevice.x,
-                y1: startDevice.y,
-                x2: endDevice.x,
-                y2: endDevice.y,
-                duration: 300,
-                description: `Swipe from (${startDevice.x},${startDevice.y}) to (${endDevice.x},${endDevice.y})`
-            });
+            // Add swipe step to flow (unless recording is paused)
+            if (!this.recordingPaused) {
+                this.recorder.addStep({
+                    step_type: 'swipe',
+                    x1: startDevice.x,
+                    y1: startDevice.y,
+                    x2: endDevice.x,
+                    y2: endDevice.y,
+                    duration: 300,
+                    description: `Swipe from (${startDevice.x},${startDevice.y}) to (${endDevice.x},${endDevice.y})`
+                });
+                showToast('Swipe recorded', 'success', 1500);
+            } else {
+                showToast('Swipe executed (not recorded)', 'info', 1500);
+            }
 
-            showToast('Swipe recorded', 'success', 1500);
+            // Clear stale elements immediately (video updates faster than elements API)
+            if (this.captureMode === 'streaming' && this.liveStream) {
+                this.liveStream.elements = [];
+            }
 
-            // Refresh elements after swipe
-            this.refreshAfterAction(500);
+            // Refresh elements after swipe (give device time to settle)
+            this.refreshAfterAction(800);
 
             // Update screenshot in polling mode
             if (this.captureMode === 'polling') {
@@ -1243,20 +1897,28 @@ class FlowWizard {
     /**
      * Handle sensor action from tree
      */
-    handleTreeSensor(element) {
+    async handleTreeSensor(element) {
         if (!element) return;
 
         console.log('[FlowWizard] Tree sensor for element:', element);
 
-        // Open the element action dialog with sensor pre-selected
-        this.interactions?.showElementActionDialog(element, 'sensor');
+        // Calculate coordinates from element bounds
+        const bounds = element.bounds || {};
+        const coords = {
+            x: Math.round((bounds.x || 0) + (bounds.width || 0) / 2),
+            y: Math.round((bounds.y || 0) + (bounds.height || 0) / 2)
+        };
+
+        // Go directly to text sensor creation (most common case from element tree)
+        await this.createTextSensor(element, coords);
     }
 
     /**
      * Update tree with new elements
      */
     updateElementTree(elements) {
-        if (this.isTreeViewOpen && this.elementTree) {
+        // Element tree is always visible in right panel
+        if (this.elementTree) {
             this.elementTree.setElements(elements);
         }
     }
@@ -1264,31 +1926,52 @@ class FlowWizard {
     toggleScale() {
         this.scaleMode = this.canvasRenderer.toggleScale();
 
-        const btn = document.getElementById('btnToggleScale');
+        const btn = document.getElementById('qabScale');
         if (btn) {
-            btn.textContent = this.scaleMode === 'fit' ? '📏 1:1 Scale' : '📏 Fit to Screen';
+            btn.classList.toggle('active', this.scaleMode === '1:1');
+            btn.title = this.scaleMode === 'fit' ? 'Toggle 1:1 Scale' : 'Toggle Fit to Screen';
         }
 
         console.log(`[FlowWizard] Scale mode: ${this.scaleMode}`);
-        this.updateScreenshotDisplay();
+        // In streaming mode, just apply CSS zoom - don't re-render screenshot
+        if (this.captureMode === 'streaming') {
+            this.canvasRenderer.applyZoom();
+        } else {
+            this.updateScreenshotDisplay();
+        }
     }
 
     zoomIn() {
         const zoomLevel = this.canvasRenderer.zoomIn();
         this.updateZoomDisplay(zoomLevel);
-        this.updateScreenshotDisplay();
+        // In streaming mode, just apply CSS zoom - don't re-render screenshot
+        if (this.captureMode === 'streaming') {
+            this.canvasRenderer.applyZoom();
+        } else {
+            this.updateScreenshotDisplay();
+        }
     }
 
     zoomOut() {
         const zoomLevel = this.canvasRenderer.zoomOut();
         this.updateZoomDisplay(zoomLevel);
-        this.updateScreenshotDisplay();
+        // In streaming mode, just apply CSS zoom - don't re-render screenshot
+        if (this.captureMode === 'streaming') {
+            this.canvasRenderer.applyZoom();
+        } else {
+            this.updateScreenshotDisplay();
+        }
     }
 
     resetZoom() {
         const zoomLevel = this.canvasRenderer.resetZoom();
         this.updateZoomDisplay(zoomLevel);
-        this.updateScreenshotDisplay();
+        // In streaming mode, just apply CSS zoom - don't re-render screenshot
+        if (this.captureMode === 'streaming') {
+            this.canvasRenderer.applyZoom();
+        } else {
+            this.updateScreenshotDisplay();
+        }
     }
 
     updateZoomDisplay(zoomLevel) {
@@ -1298,17 +1981,67 @@ class FlowWizard {
         }
     }
 
+    /**
+     * Fit to screen - reset zoom and set fit mode
+     */
+    fitToScreen() {
+        const zoomLevel = this.canvasRenderer.fitToScreen();
+        this.updateZoomDisplay(zoomLevel);
+        this.scaleMode = 'fit';
+        console.log('[FlowWizard] Fit to screen');
+    }
+
+    /**
+     * Toggle recording pause/resume
+     * When paused, gestures are executed but not recorded to the flow
+     */
+    toggleRecording() {
+        this.recordingPaused = !this.recordingPaused;
+
+        const btn = document.getElementById('qabRecordToggle');
+        const label = btn?.querySelector('.btn-label');
+        const icon = btn?.querySelector('.btn-icon');
+
+        if (this.recordingPaused) {
+            btn?.classList.remove('recording-active');
+            btn?.classList.add('recording-paused');
+            if (label) label.textContent = 'Paused';
+            if (icon) icon.textContent = '⏸';
+            showToast('Recording paused - actions will not be saved', 'info', 2000);
+        } else {
+            btn?.classList.remove('recording-paused');
+            btn?.classList.add('recording-active');
+            if (label) label.textContent = 'Recording';
+            if (icon) icon.textContent = '⏺';
+            showToast('Recording resumed', 'success', 2000);
+        }
+
+        console.log(`[FlowWizard] Recording ${this.recordingPaused ? 'paused' : 'resumed'}`);
+    }
+
     // Removed applyCanvasScale() - now using direct canvas resizing instead of CSS transform
 
     async handleElementClick(canvasX, canvasY) {
-        // Convert canvas coordinates to device coordinates
-        const deviceCoords = this.canvasRenderer.canvasToDevice(canvasX, canvasY);
+        // Convert canvas coordinates to device coordinates (use appropriate converter)
+        let deviceCoords;
+        if (this.captureMode === 'streaming' && this.liveStream) {
+            deviceCoords = this.liveStream.canvasToDevice(canvasX, canvasY);
+        } else {
+            deviceCoords = this.canvasRenderer.canvasToDevice(canvasX, canvasY);
+        }
 
-        // Find clicked element from metadata
+        // Find clicked element from metadata (use appropriate element source)
+        const elements = this.captureMode === 'streaming'
+            ? this.liveStream?.elements
+            : this.recorder.screenshotMetadata?.elements;
         const clickedElement = this.interactions.findElementAtCoordinates(
-            this.recorder.screenshotMetadata?.elements,
+            elements,
             deviceCoords.x,
-            deviceCoords.y
+            deviceCoords.y,
+            {
+                hideContainers: this.overlayFilters.hideContainers,
+                hideEmptyElements: this.overlayFilters.hideEmptyElements
+            }
         );
 
         // Show selection dialog
@@ -1322,7 +2055,10 @@ class FlowWizard {
         switch (choice.type) {
             case 'tap':
                 await this.executeTap(deviceCoords.x, deviceCoords.y, clickedElement);
-                this.updateScreenshotDisplay();
+                // Only update screenshot in polling mode - streaming updates automatically
+                if (this.captureMode !== 'streaming') {
+                    this.updateScreenshotDisplay();
+                }
                 break;
 
             case 'type':
@@ -1330,7 +2066,10 @@ class FlowWizard {
                 if (text) {
                     await this.executeTap(deviceCoords.x, deviceCoords.y, clickedElement);
                     await this.recorder.typeText(text);
-                    this.updateScreenshotDisplay();
+                    // Only update screenshot in polling mode - streaming updates automatically
+                    if (this.captureMode !== 'streaming') {
+                        this.updateScreenshotDisplay();
+                    }
                 }
                 break;
 
@@ -1413,7 +2152,10 @@ class FlowWizard {
             };
         }
 
-        this.recorder.addStep(step);
+        // Add step to flow (unless recording is paused)
+        if (!this.recordingPaused) {
+            this.recorder.addStep(step);
+        }
 
         // Capture new screenshot after tap
         if (this.recordMode === 'execute') {
@@ -1432,9 +2174,12 @@ class FlowWizard {
         this.canvasRenderer.showTapIndicator(x, y);
 
         // Redraw screenshot after short delay to clear tap indicator
-        setTimeout(() => {
-            this.updateScreenshotDisplay();
-        }, 300);
+        // In streaming mode, the next frame will naturally clear it
+        if (this.captureMode !== 'streaming') {
+            setTimeout(() => {
+                this.updateScreenshotDisplay();
+            }, 300);
+        }
     }
 
     findElementAtCoordinates(x, y) {
@@ -1662,29 +2407,50 @@ class FlowWizard {
     }
 
     async createTextSensor(element, coords) {
-        const result = await this.interactions.createTextSensor(
-            element,
-            coords,
-            this.selectedDevice,
-            this.selectedApp
-        );
+        // Use full SensorCreator dialog (same as sensors.html page)
+        const elementIndex = element?.index || 0;
+        this.sensorCreator.show(this.selectedDevice, element, elementIndex);
 
-        if (result && result.step) {
-            this.recorder.addStep(result.step);
-        }
+        // Note: SensorCreator handles saving directly via API
+        // We don't add a flow step here since sensor creation is independent of flow recording
     }
 
     async createImageSensor(element, coords) {
-        const result = await this.interactions.createImageSensor(
-            element,
-            coords,
-            this.selectedDevice,
-            this.selectedApp
-        );
+        // Use full SensorCreator dialog (same as sensors.html page)
+        const elementIndex = element?.index || 0;
+        this.sensorCreator.show(this.selectedDevice, element, elementIndex);
+        // Callback will be triggered by onSensorCreated when sensor is created
+    }
 
-        if (result && result.step) {
-            this.recorder.addStep(result.step);
+    /**
+     * Handle sensor created callback - adds capture_sensors step to flow
+     * Called by SensorCreator.onSensorCreated callback
+     */
+    _handleSensorCreated(response, sensorData) {
+        console.log('[FlowWizard] Sensor created, adding capture step:', response, sensorData);
+
+        // Only add to flow if we have an active recorder (step 3)
+        if (!this.recorder) {
+            console.log('[FlowWizard] No active recorder, skipping flow step');
+            return;
         }
+
+        // Get the sensor ID from the response
+        const sensorId = response?.sensor_id || sensorData?.sensor_id;
+        if (!sensorId) {
+            console.warn('[FlowWizard] No sensor ID in response, cannot add flow step');
+            return;
+        }
+
+        // Add a capture_sensors step for this sensor
+        const step = {
+            step_type: 'capture_sensors',
+            description: `Capture sensor: ${sensorData.friendly_name}`,
+            sensor_ids: [sensorId]
+        };
+
+        this.recorder.addStep(step);
+        console.log('[FlowWizard] Added capture_sensors step for:', sensorId);
     }
 
     /**
@@ -1885,15 +2651,17 @@ class FlowWizard {
             }
         }
 
-        // Add a single wait step representing the total refresh operation
-        const totalDuration = (attempts - 1) * delay + 500; // 500ms for screenshot capture
-        this.recorder.addStep({
-            step_type: 'wait',
-            duration: totalDuration,
-            refresh_attempts: attempts,
-            refresh_delay: delay,
-            description: `Wait for UI update (${attempts} refreshes, ${delay}ms delay)`
-        });
+        // Add a single wait step representing the total refresh operation (unless recording is paused)
+        if (!this.recordingPaused) {
+            const totalDuration = (attempts - 1) * delay + 500; // 500ms for screenshot capture
+            this.recorder.addStep({
+                step_type: 'wait',
+                duration: totalDuration,
+                refresh_attempts: attempts,
+                refresh_delay: delay,
+                description: `Wait for UI update (${attempts} refreshes, ${delay}ms delay)`
+            });
+        }
 
         showToast(`Completed ${attempts} refresh attempts`, 'success', 2000);
     }
@@ -1901,7 +2669,6 @@ class FlowWizard {
     async updateScreenshotDisplay() {
         const dataUrl = this.recorder.getScreenshotDataUrl();
         const metadata = this.recorder.screenshotMetadata;
-        const loading = document.getElementById('screenshotLoading');
 
         try {
             // Render using canvas renderer module
@@ -1910,20 +2677,65 @@ class FlowWizard {
             // Store scale for coordinate mapping
             this.currentScale = scale;
 
-            // Update element panel if metadata available
+            // Update element tree and count if metadata available
             if (metadata && metadata.elements && metadata.elements.length > 0) {
-                this.elementPanel.updateElements(metadata.elements);
+                this.updateElementTree(metadata.elements);
+                this.updateElementCount(metadata.elements.length);
             }
 
-            // Hide loading
-            if (loading) loading.style.display = 'none';
+            // Phase 1 Screen Awareness: Update screen info after each screenshot
+            this.updateScreenInfo();
+
+            // Hide loading overlay
+            this.hideLoadingOverlay();
 
         } catch (error) {
             console.error('[FlowWizard] Failed to render screenshot:', error);
-            if (loading) {
-                loading.textContent = 'Error loading screenshot';
-                loading.style.display = 'block';
-            }
+            this.showLoadingOverlay('Error loading screenshot');
+        }
+    }
+
+    /**
+     * Show loading overlay on screenshot
+     */
+    showLoadingOverlay(text = 'Loading...') {
+        const overlay = document.getElementById('screenshotLoading');
+        if (overlay) {
+            const textEl = overlay.querySelector('.loading-text');
+            if (textEl) textEl.textContent = text;
+            overlay.classList.add('visible');
+        }
+    }
+
+    /**
+     * Hide loading overlay
+     */
+    hideLoadingOverlay() {
+        const overlay = document.getElementById('screenshotLoading');
+        if (overlay) {
+            overlay.classList.remove('visible');
+        }
+    }
+
+    /**
+     * Update element count badge
+     */
+    updateElementCount(count) {
+        const badge = document.getElementById('elementCount');
+        if (badge) badge.textContent = count;
+    }
+
+    /**
+     * Update flow steps count badge
+     */
+    updateFlowStepsUI() {
+        const badge = document.getElementById('stepCount');
+        const steps = this.recorder?.getSteps() || [];
+        if (badge) badge.textContent = steps.length;
+
+        // Update step manager display
+        if (this.stepManager) {
+            this.stepManager.render(steps);
         }
     }
 
@@ -2453,6 +3265,12 @@ class FlowWizard {
             `;
 
             stepsList.insertAdjacentHTML('beforeend', stepHtml);
+
+            // Auto-switch to Flow tab when step is added
+            this.switchToTab('flow');
+
+            // Update step count badge
+            this.updateFlowStepsUI();
         });
 
         window.addEventListener('flowStepRemoved', (e) => {
@@ -2465,6 +3283,9 @@ class FlowWizard {
                 el.dataset.stepIndex = i;
                 el.querySelector('.step-number-badge').textContent = i + 1;
             });
+
+            // Update step count badge
+            this.updateFlowStepsUI();
         });
     }
 

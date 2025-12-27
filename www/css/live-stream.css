@@ -25,7 +25,9 @@
 .control-group select {
     padding: 8px 12px;
     border-radius: 4px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--border-color, #ccc);
+    background: var(--input-background, #fff);
+    color: var(--text-color, #333);
     min-width: 200px;
 }
 
@@ -73,13 +75,14 @@
     display: flex;
     flex-direction: column;
     padding: 10px;
-    background: #f5f5f5;
+    background: var(--card-background, #f5f5f5);
     border-radius: 4px;
+    border: 1px solid var(--border-color, #eee);
 }
 
 .metric-label {
     font-size: 12px;
-    color: #666;
+    color: var(--text-secondary, #666);
     margin-bottom: 4px;
 }
 
@@ -142,9 +145,11 @@
 /* Tap info */
 .tap-info {
     padding: 10px;
-    background: #f0f0f0;
+    background: var(--card-background, #f0f0f0);
+    border: 1px solid var(--border-color, #ddd);
     border-radius: 4px;
     font-family: monospace;
+    color: var(--text-color, #333);
 }
 
 /* Navigation Controls */
@@ -163,8 +168,9 @@
 .nav-btn {
     padding: 12px 20px;
     border-radius: 6px;
-    border: 1px solid #ccc;
-    background: #f5f5f5;
+    border: 1px solid var(--border-color, #ccc);
+    background: var(--card-background, #f5f5f5);
+    color: var(--text-color, #333);
     cursor: pointer;
     font-size: 14px;
     font-weight: 500;
@@ -173,12 +179,13 @@
 }
 
 .nav-btn:hover {
-    background: #e0e0e0;
-    border-color: #999;
+    background: var(--hover, #e0e0e0);
+    border-color: var(--primary-color, #999);
 }
 
 .nav-btn:active {
-    background: #d0d0d0;
+    background: var(--primary-color, #d0d0d0);
+    color: white;
     transform: scale(0.98);
 }
 
@@ -197,7 +204,8 @@
 }
 
 .modal-content {
-    background: white;
+    background: var(--modal-background, white);
+    color: var(--text-color, #333);
     padding: 25px;
     border-radius: 8px;
     width: 90%;
@@ -209,8 +217,9 @@
 .modal-content h2 {
     margin-top: 0;
     margin-bottom: 20px;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid var(--border-color, #ddd);
     padding-bottom: 10px;
+    color: var(--text-color, #333);
 }
 
 .form-group {
@@ -226,16 +235,20 @@
 .form-control {
     width: 100%;
     padding: 8px 12px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--input-border, #ccc);
     border-radius: 4px;
     font-size: 14px;
+    background: var(--input-background, #fff);
+    color: var(--text-color, #333);
 }
 
 .form-control-sm {
     padding: 6px 10px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--input-border, #ccc);
     border-radius: 4px;
     font-size: 14px;
+    background: var(--input-background, #fff);
+    color: var(--text-color, #333);
 }
 
 .coords-display {
@@ -244,12 +257,13 @@
 }
 
 .modal-info {
-    background: #f5f5f5;
+    background: var(--card-background, #f5f5f5);
+    border: 1px solid var(--border-color, #ddd);
     padding: 10px;
     border-radius: 4px;
     margin-bottom: 15px;
     font-size: 13px;
-    color: #666;
+    color: var(--text-secondary, #666);
 }
 
 .modal-buttons {
@@ -501,8 +515,8 @@
 }
 
 .recorded-actions {
-    background: #f5f5f5;
-    border: 1px solid #ddd;
+    background: var(--card-background, #f5f5f5);
+    border: 1px solid var(--border-color, #ddd);
     border-radius: 6px;
     padding: 10px;
     max-height: 200px;
@@ -510,7 +524,7 @@
 }
 
 .recorded-actions .empty-message {
-    color: #888;
+    color: var(--text-secondary, #888);
     font-style: italic;
     margin: 0;
     text-align: center;
@@ -522,8 +536,8 @@
     align-items: center;
     gap: 10px;
     padding: 8px;
-    background: white;
-    border: 1px solid #e0e0e0;
+    background: var(--background-color, white);
+    border: 1px solid var(--border-color, #e0e0e0);
     border-radius: 4px;
     margin-bottom: 6px;
 }
@@ -548,7 +562,7 @@
 
 .action-type {
     font-weight: 600;
-    color: #333;
+    color: var(--text-color, #333);
     min-width: 50px;
 }
 
@@ -563,7 +577,7 @@
 .action-coords {
     font-family: monospace;
     font-size: 12px;
-    color: #666;
+    color: var(--text-secondary, #666);
 }
 
 .action-delete {
@@ -717,6 +731,66 @@
     50% { opacity: 0.3; }
 }
 
+/* ws-scrcpy Overlay */
+.scrcpy-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: #1a1a1a;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+}
+
+.scrcpy-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #ff9800, #f57c00);
+    color: white;
+    font-weight: 600;
+}
+
+.scrcpy-controls {
+    display: flex;
+    gap: 10px;
+}
+
+.scrcpy-btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    color: white;
+    background: rgba(255, 255, 255, 0.2);
+    transition: background 0.2s;
+}
+
+.scrcpy-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.scrcpy-close {
+    background: rgba(244, 67, 54, 0.8);
+}
+
+.scrcpy-close:hover {
+    background: rgba(244, 67, 54, 1);
+}
+
+.scrcpy-frame {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: #000;
+}
+
 /* Fullscreen styles */
 .stream-card.fullscreen {
     position: fixed;
@@ -769,8 +843,8 @@
 
 .element-tree-panel {
     flex: 0 0 38%;
-    background: #f8f9fa;
-    border: 1px solid #ddd;
+    background: var(--card-background, #f8f9fa);
+    border: 1px solid var(--border-color, #ddd);
     border-radius: 8px;
     display: flex;
     flex-direction: column;
@@ -780,23 +854,25 @@
 
 .tree-header {
     padding: 14px;
-    background: #e9ecef;
-    border-bottom: 1px solid #ddd;
+    background: var(--background-color, #e9ecef);
+    border-bottom: 1px solid var(--border-color, #ddd);
 }
 
 .tree-header h3 {
     margin: 0 0 10px 0;
     font-size: 16px;
     font-weight: 600;
-    color: #333;
+    color: var(--text-color, #333);
 }
 
 .tree-search {
     width: 100%;
     padding: 10px 12px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--input-border, #ccc);
     border-radius: 6px;
     font-size: 14px;
+    background: var(--input-background, #fff);
+    color: var(--text-color, #333);
 }
 
 .tree-search::placeholder {
@@ -820,10 +896,10 @@
     padding: 10px 12px;
     margin-bottom: 6px;
     border-radius: 6px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color, #ddd);
     transition: all 0.15s;
     font-size: 13px;
-    background: white;
+    background: var(--card-background, white);
 }
 
 .tree-item:hover {
@@ -862,17 +938,17 @@
 
 .tree-item-class {
     font-size: 12px;
-    color: #333;
+    color: var(--text-color, #333);
     font-family: monospace;
     font-weight: 500;
 }
 
 .tree-item-id {
     font-size: 11px;
-    color: #666;
+    color: var(--text-secondary, #666);
     font-family: monospace;
     margin-top: 3px;
-    background: #f0f0f0;
+    background: var(--background-color, #f0f0f0);
     padding: 2px 6px;
     border-radius: 3px;
     display: inline-block;
@@ -977,17 +1053,17 @@
     display: flex;
     gap: 8px;
     padding: 5px 0;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-color, #eee);
 }
 
 .detail-label {
     font-weight: 600;
-    color: #555;
+    color: var(--text-secondary, #555);
     min-width: 100px;
 }
 
 .detail-value {
-    color: #333;
+    color: var(--text-color, #333);
     word-break: break-word;
     font-family: monospace;
     font-size: 13px;

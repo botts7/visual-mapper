@@ -2,16 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.3">
-    <meta name="version" content="0.0.3" data-build="2025-12-23">
+    <meta name="viewport" content="0.0.5">
+    <meta name="version" content="0.0.5" data-build="2025-12-27">
     <title>Create Flow - Visual Mapper</title>
-    <link rel="stylesheet" href="css/styles.css?v=0.0.3">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.5">
     <style>
         .form-section {
-            background: var(--surface);
+            background: var(--card-background);
             border-radius: 8px;
             padding: 20px;
             margin-bottom: 20px;
+        }
+
+        .form-section h2 {
+            color: var(--text-color);
+            margin-top: 0;
         }
 
         .form-group {
@@ -22,6 +29,7 @@
             display: block;
             margin-bottom: 5px;
             font-weight: 500;
+            color: var(--text-color);
         }
 
         .form-group input,
@@ -29,14 +37,20 @@
         .form-group select {
             width: 100%;
             padding: 8px 12px;
-            border: 1px solid var(--border);
+            border: 1px solid var(--border-color);
             border-radius: 4px;
             font-family: inherit;
+            background: var(--background-color);
+            color: var(--text-color);
+        }
+
+        .form-group small {
+            color: var(--text-secondary);
         }
 
         .step-item {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
+            background: var(--preview-background);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 15px;
             margin-bottom: 10px;
@@ -51,7 +65,7 @@
 
         .step-number {
             display: inline-block;
-            background: var(--primary);
+            background: var(--primary-color);
             color: white;
             width: 30px;
             height: 30px;
@@ -79,7 +93,8 @@
             <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
             <li class="nav-priority-low"><a href="index.html">Home</a></li>
             <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
-            <li class="version">v0.0.4</li>
+            <li class="version">v0.0.5</li>
+            <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
             <li id="themeToggleContainer"></li>
         </ul>
     </nav>
@@ -141,8 +156,20 @@
     </div>
 
     <script type="module">
-        import FlowManager from './js/modules/flow-manager.js?v=0.0.4';
-        import { showToast } from './js/modules/toast.js?v=0.0.4';
+        import FlowManager from './js/modules/flow-manager.js?v=0.0.5';
+        import { showToast } from './js/modules/toast.js?v=0.0.5';
+        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.5';
+        import MobileNav from './js/modules/mobile-nav.js?v=0.0.5';
+
+        // Initialize theme and mobile nav
+        const themeToggle = new ThemeToggle();
+        const mobileNav = new MobileNav();
+        themeToggle.apply();
+        mobileNav.init();
+        const themeToggleContainer = document.getElementById('themeToggleContainer');
+        if (themeToggleContainer) {
+            themeToggleContainer.appendChild(themeToggle.createToggleButton());
+        }
 
         window.flowManager = new FlowManager();
         let stepCount = 0;

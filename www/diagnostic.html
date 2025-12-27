@@ -2,10 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.3">
-    <meta name="version" content="0.0.3" data-build="2025-12-27">
+    <meta name="viewport" content="0.0.5">
+    <meta name="version" content="0.0.5" data-build="2025-12-27">
     <title>Diagnostics - Visual Mapper</title>
-    <link rel="stylesheet" href="css/styles.css?v=0.0.3">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.5">
     <style>
         .pipeline-step {
             background: var(--card-background);
@@ -13,6 +15,20 @@
             padding: 10px;
             margin: 10px 0;
             border-radius: 4px;
+        }
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
         .pipeline-step-header {
             display: flex;
@@ -48,6 +64,7 @@
             <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
 
             <li class="version">v0.0.5</li>
+            <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
             <li id="themeToggleContainer"></li>
         </ul>
     </nav>
@@ -69,6 +86,254 @@
             <h2>ADB Connection Test</h2>
             <button id="testAdb" class="btn">Test ADB Devices</button>
             <div id="adbResult" style="margin-top:10px"></div>
+        </div>
+
+        <!-- ADB Performance Benchmark -->
+        <div class="card">
+            <h2>ADB Performance Benchmark</h2>
+            <p style="color: var(--text-secondary); font-size: 13px;">Run performance tests to diagnose ADB speed issues</p>
+            <select id="benchDev" class="form-select" style="margin:10px 0"></select>
+            <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+                <button id="runBenchmark" class="btn">Run Full Benchmark</button>
+                <button id="runQuickBenchmark" class="btn btn-secondary">Quick Test (1 sample)</button>
+            </div>
+            <div id="benchmarkResult" style="margin-top:10px"></div>
+
+            <!-- Benchmark Results Grid -->
+            <div id="benchmarkGrid" style="display:none;margin-top:15px;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px;">
+                    <!-- Screenshot Timing -->
+                    <div class="benchmark-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
+                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">Screenshot Capture</h4>
+                        <div id="screenshotStats">
+                            <div style="font-size:24px;font-weight:bold;" id="scrAvgTime">--</div>
+                            <div style="font-size:12px;color:var(--text-secondary);">avg capture time</div>
+                            <div style="margin-top:8px;font-size:13px;">
+                                <span>Min: <span id="scrMinTime">--</span></span> |
+                                <span>Max: <span id="scrMaxTime">--</span></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- UI Dump Timing -->
+                    <div class="benchmark-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
+                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">UI Hierarchy Dump</h4>
+                        <div id="uiDumpStats">
+                            <div style="font-size:24px;font-weight:bold;" id="uiDumpTime">--</div>
+                            <div style="font-size:12px;color:var(--text-secondary);">dump time</div>
+                        </div>
+                    </div>
+
+                    <!-- Connection Info -->
+                    <div class="benchmark-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
+                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">Connection</h4>
+                        <div>
+                            <div style="font-size:18px;font-weight:bold;" id="connType">--</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">ADB: <span id="adbVersion">--</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Performance Rating -->
+                    <div class="benchmark-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
+                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">Performance Rating</h4>
+                        <div>
+                            <div style="font-size:24px;font-weight:bold;" id="perfRating">--</div>
+                            <div style="font-size:12px;color:var(--text-secondary);" id="perfAdvice">Run benchmark to see rating</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sample Times Chart -->
+                <div style="margin-top:15px;background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
+                    <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">Sample Times (ms)</h4>
+                    <div id="sampleTimesChart" style="display:flex;align-items:flex-end;height:80px;gap:8px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Capture Backend Benchmark -->
+        <div class="card">
+            <h2>Capture Backend Benchmark</h2>
+            <p style="color: var(--text-secondary); font-size: 13px;">Compare capture speeds between different backends (adbutils vs adb_bridge)</p>
+            <select id="backendBenchDev" class="form-select" style="margin:10px 0"></select>
+            <button id="runBackendBenchmark" class="btn">Run Backend Comparison</button>
+            <div id="backendBenchResult" style="margin-top:10px"></div>
+
+            <!-- Backend Results Grid -->
+            <div id="backendGrid" style="display:none;margin-top:15px;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:15px;">
+                    <!-- adbutils Backend -->
+                    <div class="benchmark-card" id="adbutils-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
+                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">adbutils (Modern)</h4>
+                        <div id="adbutils-stats">
+                            <div style="font-size:20px;font-weight:bold;" id="adbutils-avg">--</div>
+                            <div style="font-size:12px;color:var(--text-secondary);">avg capture time</div>
+                            <div style="margin-top:8px;font-size:12px;" id="adbutils-range">Min: -- | Max: --</div>
+                        </div>
+                    </div>
+
+                    <!-- adb_bridge Backend -->
+                    <div class="benchmark-card" id="adb-bridge-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
+                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">adb_bridge (Subprocess)</h4>
+                        <div id="adb-bridge-stats">
+                            <div style="font-size:20px;font-weight:bold;" id="adb-bridge-avg">--</div>
+                            <div style="font-size:12px;color:var(--text-secondary);">avg capture time</div>
+                            <div style="margin-top:8px;font-size:12px;" id="adb-bridge-range">Min: -- | Max: --</div>
+                        </div>
+                    </div>
+
+                    <!-- scrcpy Status -->
+                    <div class="benchmark-card" id="scrcpy-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
+                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">scrcpy (High FPS)</h4>
+                        <div id="scrcpy-stats">
+                            <div style="font-size:16px;font-weight:bold;" id="scrcpy-status">--</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;" id="scrcpy-note">Check availability</div>
+                        </div>
+                    </div>
+
+                    <!-- Recommendation -->
+                    <div class="benchmark-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:2px solid var(--primary-color);">
+                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">Recommended</h4>
+                        <div>
+                            <div style="font-size:18px;font-weight:bold;color:var(--primary-color);" id="recommended-backend">--</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;" id="best-time">--</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Diagnostics -->
+        <div class="card">
+            <h2>System Diagnostics</h2>
+            <p style="color: var(--text-secondary); font-size: 13px;">Server resource usage and overall system health</p>
+            <button id="testSystem" class="btn">Check System Status</button>
+            <div id="systemResult" style="margin-top:10px"></div>
+        </div>
+
+        <!-- ADB Maintenance & Optimization -->
+        <div class="card">
+            <h2>ADB Maintenance & Optimization</h2>
+            <p style="color: var(--text-secondary); font-size: 13px;">Device maintenance and performance optimization tools (2025 best practices)</p>
+
+            <!-- Server Controls -->
+            <div style="background: var(--preview-background); padding: 15px; border-radius: 8px; margin: 15px 0;">
+                <h4 style="margin: 0 0 10px 0; font-size: 14px;">ADB Server Controls</h4>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button id="restartAdbServer" class="btn">Restart ADB Server</button>
+                    <button id="checkServerStatus" class="btn btn-secondary">Check Status</button>
+                </div>
+                <div id="serverStatusResult" style="margin-top: 10px; font-size: 13px;"></div>
+            </div>
+
+            <!-- Device Maintenance -->
+            <div style="background: var(--preview-background); padding: 15px; border-radius: 8px; margin: 15px 0;">
+                <h4 style="margin: 0 0 10px 0; font-size: 14px;">Device Maintenance</h4>
+                <select id="maintDev" class="form-select" style="margin-bottom: 10px;"></select>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                    <button id="trimCache" class="btn btn-secondary">Trim App Cache</button>
+                    <button id="optimizeUi" class="btn btn-secondary">Optimize UI</button>
+                    <button id="resetUi" class="btn btn-secondary">Reset UI Settings</button>
+                    <button id="fullOptimize" class="btn">Full Optimization</button>
+                </div>
+                <div id="maintResult" style="margin-top: 10px; font-size: 13px;"></div>
+            </div>
+
+            <!-- Connection Metrics -->
+            <div style="background: var(--preview-background); padding: 15px; border-radius: 8px; margin: 15px 0;">
+                <h4 style="margin: 0 0 10px 0; font-size: 14px;">Connection Health Metrics</h4>
+                <button id="getConnMetrics" class="btn btn-secondary">Get Metrics</button>
+                <div id="metricsResult" style="margin-top: 10px;"></div>
+            </div>
+
+            <!-- Advanced Options -->
+            <details style="margin-top: 15px;">
+                <summary style="cursor: pointer; font-weight: bold;">Advanced Optimization Options</summary>
+                <div style="padding: 15px; background: var(--preview-background); border-radius: 8px; margin-top: 10px;">
+                    <div style="margin-bottom: 15px;">
+                        <label style="font-size: 13px; color: var(--text-secondary);">ART Compilation (5-15 min):</label>
+                        <div style="display: flex; gap: 10px; margin-top: 5px;">
+                            <select id="compileMode" class="form-select" style="width: auto;">
+                                <option value="speed-profile">speed-profile (Recommended)</option>
+                                <option value="speed">speed (Max performance)</option>
+                                <option value="verify">verify (Minimal)</option>
+                            </select>
+                            <button id="compileApps" class="btn btn-secondary">Compile Apps</button>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="font-size: 13px; color: var(--text-secondary);">Background Process Limit:</label>
+                        <div style="display: flex; gap: 10px; margin-top: 5px;">
+                            <select id="bgLimit" class="form-select" style="width: auto;">
+                                <option value="-1">Default (System)</option>
+                                <option value="4">4 (Standard)</option>
+                                <option value="2">2 (Aggressive)</option>
+                                <option value="0">0 (No background)</option>
+                            </select>
+                            <button id="setBgLimit" class="btn btn-secondary">Apply</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size: 13px; color: var(--text-secondary);">Emergency Reset:</label>
+                        <div style="margin-top: 5px;">
+                            <button id="resetDisplay" class="btn" style="background: #dc3545; color: white;">Reset Display Settings</button>
+                        </div>
+                    </div>
+                </div>
+            </details>
+        </div>
+
+        <!-- Real-Time Log Viewer -->
+        <div class="card">
+            <h2>Real-Time Logs</h2>
+            <p style="color: var(--text-secondary); font-size: 13px;">Live server log stream via WebSocket</p>
+
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px; align-items: center;">
+                <button id="connectLogs" class="btn btn-primary">Connect</button>
+                <button id="disconnectLogs" class="btn btn-secondary" disabled>Disconnect</button>
+                <button id="clearLogs" class="btn">Clear</button>
+                <select id="logLevel" class="form-select" style="width: 120px;">
+                    <option value="all">All Levels</option>
+                    <option value="ERROR">Errors Only</option>
+                    <option value="WARNING">Warnings+</option>
+                    <option value="INFO" selected>Info+</option>
+                    <option value="DEBUG">Debug+</option>
+                </select>
+                <span id="logStatus" style="color: var(--text-secondary); font-size: 12px;">Disconnected</span>
+                <div style="margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                    <div style="display: flex; gap: 8px; font-size: 12px; background: var(--preview-background); padding: 4px 8px; border-radius: 4px;">
+                        <label style="cursor: pointer;"><input type="checkbox" id="expDebug"> DEBUG</label>
+                        <label style="cursor: pointer;"><input type="checkbox" id="expInfo" checked> INFO</label>
+                        <label style="cursor: pointer;"><input type="checkbox" id="expWarning" checked> WARN</label>
+                        <label style="cursor: pointer;"><input type="checkbox" id="expError" checked> ERROR</label>
+                    </div>
+                    <button id="copyLogs" class="btn btn-secondary" title="Copy to clipboard">Copy</button>
+                    <button id="exportLogsJson" class="btn btn-secondary" title="Download as JSON file">JSON</button>
+                    <button id="exportLogsTxt" class="btn btn-secondary" title="Download as TXT file">TXT</button>
+                </div>
+            </div>
+            <div style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
+                <span id="logCount">0</span> logs captured
+            </div>
+
+            <div id="logViewer" style="margin-top: 15px; background: #1a1a2e; border-radius: 8px; padding: 10px; height: 300px; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; line-height: 1.4;">
+                <div style="color: #666;">Click "Connect" to start viewing logs...</div>
+            </div>
+        </div>
+
+        <!-- Persistent Shell Pool Benchmark -->
+        <div class="card">
+            <h2>Persistent Shell Pool</h2>
+            <p style="color: var(--text-secondary); font-size: 13px;">Compare persistent shell sessions vs regular ADB calls (50-70% faster for batch operations)</p>
+
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px;">
+                <select id="shellDev" class="form-select" style="flex: 1; min-width: 200px;"></select>
+                <input type="number" id="shellIterations" value="10" min="1" max="50" style="width: 80px;" class="form-select" title="Number of iterations">
+                <button id="runShellBenchmark" class="btn">Run Benchmark</button>
+                <button id="getShellStats" class="btn btn-secondary">Pool Stats</button>
+            </div>
+
+            <div id="shellBenchmarkResult" style="margin-top: 15px;"></div>
         </div>
 
         <!-- Screenshot Test -->
@@ -129,12 +394,44 @@
             </div>
             <div id="ctrlResult" style="margin-top:10px"></div>
         </div>
+
+        <!-- Scheduler Test -->
+        <div class="card">
+            <h2>Flow Scheduler Test</h2>
+            <p style="color: var(--text-secondary); font-size: 13px;">Test flow scheduler status and controls</p>
+            <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+                <button id="testSchedulerStatus" class="btn">Get Status</button>
+                <button id="testSchedulerPause" class="btn btn-secondary">Pause Scheduler</button>
+                <button id="testSchedulerResume" class="btn btn-secondary">Resume Scheduler</button>
+            </div>
+            <div id="schedulerResult" style="margin-top:10px"></div>
+        </div>
+
+        <!-- Flow API Test -->
+        <div class="card">
+            <h2>Flow API Test</h2>
+            <p style="color: var(--text-secondary); font-size: 13px;">Test flow CRUD operations</p>
+            <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+                <button id="testListFlows" class="btn">List Flows</button>
+                <button id="testFlowQueue" class="btn btn-secondary">Get Queue</button>
+            </div>
+            <select id="flowDev" class="form-select" style="margin:10px 0"></select>
+            <div id="flowResult" style="margin-top:10px"></div>
+        </div>
+
+        <!-- MQTT Test -->
+        <div class="card">
+            <h2>MQTT Connection Test</h2>
+            <p style="color: var(--text-secondary); font-size: 13px;">Test MQTT broker connectivity</p>
+            <button id="testMqtt" class="btn">Test MQTT Status</button>
+            <div id="mqttResult" style="margin-top:10px"></div>
+        </div>
     </div>
 
     <script type="module">
-        import APIClient from './js/modules/api-client.js?v=0.0.4';
-        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.4';
-        import MobileNav from './js/modules/mobile-nav.js?v=0.0.4';
+        import APIClient from './js/modules/api-client.js?v=0.0.5';
+        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.5';
+        import MobileNav from './js/modules/mobile-nav.js?v=0.0.5';
 
         const api = new APIClient();
         const theme = new ThemeToggle();
@@ -151,8 +448,9 @@
         async function loadDevs() {
             try {
                 const r = await api.get('/adb/devices');
-                ['scrDev', 'ctrlDev'].forEach(id => {
+                ['scrDev', 'ctrlDev', 'benchDev', 'backendBenchDev', 'maintDev', 'shellDev'].forEach(id => {
                     const s = document.getElementById(id);
+                    if (!s) return;
                     s.innerHTML = '<option value="">Select device...</option>';
                     r.devices.forEach(d => {
                         s.innerHTML += `<option value="${d.id}">${d.id}</option>`;
@@ -162,6 +460,322 @@
                 console.error('[Diagnostic] Failed to load devices:', e);
             }
         }
+
+        // === ADB Benchmark Functions ===
+        async function runBenchmark(quick = false) {
+            const el = document.getElementById('benchmarkResult');
+            const grid = document.getElementById('benchmarkGrid');
+            const dev = document.getElementById('benchDev').value;
+
+            if (!dev) {
+                el.innerHTML = '<p class="status error">Please select a device first</p>';
+                grid.style.display = 'none';
+                return;
+            }
+
+            el.innerHTML = '<p class="status"><span class="loading-spinner"></span> Running benchmark... (this may take 10-15 seconds)</p>';
+            grid.style.display = 'none';
+
+            try {
+                const samples = quick ? 1 : 5;
+                const r = await api.get(`/diagnostics/adb/${dev}?samples=${samples}`);
+
+                if (r.error) {
+                    el.innerHTML = `<p class="status error">Error: ${r.error}</p>`;
+                    return;
+                }
+
+                // Show success message
+                el.innerHTML = '<p class="status success">Benchmark complete!</p>';
+
+                // Display results in grid
+                displayBenchmarkResults(r);
+                grid.style.display = 'block';
+
+            } catch (e) {
+                el.innerHTML = `<p class="status error">Benchmark failed: ${e.message}</p>`;
+                grid.style.display = 'none';
+            }
+        }
+
+        function displayBenchmarkResults(data) {
+            const bench = data.screenshot_benchmark;
+
+            // Screenshot timing
+            document.getElementById('scrAvgTime').textContent = `${bench.avg_ms.toFixed(0)}ms`;
+            document.getElementById('scrMinTime').textContent = `${bench.min_ms.toFixed(0)}ms`;
+            document.getElementById('scrMaxTime').textContent = `${bench.max_ms.toFixed(0)}ms`;
+
+            // Set color based on performance
+            const avgEl = document.getElementById('scrAvgTime');
+            if (bench.avg_ms < 300) {
+                avgEl.style.color = '#4caf50'; // Green - great
+            } else if (bench.avg_ms < 800) {
+                avgEl.style.color = '#ff9800'; // Orange - ok
+            } else {
+                avgEl.style.color = '#f44336'; // Red - slow
+            }
+
+            // UI Dump timing
+            if (data.ui_dump_timing) {
+                document.getElementById('uiDumpTime').textContent = `${data.ui_dump_timing.time_ms.toFixed(0)}ms`;
+            } else {
+                document.getElementById('uiDumpTime').textContent = 'N/A';
+            }
+
+            // Connection type
+            const connType = data.connection_type || 'Unknown';
+            const connEl = document.getElementById('connType');
+            connEl.textContent = connType.toUpperCase();
+            connEl.style.color = connType === 'usb' ? '#4caf50' : '#ff9800';
+
+            // ADB version
+            document.getElementById('adbVersion').textContent = data.adb_version || 'Unknown';
+
+            // Performance rating
+            const rating = calculatePerformanceRating(bench.avg_ms, connType);
+            const ratingEl = document.getElementById('perfRating');
+            const adviceEl = document.getElementById('perfAdvice');
+
+            ratingEl.textContent = rating.label;
+            ratingEl.style.color = rating.color;
+            adviceEl.textContent = rating.advice;
+
+            // Render sample times chart
+            renderSampleChart(bench.samples_ms);
+        }
+
+        function calculatePerformanceRating(avgMs, connType) {
+            if (avgMs < 200) {
+                return {
+                    label: 'Excellent',
+                    color: '#4caf50',
+                    advice: 'USB connection performing optimally'
+                };
+            } else if (avgMs < 400) {
+                return {
+                    label: 'Good',
+                    color: '#8bc34a',
+                    advice: 'Good performance for most use cases'
+                };
+            } else if (avgMs < 800) {
+                return {
+                    label: 'Fair',
+                    color: '#ff9800',
+                    advice: connType === 'wifi' ? 'WiFi latency is typical; consider USB for better FPS' : 'Some latency detected'
+                };
+            } else if (avgMs < 1500) {
+                return {
+                    label: 'Slow',
+                    color: '#ff5722',
+                    advice: 'High latency - streaming will be ~1 FPS. Try USB or check network.'
+                };
+            } else {
+                return {
+                    label: 'Very Slow',
+                    color: '#f44336',
+                    advice: 'Critical latency issues. Check ADB connection and restart ADB server.'
+                };
+            }
+        }
+
+        function renderSampleChart(samples) {
+            const container = document.getElementById('sampleTimesChart');
+            if (!samples || samples.length === 0) {
+                container.innerHTML = '<span style="color:var(--text-secondary)">No sample data</span>';
+                return;
+            }
+
+            const maxMs = Math.max(...samples);
+            let html = '';
+
+            samples.forEach((ms, i) => {
+                const height = Math.max(10, (ms / maxMs) * 70); // 10-70px height
+                let color = '#4caf50';
+                if (ms > 1000) color = '#f44336';
+                else if (ms > 500) color = '#ff9800';
+
+                html += `
+                    <div style="display:flex;flex-direction:column;align-items:center;flex:1;">
+                        <div style="font-size:10px;color:var(--text-secondary);margin-bottom:4px;">${ms.toFixed(0)}</div>
+                        <div style="width:100%;max-width:40px;height:${height}px;background:${color};border-radius:4px 4px 0 0;"></div>
+                        <div style="font-size:10px;color:var(--text-secondary);margin-top:4px;">#${i + 1}</div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        // Benchmark button handlers
+        document.getElementById('runBenchmark').onclick = () => runBenchmark(false);
+        document.getElementById('runQuickBenchmark').onclick = () => runBenchmark(true);
+
+        // === Backend Benchmark Functions ===
+        async function runBackendBenchmark() {
+            const el = document.getElementById('backendBenchResult');
+            const grid = document.getElementById('backendGrid');
+            const dev = document.getElementById('backendBenchDev').value;
+
+            if (!dev) {
+                el.innerHTML = '<p class="status error">Please select a device first</p>';
+                grid.style.display = 'none';
+                return;
+            }
+
+            el.innerHTML = '<p class="status"><span class="loading-spinner"></span> Running backend comparison... (5 samples each)</p>';
+            grid.style.display = 'none';
+
+            try {
+                const r = await api.get(`/diagnostics/benchmark/${dev}?iterations=5`);
+
+                if (r.error) {
+                    el.innerHTML = `<p class="status error">Error: ${r.error}</p>`;
+                    return;
+                }
+
+                el.innerHTML = '<p class="status success">Backend comparison complete!</p>';
+                displayBackendResults(r);
+                grid.style.display = 'block';
+
+            } catch (e) {
+                el.innerHTML = `<p class="status error">Benchmark failed: ${e.message}</p>`;
+                grid.style.display = 'none';
+            }
+        }
+
+        function displayBackendResults(data) {
+            const backends = data.backends || {};
+
+            // adbutils results
+            const adbutils = backends.adbutils || {};
+            const adbUtilsCard = document.getElementById('adbutils-card');
+            if (adbutils.available && adbutils.avg_ms) {
+                document.getElementById('adbutils-avg').textContent = `${adbutils.avg_ms.toFixed(0)}ms`;
+                document.getElementById('adbutils-avg').style.color = getTimeColor(adbutils.avg_ms);
+                document.getElementById('adbutils-range').textContent = `Min: ${adbutils.min_ms}ms | Max: ${adbutils.max_ms}ms`;
+                adbUtilsCard.style.borderColor = 'var(--border-color)';
+            } else {
+                document.getElementById('adbutils-avg').textContent = 'N/A';
+                document.getElementById('adbutils-avg').style.color = 'var(--text-secondary)';
+                document.getElementById('adbutils-range').textContent = adbutils.error || 'Not available';
+                adbUtilsCard.style.borderColor = 'var(--error-color)';
+            }
+
+            // adb_bridge results
+            const adbBridge = backends.adb_bridge || {};
+            const adbBridgeCard = document.getElementById('adb-bridge-card');
+            if (adbBridge.available && adbBridge.avg_ms) {
+                document.getElementById('adb-bridge-avg').textContent = `${adbBridge.avg_ms.toFixed(0)}ms`;
+                document.getElementById('adb-bridge-avg').style.color = getTimeColor(adbBridge.avg_ms);
+                document.getElementById('adb-bridge-range').textContent = `Min: ${adbBridge.min_ms}ms | Max: ${adbBridge.max_ms}ms`;
+                adbBridgeCard.style.borderColor = 'var(--border-color)';
+            } else {
+                document.getElementById('adb-bridge-avg').textContent = 'N/A';
+                document.getElementById('adb-bridge-avg').style.color = 'var(--text-secondary)';
+                document.getElementById('adb-bridge-range').textContent = adbBridge.error || 'Not available';
+                adbBridgeCard.style.borderColor = 'var(--error-color)';
+            }
+
+            // scrcpy status
+            const scrcpy = backends.scrcpy || {};
+            const scrcpyCard = document.getElementById('scrcpy-card');
+            if (scrcpy.available) {
+                document.getElementById('scrcpy-status').textContent = 'Available';
+                document.getElementById('scrcpy-status').style.color = '#4caf50';
+                document.getElementById('scrcpy-note').textContent = 'Can provide 30-60 FPS';
+                scrcpyCard.style.borderColor = '#4caf50';
+            } else {
+                document.getElementById('scrcpy-status').textContent = 'Not Installed';
+                document.getElementById('scrcpy-status').style.color = '#ff9800';
+                document.getElementById('scrcpy-note').textContent = scrcpy.note || 'Install scrcpy for 30-60 FPS';
+                scrcpyCard.style.borderColor = 'var(--border-color)';
+            }
+
+            // Recommendation
+            const recommended = data.recommended_backend;
+            const bestTime = data.best_avg_ms;
+            document.getElementById('recommended-backend').textContent = recommended ? recommended.toUpperCase() : 'N/A';
+            document.getElementById('best-time').textContent = bestTime ? `${bestTime.toFixed(0)}ms avg` : '--';
+        }
+
+        function getTimeColor(ms) {
+            if (ms < 300) return '#4caf50';  // Green - great
+            if (ms < 800) return '#ff9800';   // Orange - ok
+            return '#f44336';                  // Red - slow
+        }
+
+        document.getElementById('runBackendBenchmark').onclick = runBackendBenchmark;
+
+        // === System Diagnostics ===
+        document.getElementById('testSystem').onclick = async () => {
+            const el = document.getElementById('systemResult');
+            try {
+                el.innerHTML = '<p class="status"><span class="loading-spinner"></span> Checking system...</p>';
+                const r = await api.get('/diagnostics/system');
+
+                let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:15px;margin-top:10px;">';
+
+                // CPU Usage
+                html += `
+                    <div style="background:var(--preview-background);padding:15px;border-radius:8px;text-align:center;">
+                        <div style="font-size:24px;font-weight:bold;color:${r.cpu_percent > 80 ? '#f44336' : '#4caf50'};">${r.cpu_percent.toFixed(1)}%</div>
+                        <div style="font-size:12px;color:var(--text-secondary);">CPU Usage</div>
+                    </div>
+                `;
+
+                // Memory Usage
+                const memPercent = (r.memory_used_mb / r.memory_total_mb * 100);
+                html += `
+                    <div style="background:var(--preview-background);padding:15px;border-radius:8px;text-align:center;">
+                        <div style="font-size:24px;font-weight:bold;color:${memPercent > 80 ? '#f44336' : '#4caf50'};">${memPercent.toFixed(1)}%</div>
+                        <div style="font-size:12px;color:var(--text-secondary);">Memory (${r.memory_used_mb}/${r.memory_total_mb} MB)</div>
+                    </div>
+                `;
+
+                // Connected Devices
+                html += `
+                    <div style="background:var(--preview-background);padding:15px;border-radius:8px;text-align:center;">
+                        <div style="font-size:24px;font-weight:bold;color:#2196f3;">${r.connected_devices}</div>
+                        <div style="font-size:12px;color:var(--text-secondary);">Connected Devices</div>
+                    </div>
+                `;
+
+                // Active Streams
+                html += `
+                    <div style="background:var(--preview-background);padding:15px;border-radius:8px;text-align:center;">
+                        <div style="font-size:24px;font-weight:bold;color:#9c27b0;">${r.active_streams || 0}</div>
+                        <div style="font-size:12px;color:var(--text-secondary);">Active Streams</div>
+                    </div>
+                `;
+
+                // Flow Scheduler Status
+                const fs = r.flow_scheduler || {};
+                const fsRunning = fs.running && !fs.paused;
+                const fsColor = fsRunning ? '#ff9800' : '#4caf50';
+                const fsLabel = fsRunning ? 'Running' : (fs.paused ? 'Paused' : 'Stopped');
+                html += `
+                    <div style="background:var(--preview-background);padding:15px;border-radius:8px;text-align:center;">
+                        <div style="font-size:18px;font-weight:bold;color:${fsColor};">${fsLabel}</div>
+                        <div style="font-size:12px;color:var(--text-secondary);">Flow Scheduler (${fs.active_flows || 0} flows)</div>
+                        ${fsRunning ? '<div style="font-size:11px;color:#ff5722;margin-top:4px;">⚠️ May impact ADB performance</div>' : ''}
+                    </div>
+                `;
+
+                html += '</div>';
+
+                // Server uptime
+                if (r.uptime_seconds) {
+                    const hours = Math.floor(r.uptime_seconds / 3600);
+                    const mins = Math.floor((r.uptime_seconds % 3600) / 60);
+                    html += `<p style="margin-top:10px;color:var(--text-secondary);font-size:13px;">Server uptime: ${hours}h ${mins}m</p>`;
+                }
+
+                el.innerHTML = html;
+            } catch (e) {
+                el.innerHTML = `<p class="status error">System check failed: ${e.message}</p>`;
+            }
+        };
 
         // Add extraction step
         function addStep() {
@@ -342,6 +956,236 @@
             }
         };
 
+        // === ADB Maintenance Handlers ===
+        document.getElementById('restartAdbServer').onclick = async () => {
+            const el = document.getElementById('serverStatusResult');
+            el.innerHTML = '<span class="loading-spinner"></span> Restarting ADB server...';
+            try {
+                const r = await api.post('/maintenance/server/restart');
+                el.innerHTML = `<p class="status success">✅ ${r.message}</p>`;
+                setTimeout(loadDevs, 2000); // Reload devices after restart
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
+        document.getElementById('checkServerStatus').onclick = async () => {
+            const el = document.getElementById('serverStatusResult');
+            try {
+                const r = await api.get('/maintenance/server/status');
+                el.innerHTML = `<p class="status success">✅ Server running - ${r.device_count} device(s) connected</p>`;
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
+        document.getElementById('trimCache').onclick = async () => {
+            const dev = document.getElementById('maintDev').value;
+            const el = document.getElementById('maintResult');
+            if (!dev) { el.innerHTML = '<p class="status error">Select device</p>'; return; }
+            el.innerHTML = '<span class="loading-spinner"></span> Trimming cache...';
+            try {
+                const r = await api.post(`/maintenance/${encodeURIComponent(dev)}/trim-cache`);
+                el.innerHTML = `<p class="status success">✅ ${r.message}</p>`;
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
+        document.getElementById('optimizeUi').onclick = async () => {
+            const dev = document.getElementById('maintDev').value;
+            const el = document.getElementById('maintResult');
+            if (!dev) { el.innerHTML = '<p class="status error">Select device</p>'; return; }
+            el.innerHTML = '<span class="loading-spinner"></span> Optimizing UI...';
+            try {
+                const r = await api.post(`/maintenance/${encodeURIComponent(dev)}/optimize-ui`);
+                el.innerHTML = `<p class="status success">✅ ${r.optimizations_applied}/${r.total_optimizations} optimizations applied</p>`;
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
+        document.getElementById('resetUi').onclick = async () => {
+            const dev = document.getElementById('maintDev').value;
+            const el = document.getElementById('maintResult');
+            if (!dev) { el.innerHTML = '<p class="status error">Select device</p>'; return; }
+            try {
+                const r = await api.post(`/maintenance/${encodeURIComponent(dev)}/reset-ui`);
+                el.innerHTML = `<p class="status success">✅ ${r.message}</p>`;
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
+        document.getElementById('fullOptimize').onclick = async () => {
+            const dev = document.getElementById('maintDev').value;
+            const el = document.getElementById('maintResult');
+            if (!dev) { el.innerHTML = '<p class="status error">Select device</p>'; return; }
+            el.innerHTML = '<span class="loading-spinner"></span> Running full optimization...';
+            try {
+                const r = await api.post(`/maintenance/${encodeURIComponent(dev)}/full-optimize`);
+                el.innerHTML = `<p class="status success">✅ ${r.successful}/${r.optimizations_run} optimizations successful</p>`;
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
+        document.getElementById('getConnMetrics').onclick = async () => {
+            const el = document.getElementById('metricsResult');
+            try {
+                const r = await api.get('/maintenance/metrics');
+                if (Object.keys(r.metrics).length === 0) {
+                    el.innerHTML = '<p style="color:var(--text-secondary);">No metrics yet. Metrics are collected as commands are run.</p>';
+                } else {
+                    el.innerHTML = `<pre style="font-size:12px;">${JSON.stringify(r.metrics, null, 2)}</pre>`;
+                }
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
+        document.getElementById('compileApps').onclick = async () => {
+            const dev = document.getElementById('maintDev').value;
+            const mode = document.getElementById('compileMode').value;
+            const el = document.getElementById('maintResult');
+            if (!dev) { el.innerHTML = '<p class="status error">Select device</p>'; return; }
+            el.innerHTML = '<span class="loading-spinner"></span> Starting ART compilation (this takes 5-15 minutes)...';
+            try {
+                const r = await api.post(`/maintenance/${encodeURIComponent(dev)}/compile-apps?mode=${mode}`);
+                el.innerHTML = `<p class="status success">✅ ${r.message} (mode: ${r.mode})</p><p style="color:var(--text-secondary);">${r.note}</p>`;
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
+        document.getElementById('setBgLimit').onclick = async () => {
+            const dev = document.getElementById('maintDev').value;
+            const limit = parseInt(document.getElementById('bgLimit').value);
+            const el = document.getElementById('maintResult');
+            if (!dev) { el.innerHTML = '<p class="status error">Select device</p>'; return; }
+            try {
+                const r = await api.post(`/maintenance/${encodeURIComponent(dev)}/background-limit?limit=${limit}`);
+                el.innerHTML = `<p class="status success">✅ ${r.message}</p>`;
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
+        document.getElementById('resetDisplay').onclick = async () => {
+            const dev = document.getElementById('maintDev').value;
+            const el = document.getElementById('maintResult');
+            if (!dev) { el.innerHTML = '<p class="status error">Select device</p>'; return; }
+            if (!confirm('This will reset display size and density to defaults. Continue?')) return;
+            try {
+                const r = await api.post(`/maintenance/${encodeURIComponent(dev)}/reset-display`);
+                el.innerHTML = `<p class="status success">✅ ${r.message}</p>`;
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
+        // === Persistent Shell Pool Handlers ===
+
+        document.getElementById('runShellBenchmark').onclick = async () => {
+            const dev = document.getElementById('shellDev').value;
+            const iterations = parseInt(document.getElementById('shellIterations').value) || 10;
+            const el = document.getElementById('shellBenchmarkResult');
+
+            if (!dev) {
+                el.innerHTML = '<p class="status error">Select device</p>';
+                return;
+            }
+
+            el.innerHTML = '<p><span class="loading-spinner"></span> Running benchmark...</p>';
+
+            try {
+                const r = await api.post(`/shell/${encodeURIComponent(dev)}/benchmark?iterations=${iterations}`);
+                const b = r.benchmark;
+
+                let html = '<div style="background: var(--preview-background); padding: 15px; border-radius: 8px;">';
+                html += '<h4 style="margin: 0 0 15px 0;">Benchmark Results</h4>';
+
+                // Results table
+                html += '<table style="width: 100%; border-collapse: collapse; font-size: 13px;">';
+                html += '<tr style="border-bottom: 1px solid var(--border-color);">';
+                html += '<th style="text-align: left; padding: 8px;">Method</th>';
+                html += '<th style="text-align: right; padding: 8px;">Avg (ms)</th>';
+                html += '<th style="text-align: right; padding: 8px;">Min (ms)</th>';
+                html += '<th style="text-align: right; padding: 8px;">Max (ms)</th>';
+                html += '</tr>';
+
+                // Persistent shell row
+                const psTimes = b.persistent_shell.times_ms || [];
+                html += '<tr>';
+                html += '<td style="padding: 8px;">Persistent Shell</td>';
+                html += `<td style="text-align: right; padding: 8px; color: #4caf50; font-weight: bold;">${b.persistent_shell.avg_ms}</td>`;
+                html += `<td style="text-align: right; padding: 8px;">${psTimes.length ? Math.min(...psTimes).toFixed(1) : '-'}</td>`;
+                html += `<td style="text-align: right; padding: 8px;">${psTimes.length ? Math.max(...psTimes).toFixed(1) : '-'}</td>`;
+                html += '</tr>';
+
+                // Regular ADB row
+                const regTimes = b.regular_adb.times_ms || [];
+                html += '<tr>';
+                html += '<td style="padding: 8px;">Regular ADB Shell</td>';
+                html += `<td style="text-align: right; padding: 8px;">${b.regular_adb.avg_ms}</td>`;
+                html += `<td style="text-align: right; padding: 8px;">${regTimes.length ? Math.min(...regTimes).toFixed(1) : '-'}</td>`;
+                html += `<td style="text-align: right; padding: 8px;">${regTimes.length ? Math.max(...regTimes).toFixed(1) : '-'}</td>`;
+                html += '</tr>';
+                html += '</table>';
+
+                // Improvement summary
+                const improvement = b.improvement_percent;
+                const improvementColor = improvement > 0 ? '#4caf50' : '#f44336';
+                html += `<div style="margin-top: 15px; padding: 10px; background: ${improvementColor}22; border-radius: 4px; border-left: 4px solid ${improvementColor};">`;
+                html += `<strong style="color: ${improvementColor};">${improvement > 0 ? '✅' : '⚠️'} ${Math.abs(improvement)}% ${improvement > 0 ? 'faster' : 'slower'}</strong>`;
+                html += `<p style="margin: 5px 0 0 0; font-size: 12px; color: var(--text-secondary);">Persistent shells reuse connections, eliminating per-command handshake overhead.</p>`;
+                html += '</div>';
+
+                html += '</div>';
+                el.innerHTML = html;
+
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
+        document.getElementById('getShellStats').onclick = async () => {
+            const el = document.getElementById('shellBenchmarkResult');
+            el.innerHTML = '<p><span class="loading-spinner"></span> Loading stats...</p>';
+
+            try {
+                const r = await api.get('/shell/stats');
+                const stats = r.stats;
+
+                let html = '<div style="background: var(--preview-background); padding: 15px; border-radius: 8px;">';
+                html += '<h4 style="margin: 0 0 10px 0;">Shell Pool Statistics</h4>';
+                html += `<p style="font-size: 13px;">Total Sessions: ${stats.total_sessions} | Active: ${stats.active_sessions}</p>`;
+
+                if (Object.keys(stats.devices).length > 0) {
+                    html += '<div style="margin-top: 10px;">';
+                    for (const [deviceId, sessions] of Object.entries(stats.devices)) {
+                        html += `<div style="margin-bottom: 10px; padding: 10px; background: var(--card-background); border-radius: 4px;">`;
+                        html += `<strong style="font-size: 12px;">${deviceId}</strong>`;
+                        sessions.forEach(s => {
+                            html += `<div style="font-size: 12px; color: var(--text-secondary); margin-top: 5px;">`;
+                            html += `Session ${s.session_id}: ${s.command_count} cmds, avg ${s.avg_latency_ms}ms, ${s.is_active ? '🟢 active' : '⚫ inactive'}`;
+                            html += '</div>';
+                        });
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                } else {
+                    html += '<p style="font-size: 13px; color: var(--text-secondary);">No active sessions. Run a benchmark to create sessions.</p>';
+                }
+
+                html += '</div>';
+                el.innerHTML = html;
+
+            } catch (e) {
+                el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
+            }
+        };
+
         // Screenshot Test
         document.getElementById('testScr').onclick = async () => {
             const el = document.getElementById('scrResult');
@@ -479,9 +1323,440 @@
         // Add step button
         document.getElementById('addStep').onclick = addStep;
 
+        // === Scheduler Tests ===
+        document.getElementById('testSchedulerStatus').onclick = async () => {
+            const el = document.getElementById('schedulerResult');
+            try {
+                const r = await api.get('/scheduler/status');
+                const status = r.status;
+                const statusClass = status.running ? 'success' : 'warning';
+                let html = `<p class="status ${statusClass}">`;
+                html += status.running ? '✅ Scheduler Running' : '⚠️ Scheduler Not Running';
+                html += status.paused ? ' (PAUSED)' : '';
+                html += `</p>`;
+                html += `<pre style="margin-top:10px;background:var(--preview-background);padding:10px;border-radius:4px;overflow:auto">${JSON.stringify(status, null, 2)}</pre>`;
+                el.innerHTML = html;
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        document.getElementById('testSchedulerPause').onclick = async () => {
+            const el = document.getElementById('schedulerResult');
+            try {
+                const r = await api.post('/scheduler/pause');
+                el.innerHTML = '<p class="status success">✅ Scheduler Paused</p>';
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        document.getElementById('testSchedulerResume').onclick = async () => {
+            const el = document.getElementById('schedulerResult');
+            try {
+                const r = await api.post('/scheduler/resume');
+                el.innerHTML = '<p class="status success">✅ Scheduler Resumed</p>';
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        // === Flow API Tests ===
+        document.getElementById('testListFlows').onclick = async () => {
+            const el = document.getElementById('flowResult');
+            try {
+                const r = await api.get('/flows');
+                const flows = r.flows || [];
+                let html = `<p class="status success">✅ Found ${flows.length} flow(s)</p>`;
+                if (flows.length > 0) {
+                    html += '<ul style="margin-top:10px;list-style:disc;margin-left:20px">';
+                    flows.forEach(f => {
+                        html += `<li><strong>${f.name || f.flow_id}</strong> - ${f.enabled ? 'enabled' : 'disabled'}</li>`;
+                    });
+                    html += '</ul>';
+                }
+                el.innerHTML = html;
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        document.getElementById('testFlowQueue').onclick = async () => {
+            const el = document.getElementById('flowResult');
+            const dev = document.getElementById('flowDev').value;
+
+            if (!dev) {
+                el.innerHTML = '<p class="status warning">Select a device first</p>';
+                return;
+            }
+
+            try {
+                const r = await api.get(`/scheduler/queue/${dev}`);
+                let html = `<p class="status success">✅ Queue retrieved for ${dev}</p>`;
+                html += `<pre style="margin-top:10px;background:var(--preview-background);padding:10px;border-radius:4px;overflow:auto">${JSON.stringify(r, null, 2)}</pre>`;
+                el.innerHTML = html;
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        // === MQTT Test ===
+        document.getElementById('testMqtt').onclick = async () => {
+            const el = document.getElementById('mqttResult');
+            try {
+                const r = await api.get('/mqtt/status');
+                const connected = r.connected;
+                const statusClass = connected ? 'success' : 'error';
+                let html = `<p class="status ${statusClass}">`;
+                html += connected ? '✅ MQTT Connected' : '❌ MQTT Disconnected';
+                html += `</p>`;
+                html += `<pre style="margin-top:10px;background:var(--preview-background);padding:10px;border-radius:4px;overflow:auto">${JSON.stringify(r, null, 2)}</pre>`;
+                el.innerHTML = html;
+            } catch (e) {
+                el.innerHTML = '<p class="status error">❌ ' + e.message + '</p>';
+            }
+        };
+
+        // === Real-Time Log Viewer ===
+        let logWebSocket = null;
+        let logAutoScroll = true;
+        let capturedLogs = []; // Store all captured logs for export
+
+        const logLevelColors = {
+            'DEBUG': '#888888',
+            'INFO': '#4caf50',
+            'WARNING': '#ff9800',
+            'ERROR': '#f44336',
+            'CRITICAL': '#e91e63'
+        };
+
+        const logLevelPriority = {
+            'DEBUG': 0,
+            'INFO': 1,
+            'WARNING': 2,
+            'ERROR': 3,
+            'CRITICAL': 4,
+            'all': -1
+        };
+
+        function getLogLevelFilter() {
+            const selected = document.getElementById('logLevel').value;
+            return logLevelPriority[selected] ?? -1;
+        }
+
+        function shouldShowLog(logLevel) {
+            const filter = getLogLevelFilter();
+            if (filter === -1) return true; // "all" shows everything
+            const logPriority = logLevelPriority[logLevel] ?? 1;
+            return logPriority >= filter;
+        }
+
+        function formatLogEntry(log) {
+            if (!shouldShowLog(log.level)) return '';
+
+            const color = logLevelColors[log.level] || '#888';
+            const levelPad = log.level.padEnd(8);
+
+            // Handle different timestamp formats
+            let timestamp;
+            if (typeof log.timestamp === 'number') {
+                timestamp = new Date(log.timestamp * 1000).toLocaleTimeString();
+            } else if (typeof log.timestamp === 'string') {
+                timestamp = log.timestamp;
+            } else {
+                timestamp = new Date().toLocaleTimeString();
+            }
+
+            const module = log.module ? `[${log.module}]` : '';
+
+            return `<div style="margin: 2px 0; white-space: pre-wrap; word-break: break-all;">` +
+                `<span style="color: #666;">${timestamp}</span> ` +
+                `<span style="color: ${color}; font-weight: bold;">${levelPad}</span>` +
+                `<span style="color: #888;">${module}</span> ` +
+                `<span style="color: #ddd;">${log.message}</span>` +
+                `</div>`;
+        }
+
+        function appendLog(log) {
+            // Store log for export
+            capturedLogs.push(log);
+            updateLogCount();
+
+            const viewer = document.getElementById('logViewer');
+            const html = formatLogEntry(log);
+            if (html) {
+                viewer.innerHTML += html;
+                // Auto-scroll if near bottom
+                if (logAutoScroll) {
+                    viewer.scrollTop = viewer.scrollHeight;
+                }
+            }
+        }
+
+        function updateLogCount() {
+            document.getElementById('logCount').textContent = capturedLogs.length;
+        }
+
+        function getSelectedExportLevels() {
+            const levels = [];
+            if (document.getElementById('expDebug').checked) levels.push('DEBUG');
+            if (document.getElementById('expInfo').checked) levels.push('INFO');
+            if (document.getElementById('expWarning').checked) levels.push('WARNING');
+            if (document.getElementById('expError').checked) levels.push('ERROR', 'CRITICAL');
+            return levels;
+        }
+
+        function getFilteredLogs() {
+            const selectedLevels = getSelectedExportLevels();
+
+            if (selectedLevels.length === 0) {
+                return []; // No levels selected
+            }
+
+            return capturedLogs.filter(log => selectedLevels.includes(log.level));
+        }
+
+        function getExportFilterDescription() {
+            const levels = [];
+            if (document.getElementById('expDebug').checked) levels.push('DEBUG');
+            if (document.getElementById('expInfo').checked) levels.push('INFO');
+            if (document.getElementById('expWarning').checked) levels.push('WARN');
+            if (document.getElementById('expError').checked) levels.push('ERROR');
+            return levels.length > 0 ? levels.join('+') : 'none';
+        }
+
+        function formatLogForText(log) {
+            const timestamp = typeof log.timestamp === 'number'
+                ? new Date(log.timestamp * 1000).toISOString()
+                : log.timestamp || new Date().toISOString();
+            const module = log.module ? `[${log.module}]` : '';
+            return `${timestamp} ${log.level.padEnd(8)} ${module} ${log.message}`;
+        }
+
+        function exportLogsAsJson() {
+            const logs = getFilteredLogs();
+            const filterDesc = getExportFilterDescription();
+
+            if (logs.length === 0) {
+                alert('No logs to export. Check your level filters or capture more logs.');
+                return;
+            }
+
+            const exportData = {
+                exported_at: new Date().toISOString(),
+                filter: filterDesc,
+                total_captured: capturedLogs.length,
+                total_exported: logs.length,
+                logs: logs
+            };
+
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            downloadBlob(blob, `visual-mapper-logs-${Date.now()}.json`);
+        }
+
+        function exportLogsAsTxt() {
+            const logs = getFilteredLogs();
+            const filterDesc = getExportFilterDescription();
+
+            if (logs.length === 0) {
+                alert('No logs to export. Check your level filters or capture more logs.');
+                return;
+            }
+
+            const header = `Visual Mapper Logs - Exported ${new Date().toISOString()}\nFilter: ${filterDesc}\nExported: ${logs.length} of ${capturedLogs.length} logs\n${'='.repeat(80)}\n\n`;
+            const content = header + logs.map(formatLogForText).join('\n');
+
+            const blob = new Blob([content], { type: 'text/plain' });
+            downloadBlob(blob, `visual-mapper-logs-${Date.now()}.txt`);
+        }
+
+        function copyLogsToClipboard() {
+            const logs = getFilteredLogs();
+
+            if (logs.length === 0) {
+                alert('No logs to copy. Check your level filters or capture more logs.');
+                return;
+            }
+
+            const content = logs.map(formatLogForText).join('\n');
+
+            navigator.clipboard.writeText(content).then(() => {
+                const btn = document.getElementById('copyLogs');
+                const originalText = btn.textContent;
+                btn.textContent = 'Copied!';
+                btn.style.background = '#4caf50';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.background = '';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy logs:', err);
+                alert('Failed to copy to clipboard. Try using Export instead.');
+            });
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function connectToLogs() {
+            const statusEl = document.getElementById('logStatus');
+            const connectBtn = document.getElementById('connectLogs');
+            const disconnectBtn = document.getElementById('disconnectLogs');
+            const viewer = document.getElementById('logViewer');
+
+            // Determine WebSocket URL based on current location
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsHost = window.location.host;
+
+            // Check for ingress path
+            const url = window.location.href;
+            const ingressMatch = url.match(/\/api\/hassio_ingress\/[^\/]+/);
+            const basePath = ingressMatch ? ingressMatch[0] : '';
+
+            const wsUrl = `${wsProtocol}//${wsHost}${basePath}/ws/logs`;
+
+            statusEl.textContent = 'Connecting...';
+            statusEl.style.color = '#ff9800';
+            viewer.innerHTML = '<div style="color: #ff9800;">Connecting to log stream...</div>';
+
+            try {
+                logWebSocket = new WebSocket(wsUrl);
+
+                logWebSocket.onopen = () => {
+                    statusEl.textContent = 'Connected';
+                    statusEl.style.color = '#4caf50';
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                    viewer.innerHTML = '<div style="color: #4caf50;">Connected! Waiting for logs...</div>';
+                };
+
+                logWebSocket.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+
+                        // Handle message by type
+                        if (data.type === 'history' && Array.isArray(data.data)) {
+                            viewer.innerHTML = ''; // Clear initial message
+                            data.data.forEach(log => appendLog(log));
+                            if (data.data.length === 0) {
+                                viewer.innerHTML = '<div style="color: #888;">No recent logs. New logs will appear here...</div>';
+                            }
+                        }
+                        // Handle single log entry
+                        else if (data.type === 'log' && data.data) {
+                            appendLog(data.data);
+                        }
+                        // Handle ping (respond with pong)
+                        else if (data.type === 'ping') {
+                            // Server sent ping, no need to respond (keepalive)
+                        }
+                        else if (data.type === 'pong') {
+                            // Response to our ping
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse log message:', e);
+                    }
+                };
+
+                logWebSocket.onclose = (event) => {
+                    statusEl.textContent = 'Disconnected';
+                    statusEl.style.color = '#f44336';
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                    logWebSocket = null;
+
+                    if (event.code !== 1000) {
+                        viewer.innerHTML += '<div style="color: #f44336;">Connection closed unexpectedly. Click Connect to retry.</div>';
+                    }
+                };
+
+                logWebSocket.onerror = (error) => {
+                    statusEl.textContent = 'Error';
+                    statusEl.style.color = '#f44336';
+                    viewer.innerHTML += `<div style="color: #f44336;">WebSocket error. Check console for details.</div>`;
+                    console.error('WebSocket error:', error);
+                };
+
+            } catch (e) {
+                statusEl.textContent = 'Failed';
+                statusEl.style.color = '#f44336';
+                viewer.innerHTML = `<div style="color: #f44336;">Failed to connect: ${e.message}</div>`;
+            }
+        }
+
+        function disconnectFromLogs() {
+            if (logWebSocket) {
+                logWebSocket.close(1000, 'User disconnected');
+                logWebSocket = null;
+            }
+            document.getElementById('logStatus').textContent = 'Disconnected';
+            document.getElementById('logStatus').style.color = 'var(--text-secondary)';
+            document.getElementById('connectLogs').disabled = false;
+            document.getElementById('disconnectLogs').disabled = true;
+        }
+
+        function clearLogs() {
+            const viewer = document.getElementById('logViewer');
+            capturedLogs = []; // Clear stored logs
+            updateLogCount();
+
+            if (logWebSocket && logWebSocket.readyState === WebSocket.OPEN) {
+                viewer.innerHTML = '<div style="color: #4caf50;">Logs cleared. Waiting for new logs...</div>';
+            } else {
+                viewer.innerHTML = '<div style="color: #666;">Click "Connect" to start viewing logs...</div>';
+            }
+        }
+
+        // Log viewer event handlers
+        document.getElementById('connectLogs').onclick = connectToLogs;
+        document.getElementById('disconnectLogs').onclick = disconnectFromLogs;
+        document.getElementById('clearLogs').onclick = clearLogs;
+        document.getElementById('copyLogs').onclick = copyLogsToClipboard;
+        document.getElementById('exportLogsJson').onclick = exportLogsAsJson;
+        document.getElementById('exportLogsTxt').onclick = exportLogsAsTxt;
+
+        // Re-filter logs when level changes (clear and reconnect for simplicity)
+        document.getElementById('logLevel').onchange = () => {
+            if (logWebSocket && logWebSocket.readyState === WebSocket.OPEN) {
+                // Reconnect to get filtered history
+                disconnectFromLogs();
+                setTimeout(connectToLogs, 100);
+            }
+        };
+
+        // Track scroll position for auto-scroll
+        document.getElementById('logViewer').onscroll = function() {
+            const viewer = this;
+            const nearBottom = viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight < 50;
+            logAutoScroll = nearBottom;
+        };
+
         // Initial setup
         loadDevs();
         addStep(); // Add first step by default
+
+        // Also populate flowDev dropdown
+        async function loadFlowDevs() {
+            try {
+                const r = await api.get('/adb/devices');
+                const s = document.getElementById('flowDev');
+                s.innerHTML = '<option value="">Select device...</option>';
+                r.devices.forEach(d => {
+                    s.innerHTML += `<option value="${d.id}">${d.id}</option>`;
+                });
+            } catch (e) {
+                console.error('[Diagnostic] Failed to load devices for flow:', e);
+            }
+        }
+        loadFlowDevs();
     </script>
 </body>
 </html>

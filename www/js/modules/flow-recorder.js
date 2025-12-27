@@ -1,0 +1,1096 @@
+/**
+ * Flow Recorder Module
+ * Visual Mapper v0.0.3
+ *
+ * Handles interactive flow recording with screenshot capture,
+ * tap detection, and step management
+ */
+
+import { showToast } from './toast.js?v=0.0.3';
+
+class FlowRecorder {
+    constructor(deviceId, appPackage, recordMode = 'execute') {
+        this.deviceId = deviceId;
+        this.appPackage = appPackage;
+        this.recordMode = recordMode; // 'execute' or 'record-only'
+        this.steps = [];
+        this.currentScreenshot = null;
+        this.screenshotMetadata = null;
+
+        console.log(`[FlowRecorder] Initialized for ${deviceId} - ${appPackage} (mode: ${recordMode})`);
+    }
+
+    /**
+     * Start recording session
+     * Launches app and captures initial quick screenshot
+     */
+    async start() {
+        try {
+            console.log('[FlowRecorder] Starting recording session...');
+
+            // Launch the app
+            await this.launchApp();
+
+            // TEMPORARILY DISABLED: Smart UI detection (was too aggressive)
+            // TODO: Debug why detection fails and re-enable
+            // await this.waitForUIToSettle();
+
+            // Simple wait for now
+            await this.wait(3000);
+
+            // Capture quick screenshot for initial preview (no UI elements)
+            // This is MUCH faster than full screenshot with UI extraction
+            await this.captureQuickScreenshot();
+
+            showToast('Quick preview loaded - Choose capture method', 'info', 3000);
+            return true;
+        } catch (error) {
+            console.error('[FlowRecorder] Failed to start:', error);
+            showToast(`Failed to start recording: ${error.message}`, 'error');
+            return false;
+        }
+    }
+
+    /**
+     * Wait for UI to settle by detecting loading indicators and toast notifications
+     * Keeps capturing until no loading elements are detected
+     */
+    async waitForUIToSettle() {
+        console.log('[FlowRecorder] Waiting for UI to settle (smart detection)...');
+
+        const maxAttempts = 10;
+        const checkInterval = 1000; // 1 second between checks
+        let attempt = 0;
+
+        // Initial wait for app to start rendering
+        await this.wait(1500);
+
+        while (attempt < maxAttempts) {
+            attempt++;
+            console.log(`[FlowRecorder] UI settle check ${attempt}/${maxAttempts}...`);
+
+            // Capture screenshot and check elements
+            await this.captureScreenshot();
+
+            // Check if UI is still loading/refreshing
+            const isLoading = this.detectLoadingIndicators();
+
+            if (!isLoading) {
+                console.log('[FlowRecorder] UI settled - no loading indicators detected');
+                break;
+            }
+
+            console.log('[FlowRecorder] Loading indicators detected, waiting...');
+            await this.wait(checkInterval);
+        }
+
+        if (attempt >= maxAttempts) {
+            console.warn('[FlowRecorder] Max settle attempts reached, proceeding anyway');
+        }
+    }
+
+    /**
+     * Detect loading indicators, toast notifications, and refresh animations
+     * Returns true if any loading elements are detected
+     */
+    detectLoadingIndicators() {
+        if (!this.screenshotMetadata || !this.screenshotMetadata.elements) {
+            return false;
+        }
+
+        const elements = this.screenshotMetadata.elements;
+
+        // Common loading indicator patterns (case-insensitive)
+        const loadingPatterns = [
+            /loading/i,
+            /refreshing/i,
+            /please wait/i,
+            /updating/i,
+            /syncing/i,
+            /processing/i,
+            /spinner/i,
+            /progress/i
+        ];
+
+        // Check for toast notifications or snackbars
+        const toastPatterns = [
+            /toast/i,
+            /snackbar/i,
+            /notification/i
+        ];
+
+        // Android loading view class patterns
+        const loadingClassPatterns = [
+            /progressbar/i,              // android.widget.ProgressBar
+            /circularprogressindicator/i, // Material Design spinner
+            /swiperefreshlayout/i,       // Pull-to-refresh container
+            /loadingview/i,              // Custom loading views
+            /shimmer/i                   // Shimmer loading effects
+        ];
+
+        // Check element text and resource IDs
+        for (const el of elements) {
+            const text = el.text || '';
+            const resourceId = el['resource-id'] || '';
+            const className = el.class || '';
+
+            // Check for loading indicators in text/resourceId
+            for (const pattern of loadingPatterns) {
+                if (pattern.test(text) || pattern.test(resourceId) || pattern.test(className)) {
+                    console.log(`[FlowRecorder] Loading indicator detected: "${text}" (class: ${className}, id: ${resourceId})`);
+                    return true;
+                }
+            }
+
+            // Check for Android loading view classes
+            for (const pattern of loadingClassPatterns) {
+                if (pattern.test(className)) {
+                    console.log(`[FlowRecorder] Loading view detected: ${className} (text: "${text}", id: ${resourceId})`);
+                    return true;
+                }
+            }
+
+            // Check for toast notifications
+            for (const pattern of toastPatterns) {
+                if (pattern.test(resourceId) || pattern.test(className)) {
+                    console.log(`[FlowRecorder] Toast notification detected: "${text}" (${resourceId})`);
+                    return true;
+                }
+            }
+
+            // Check for "Updated:" timestamp with very recent time (within last 3 seconds)
+            // This detects the BYD app's "Updated: 24/12/25 3:19 pm" refresh indicator
+            if (text.toLowerCase().includes('updated:')) {
+                console.log(`[FlowRecorder] Update timestamp detected: "${text}"`);
+                return true;
+            }
+        }
+
+        console.log('[FlowRecorder] No loading indicators detected');
+        return false;
+    }
+
+    /**
+     * Launch the target app
+     */
+    async launchApp() {
+        console.log(`[FlowRecorder] Launching ${this.appPackage}...`);
+
+        const response = await fetch('/api/adb/launch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: this.deviceId,
+                package: this.appPackage
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to launch app');
+        }
+
+        const result = await response.json();
+        console.log('[FlowRecorder] App launched:', result);
+
+        // Add launch step to flow
+        await this.addStep({
+            step_type: 'launch_app',
+            package: this.appPackage,
+            description: `Launch ${this.appPackage}`
+        });
+    }
+
+    /**
+     * Capture screenshot from device
+     */
+    async captureScreenshot() {
+        console.log('[FlowRecorder] Capturing screenshot...');
+
+        // Show progress
+        this.showStitchProgress('📸 Capturing screenshot with UI elements...');
+
+        try {
+            const response = await fetch('/api/adb/screenshot', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device_id: this.deviceId, quick: false })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to capture screenshot');
+            }
+
+            this.updateStitchProgress('🔍 Extracting UI elements...');
+
+            const data = await response.json();
+
+            // Store screenshot data
+            this.currentScreenshot = data.screenshot; // Base64 image
+            this.screenshotMetadata = {
+                elements: data.elements || [],
+                timestamp: data.timestamp,
+                width: null,
+                height: null,
+                quick: data.quick || false
+            };
+
+            // Load image to get dimensions immediately
+            await this.loadImageDimensions();
+
+            console.log('[FlowRecorder] Screenshot captured:', this.screenshotMetadata);
+
+            // Hide progress
+            this.hideStitchProgress();
+
+            return data;
+        } catch (error) {
+            // Hide progress on error
+            this.hideStitchProgress();
+            throw error;
+        }
+    }
+
+    /**
+     * Capture quick screenshot (no UI elements extraction)
+     * Used for initial preview to improve responsiveness
+     */
+    async captureQuickScreenshot() {
+        console.log('[FlowRecorder] Capturing quick screenshot (no UI elements)...');
+
+        const response = await fetch('/api/adb/screenshot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_id: this.deviceId, quick: true })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to capture quick screenshot');
+        }
+
+        const data = await response.json();
+
+        // Store screenshot data (no elements in quick mode)
+        this.currentScreenshot = data.screenshot; // Base64 image
+        this.screenshotMetadata = {
+            elements: [],  // Empty in quick mode
+            timestamp: data.timestamp,
+            width: null,
+            height: null,
+            quick: true
+        };
+
+        // Load image to get dimensions immediately
+        await this.loadImageDimensions();
+
+        console.log('[FlowRecorder] Quick screenshot captured (no UI elements)');
+
+        return data;
+    }
+
+    /**
+     * Load image dimensions from current screenshot
+     */
+    async loadImageDimensions() {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                this.screenshotMetadata.width = img.naturalWidth;
+                this.screenshotMetadata.height = img.naturalHeight;
+                console.log(`[FlowRecorder] Image dimensions loaded: ${img.naturalWidth}x${img.naturalHeight}`);
+                resolve();
+            };
+            img.onerror = () => {
+                console.error('[FlowRecorder] Failed to load image dimensions');
+                reject(new Error('Failed to load image'));
+            };
+            img.src = `data:image/png;base64,${this.currentScreenshot}`;
+        });
+    }
+
+    /**
+     * Handle tap on screenshot
+     * @param {number} screenX - X coordinate on screenshot element
+     * @param {number} screenY - Y coordinate on screenshot element
+     * @param {HTMLImageElement} imgElement - Screenshot img element
+     */
+    async handleTap(screenX, screenY, imgElement) {
+        console.log(`[FlowRecorder] Tap detected at screen (${screenX}, ${screenY})`);
+
+        // Ensure image dimensions are captured
+        this.ensureImageDimensions(imgElement);
+
+        // Map screenshot coordinates to device coordinates
+        const deviceCoords = this.mapCoordinates(screenX, screenY, imgElement);
+        console.log(`[FlowRecorder] Mapped to device (${deviceCoords.x}, ${deviceCoords.y})`);
+
+        // Phase 8: Find tapped UI element for state validation
+        const tappedElement = this.findElementAtCoordinates(deviceCoords.x, deviceCoords.y);
+
+        // Show tap indicator
+        this.showTapIndicator(screenX, screenY);
+
+        // Execute tap if in execute mode
+        if (this.recordMode === 'execute') {
+            await this.executeTap(deviceCoords.x, deviceCoords.y);
+        }
+
+        // Phase 8: Get current activity for state validation
+        const currentActivity = await this.getCurrentActivity();
+
+        // Add tap step to flow with state validation data
+        const step = {
+            step_type: 'tap',
+            x: deviceCoords.x,
+            y: deviceCoords.y,
+            description: tappedElement ?
+                `Tap "${tappedElement.text || tappedElement.class}"` :
+                `Tap at (${deviceCoords.x}, ${deviceCoords.y})`
+        };
+
+        // Add state validation fields
+        if (tappedElement) {
+            step.expected_ui_elements = [this.extractElementInfo(tappedElement)];
+            step.ui_elements_required = 1;
+        }
+        if (currentActivity) {
+            step.expected_activity = currentActivity;
+        }
+        step.validate_state = true; // Enable state validation by default
+        step.recovery_action = 'force_restart_app';
+        step.state_match_threshold = 0.80;
+
+        await this.addStep(step);
+
+        // Capture new screenshot after tap
+        if (this.recordMode === 'execute') {
+            await this.wait(500); // Wait for UI to update
+            await this.captureScreenshot();
+        }
+
+        return deviceCoords;
+    }
+
+    /**
+     * Ensure screenshot metadata has image dimensions
+     */
+    ensureImageDimensions(imgElement) {
+        if (!this.screenshotMetadata.width || !this.screenshotMetadata.height) {
+            // Extract natural dimensions from loaded image
+            this.screenshotMetadata.width = imgElement.naturalWidth;
+            this.screenshotMetadata.height = imgElement.naturalHeight;
+            console.log(`[FlowRecorder] Image dimensions: ${this.screenshotMetadata.width}x${this.screenshotMetadata.height}`);
+        }
+    }
+
+    /**
+     * Map screenshot coordinates to device coordinates
+     */
+    mapCoordinates(screenX, screenY, imgElement) {
+        const rect = imgElement.getBoundingClientRect();
+        const scaleX = this.screenshotMetadata.width / rect.width;
+        const scaleY = this.screenshotMetadata.height / rect.height;
+
+        return {
+            x: Math.round(screenX * scaleX),
+            y: Math.round(screenY * scaleY)
+        };
+    }
+
+    /**
+     * Execute tap on device
+     */
+    async executeTap(x, y) {
+        console.log(`[FlowRecorder] Executing tap at (${x}, ${y})`);
+
+        const response = await fetch('/api/adb/tap', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: this.deviceId,
+                x: x,
+                y: y
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to execute tap');
+        }
+
+        return await response.json();
+    }
+
+    /**
+     * Show visual tap indicator on screenshot
+     */
+    showTapIndicator(x, y) {
+        const container = document.getElementById('screenshotContainer');
+        const indicator = document.createElement('div');
+
+        indicator.style.cssText = `
+            position: absolute;
+            left: ${x}px;
+            top: ${y}px;
+            width: 40px;
+            height: 40px;
+            margin-left: -20px;
+            margin-top: -20px;
+            border: 3px solid #3b82f6;
+            border-radius: 50%;
+            pointer-events: none;
+            animation: tapPulse 0.6s ease-out;
+        `;
+
+        container.appendChild(indicator);
+
+        // Remove after animation
+        setTimeout(() => indicator.remove(), 600);
+    }
+
+    /**
+     * Type text on device
+     * @param {string} text - Text to type
+     */
+    async typeText(text) {
+        console.log(`[FlowRecorder] Typing text: ${text}`);
+
+        const response = await fetch('/api/adb/text', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: this.deviceId,
+                text: text
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to type text');
+        }
+
+        await this.addStep({
+            step_type: 'text',
+            text: text,
+            description: `Type: "${text}"`
+        });
+
+        await this.wait(300);
+        await this.captureScreenshot();
+
+        showToast(`Typed: ${text}`, 'info', 1000);
+    }
+
+    /**
+     * Navigate back on device
+     */
+    async goBack() {
+        console.log('[FlowRecorder] Going back...');
+
+        const response = await fetch('/api/adb/back', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_id: this.deviceId })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to go back');
+        }
+
+        await this.addStep({
+            step_type: 'go_back',
+            description: 'Press back button'
+        });
+
+        await this.wait(300);
+        await this.captureScreenshot();
+
+        showToast('Back', 'info', 1000);
+    }
+
+    /**
+     * Navigate to home on device
+     */
+    async goHome() {
+        console.log('[FlowRecorder] Going home...');
+
+        const response = await fetch('/api/adb/home', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_id: this.deviceId })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to go home');
+        }
+
+        await this.addStep({
+            step_type: 'go_home',
+            description: 'Press home button'
+        });
+
+        await this.wait(300);
+        await this.captureScreenshot();
+
+        showToast('Home', 'info', 1000);
+    }
+
+    /**
+     * Perform swipe gesture
+     * @param {string} direction - 'up', 'down', 'left', 'right'
+     */
+    async swipe(direction) {
+        console.log(`[FlowRecorder] Swiping ${direction}...`);
+
+        // Ensure dimensions are available
+        if (!this.screenshotMetadata.width || !this.screenshotMetadata.height) {
+            console.warn('[FlowRecorder] Screenshot dimensions not available, using defaults');
+            this.screenshotMetadata.width = 1080;
+            this.screenshotMetadata.height = 1920;
+        }
+
+        // Calculate swipe coordinates based on device dimensions
+        const width = this.screenshotMetadata.width;
+        const height = this.screenshotMetadata.height;
+        const centerX = Math.round(width / 2);
+        const centerY = Math.round(height / 2);
+        const margin = Math.round(width * 0.1); // 10% margin
+
+        let startX, startY, endX, endY;
+
+        switch(direction) {
+            case 'up':
+                startX = centerX;
+                startY = height - margin;
+                endX = centerX;
+                endY = margin;
+                break;
+            case 'down':
+                startX = centerX;
+                startY = margin;
+                endX = centerX;
+                endY = height - margin;
+                break;
+            case 'left':
+                startX = width - margin;
+                startY = centerY;
+                endX = margin;
+                endY = centerY;
+                break;
+            case 'right':
+                startX = margin;
+                startY = centerY;
+                endX = width - margin;
+                endY = centerY;
+                break;
+        }
+
+        const response = await fetch('/api/adb/swipe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: this.deviceId,
+                x1: startX,
+                y1: startY,
+                x2: endX,
+                y2: endY,
+                duration: 300
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to swipe');
+        }
+
+        await this.addStep({
+            step_type: 'swipe',
+            x1: startX,
+            y1: startY,
+            x2: endX,
+            y2: endY,
+            duration: 300,
+            description: `Swipe ${direction}`
+        });
+
+        await this.wait(300);
+        await this.captureScreenshot();
+
+        showToast(`Swipe ${direction}`, 'info', 1000);
+    }
+
+    /**
+     * Perform pull-to-refresh gesture on the Android app
+     * More specific than swipe('down') - uses optimal coordinates for refresh
+     */
+    async pullRefresh() {
+        console.log('[FlowRecorder] Sending pull-to-refresh...');
+
+        // Ensure dimensions are available
+        if (!this.screenshotMetadata.width || !this.screenshotMetadata.height) {
+            this.screenshotMetadata.width = 1080;
+            this.screenshotMetadata.height = 1920;
+        }
+
+        const width = this.screenshotMetadata.width;
+        const height = this.screenshotMetadata.height;
+
+        // Pull-to-refresh: start near top (15%), drag to middle (55%)
+        // This is a shorter swipe than full swipe('down') and more natural
+        const startX = Math.round(width / 2);
+        const startY = Math.round(height * 0.15);
+        const endX = startX;
+        const endY = Math.round(height * 0.55);
+        const duration = 350; // Slightly slower for refresh to register
+
+        const response = await fetch('/api/adb/swipe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: this.deviceId,
+                x1: startX,
+                y1: startY,
+                x2: endX,
+                y2: endY,
+                duration: duration
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to send pull-to-refresh');
+        }
+
+        await this.addStep({
+            step_type: 'pull_refresh',
+            description: 'Pull-to-refresh app content'
+        });
+
+        showToast('Pull-to-refresh sent', 'info', 1000);
+    }
+
+    /**
+     * Restart the current app (force stop and relaunch)
+     * Useful when pull-to-refresh doesn't work
+     */
+    async restartApp() {
+        if (!this.appPackage) {
+            throw new Error('No app package set');
+        }
+
+        console.log(`[FlowRecorder] Restarting app ${this.appPackage}...`);
+
+        // Force stop the app
+        const stopResponse = await fetch('/api/adb/stop-app', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: this.deviceId,
+                package: this.appPackage
+            })
+        });
+
+        if (!stopResponse.ok) {
+            throw new Error('Failed to stop app');
+        }
+
+        // Wait a moment for the stop to complete
+        await this.wait(500);
+
+        // Relaunch the app
+        const launchResponse = await fetch('/api/adb/launch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: this.deviceId,
+                package: this.appPackage
+            })
+        });
+
+        if (!launchResponse.ok) {
+            throw new Error('Failed to launch app');
+        }
+
+        await this.addStep({
+            step_type: 'restart_app',
+            package: this.appPackage,
+            description: `Restart ${this.appPackage}`
+        });
+
+        showToast(`Restarted ${this.appPackage}`, 'success', 1500);
+    }
+
+    /**
+     * Refresh current screenshot
+     * @param {boolean} addStep - Whether to add refresh as a flow step (default: false)
+     */
+    async refresh(addStep = false) {
+        console.log('[FlowRecorder] Refreshing screenshot...');
+        await this.captureScreenshot();
+
+        if (addStep) {
+            await this.addStep({
+                step_type: 'wait',
+                duration: 500,
+                description: 'Refresh screen (wait for UI update)'
+            });
+        }
+
+        showToast('Screenshot refreshed', 'info', 1000);
+    }
+
+    /**
+     * Capture stitched screenshot (2-capture bookend - stable version)
+     */
+    async stitchCapture() {
+        console.log('[FlowRecorder] Starting stitch capture with new modular stitcher...');
+
+        // Show progress modal
+        this.showStitchProgress('Initializing smart stitcher...');
+
+        try {
+            // Show progress updates (estimated timing)
+            setTimeout(() => this.updateStitchProgress('📸 Scrolling to top...'), 500);
+            setTimeout(() => this.updateStitchProgress('📸 Capturing top screenshot...'), 1500);
+            setTimeout(() => this.updateStitchProgress('⬇️ Scrolling to bottom...'), 3000);
+            setTimeout(() => this.updateStitchProgress('📸 Capturing bottom screenshot...'), 5000);
+            setTimeout(() => this.updateStitchProgress('🔍 Analyzing overlap...'), 6500);
+            setTimeout(() => this.updateStitchProgress('🧩 Stitching images...'), 8000);
+
+            // Use new modular stitcher with BOOKEND strategy
+            // Smart algorithm: Captures top & bottom first, then fills middle if needed
+            const response = await fetch('/api/adb/screenshot/stitch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_id: this.deviceId,
+                    stitcher_version: 'v2',
+                    max_scrolls: 20,       // Maximum scrolls for long pages
+                    scroll_ratio: 0.40,    // Scroll 40% of screen height (optimized)
+                    overlap_ratio: 0.30,   // 30% overlap for reliable matching
+                    debug: false
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to capture stitched screenshot');
+            }
+
+            const data = await response.json();
+
+            // Store stitched screenshot data
+            this.currentScreenshot = data.screenshot; // Base64 stitched image
+            this.screenshotMetadata = {
+                elements: data.elements || [],
+                timestamp: data.timestamp,
+                width: null,
+                height: null,
+                stitched: true,
+                metadata: data.metadata  // Store stitch metadata
+            };
+
+            // Load image to get dimensions
+            await this.loadImageDimensions();
+
+            // Count clickable vs non-clickable elements
+            const elements = this.screenshotMetadata.elements;
+            const clickableCount = elements.filter(e => e.clickable === true).length;
+            const nonClickableCount = elements.length - clickableCount;
+
+            console.log('[FlowRecorder] Stitched screenshot captured:', this.screenshotMetadata);
+            console.log(`[FlowRecorder] Elements: ${elements.length} total (${clickableCount} clickable, ${nonClickableCount} non-clickable)`);
+            console.log('[FlowRecorder] Stitch metadata:', data.metadata);
+
+            // Add stitch capture step to flow
+            const meta = data.metadata || {};
+            await this.addStep({
+                step_type: 'stitch_capture',
+                scroll_count: meta.scroll_count || 0,
+                capture_count: meta.capture_count || 0,
+                strategy: meta.strategy || 'unknown',
+                description: `Capture stitched screenshot (${meta.scroll_count || 0} scrolls, ${meta.capture_count || 0} captures)`
+            });
+
+            this.hideStitchProgress();
+            showToast(`Stitched screenshot captured! (${meta.scroll_count || 0} scrolls, ${meta.capture_count || 0} captures)`, 'success', 2000);
+
+        } catch (error) {
+            console.error('[FlowRecorder] Stitch capture failed:', error);
+            this.hideStitchProgress();
+            showToast(`Stitch capture failed: ${error.message}`, 'error', 3000);
+            throw error;
+        }
+    }
+
+    /**
+     * Show stitch progress modal
+     */
+    showStitchProgress(message) {
+        // Remove existing progress modal if any
+        this.hideStitchProgress();
+
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'stitchProgressOverlay';
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        `;
+
+        // Create progress modal
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            background: white;
+            padding: 30px 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            max-width: 400px;
+            text-align: center;
+        `;
+
+        // Add spinner
+        const spinner = document.createElement('div');
+        spinner.className = 'stitch-spinner';
+        spinner.style.cssText = `
+            width: 50px;
+            height: 50px;
+            border: 4px solid #e5e7eb;
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            animation: spin 1s linear infinite;
+        `;
+
+        // Add message text
+        const messageEl = document.createElement('div');
+        messageEl.id = 'stitchProgressMessage';
+        messageEl.style.cssText = `
+            font-size: 16px;
+            color: #1f2937;
+            font-weight: 500;
+        `;
+        messageEl.textContent = message;
+
+        modal.appendChild(spinner);
+        modal.appendChild(messageEl);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        console.log('[FlowRecorder] Progress modal shown:', message);
+    }
+
+    /**
+     * Update stitch progress message
+     */
+    updateStitchProgress(message) {
+        const messageEl = document.getElementById('stitchProgressMessage');
+        if (messageEl) {
+            messageEl.textContent = message;
+            console.log('[FlowRecorder] Progress updated:', message);
+        }
+    }
+
+    /**
+     * Hide stitch progress modal
+     */
+    hideStitchProgress() {
+        const overlay = document.getElementById('stitchProgressOverlay');
+        if (overlay) {
+            overlay.remove();
+            console.log('[FlowRecorder] Progress modal hidden');
+        }
+    }
+
+    /**
+     * Add a step to the flow
+     * Automatically captures screen activity info for Phase 1 screen awareness
+     */
+    async addStep(step) {
+        // Phase 1 Screen Awareness: Capture screen info before adding step
+        // Skip for certain step types that don't need screen context
+        const skipScreenCapture = ['launch_app', 'go_home', 'restart_app'];
+        if (!skipScreenCapture.includes(step.step_type)) {
+            try {
+                const screenInfo = await this.getCurrentScreen();
+                if (screenInfo?.activity) {
+                    step.screen_activity = screenInfo.activity.activity || null;
+                    step.screen_package = screenInfo.activity.package || null;
+                    console.log(`[FlowRecorder] Captured screen: ${step.screen_activity} (${step.screen_package})`);
+                }
+            } catch (e) {
+                console.warn('[FlowRecorder] Failed to capture screen info:', e);
+            }
+        }
+
+        this.steps.push(step);
+        console.log(`[FlowRecorder] Added step ${this.steps.length}:`, step);
+
+        // Trigger step added event for UI update
+        window.dispatchEvent(new CustomEvent('flowStepAdded', {
+            detail: {
+                step: step,
+                index: this.steps.length - 1
+            }
+        }));
+    }
+
+    /**
+     * Remove a step from the flow
+     */
+    removeStep(index) {
+        if (index >= 0 && index < this.steps.length) {
+            const removed = this.steps.splice(index, 1)[0];
+            console.log(`[FlowRecorder] Removed step ${index}:`, removed);
+
+            window.dispatchEvent(new CustomEvent('flowStepRemoved', {
+                detail: { index: index }
+            }));
+        }
+    }
+
+    /**
+     * Get all recorded steps
+     */
+    getSteps() {
+        return this.steps;
+    }
+
+    /**
+     * Wait for specified duration
+     */
+    wait(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Get current screenshot as data URL
+     */
+    getScreenshotDataUrl() {
+        return `data:image/png;base64,${this.currentScreenshot}`;
+    }
+
+    /**
+     * Phase 8: Find UI element at given coordinates
+     * @param {number} x - Device X coordinate
+     * @param {number} y - Device Y coordinate
+     * @returns {Object|null} - UI element or null if not found
+     */
+    findElementAtCoordinates(x, y) {
+        if (!this.screenshotMetadata || !this.screenshotMetadata.elements) {
+            return null;
+        }
+
+        // Find element whose bounds contain the coordinates
+        // Backend returns bounds as {x, y, width, height}
+        for (const element of this.screenshotMetadata.elements) {
+            if (element.bounds) {
+                const { x: left, y: top, width, height } = element.bounds;
+                const right = left + width;
+                const bottom = top + height;
+                if (x >= left && x <= right && y >= top && y <= bottom) {
+                    console.log(`[FlowRecorder] Found element at (${x}, ${y}):`, element);
+                    return element;
+                }
+            }
+        }
+
+        console.log(`[FlowRecorder] No element found at (${x}, ${y})`);
+        return null;
+    }
+
+    /**
+     * Phase 8: Get current activity from device
+     * @returns {Promise<string|null>} - Current activity name or null
+     */
+    async getCurrentActivity() {
+        try {
+            const response = await fetch(`/api/adb/activity/${encodeURIComponent(this.deviceId)}`);
+            if (!response.ok) {
+                console.warn('[FlowRecorder] Failed to get current activity');
+                return null;
+            }
+            const data = await response.json();
+            return data.activity || null;
+        } catch (error) {
+            console.error('[FlowRecorder] Error getting activity:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Phase 1 Screen Awareness: Get current screen info (activity with package breakdown)
+     * @returns {Promise<Object|null>} - {activity: {package, activity, full_name}} or null
+     */
+    async getCurrentScreen() {
+        try {
+            const response = await fetch(`/api/screen/current/${encodeURIComponent(this.deviceId)}`);
+            if (!response.ok) {
+                console.warn('[FlowRecorder] Failed to get current screen info');
+                return null;
+            }
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('[FlowRecorder] Error getting screen info:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Phase 8: Extract key info from UI element for state validation
+     * @param {Object} element - UI element
+     * @returns {Object} - Extracted element info
+     */
+    extractElementInfo(element) {
+        const info = {};
+
+        // Only include fields that are useful for matching
+        if (element.text && element.text.trim()) {
+            info.text = element.text.trim();
+        }
+        if (element.class) {
+            info.class = element.class;
+        }
+        if (element['resource-id']) {
+            info['resource-id'] = element['resource-id'];
+        }
+
+        return info;
+    }
+}
+
+// Add animations to document if not already present
+if (!document.getElementById('flow-recorder-animations')) {
+    const style = document.createElement('style');
+    style.id = 'flow-recorder-animations';
+    style.textContent = `
+        @keyframes tapPulse {
+            0% {
+                transform: scale(0.5);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+// Export for module use
+export default FlowRecorder;
+
+// Export for global access (dual export pattern)
+window.FlowRecorder = FlowRecorder;

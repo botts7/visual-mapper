@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.3">
-    <meta name="version" content="0.0.3" data-build="2025-12-27">
+    <meta name="viewport" content="0.0.5">
+    <meta name="version" content="0.0.5" data-build="2025-12-27">
     <title>Flow Wizard - Visual Mapper</title>
-    <link rel="stylesheet" href="css/styles.css?v=0.0.3">
-    <link rel="stylesheet" href="css/flow-wizard.css?v=0.0.3">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.5">
+    <link rel="stylesheet" href="css/flow-wizard.css?v=0.0.5">
 </head>
 <body>
     <nav>
@@ -25,6 +27,7 @@
             <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
 
             <li class="version">v0.0.5</li>
+            <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
             <li id="themeToggleContainer"></li>
         </ul>
     </nav>
@@ -132,6 +135,11 @@
                             <img id="appIcon" src="" alt="" class="toolbar-app-icon">
                             <span id="appName" class="toolbar-app-name"></span>
                         </div>
+                        <!-- Screen Info (Phase 1 - Activity Tracking) -->
+                        <div class="toolbar-screen-info" title="Current screen activity">
+                            <span class="screen-label">Screen:</span>
+                            <span id="currentActivity" class="current-activity">--</span>
+                        </div>
                         <div class="quick-divider"></div>
 
                         <!-- Navigation -->
@@ -150,13 +158,25 @@
                         <button class="quick-btn" id="qabZoomOut" title="Zoom Out">−</button>
                         <span class="zoom-display" id="zoomLevel">100%</span>
                         <button class="quick-btn" id="qabZoomIn" title="Zoom In">+</button>
+                        <button class="quick-btn" id="qabFit" title="Fit to Screen">Fit</button>
                         <button class="quick-btn" id="qabScale" title="Toggle 1:1 Scale">1:1</button>
+                        <div class="quick-divider"></div>
+
+                        <!-- Recording Toggle -->
+                        <button class="quick-btn with-label recording-active" id="qabRecordToggle" title="Toggle action recording on/off">
+                            <span class="btn-icon">⏺</span><span class="btn-label">Recording</span>
+                        </button>
                         <div class="quick-divider"></div>
 
                         <!-- Capture Mode -->
                         <select id="captureMode" class="quick-select" title="Capture Mode">
                             <option value="polling">Polling</option>
                             <option value="streaming">Stream</option>
+                        </select>
+                        <select id="streamMode" class="quick-select" title="Stream Protocol">
+                            <option value="mjpeg">MJPEG</option>
+                            <option value="websocket">WebSocket</option>
+                            <option value="scrcpy">scrcpy (30-60fps)</option>
                         </select>
                         <select id="streamQuality" class="quick-select" title="Stream Quality">
                             <option value="medium">720p</option>
@@ -165,9 +185,16 @@
                             <option value="fast">360p</option>
                         </select>
                         <span id="connectionStatus" class="connection-status"></span>
+                        <button class="quick-btn" id="qabReconnect" title="Reconnect Stream">⟳</button>
                         <div class="quick-divider"></div>
 
                         <!-- Actions -->
+                        <button class="quick-btn with-label" id="qabPullRefresh" title="Pull-to-Refresh the Android app">
+                            <span class="btn-icon">↻</span><span class="btn-label">Pull Refresh</span>
+                        </button>
+                        <button class="quick-btn with-label" id="qabRestartApp" title="Force stop and restart the app">
+                            <span class="btn-icon">🔄</span><span class="btn-label">Restart App</span>
+                        </button>
                         <button class="quick-btn with-label" id="qabStitch" title="Full Page Capture">
                             <span class="btn-icon">📸</span><span class="btn-label">Stitch</span>
                         </button>
@@ -310,7 +337,22 @@
         </div>
     </div>
 
-    <script type="module" src="js/init.js?v=0.0.3"></script>
-    <script type="module" src="js/modules/flow-wizard.js?v=0.0.3"></script>
+    <script type="module" src="js/init.js?v=0.0.5"></script>
+    <script type="module">
+        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.5';
+        import MobileNav from './js/modules/mobile-nav.js?v=0.0.5';
+
+        const themeToggle = new ThemeToggle();
+        const mobileNav = new MobileNav();
+
+        themeToggle.apply();
+        mobileNav.init();
+
+        const themeToggleContainer = document.getElementById('themeToggleContainer');
+        if (themeToggleContainer) {
+            themeToggleContainer.appendChild(themeToggle.createToggleButton());
+        }
+    </script>
+    <script type="module" src="js/modules/flow-wizard.js?v=0.0.5"></script>
 </body>
 </html>

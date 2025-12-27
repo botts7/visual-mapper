@@ -1,6 +1,6 @@
 /**
  * Visual Mapper - Live Stream Module
- * Version: 0.0.7 (Quality settings for optimized streaming)
+ * Version: 0.0.14 (Enhanced with stream_manager backend support)
  *
  * WebSocket-based live screenshot streaming with UI element overlays.
  * Supports two modes:
@@ -16,6 +16,9 @@
  * Features:
  * - Auto-reconnect with exponential backoff
  * - Connection state tracking
+ * - Container element filtering
+ * - Backend benchmark support via stream_manager
+ * - Enhanced quality indicators
  */
 
 class LiveStream {
@@ -33,6 +36,10 @@ class LiveStream {
         // Current state
         this.currentImage = null;
         this.elements = [];
+
+        // Device dimensions (native resolution for element scaling)
+        this.deviceWidth = 1080;   // Default, updated when elements are set
+        this.deviceHeight = 1920;
 
         // Performance metrics
         this.metrics = {
@@ -74,8 +81,42 @@ class LiveStream {
         // Overlay settings
         this.showOverlays = true;
         this.showTextLabels = true;
+        this.hideContainers = true;
+        this.hideEmptyElements = true;
 
-        console.log('[LiveStream] Initialized (WebSocket + MJPEG + Auto-reconnect)');
+        // Container classes to filter out (reduce visual clutter)
+        this.containerClasses = [
+            // Core Android containers
+            'android.view.View',
+            'android.view.ViewGroup',
+            'android.widget.FrameLayout',
+            'android.widget.LinearLayout',
+            'android.widget.RelativeLayout',
+            'android.widget.TableLayout',
+            'android.widget.TableRow',
+            'android.widget.GridLayout',
+            'android.widget.ScrollView',
+            'android.widget.HorizontalScrollView',
+            'android.widget.ListView',
+            'android.widget.GridView',
+            'android.widget.AbsoluteLayout',
+            // AndroidX containers
+            'androidx.constraintlayout.widget.ConstraintLayout',
+            'androidx.recyclerview.widget.RecyclerView',
+            'androidx.viewpager.widget.ViewPager',
+            'androidx.viewpager2.widget.ViewPager2',
+            'androidx.coordinatorlayout.widget.CoordinatorLayout',
+            'androidx.drawerlayout.widget.DrawerLayout',
+            'androidx.appcompat.widget.LinearLayoutCompat',
+            'androidx.cardview.widget.CardView',
+            'androidx.core.widget.NestedScrollView',
+            'androidx.swiperefreshlayout.widget.SwipeRefreshLayout',
+            // Other non-interactive elements
+            'android.widget.Space',
+            'android.view.ViewStub'
+        ];
+
+        console.log('[LiveStream] Initialized (WebSocket + MJPEG + Auto-reconnect + Container filtering)');
     }
 
     /**
@@ -191,6 +232,12 @@ class LiveStream {
                     const data = JSON.parse(event.data);
                     if (data.type === 'config') {
                         console.log('[LiveStream] MJPEG config received:', data);
+                        // Store native device dimensions for overlay scaling
+                        if (data.width && data.height) {
+                            this.deviceWidth = data.width;
+                            this.deviceHeight = data.height;
+                            console.log(`[LiveStream] Device dimensions: ${data.width}x${data.height}`);
+                        }
                     } else {
                         this._handleFrame(data);
                     }
@@ -492,13 +539,37 @@ class LiveStream {
 
     /**
      * Draw UI element overlays
+     * Scales element coordinates from device resolution to canvas resolution
      * @param {Array} elements - UI elements
      */
     _drawElements(elements) {
+        // Calculate scale factor: stream may be at lower resolution than device
+        const scaleX = this.canvas.width / this.deviceWidth;
+        const scaleY = this.canvas.height / this.deviceHeight;
+
         elements.forEach(el => {
             if (!el.bounds) return;
 
-            const { x, y, width, height } = el.bounds;
+            // Filter out container elements if hideContainers is enabled
+            if (this.hideContainers && el.class && this.containerClasses.includes(el.class)) {
+                return;
+            }
+
+            // Filter out empty elements (no text or content-desc)
+            if (this.hideEmptyElements) {
+                const hasText = el.text && el.text.trim();
+                const hasContentDesc = el['content-desc'] && el['content-desc'].trim();
+                const hasResourceId = el['resource-id'] && el['resource-id'].trim();
+                if (!hasText && !hasContentDesc && !(el.clickable && hasResourceId)) {
+                    return;
+                }
+            }
+
+            // Scale coordinates from device to canvas resolution
+            const x = Math.floor(el.bounds.x * scaleX);
+            const y = Math.floor(el.bounds.y * scaleY);
+            const width = Math.floor(el.bounds.width * scaleX);
+            const height = Math.floor(el.bounds.height * scaleY);
 
             // Draw bounding box
             this.ctx.strokeStyle = el.clickable ? '#00ff00' : '#ffff00';
@@ -510,6 +581,38 @@ class LiveStream {
                 this._drawTextLabel(el.text, x, y, width);
             }
         });
+    }
+
+    /**
+     * Set container filtering
+     * @param {boolean} hide - Whether to hide containers
+     */
+    setHideContainers(hide) {
+        this.hideContainers = hide;
+        // Next frame will automatically use updated filter
+    }
+
+    /**
+     * Set empty element filtering
+     * @param {boolean} hide - Whether to hide empty elements
+     */
+    setHideEmptyElements(hide) {
+        this.hideEmptyElements = hide;
+        // Next frame will automatically use updated filter
+    }
+
+    /**
+     * Set device dimensions for proper coordinate scaling
+     * Call this when device dimensions are known (e.g., from elements API)
+     * @param {number} width - Device width in pixels
+     * @param {number} height - Device height in pixels
+     */
+    setDeviceDimensions(width, height) {
+        if (width > 0 && height > 0) {
+            this.deviceWidth = width;
+            this.deviceHeight = height;
+            console.log(`[LiveStream] Device dimensions updated: ${width}x${height}`);
+        }
     }
 
     /**
@@ -539,6 +642,7 @@ class LiveStream {
 
     /**
      * Convert canvas coordinates to device coordinates
+     * Accounts for stream quality scaling (canvas may be at lower resolution than device)
      * @param {number} canvasX - Canvas X
      * @param {number} canvasY - Canvas Y
      * @returns {Object} Device coordinates {x, y}
@@ -547,30 +651,74 @@ class LiveStream {
         if (!this.currentImage) {
             throw new Error('No frame loaded');
         }
+        // Scale from canvas resolution to device resolution
+        const scaleX = this.deviceWidth / this.canvas.width;
+        const scaleY = this.deviceHeight / this.canvas.height;
         return {
-            x: Math.round(canvasX),
-            y: Math.round(canvasY)
+            x: Math.round(canvasX * scaleX),
+            y: Math.round(canvasY * scaleY)
         };
     }
 
     /**
      * Find element at canvas position
+     * Scales canvas coordinates to device coordinates before comparing
      * @param {number} x - Canvas X
      * @param {number} y - Canvas Y
      * @returns {Object|null} Element or null
      */
     findElementAtPoint(x, y) {
+        // Convert canvas position to device coordinates
+        const scaleX = this.deviceWidth / this.canvas.width;
+        const scaleY = this.deviceHeight / this.canvas.height;
+        const deviceX = x * scaleX;
+        const deviceY = y * scaleY;
+
+        // Elements are in device coordinates - search from top (last) to bottom (first)
+        // Prefer elements with text, skip containers
+        let bestMatch = null;
+
         for (let i = this.elements.length - 1; i >= 0; i--) {
             const el = this.elements[i];
             if (!el.bounds) continue;
 
             const b = el.bounds;
-            if (x >= b.x && x <= b.x + b.width &&
-                y >= b.y && y <= b.y + b.height) {
-                return el;
+            // Check if point is within element bounds
+            if (!(deviceX >= b.x && deviceX <= b.x + b.width &&
+                  deviceY >= b.y && deviceY <= b.y + b.height)) {
+                continue;
+            }
+
+            // Check element properties
+            const hasText = el.text && el.text.trim();
+            const hasContentDesc = el['content-desc'] && el['content-desc'].trim();
+            const isContainer = el.class && this.containerClasses.includes(el.class);
+
+            // Always skip containers if filter is on
+            if (this.hideContainers && isContainer) {
+                continue;
+            }
+
+            // Skip empty elements if filter is on (except clickable buttons)
+            if (this.hideEmptyElements) {
+                const hasResourceId = el['resource-id'] && el['resource-id'].trim();
+                if (!hasText && !hasContentDesc && !(el.clickable && hasResourceId)) {
+                    continue;
+                }
+            }
+
+            // Prefer elements with text over those without
+            if (hasText || hasContentDesc) {
+                return el; // Return immediately if has text
+            }
+
+            // Keep as backup if it's clickable
+            if (el.clickable && !bestMatch) {
+                bestMatch = el;
             }
         }
-        return null;
+
+        return bestMatch;
     }
 
     /**
@@ -603,6 +751,86 @@ class LiveStream {
      */
     setTextLabelsVisible(show) {
         this.showTextLabels = show;
+    }
+
+    /**
+     * Get API base URL for REST calls
+     * @returns {string} API base URL
+     */
+    _getApiBase() {
+        const url = window.location.href;
+        const ingressMatch = url.match(/\/api\/hassio_ingress\/[^\/]+/);
+        if (ingressMatch) {
+            return ingressMatch[0] + '/api';
+        }
+        return '/api';
+    }
+
+    /**
+     * Run backend benchmark to compare capture methods
+     * Uses stream_manager.benchmark_capture() on server
+     * @param {string} deviceId - Device to benchmark
+     * @param {number} iterations - Number of captures per backend (default: 5)
+     * @returns {Promise<Object>} Benchmark results
+     */
+    async runBenchmark(deviceId, iterations = 5) {
+        const apiBase = this._getApiBase();
+        const url = `${apiBase}/diagnostics/benchmark/${encodeURIComponent(deviceId)}?iterations=${iterations}`;
+
+        console.log(`[LiveStream] Running capture benchmark for ${deviceId}...`);
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Benchmark failed: ${response.status}`);
+            }
+            const results = await response.json();
+            console.log('[LiveStream] Benchmark results:', results);
+            return results;
+        } catch (error) {
+            console.error('[LiveStream] Benchmark error:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get server-side stream metrics for device
+     * @param {string} deviceId - Device ID
+     * @returns {Promise<Object>} Server metrics
+     */
+    async getServerMetrics(deviceId) {
+        const apiBase = this._getApiBase();
+        const url = `${apiBase}/diagnostics/stream-metrics/${encodeURIComponent(deviceId)}`;
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                return null;
+            }
+            return await response.json();
+        } catch (error) {
+            console.warn('[LiveStream] Could not fetch server metrics:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Get connection quality rating based on current metrics
+     * @returns {Object} Quality rating { level: 'good'|'ok'|'slow', description: string }
+     */
+    getConnectionQuality() {
+        const fps = this.metrics.fps || 0;
+        const latency = this.metrics.latency || 0;
+        const captureTime = this.metrics.captureTime || 0;
+
+        // Determine quality level
+        if (fps >= 8 && latency < 500 && captureTime < 1000) {
+            return { level: 'good', description: `${fps} FPS, ${captureTime}ms capture` };
+        } else if (fps >= 4 && captureTime < 2000) {
+            return { level: 'ok', description: `${fps} FPS, ${captureTime}ms capture` };
+        } else {
+            return { level: 'slow', description: `${fps} FPS, ${captureTime}ms capture - WiFi ADB is slow` };
+        }
     }
 }
 

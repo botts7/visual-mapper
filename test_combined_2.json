@@ -1,1 +1,0 @@
-{"text": "WiFi: MyNetwork (5G)", "extraction_rule": {"method": "between", "between_start": "WiFi: ", "between_end": " (", "fallback_value": "Not connected"}}

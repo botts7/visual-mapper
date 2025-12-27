@@ -28,6 +28,26 @@
     --control-section-border: #2196f3;
     --overlay-section-bg: #f1f8e9;
     --overlay-section-border: #4CAF50;
+
+    /* Semantic aliases for consistency */
+    --background: var(--background-color);
+    --surface: var(--card-background);
+    --card-bg: var(--card-background);
+    --border: var(--border-color);
+    --primary: var(--primary-color);
+    --primary-dark: #1565C0;
+    --primary-light: #64B5F6;
+    --success: var(--success-color);
+    --error: var(--error-color);
+    --warning: var(--warning-color);
+    --warning-light: #FFE082;
+    --text-primary: var(--text-color);
+    --hover: rgba(0, 0, 0, 0.04);
+
+    /* Status message backgrounds */
+    --status-success-bg: rgba(76, 175, 80, 0.15);
+    --status-error-bg: rgba(244, 67, 54, 0.15);
+    --status-warning-bg: rgba(255, 152, 0, 0.15);
 }
 
 /* Dark theme */
@@ -74,6 +94,17 @@ body.dark-mode {
     --control-section-border: #42a5f5;
     --overlay-section-bg: #1a2a1a;
     --overlay-section-border: #66bb6a;
+
+    /* Dark mode semantic aliases */
+    --primary-dark: #1976D2;
+    --primary-light: #42A5F5;
+    --warning-light: #5D4037;
+    --hover: rgba(255, 255, 255, 0.08);
+
+    /* Dark mode status backgrounds */
+    --status-success-bg: rgba(76, 175, 80, 0.2);
+    --status-error-bg: rgba(244, 67, 54, 0.2);
+    --status-warning-bg: rgba(255, 152, 0, 0.2);
 }
 
 * {
@@ -116,6 +147,12 @@ nav a {
 
 nav a:hover {
     background-color: rgba(255, 255, 255, 0.1);
+}
+
+nav a.active {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    font-weight: 600;
 }
 
 /* Hamburger Menu Button (hidden on desktop) */
@@ -218,11 +255,42 @@ button:active,
     background-color: var(--secondary-hover);
 }
 
+/* Logo icon in nav */
+.nav-logo {
+    display: flex;
+    align-items: center;
+    padding: 0 !important;
+}
+
+.nav-logo img {
+    height: 32px;
+    width: 32px;
+    display: block;
+}
+
 /* Version badge */
 .version {
     font-size: 0.875rem;
     color: rgba(255, 255, 255, 0.8);
     white-space: nowrap;
+}
+
+/* Dashboard logo header */
+.dashboard-logo-header {
+    text-align: center;
+    padding: 32px;
+}
+
+.dashboard-logo-header img {
+    max-width: 400px;
+    width: 100%;
+    height: auto;
+    margin-bottom: 16px;
+}
+
+.dashboard-logo-header p {
+    color: var(--text-secondary);
+    margin-top: 8px;
 }
 
 /* Theme toggle container */
@@ -243,20 +311,23 @@ button:active,
 }
 
 .status.success {
-    background-color: #e8f5e9;
-    color: #2e7d32;
+    background-color: var(--status-success-bg);
+    color: var(--success-color);
+    border: 1px solid var(--success-color);
     border-left: 4px solid var(--success-color);
 }
 
 .status.error {
-    background-color: #ffebee;
-    color: #c62828;
+    background-color: var(--status-error-bg);
+    color: var(--error-color);
+    border: 1px solid var(--error-color);
     border-left: 4px solid var(--error-color);
 }
 
 .status.warning {
-    background-color: #fff3e0;
-    color: #e65100;
+    background-color: var(--status-warning-bg);
+    color: var(--warning-color);
+    border: 1px solid var(--warning-color);
     border-left: 4px solid var(--warning-color);
 }
 
@@ -1172,4 +1243,14 @@ label {
     font-size: 16px;
     line-height: 1.6;
     min-height: 60px;
+}
+
+/* ========== Spinner Animation (Phase 8 Enhancement) ========== */
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
 }

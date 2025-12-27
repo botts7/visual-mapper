@@ -16,6 +16,7 @@ class SensorCreator {
         this.editMode = false;
         this.editingSensor = null;
         this.deviceClasses = null; // Will be loaded from API
+        this.onSensorCreated = null; // Callback when sensor is created (response, sensorData)
 
         console.log('[SensorCreator] Initialized');
 
@@ -865,6 +866,15 @@ class SensorCreator {
 
             // Hide dialog
             this.hide();
+
+            // Fire callback if set (for flow wizard integration)
+            if (!this.editMode && this.onSensorCreated) {
+                try {
+                    this.onSensorCreated(response, sensorData);
+                } catch (e) {
+                    console.warn('[SensorCreator] onSensorCreated callback error:', e);
+                }
+            }
 
             // Trigger page reload if this was called from sensors.html
             if (window.location.pathname.includes('sensors.html') && window.loadSensors) {

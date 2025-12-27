@@ -1,6 +1,7 @@
 /**
  * Flow Wizard Step 4 - Review & Test
- * Visual Mapper v0.0.5
+ * Visual Mapper v0.0.6
+ * v0.0.6: Fixed execute/delete endpoint URLs to include device_id
  */
 
 import { showToast } from './toast.js?v=0.0.5';
@@ -116,8 +117,8 @@ async function testFlow(wizard) {
 
         if (!saveResponse.ok) throw new Error('Failed to create test flow');
 
-        // Execute flow
-        const execResponse = await fetch(`${getApiBase()}/flows/${tempFlow.flow_id}/execute`, {
+        // Execute flow (endpoint requires device_id and flow_id)
+        const execResponse = await fetch(`${getApiBase()}/flows/${wizard.selectedDevice}/${tempFlow.flow_id}/execute`, {
             method: 'POST'
         });
 
@@ -136,8 +137,8 @@ async function testFlow(wizard) {
             </div>
         `;
 
-        // Delete temp flow
-        await fetch(`${getApiBase()}/flows/${tempFlow.flow_id}`, { method: 'DELETE' });
+        // Delete temp flow (also requires device_id)
+        await fetch(`${getApiBase()}/flows/${wizard.selectedDevice}/${tempFlow.flow_id}`, { method: 'DELETE' });
 
         showToast(results.success ? 'Test passed!' : 'Test failed', results.success ? 'success' : 'error');
 

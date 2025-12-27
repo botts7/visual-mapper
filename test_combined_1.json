@@ -1,1 +1,0 @@
-{"text": "Battery: 94%", "extraction_rule": {"method": "after", "after_text": "Battery: ", "remove_unit": true}}

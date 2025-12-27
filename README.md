@@ -2,7 +2,7 @@
 
 **Home Assistant Addon for Android Device Monitoring & Automation**
 
-![Version](https://img.shields.io/badge/version-0.0.3-blue.svg)
+![Version](https://img.shields.io/badge/version-0.0.5-blue.svg)
 ![Status](https://img.shields.io/badge/status-in_development-yellow.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
@@ -65,8 +65,8 @@ Visual Mapper is an open-source Home Assistant addon that lets you monitor, cont
 
 ## 🏗️ Development Status
 
-**Current Version:** 0.0.3
-**Target Version:** 1.0.0
+**Current Version:** 0.0.5
+**Target Version:** 0.0.5
 **Status:** Building from scratch
 
 ### **Roadmap**
@@ -154,5 +154,5 @@ This project is currently in early development (v0.0.1). The codebase is being r
 ---
 
 **Last Updated:** 2025-12-21
-**Current Version:** 0.0.3
+**Current Version:** 0.0.5
 **Status:** 🚧 In Development

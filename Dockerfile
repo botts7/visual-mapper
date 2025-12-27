@@ -1,7 +1,7 @@
 FROM python:3.11-alpine
 
 # Set version
-ENV VERSION=0.0.3
+ENV VERSION=0.0.5
 
 # Set working directory
 WORKDIR /app
