@@ -61,7 +61,7 @@ from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell, maintenance
+from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection
 
 # Configure logging
 logging.basicConfig(
@@ -715,6 +715,8 @@ app.include_router(shell.router)
 logger.info("[Server] Registered route module: shell (5 endpoints: stats + execute + batch + benchmark + close)")
 app.include_router(maintenance.router)
 logger.info("[Server] Registered route module: maintenance (12 endpoints: 2 server + 6 device optimization + 2 background limit + 2 metrics)")
+app.include_router(adb_connection.router)
+logger.info("[Server] Registered route module: adb_connection (3 endpoints: connect + pair + disconnect)")
 
 # ============================================================================
 # LEGACY ENDPOINTS (Being migrated to route modules)
@@ -1005,74 +1007,77 @@ async def get_device_stream_stats(device_id: str):
 
 
 # Device Management Endpoints
-@app.post("/api/adb/connect")
-async def connect_device(request: ConnectDeviceRequest):
-    """Connect to Android device via TCP/IP"""
-    try:
-        logger.info(f"[API] Connecting to {request.host}:{request.port}")
-        device_id = await adb_bridge.connect_device(request.host, request.port)
-        return {
-            "device_id": device_id,
-            "connected": True,
-            "message": f"Connected to {device_id}"
-        }
-    except Exception as e:
-        logger.error(f"[API] Connection failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/adb/pair")
-async def pair_device(request: PairingRequest):
-    """Pair with Android 11+ device using wireless pairing
-
-    Android 11+ wireless debugging uses TWO ports:
-    - Pairing port (e.g., 37899) - for initial pairing with code
-    - Connection port (e.g., 45441) - for actual ADB connection after pairing
-    """
-    try:
-        logger.info(f"[API] Pairing with {request.pairing_host}:{request.pairing_port}")
-
-        # Step 1: Pair with pairing port using code
-        success = await adb_bridge.pair_device(
-            request.pairing_host,
-            request.pairing_port,
-            request.pairing_code
-        )
-
-        if not success:
-            raise HTTPException(status_code=500, detail="Pairing failed - check code and port")
-
-        # Step 2: Connect on connection port (NOT 5555!) after successful pairing
-        logger.info(f"[API] Pairing successful, connecting on port {request.connection_port}")
-        device_id = await adb_bridge.connect_device(request.pairing_host, request.connection_port)
-
-        return {
-            "success": True,
-            "device_id": device_id,
-            "message": f"Paired and connected to {device_id}"
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[API] Pairing failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/adb/disconnect")
-async def disconnect_device(request: DisconnectDeviceRequest):
-    """Disconnect from Android device"""
-    try:
-        logger.info(f"[API] Disconnecting from {request.device_id}")
-        await adb_bridge.disconnect_device(request.device_id)
-        return {
-            "device_id": request.device_id,
-            "disconnected": True,
-            "message": f"Disconnected from {request.device_id}"
-        }
-    except Exception as e:
-        logger.error(f"[API] Disconnection failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# ============================================================================
+# MIGRATED TO routes/adb_connection.py - Commented out for comparison/testing
+# ============================================================================
+# @app.post("/api/adb/connect")
+# async def connect_device(request: ConnectDeviceRequest):
+#     """Connect to Android device via TCP/IP"""
+#     try:
+#         logger.info(f"[API] Connecting to {request.host}:{request.port}")
+#         device_id = await adb_bridge.connect_device(request.host, request.port)
+#         return {
+#             "device_id": device_id,
+#             "connected": True,
+#             "message": f"Connected to {device_id}"
+#         }
+#     except Exception as e:
+#         logger.error(f"[API] Connection failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+#
+#
+# @app.post("/api/adb/pair")
+# async def pair_device(request: PairingRequest):
+#     """Pair with Android 11+ device using wireless pairing
+#
+#     Android 11+ wireless debugging uses TWO ports:
+#     - Pairing port (e.g., 37899) - for initial pairing with code
+#     - Connection port (e.g., 45441) - for actual ADB connection after pairing
+#     """
+#     try:
+#         logger.info(f"[API] Pairing with {request.pairing_host}:{request.pairing_port}")
+#
+#         # Step 1: Pair with pairing port using code
+#         success = await adb_bridge.pair_device(
+#             request.pairing_host,
+#             request.pairing_port,
+#             request.pairing_code
+#         )
+#
+#         if not success:
+#             raise HTTPException(status_code=500, detail="Pairing failed - check code and port")
+#
+#         # Step 2: Connect on connection port (NOT 5555!) after successful pairing
+#         logger.info(f"[API] Pairing successful, connecting on port {request.connection_port}")
+#         device_id = await adb_bridge.connect_device(request.pairing_host, request.connection_port)
+#
+#         return {
+#             "success": True,
+#             "device_id": device_id,
+#             "message": f"Paired and connected to {device_id}"
+#         }
+#
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"[API] Pairing failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+#
+#
+# @app.post("/api/adb/disconnect")
+# async def disconnect_device(request: DisconnectDeviceRequest):
+#     """Disconnect from Android device"""
+#     try:
+#         logger.info(f"[API] Disconnecting from {request.device_id}")
+#         await adb_bridge.disconnect_device(request.device_id)
+#         return {
+#             "device_id": request.device_id,
+#             "disconnected": True,
+#             "message": f"Disconnected from {request.device_id}"
+#         }
+#     except Exception as e:
+#         logger.error(f"[API] Disconnection failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
 # ============================================================================
 # MIGRATED TO routes/adb_info.py - Commented out for comparison/testing
 # ============================================================================
