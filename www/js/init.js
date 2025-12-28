@@ -38,6 +38,27 @@ window.APP_VERSION = APP_VERSION;
 console.log(`[Init] Visual Mapper v${APP_VERSION}`);
 console.log(`[Init] API Base: ${window.API_BASE}`);
 
+// Onboarding check - redirect to onboarding.html if not completed
+function checkOnboarding() {
+    // Don't check if we're already on onboarding page
+    const currentPage = window.location.pathname.split('/').pop();
+    if (currentPage === 'onboarding.html') {
+        return false; // Don't redirect
+    }
+
+    // Check if onboarding is complete
+    const isComplete = localStorage.getItem('onboarding_complete') === 'true';
+
+    if (!isComplete) {
+        console.log('[Init] Onboarding not complete, redirecting to onboarding wizard');
+        window.location.href = 'onboarding.html';
+        return true; // Redirecting
+    }
+
+    console.log('[Init] Onboarding complete');
+    return false; // Not redirecting
+}
+
 // Modules to load (Phase 0: none yet, this is the framework)
 const MODULES = [
     // Phase 1 will add: 'modules/api-client.js',
@@ -52,6 +73,11 @@ const MODULES = [
  */
 async function initApp() {
     console.log('[Init] Starting initialization');
+
+    // Check onboarding status and redirect if needed
+    if (checkOnboarding()) {
+        return; // Redirecting to onboarding, stop initialization
+    }
 
     const startTime = performance.now();
 
@@ -78,3 +104,6 @@ if (document.readyState === 'loading') {
 } else {
     initApp();
 }
+
+// Export functions for use in other modules
+export { initApp, getApiBase };
