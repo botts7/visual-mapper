@@ -61,7 +61,7 @@ from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection
+from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control
 
 # Configure logging
 logging.basicConfig(
@@ -717,6 +717,8 @@ app.include_router(maintenance.router)
 logger.info("[Server] Registered route module: maintenance (12 endpoints: 2 server + 6 device optimization + 2 background limit + 2 metrics)")
 app.include_router(adb_connection.router)
 logger.info("[Server] Registered route module: adb_connection (3 endpoints: connect + pair + disconnect)")
+app.include_router(adb_control.router)
+logger.info("[Server] Registered route module: adb_control (6 endpoints: tap + swipe + text + keyevent + back + home)")
 
 # ============================================================================
 # LEGACY ENDPOINTS (Being migrated to route modules)
@@ -1356,114 +1358,117 @@ async def capture_stitched_screenshot(request: ScreenshotStitchRequest):
 
 
 # Device Control Endpoints
-@app.post("/api/adb/tap")
-async def tap_device(request: TapRequest):
-    """Simulate tap at coordinates on device"""
-    try:
-        logger.info(f"[API] Tap at ({request.x}, {request.y}) on {request.device_id}")
-        await adb_bridge.tap(request.device_id, request.x, request.y)
-        return {
-            "success": True,
-            "device_id": request.device_id,
-            "x": request.x,
-            "y": request.y,
-            "message": f"Tapped at ({request.x}, {request.y})"
-        }
-    except Exception as e:
-        logger.error(f"[API] Tap failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/adb/swipe")
-async def swipe_device(request: SwipeRequest):
-    """Simulate swipe gesture on device"""
-    try:
-        logger.info(f"[API] Swipe ({request.x1},{request.y1}) -> ({request.x2},{request.y2}) on {request.device_id}")
-        await adb_bridge.swipe(
-            request.device_id,
-            request.x1, request.y1,
-            request.x2, request.y2,
-            request.duration
-        )
-        return {
-            "success": True,
-            "device_id": request.device_id,
-            "from": {"x": request.x1, "y": request.y1},
-            "to": {"x": request.x2, "y": request.y2},
-            "duration": request.duration,
-            "message": f"Swiped from ({request.x1},{request.y1}) to ({request.x2},{request.y2})"
-        }
-    except Exception as e:
-        logger.error(f"[API] Swipe failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/adb/text")
-async def input_text(request: TextInputRequest):
-    """Type text on device"""
-    try:
-        logger.info(f"[API] Type text on {request.device_id}: {request.text[:20]}...")
-        await adb_bridge.type_text(request.device_id, request.text)
-        return {
-            "success": True,
-            "device_id": request.device_id,
-            "text": request.text,
-            "message": f"Typed {len(request.text)} characters"
-        }
-    except Exception as e:
-        logger.error(f"[API] Text input failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/adb/keyevent")
-async def send_keyevent(request: KeyEventRequest):
-    """Send hardware key event to device"""
-    try:
-        logger.info(f"[API] Key event {request.keycode} on {request.device_id}")
-        await adb_bridge.keyevent(request.device_id, request.keycode)
-        return {
-            "success": True,
-            "device_id": request.device_id,
-            "keycode": request.keycode,
-            "message": f"Sent key event: {request.keycode}"
-        }
-    except Exception as e:
-        logger.error(f"[API] Key event failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/adb/back")
-async def send_back_key(request: dict):
-    """Send BACK key event to device (convenience endpoint)"""
-    try:
-        device_id = request.get("device_id")
-        if not device_id:
-            raise HTTPException(status_code=400, detail="device_id required")
-        logger.info(f"[API] Back key on {device_id}")
-        await adb_bridge.keyevent(device_id, "KEYCODE_BACK")
-        return {"success": True, "device_id": device_id, "message": "Back key sent"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[API] Back key failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/adb/home")
-async def send_home_key(request: dict):
-    """Send HOME key event to device (convenience endpoint)"""
-    try:
-        device_id = request.get("device_id")
-        if not device_id:
-            raise HTTPException(status_code=400, detail="device_id required")
-        logger.info(f"[API] Home key on {device_id}")
-        await adb_bridge.keyevent(device_id, "KEYCODE_HOME")
-        return {"success": True, "device_id": device_id, "message": "Home key sent"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[API] Home key failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# ============================================================================
+# MIGRATED TO routes/adb_control.py - Commented out for comparison/testing
+# ============================================================================
+# @app.post("/api/adb/tap")
+# async def tap_device(request: TapRequest):
+#     """Simulate tap at coordinates on device"""
+#     try:
+#         logger.info(f"[API] Tap at ({request.x}, {request.y}) on {request.device_id}")
+#         await adb_bridge.tap(request.device_id, request.x, request.y)
+#         return {
+#             "success": True,
+#             "device_id": request.device_id,
+#             "x": request.x,
+#             "y": request.y,
+#             "message": f"Tapped at ({request.x}, {request.y})"
+#         }
+#     except Exception as e:
+#         logger.error(f"[API] Tap failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+#
+#
+# @app.post("/api/adb/swipe")
+# async def swipe_device(request: SwipeRequest):
+#     """Simulate swipe gesture on device"""
+#     try:
+#         logger.info(f"[API] Swipe ({request.x1},{request.y1}) -> ({request.x2},{request.y2}) on {request.device_id}")
+#         await adb_bridge.swipe(
+#             request.device_id,
+#             request.x1, request.y1,
+#             request.x2, request.y2,
+#             request.duration
+#         )
+#         return {
+#             "success": True,
+#             "device_id": request.device_id,
+#             "from": {"x": request.x1, "y": request.y1},
+#             "to": {"x": request.x2, "y": request.y2},
+#             "duration": request.duration,
+#             "message": f"Swiped from ({request.x1},{request.y1}) to ({request.x2},{request.y2})"
+#         }
+#     except Exception as e:
+#         logger.error(f"[API] Swipe failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+#
+#
+# @app.post("/api/adb/text")
+# async def input_text(request: TextInputRequest):
+#     """Type text on device"""
+#     try:
+#         logger.info(f"[API] Type text on {request.device_id}: {request.text[:20]}...")
+#         await adb_bridge.type_text(request.device_id, request.text)
+#         return {
+#             "success": True,
+#             "device_id": request.device_id,
+#             "text": request.text,
+#             "message": f"Typed {len(request.text)} characters"
+#         }
+#     except Exception as e:
+#         logger.error(f"[API] Text input failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+#
+#
+# @app.post("/api/adb/keyevent")
+# async def send_keyevent(request: KeyEventRequest):
+#     """Send hardware key event to device"""
+#     try:
+#         logger.info(f"[API] Key event {request.keycode} on {request.device_id}")
+#         await adb_bridge.keyevent(request.device_id, request.keycode)
+#         return {
+#             "success": True,
+#             "device_id": request.device_id,
+#             "keycode": request.keycode,
+#             "message": f"Sent key event: {request.keycode}"
+#         }
+#     except Exception as e:
+#         logger.error(f"[API] Key event failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+#
+#
+# @app.post("/api/adb/back")
+# async def send_back_key(request: dict):
+#     """Send BACK key event to device (convenience endpoint)"""
+#     try:
+#         device_id = request.get("device_id")
+#         if not device_id:
+#             raise HTTPException(status_code=400, detail="device_id required")
+#         logger.info(f"[API] Back key on {device_id}")
+#         await adb_bridge.keyevent(device_id, "KEYCODE_BACK")
+#         return {"success": True, "device_id": device_id, "message": "Back key sent"}
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"[API] Back key failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+#
+#
+# @app.post("/api/adb/home")
+# async def send_home_key(request: dict):
+#     """Send HOME key event to device (convenience endpoint)"""
+#     try:
+#         device_id = request.get("device_id")
+#         if not device_id:
+#             raise HTTPException(status_code=400, detail="device_id required")
+#         logger.info(f"[API] Home key on {device_id}")
+#         await adb_bridge.keyevent(device_id, "KEYCODE_HOME")
+#         return {"success": True, "device_id": device_id, "message": "Home key sent"}
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"[API] Home key failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ========== Screen Power Control (Headless Mode) ==========
