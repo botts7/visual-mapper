@@ -169,3 +169,65 @@ async def send_home_key(request: dict):
     except Exception as e:
         logger.error(f"[API] Home key failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# POWER/SCREEN CONTROL
+# =============================================================================
+
+@router.post("/wake/{device_id}")
+async def wake_device_screen(device_id: str):
+    """Wake the device screen"""
+    deps = get_deps()
+    try:
+        import time
+        logger.info(f"[API] Waking screen for {device_id}")
+        success = await deps.adb_bridge.ensure_screen_on(device_id, timeout_ms=3000)
+        return {
+            "success": success,
+            "device_id": device_id,
+            "message": "Screen woken" if success else "Failed to wake screen",
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Wake screen failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sleep/{device_id}")
+async def sleep_device_screen(device_id: str):
+    """Put the device screen to sleep"""
+    deps = get_deps()
+    try:
+        import time
+        logger.info(f"[API] Sleeping screen for {device_id}")
+        success = await deps.adb_bridge.sleep_screen(device_id)
+        return {
+            "success": success,
+            "device_id": device_id,
+            "message": "Screen put to sleep" if success else "Failed to sleep screen",
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Sleep screen failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/unlock/{device_id}")
+async def unlock_device_screen(device_id: str):
+    """Attempt to unlock the device screen (swipe-to-unlock only, not PIN/pattern)"""
+    deps = get_deps()
+    try:
+        import time
+        logger.info(f"[API] Unlocking screen for {device_id}")
+        success = await deps.adb_bridge.unlock_screen(device_id)
+        return {
+            "success": success,
+            "device_id": device_id,
+            "message": "Unlock attempt completed" if success else "Failed to unlock screen",
+            "note": "Only works for swipe-to-unlock, not PIN/pattern locked devices",
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Unlock screen failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
