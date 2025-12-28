@@ -61,7 +61,7 @@ from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control
+from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot
 
 # Configure logging
 logging.basicConfig(
@@ -719,6 +719,8 @@ app.include_router(adb_connection.router)
 logger.info("[Server] Registered route module: adb_connection (3 endpoints: connect + pair + disconnect)")
 app.include_router(adb_control.router)
 logger.info("[Server] Registered route module: adb_control (6 endpoints: tap + swipe + text + keyevent + back + home)")
+app.include_router(adb_screenshot.router)
+logger.info("[Server] Registered route module: adb_screenshot (3 endpoints: screenshot + elements + stitch)")
 
 # ============================================================================
 # LEGACY ENDPOINTS (Being migrated to route modules)
@@ -1160,71 +1162,74 @@ async def get_device_stream_stats(device_id: str):
 # ============================================================================
 
 
+# ============================================================================
+# MIGRATED TO routes/adb_screenshot.py - Commented out for comparison/testing
+# ============================================================================
 # Screenshot Capture Endpoint
-@app.post("/api/adb/screenshot")
-async def capture_screenshot(request: ScreenshotRequest):
-    """Capture screenshot and UI elements from device
-
-    Quick mode (quick=true): Only captures screenshot image, skips UI element extraction
-    Normal mode (quick=false): Captures both screenshot and UI elements
-    """
-    try:
-        mode = "quick" if request.quick else "full"
-        logger.info(f"[API] Capturing {mode} screenshot from {request.device_id}")
-
-        # Capture PNG screenshot
-        screenshot_bytes = await adb_bridge.capture_screenshot(request.device_id)
-
-        # Extract UI elements (skip if quick mode)
-        if request.quick:
-            elements = []
-            logger.info(f"[API] Quick screenshot captured: {len(screenshot_bytes)} bytes (UI elements skipped)")
-        else:
-            elements = await adb_bridge.get_ui_elements(request.device_id)
-            logger.info(f"[API] Full screenshot captured: {len(screenshot_bytes)} bytes, {len(elements)} UI elements")
-
-        # Encode screenshot to base64
-        screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-
-        return {
-            "screenshot": screenshot_base64,
-            "elements": elements,
-            "timestamp": datetime.now().isoformat(),
-            "quick": request.quick
-        }
-    except ValueError as e:
-        logger.error(f"[API] Screenshot failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        logger.error(f"[API] Screenshot failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Fast Elements-Only Endpoint (for streaming mode)
-@app.get("/api/adb/elements/{device_id}")
-async def get_elements_only(device_id: str):
-    """Get UI elements without capturing screenshot (faster for streaming mode)"""
-    try:
-        logger.info(f"[API] Getting elements only from {device_id}")
-        elements = await adb_bridge.get_ui_elements(device_id)
-        logger.info(f"[API] Got {len(elements)} elements")
-
-        # Note: Device dimensions are provided by MJPEG config when streaming starts.
-        # This endpoint returns elements-only for speed. If dimensions are needed,
-        # they should come from the stream config or a separate dimensions endpoint.
-
-        return {
-            "success": True,
-            "elements": elements,
-            "count": len(elements),
-            "timestamp": datetime.now().isoformat()
-        }
-    except ValueError as e:
-        logger.warning(f"[API] Elements request failed: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"[API] Elements failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# @app.post("/api/adb/screenshot")
+# async def capture_screenshot(request: ScreenshotRequest):
+#     """Capture screenshot and UI elements from device
+#
+#     Quick mode (quick=true): Only captures screenshot image, skips UI element extraction
+#     Normal mode (quick=false): Captures both screenshot and UI elements
+#     """
+#     try:
+#         mode = "quick" if request.quick else "full"
+#         logger.info(f"[API] Capturing {mode} screenshot from {request.device_id}")
+#
+#         # Capture PNG screenshot
+#         screenshot_bytes = await adb_bridge.capture_screenshot(request.device_id)
+#
+#         # Extract UI elements (skip if quick mode)
+#         if request.quick:
+#             elements = []
+#             logger.info(f"[API] Quick screenshot captured: {len(screenshot_bytes)} bytes (UI elements skipped)")
+#         else:
+#             elements = await adb_bridge.get_ui_elements(request.device_id)
+#             logger.info(f"[API] Full screenshot captured: {len(screenshot_bytes)} bytes, {len(elements)} UI elements")
+#
+#         # Encode screenshot to base64
+#         screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+#
+#         return {
+#             "screenshot": screenshot_base64,
+#             "elements": elements,
+#             "timestamp": datetime.now().isoformat(),
+#             "quick": request.quick
+#         }
+#     except ValueError as e:
+#         logger.error(f"[API] Screenshot failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         logger.error(f"[API] Screenshot failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+#
+#
+# # Fast Elements-Only Endpoint (for streaming mode)
+# @app.get("/api/adb/elements/{device_id}")
+# async def get_elements_only(device_id: str):
+#     """Get UI elements without capturing screenshot (faster for streaming mode)"""
+#     try:
+#         logger.info(f"[API] Getting elements only from {device_id}")
+#         elements = await adb_bridge.get_ui_elements(device_id)
+#         logger.info(f"[API] Got {len(elements)} elements")
+#
+#         # Note: Device dimensions are provided by MJPEG config when streaming starts.
+#         # This endpoint returns elements-only for speed. If dimensions are needed,
+#         # they should come from the stream config or a separate dimensions endpoint.
+#
+#         return {
+#             "success": True,
+#             "elements": elements,
+#             "count": len(elements),
+#             "timestamp": datetime.now().isoformat()
+#         }
+#     except ValueError as e:
+#         logger.warning(f"[API] Elements request failed: {e}")
+#         raise HTTPException(status_code=400, detail=str(e))
+#     except Exception as e:
+#         logger.error(f"[API] Elements failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 # Smart Sensor Suggestions Endpoint
@@ -1313,47 +1318,47 @@ async def suggest_actions(request: SuggestActionsRequest):
 
 
 # Screenshot Stitching Endpoint
-@app.post("/api/adb/screenshot/stitch")
-async def capture_stitched_screenshot(request: ScreenshotStitchRequest):
-    """Capture full scrollable page by stitching multiple screenshots"""
-    try:
-        logger.info(f"[API] Capturing stitched screenshot from {request.device_id}")
-        logger.debug(f"  max_scrolls={request.max_scrolls}, scroll_ratio={request.scroll_ratio}, overlap_ratio={request.overlap_ratio}")
-
-        if screenshot_stitcher is None:
-            logger.error(f"[API] ScreenshotStitcher not initialized")
-            raise HTTPException(status_code=500, detail="Screenshot stitcher not available")
-
-        # Capture scrolling screenshot using new modular implementation
-        result = await screenshot_stitcher.capture_scrolling_screenshot(
-            request.device_id,
-            max_scrolls=request.max_scrolls,
-            scroll_ratio=request.scroll_ratio,
-            overlap_ratio=request.overlap_ratio
-        )
-
-        # Convert PIL Image to base64
-        img_buffer = io.BytesIO()
-        result['image'].save(img_buffer, format='PNG')
-        img_buffer.seek(0)
-        screenshot_base64 = base64.b64encode(img_buffer.read()).decode('utf-8')
-
-        logger.info(f"[API] Stitched screenshot captured: {result['metadata']}")
-        logger.info(f"[API] Combined elements: {len(result.get('elements', []))}")
-
-        return {
-            "screenshot": screenshot_base64,
-            "elements": result.get('elements', []),
-            "metadata": result['metadata'],
-            "debug_screenshots": result.get('debug_screenshots', []),
-            "timestamp": datetime.now().isoformat()
-        }
-    except ValueError as e:
-        logger.error(f"[API] Stitched screenshot failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        logger.error(f"[API] Stitched screenshot failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+# @app.post("/api/adb/screenshot/stitch")
+# async def capture_stitched_screenshot(request: ScreenshotStitchRequest):
+#     """Capture full scrollable page by stitching multiple screenshots"""
+#     try:
+#         logger.info(f"[API] Capturing stitched screenshot from {request.device_id}")
+#         logger.debug(f"  max_scrolls={request.max_scrolls}, scroll_ratio={request.scroll_ratio}, overlap_ratio={request.overlap_ratio}")
+#
+#         if screenshot_stitcher is None:
+#             logger.error(f"[API] ScreenshotStitcher not initialized")
+#             raise HTTPException(status_code=500, detail="Screenshot stitcher not available")
+#
+#         # Capture scrolling screenshot using new modular implementation
+#         result = await screenshot_stitcher.capture_scrolling_screenshot(
+#             request.device_id,
+#             max_scrolls=request.max_scrolls,
+#             scroll_ratio=request.scroll_ratio,
+#             overlap_ratio=request.overlap_ratio
+#         )
+#
+#         # Convert PIL Image to base64
+#         img_buffer = io.BytesIO()
+#         result['image'].save(img_buffer, format='PNG')
+#         img_buffer.seek(0)
+#         screenshot_base64 = base64.b64encode(img_buffer.read()).decode('utf-8')
+#
+#         logger.info(f"[API] Stitched screenshot captured: {result['metadata']}")
+#         logger.info(f"[API] Combined elements: {len(result.get('elements', []))}")
+#
+#         return {
+#             "screenshot": screenshot_base64,
+#             "elements": result.get('elements', []),
+#             "metadata": result['metadata'],
+#             "debug_screenshots": result.get('debug_screenshots', []),
+#             "timestamp": datetime.now().isoformat()
+#         }
+#     except ValueError as e:
+#         logger.error(f"[API] Stitched screenshot failed: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         logger.error(f"[API] Stitched screenshot failed: {e}", exc_info=True)
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 
