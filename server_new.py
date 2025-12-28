@@ -61,7 +61,7 @@ from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell
+from routes import meta, health, adb_info, cache, performance, shell, maintenance
 
 # Configure logging
 logging.basicConfig(
@@ -713,6 +713,8 @@ app.include_router(performance.router)
 logger.info("[Server] Registered route module: performance (8 endpoints: 4 performance + 4 diagnostics)")
 app.include_router(shell.router)
 logger.info("[Server] Registered route module: shell (5 endpoints: stats + execute + batch + benchmark + close)")
+app.include_router(maintenance.router)
+logger.info("[Server] Registered route module: maintenance (12 endpoints: 2 server + 6 device optimization + 2 background limit + 2 metrics)")
 
 # ============================================================================
 # LEGACY ENDPOINTS (Being migrated to route modules)
@@ -744,106 +746,109 @@ logger.info("[Server] Registered route module: shell (5 endpoints: stats + execu
 
 # === ADB Maintenance Endpoints ===
 
-@app.post("/api/maintenance/server/restart")
-async def restart_adb_server():
-    """Restart ADB server to fix zombie processes and connection issues"""
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    return await adb_maintenance.restart_adb_server()
-
-
-@app.get("/api/maintenance/server/status")
-async def get_adb_server_status():
-    """Get ADB server status and connected devices"""
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    return await adb_maintenance.get_server_status()
-
-
-@app.post("/api/maintenance/{device_id}/trim-cache")
-async def trim_device_cache(device_id: str):
-    """Clear all app caches on device to free storage and improve performance"""
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    return await adb_maintenance.trim_cache(device_id)
-
-
-@app.post("/api/maintenance/{device_id}/compile-apps")
-async def compile_device_apps(device_id: str, mode: str = "speed-profile"):
-    """Force ART compilation for faster app launches (takes 5-15 minutes)
-
-    Modes: speed-profile (recommended), speed, verify, quicken
-    """
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    return await adb_maintenance.compile_apps(device_id, mode)
-
-
-@app.post("/api/maintenance/{device_id}/optimize-ui")
-async def optimize_device_ui(device_id: str):
-    """Disable visual effects for faster UI operations"""
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    return await adb_maintenance.optimize_ui(device_id)
-
-
-@app.post("/api/maintenance/{device_id}/reset-ui")
-async def reset_device_ui(device_id: str):
-    """Reset UI animations and effects to defaults"""
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    return await adb_maintenance.reset_ui_optimizations(device_id)
-
-
-@app.post("/api/maintenance/{device_id}/full-optimize")
-async def full_device_optimize(device_id: str):
-    """Run full optimization suite (cache + UI)"""
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    return await adb_maintenance.full_optimize(device_id)
-
-
-@app.post("/api/maintenance/{device_id}/reset-display")
-async def reset_device_display(device_id: str):
-    """Emergency reset of display size and density"""
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    return await adb_maintenance.reset_display(device_id)
-
-
-@app.get("/api/maintenance/{device_id}/background-limit")
-async def get_background_limit(device_id: str):
-    """Get current background process limit"""
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    return await adb_maintenance.get_background_limit(device_id)
-
-
-@app.post("/api/maintenance/{device_id}/background-limit")
-async def set_background_limit(device_id: str, limit: int = 4):
-    """Set background process limit (0-4, -1 for default)"""
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    return await adb_maintenance.set_background_limit(device_id, limit)
-
-
-@app.get("/api/maintenance/metrics")
-async def get_all_connection_metrics():
-    """Get connection health metrics for all devices"""
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    return {"success": True, "metrics": adb_maintenance.get_all_metrics()}
-
-
-@app.get("/api/maintenance/{device_id}/metrics")
-async def get_device_connection_metrics(device_id: str):
-    """Get connection health metrics for a specific device"""
-    if not adb_maintenance:
-        raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
-    metrics = adb_maintenance.get_connection_metrics(device_id)
-    if not metrics:
-        return {"success": True, "metrics": None, "message": "No metrics yet for this device"}
-    return {"success": True, "metrics": metrics}
+# ============================================================================
+# MIGRATED TO routes/maintenance.py - Commented out for comparison/testing
+# ============================================================================
+# @app.post("/api/maintenance/server/restart")
+# async def restart_adb_server():
+#     """Restart ADB server to fix zombie processes and connection issues"""
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     return await adb_maintenance.restart_adb_server()
+#
+#
+# @app.get("/api/maintenance/server/status")
+# async def get_adb_server_status():
+#     """Get ADB server status and connected devices"""
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     return await adb_maintenance.get_server_status()
+#
+#
+# @app.post("/api/maintenance/{device_id}/trim-cache")
+# async def trim_device_cache(device_id: str):
+#     """Clear all app caches on device to free storage and improve performance"""
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     return await adb_maintenance.trim_cache(device_id)
+#
+#
+# @app.post("/api/maintenance/{device_id}/compile-apps")
+# async def compile_device_apps(device_id: str, mode: str = "speed-profile"):
+#     """Force ART compilation for faster app launches (takes 5-15 minutes)
+#
+#     Modes: speed-profile (recommended), speed, verify, quicken
+#     """
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     return await adb_maintenance.compile_apps(device_id, mode)
+#
+#
+# @app.post("/api/maintenance/{device_id}/optimize-ui")
+# async def optimize_device_ui(device_id: str):
+#     """Disable visual effects for faster UI operations"""
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     return await adb_maintenance.optimize_ui(device_id)
+#
+#
+# @app.post("/api/maintenance/{device_id}/reset-ui")
+# async def reset_device_ui(device_id: str):
+#     """Reset UI animations and effects to defaults"""
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     return await adb_maintenance.reset_ui_optimizations(device_id)
+#
+#
+# @app.post("/api/maintenance/{device_id}/full-optimize")
+# async def full_device_optimize(device_id: str):
+#     """Run full optimization suite (cache + UI)"""
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     return await adb_maintenance.full_optimize(device_id)
+#
+#
+# @app.post("/api/maintenance/{device_id}/reset-display")
+# async def reset_device_display(device_id: str):
+#     """Emergency reset of display size and density"""
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     return await adb_maintenance.reset_display(device_id)
+#
+#
+# @app.get("/api/maintenance/{device_id}/background-limit")
+# async def get_background_limit(device_id: str):
+#     """Get current background process limit"""
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     return await adb_maintenance.get_background_limit(device_id)
+#
+#
+# @app.post("/api/maintenance/{device_id}/background-limit")
+# async def set_background_limit(device_id: str, limit: int = 4):
+#     """Set background process limit (0-4, -1 for default)"""
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     return await adb_maintenance.set_background_limit(device_id, limit)
+#
+#
+# @app.get("/api/maintenance/metrics")
+# async def get_all_connection_metrics():
+#     """Get connection health metrics for all devices"""
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     return {"success": True, "metrics": adb_maintenance.get_all_metrics()}
+#
+#
+# @app.get("/api/maintenance/{device_id}/metrics")
+# async def get_device_connection_metrics(device_id: str):
+#     """Get connection health metrics for a specific device"""
+#     if not adb_maintenance:
+#         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
+#     metrics = adb_maintenance.get_connection_metrics(device_id)
+#     if not metrics:
+#         return {"success": True, "metrics": None, "message": "No metrics yet for this device"}
+#     return {"success": True, "metrics": metrics}
 
 
 # === UI Hierarchy Cache Endpoints ===

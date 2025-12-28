@@ -198,6 +198,12 @@ def test_meta_routes():
     results.append(compare_endpoint("/api/shell/stats"))
     # Note: POST/DELETE endpoints tested separately (require device_id and request body)
 
+    # Test maintenance routes (routes/maintenance.py)
+    print("\n[maintenance.py]")
+    results.append(compare_endpoint("/api/maintenance/server/status"))
+    results.append(compare_endpoint("/api/maintenance/metrics"))
+    # Note: Device-specific and POST endpoints tested separately
+
     # Summary
     print("\n" + "="*80)
     print("SUMMARY")
