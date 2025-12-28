@@ -193,6 +193,11 @@ def test_meta_routes():
     # Note: Device-specific diagnostics tested separately
     # Note: POST endpoint /api/performance/cache/clear tested separately
 
+    # Test shell routes (routes/shell.py)
+    print("\n[shell.py]")
+    results.append(compare_endpoint("/api/shell/stats"))
+    # Note: POST/DELETE endpoints tested separately (require device_id and request body)
+
     # Summary
     print("\n" + "="*80)
     print("SUMMARY")

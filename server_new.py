@@ -61,7 +61,7 @@ from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance
+from routes import meta, health, adb_info, cache, performance, shell
 
 # Configure logging
 logging.basicConfig(
@@ -711,6 +711,8 @@ app.include_router(cache.router)
 logger.info("[Server] Registered route module: cache (6 endpoints)")
 app.include_router(performance.router)
 logger.info("[Server] Registered route module: performance (8 endpoints: 4 performance + 4 diagnostics)")
+app.include_router(shell.router)
+logger.info("[Server] Registered route module: shell (5 endpoints: stats + execute + batch + benchmark + close)")
 
 # ============================================================================
 # LEGACY ENDPOINTS (Being migrated to route modules)
@@ -938,126 +940,11 @@ async def get_device_stream_stats(device_id: str):
     return {"success": True, "stream": adb_bridge.get_stream_stats(device_id)}
 
 
-# === Persistent Shell Pool Endpoints ===
-
-@app.get("/api/shell/stats")
-async def get_shell_pool_stats():
-    """Get persistent shell pool statistics"""
-    if not shell_pool:
-        raise HTTPException(status_code=503, detail="Shell pool not initialized")
-    return {"success": True, "stats": shell_pool.get_stats()}
-
-
-@app.post("/api/shell/{device_id}/execute")
-async def execute_shell_command(device_id: str, request: ShellExecuteRequest):
-    """Execute a command using persistent shell session (faster than individual adb shell calls)"""
-    if not shell_pool:
-        raise HTTPException(status_code=503, detail="Shell pool not initialized")
-
-    try:
-        shell = await shell_pool.get_shell(device_id)
-        success, output = await shell.execute(request.command)
-        return {
-            "success": success,
-            "output": output,
-            "session": shell.stats
-        }
-    except Exception as e:
-        logger.error(f"[Shell] Execute error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/shell/{device_id}/batch")
-async def execute_shell_batch(device_id: str, request: ShellBatchRequest):
-    """Execute multiple commands in a persistent shell session"""
-    if not shell_pool:
-        raise HTTPException(status_code=503, detail="Shell pool not initialized")
-
-    try:
-        shell = await shell_pool.get_shell(device_id)
-        results = await shell.execute_batch(request.commands)
-        return {
-            "success": True,
-            "results": [{"success": r[0], "output": r[1]} for r in results],
-            "session": shell.stats
-        }
-    except Exception as e:
-        logger.error(f"[Shell] Batch execute error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/shell/{device_id}/benchmark")
-async def benchmark_shell_session(device_id: str, iterations: int = 10):
-    """Benchmark persistent shell vs regular adb shell performance"""
-    if not shell_pool:
-        raise HTTPException(status_code=503, detail="Shell pool not initialized")
-    if not adb_bridge:
-        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
-
-    test_command = "echo test"
-    results = {
-        "persistent_shell": {"times_ms": [], "avg_ms": 0},
-        "regular_adb": {"times_ms": [], "avg_ms": 0},
-        "improvement_percent": 0
-    }
-
-    # Benchmark persistent shell
-    try:
-        shell = await shell_pool.get_shell(device_id)
-        for _ in range(iterations):
-            start = time.time()
-            await shell.execute(test_command)
-            elapsed = (time.time() - start) * 1000
-            results["persistent_shell"]["times_ms"].append(round(elapsed, 1))
-    except Exception as e:
-        logger.error(f"[Shell] Benchmark persistent shell error: {e}")
-        results["persistent_shell"]["error"] = str(e)
-
-    # Benchmark regular adb shell (spawning new process each time)
-    try:
-        for _ in range(iterations):
-            start = time.time()
-            proc = await asyncio.create_subprocess_exec(
-                'adb', '-s', device_id, 'shell', test_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await proc.communicate()
-            elapsed = (time.time() - start) * 1000
-            results["regular_adb"]["times_ms"].append(round(elapsed, 1))
-    except Exception as e:
-        logger.error(f"[Shell] Benchmark regular adb error: {e}")
-        results["regular_adb"]["error"] = str(e)
-
-    # Calculate averages
-    if results["persistent_shell"]["times_ms"]:
-        results["persistent_shell"]["avg_ms"] = round(
-            sum(results["persistent_shell"]["times_ms"]) / len(results["persistent_shell"]["times_ms"]), 1
-        )
-    if results["regular_adb"]["times_ms"]:
-        results["regular_adb"]["avg_ms"] = round(
-            sum(results["regular_adb"]["times_ms"]) / len(results["regular_adb"]["times_ms"]), 1
-        )
-
-    # Calculate improvement
-    if results["regular_adb"]["avg_ms"] > 0 and results["persistent_shell"]["avg_ms"] > 0:
-        improvement = (
-            (results["regular_adb"]["avg_ms"] - results["persistent_shell"]["avg_ms"])
-            / results["regular_adb"]["avg_ms"]
-        ) * 100
-        results["improvement_percent"] = round(improvement, 1)
-
-    return {"success": True, "benchmark": results, "iterations": iterations}
-
-
-@app.delete("/api/shell/{device_id}")
-async def close_device_shells(device_id: str):
-    """Close all persistent shell sessions for a device"""
-    if not shell_pool:
-        raise HTTPException(status_code=503, detail="Shell pool not initialized")
-
-    await shell_pool.close_device_sessions(device_id)
-    return {"success": True, "message": f"Closed all shell sessions for {device_id}"}
+# =============================================================================
+# MIGRATED TO routes/shell.py - Commented out for comparison/testing
+# =============================================================================
+# (Shell endpoints - 5 total)
+# ============================================================================
 
 
 # ============================================================================
