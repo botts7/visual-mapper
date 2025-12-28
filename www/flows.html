@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="0.0.5">
-    <meta name="version" content="0.0.5" data-build="2025-12-28">
+    <meta name="version" content="0.0.5" data-build="2025-12-29">
     <title>Flow Management - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -861,6 +861,45 @@
         .btn-resume:hover {
             background: #16a34a;
         }
+
+        /* Execution Status Indicators */
+        .status-loading {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        .status-none {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        .status-success {
+            color: #22c55e;
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+
+        .status-failed {
+            color: #ef4444;
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+
+        .status-error {
+            color: #f59e0b;
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+
+        /* Logs Button */
+        .btn-icon.logs {
+            font-size: 16px;
+        }
+
+        .btn-icon.logs:hover {
+            background: #3b82f6;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -968,6 +1007,7 @@
                         <th>Status</th>
                         <th>Last Run</th>
                         <th>Success</th>
+                        <th>Last Run Status</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -1094,11 +1134,28 @@
         </div>
     </div>
 
+    <!-- Execution Logs Modal -->
+    <div class="modal-overlay" id="executionLogsModal">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2 id="executionLogsTitle">Flow Execution History</h2>
+            </div>
+            <div id="executionLogsContent" class="modal-body" style="min-height: 300px; max-height: 600px; overflow-y: auto;">
+                <!-- Execution logs will be dynamically inserted here -->
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-primary" onclick="closeExecutionLogsModal()">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
-        import FlowManager from './js/modules/flow-manager.js?v=0.0.5';
-        import { showToast } from './js/modules/toast.js?v=0.0.5';
-        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.5';
-        import MobileNav from './js/modules/mobile-nav.js?v=0.0.5';
+        import FlowManager from './js/modules/flow-manager.js?v=0.0.6';
+        import { showToast } from './js/modules/toast.js?v=0.0.6';
+        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.6';
+        import MobileNav from './js/modules/mobile-nav.js?v=0.0.6';
 
         // Initialize theme and mobile nav
         const themeToggle = new ThemeToggle();
@@ -1155,11 +1212,191 @@
                 updateStats();
                 await loadAlerts(); // Load alerts after flows
                 await loadSchedulerStatus(); // Load scheduler status
+                await loadFlowExecutionStatuses(); // Load execution history for each flow
             } catch (error) {
                 console.error('Failed to load flows:', error);
                 showToast('Failed to load flows: ' + error.message, 'error');
             }
         }
+
+        async function loadFlowExecutionStatuses() {
+            // Fetch latest execution status for each flow
+            for (const flow of flows) {
+                fetchFlowExecutionStatus(flow.device_id, flow.flow_id);
+            }
+        }
+
+        async function fetchFlowExecutionStatus(deviceId, flowId) {
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/flows/${deviceId}/${flowId}/latest`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch execution status');
+                }
+
+                const data = await response.json();
+                updateFlowStatus(flowId, data.latest);
+            } catch (error) {
+                console.warn(`[Flows] Could not load execution status for ${flowId}:`, error);
+                // Update to show error state
+                const statusCell = document.getElementById(`last-run-status-${flowId.replace(/[^a-zA-Z0-9]/g, '_')}`);
+                if (statusCell) {
+                    statusCell.innerHTML = '<span class="status-error" title="Could not load status">⚠️ Error</span>';
+                }
+            }
+        }
+
+        function updateFlowStatus(flowId, executionData) {
+            const safeFlowId = flowId.replace(/[^a-zA-Z0-9]/g, '_');
+            const statusCell = document.getElementById(`last-run-status-${safeFlowId}`);
+
+            if (!statusCell) {
+                console.warn(`[Flows] Status cell not found for flow ${flowId}`);
+                return;
+            }
+
+            if (!executionData) {
+                // No execution history yet
+                statusCell.innerHTML = '<span class="status-none" title="Never executed">—</span>';
+                return;
+            }
+
+            const { success, error, started_at, duration_ms, executed_steps, total_steps } = executionData;
+
+            // Format timestamp
+            const timeAgo = formatTimeAgo(started_at);
+
+            // Create status HTML
+            let statusHTML = '';
+            if (success) {
+                const title = `Success - ${timeAgo}\n${executed_steps}/${total_steps} steps completed in ${duration_ms}ms`;
+                statusHTML = `<span class="status-success" title="${escapeHtml(title)}">✅ Success</span>`;
+            } else {
+                const errorMsg = error || 'Unknown error';
+                const title = `Failed - ${timeAgo}\n${executed_steps}/${total_steps} steps completed\nError: ${errorMsg}`;
+                statusHTML = `<span class="status-failed" title="${escapeHtml(title)}">❌ Failed</span>`;
+            }
+
+            statusCell.innerHTML = statusHTML;
+        }
+
+        async function viewFlowLogs(deviceId, flowId, flowName) {
+            try {
+                // Update modal title
+                const title = document.getElementById('executionLogsTitle');
+                title.textContent = `Execution History: ${flowName}`;
+
+                // Show loading state
+                const content = document.getElementById('executionLogsContent');
+                content.innerHTML = '<p style="text-align: center; padding: 40px;">Loading execution history...</p>';
+
+                // Show modal
+                const modal = document.getElementById('executionLogsModal');
+                modal.classList.add('active');
+
+                // Fetch execution history
+                const response = await fetch(`${window.flowManager.apiBase}/flows/${deviceId}/${flowId}/history?limit=20`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch execution history');
+                }
+
+                const data = await response.json();
+                const history = data.history || [];
+
+                // Render execution history
+                if (history.length === 0) {
+                    content.innerHTML = '<p style="text-align: center; padding: 40px; color: var(--text-secondary);">No execution history found. This flow has not been executed yet.</p>';
+                    return;
+                }
+
+                // Build HTML for execution history
+                let historyHTML = '<div style="display: flex; flex-direction: column; gap: 16px;">';
+
+                for (const execution of history.reverse()) {
+                    const statusIcon = execution.success ? '✅' : '❌';
+                    const statusClass = execution.success ? 'success' : 'failed';
+                    const startedAt = new Date(execution.started_at);
+                    const timeAgo = formatTimeAgo(execution.started_at);
+                    const formattedDate = startedAt.toLocaleString();
+
+                    historyHTML += `
+                        <div class="execution-log-card" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; background: var(--card-bg);">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                                <div>
+                                    <div style="font-weight: 600; margin-bottom: 4px;">
+                                        ${statusIcon} ${execution.success ? 'Success' : 'Failed'}
+                                    </div>
+                                    <div style="font-size: 0.875rem; color: var(--text-secondary);">
+                                        ${formattedDate} (${timeAgo})
+                                    </div>
+                                </div>
+                                <div style="text-align: right; font-size: 0.875rem; color: var(--text-secondary);">
+                                    <div>${execution.executed_steps}/${execution.total_steps} steps</div>
+                                    <div>${execution.duration_ms}ms</div>
+                                </div>
+                            </div>
+                    `;
+
+                    // Show error if failed
+                    if (!execution.success && execution.error) {
+                        historyHTML += `
+                            <div style="padding: 8px 12px; background: rgba(239, 68, 68, 0.1); border-left: 3px solid #ef4444; border-radius: 4px; margin-bottom: 12px;">
+                                <strong style="color: #ef4444;">Error:</strong> ${escapeHtml(execution.error)}
+                            </div>
+                        `;
+                    }
+
+                    // Show step details
+                    if (execution.steps && execution.steps.length > 0) {
+                        historyHTML += '<div style="margin-top: 12px;"><strong>Steps:</strong></div>';
+                        historyHTML += '<div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">';
+
+                        for (const step of execution.steps) {
+                            const stepIcon = step.success ? '✓' : '✗';
+                            const stepClass = step.success ? 'success' : 'failed';
+                            const stepColor = step.success ? '#22c55e' : '#ef4444';
+
+                            historyHTML += `
+                                <div style="display: flex; gap: 8px; padding: 8px; background: var(--bg-secondary); border-radius: 4px; font-size: 0.875rem;">
+                                    <span style="color: ${stepColor}; font-weight: bold;">${stepIcon}</span>
+                                    <div style="flex: 1;">
+                                        <div><strong>${step.step_type}</strong></div>
+                                        ${step.description ? `<div style="color: var(--text-secondary);">${escapeHtml(step.description)}</div>` : ''}
+                                        ${!step.success && step.error ? `<div style="color: #ef4444; margin-top: 4px;">${escapeHtml(step.error)}</div>` : ''}
+                                    </div>
+                                    ${step.duration_ms !== null ? `<div style="color: var(--text-secondary); white-space: nowrap;">${step.duration_ms}ms</div>` : ''}
+                                </div>
+                            `;
+                        }
+
+                        historyHTML += '</div>';
+                    }
+
+                    historyHTML += '</div>';
+                }
+
+                historyHTML += '</div>';
+
+                content.innerHTML = historyHTML;
+
+            } catch (error) {
+                console.error('Failed to load execution logs:', error);
+                const content = document.getElementById('executionLogsContent');
+                content.innerHTML = `
+                    <p style="text-align: center; padding: 40px; color: #ef4444;">
+                        Failed to load execution history: ${escapeHtml(error.message)}
+                    </p>
+                `;
+            }
+        }
+
+        function closeExecutionLogsModal() {
+            const modal = document.getElementById('executionLogsModal');
+            modal.classList.remove('active');
+        }
+
+        // Make functions globally accessible for onclick handlers
+        window.viewFlowLogs = viewFlowLogs;
+        window.closeExecutionLogsModal = closeExecutionLogsModal;
 
         async function loadSchedulerStatus() {
             try {
@@ -1449,15 +1686,24 @@
                     </td>
                     <td>${formatDateTime(flow.last_executed)}</td>
                     <td>${formatSuccessRate(flow)}</td>
+                    <td id="last-run-status-${flow.flow_id.replace(/[^a-zA-Z0-9]/g, '_')}">
+                        <span class="status-loading">⏳ Loading...</span>
+                    </td>
                     <td>
                         <div class="flow-row-actions">
-                            <button class="btn-icon execute ${isRunning ? 'running' : ''}"
+                            <button id="execute-btn-${flow.flow_id.replace(/[^a-zA-Z0-9]/g, '_')}"
+                                    class="btn-icon execute ${isRunning ? 'running' : ''}"
                                     data-device-id="${flow.device_id}"
                                     data-flow-id="${flow.flow_id}"
                                     onclick="executeFlow('${flow.device_id}', '${flow.flow_id}')"
                                     title="Execute Now"
                                     ${isRunning ? 'disabled' : ''}>
                                 ${isRunning ? '⏳' : '▶'}
+                            </button>
+                            <button class="btn-icon logs"
+                                    onclick="viewFlowLogs('${flow.device_id}', '${flow.flow_id}', '${escapeHtml(flow.name)}')"
+                                    title="View Execution Logs">
+                                📋
                             </button>
                             <button class="btn-icon test dev-only"
                                     onclick="testFlow('${flow.device_id}', '${flow.flow_id}')"
@@ -1524,6 +1770,8 @@
 
         async function executeFlow(deviceId, flowId) {
             const flowKey = `${deviceId}:${flowId}`;
+            const safeFlowId = flowId.replace(/[^a-zA-Z0-9]/g, '_');
+            const executeBtn = document.getElementById(`execute-btn-${safeFlowId}`);
 
             // Prevent double-execution
             if (runningFlows.has(flowKey)) {
@@ -1532,9 +1780,13 @@
             }
 
             try {
-                // Add to running set and update UI
+                // Add to running set and update only this button's UI
                 runningFlows.add(flowKey);
-                renderFlowTable(); // Re-render to show running state
+                if (executeBtn) {
+                    executeBtn.classList.add('running');
+                    executeBtn.disabled = true;
+                    executeBtn.innerHTML = '⏳';
+                }
 
                 showToast('Flow execution started...', 'info');
 
@@ -1554,18 +1806,35 @@
                 // Show execution results
                 showExecutionResults(result);
 
-                showToast('Flow execution completed!', 'success');
+                // Show success or failure toast
+                if (result.success) {
+                    showToast('Flow execution completed!', 'success');
+                } else {
+                    showToast('Flow execution failed: ' + (result.error_message || 'Unknown error'), 'error');
+                }
 
-                // Keep running state visible for 2 seconds, then refresh
+                // Update the last run status for this flow immediately
+                fetchFlowExecutionStatus(deviceId, flowId);
+
+                // Keep running state visible for 1 second, then reset button
                 setTimeout(async () => {
                     runningFlows.delete(flowKey);
+                    if (executeBtn) {
+                        executeBtn.classList.remove('running');
+                        executeBtn.disabled = false;
+                        executeBtn.innerHTML = '▶';
+                    }
                     await loadFlows(); // Reload to get updated stats
-                }, 2000);
+                }, 1000);
 
             } catch (error) {
-                // Remove from running set on error
+                // Remove from running set on error and reset button
                 runningFlows.delete(flowKey);
-                renderFlowTable(); // Re-render to remove running state
+                if (executeBtn) {
+                    executeBtn.classList.remove('running');
+                    executeBtn.disabled = false;
+                    executeBtn.innerHTML = '▶';
+                }
                 showToast('Failed to execute flow: ' + error.message, 'error');
             }
         }

@@ -1322,8 +1322,26 @@ class ADBBridge:
             return False  # Don't raise - return False so wake logic can try to proceed
 
         try:
-            result = await conn.shell("dumpsys power | grep 'Display Power'")
-            return "state=ON" in result
+            # Don't use grep - it may not be available on all Android devices
+            # Parse the full dumpsys power output in Python
+            result = await conn.shell("dumpsys power")
+
+            # Check for various indicators that screen is on
+            # Different Android versions use different output formats
+            screen_on_indicators = [
+                "mWakefulness=Awake",  # Android 4.4+
+                "Display Power: state=ON",  # Common format
+                "state=ON",  # Simplified check
+                "mScreenOn=true",  # Older Android versions
+            ]
+
+            for indicator in screen_on_indicators:
+                if indicator in result:
+                    logger.debug(f"[ADBBridge] Screen is ON (detected: {indicator})")
+                    return True
+
+            logger.debug(f"[ADBBridge] Screen appears to be OFF")
+            return False
         except Exception as e:
             logger.warning(f"[ADBBridge] Failed to check screen state: {e}")
             return False
@@ -1428,6 +1446,100 @@ class ADBBridge:
             return True
         except Exception as e:
             logger.error(f"[ADBBridge] Failed to unlock screen: {e}")
+            return False
+
+    async def unlock_device(self, device_id: str, passcode: str) -> bool:
+        """
+        Unlock device with passcode/PIN.
+
+        This method performs the following steps:
+        1. Wake the screen
+        2. Swipe up to dismiss lock screen
+        3. Enter the passcode
+        4. Press Enter to confirm
+
+        Args:
+            device_id: Device identifier
+            passcode: Numeric passcode or PIN
+
+        Returns:
+            True if unlock sequence completed successfully, False otherwise
+
+        Note:
+            This works for numeric PINs. Pattern locks are not supported via ADB.
+            The success return value only indicates that commands were sent successfully,
+            not that the device is actually unlocked (passcode could be wrong).
+        """
+        conn = self.devices.get(device_id)
+        if not conn:
+            logger.warning(f"[ADBBridge] Cannot unlock - device {device_id} not in devices dict")
+            return False
+
+        try:
+            logger.info(f"[ADBBridge] Unlocking device {device_id}")
+
+            # Step 1: Wake screen
+            await self.wake_screen(device_id)
+            await asyncio.sleep(0.5)  # Wait for screen to wake
+
+            # Step 2: Swipe up to dismiss lock screen
+            await conn.shell("input swipe 540 1800 540 800 300")
+            await asyncio.sleep(0.5)  # Wait for PIN pad to appear
+
+            # Step 3: Enter passcode (each digit as text input)
+            await conn.shell(f"input text {passcode}")
+            await asyncio.sleep(0.3)  # Wait for input to register
+
+            # Step 4: Press Enter to confirm
+            await conn.shell("input keyevent 66")  # KEYCODE_ENTER
+            await asyncio.sleep(0.5)  # Wait for unlock
+
+            logger.info(f"[ADBBridge] Unlock sequence completed for {device_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"[ADBBridge] Failed to unlock device: {e}")
+            return False
+
+    async def is_locked(self, device_id: str) -> bool:
+        """
+        Check if device screen is locked (showing lock screen).
+
+        Returns:
+            True if device is locked, False if unlocked
+        """
+        conn = self.devices.get(device_id)
+        if not conn:
+            logger.warning(f"[ADBBridge] Device {device_id} not connected for lock check")
+            return False  # Can't check - assume unlocked
+
+        try:
+            # Get full window dump and check for lock indicators
+            result = await conn.shell("dumpsys window")
+
+            if not result:
+                logger.warning(f"[ADBBridge] Empty window dump for {device_id}")
+                return False
+
+            # Check for lock screen indicators
+            if "mShowingLockscreen=true" in result:
+                logger.info(f"[ADBBridge] Device {device_id} is LOCKED (mShowingLockscreen=true)")
+                return True
+            if "mDreamingLockscreen=true" in result:
+                logger.info(f"[ADBBridge] Device {device_id} is LOCKED (mDreamingLockscreen=true)")
+                return True
+
+            # Explicitly check for unlocked state
+            if "mShowingLockscreen=false" in result or "mDreamingLockscreen=false" in result:
+                logger.info(f"[ADBBridge] Device {device_id} is UNLOCKED")
+                return False
+
+            # Cannot determine - assume LOCKED to be safe (prevents false success)
+            logger.warning(f"[ADBBridge] Cannot determine lock status for {device_id}, assuming LOCKED for safety")
+            return True
+
+        except Exception as e:
+            logger.error(f"[ADBBridge] Error checking lock status for {device_id}: {e}")
             return False
 
     async def execute_batch_commands(self, device_id: str, commands: List[str]) -> List[tuple]:

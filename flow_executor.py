@@ -6,6 +6,7 @@ Unified execution engine for sensor collection flows
 import logging
 import asyncio
 import time
+import uuid
 from typing import Dict, Any, Optional
 from datetime import datetime
 from PIL import Image
@@ -18,6 +19,8 @@ from flow_models import (
     FlowStepType
 )
 from utils.element_finder import SmartElementFinder, ElementMatch
+from utils.device_security import DeviceSecurityManager, LockStrategy
+from flow_execution_history import FlowExecutionHistory, FlowExecutionLog, FlowStepLog
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,8 @@ class FlowExecutor:
         mqtt_manager,
         flow_manager,
         screenshot_stitcher,
-        performance_monitor=None
+        performance_monitor=None,
+        execution_history=None
     ):
         """
         Initialize flow executor
@@ -49,6 +53,7 @@ class FlowExecutor:
             flow_manager: Flow manager for updating flow state
             screenshot_stitcher: Screenshot stitcher for scroll capture
             performance_monitor: Optional PerformanceMonitor for metrics tracking
+            execution_history: Optional FlowExecutionHistory for detailed logging
         """
         self.adb_bridge = adb_bridge
         self.sensor_manager = sensor_manager
@@ -57,7 +62,9 @@ class FlowExecutor:
         self.flow_manager = flow_manager
         self.screenshot_stitcher = screenshot_stitcher
         self.performance_monitor = performance_monitor
+        self.execution_history = execution_history or FlowExecutionHistory()
         self.element_finder = SmartElementFinder()
+        self.security_manager = DeviceSecurityManager()
 
         # Step type to handler mapping
         self.step_handlers = {
@@ -117,6 +124,17 @@ class FlowExecutor:
             execution_time_ms=0
         )
 
+        # Create execution log for history tracking
+        execution_log = FlowExecutionLog(
+            execution_id=str(uuid.uuid4()),
+            flow_id=flow.flow_id,
+            device_id=flow.device_id,
+            started_at=datetime.now().isoformat(),
+            triggered_by="scheduler",  # TODO: Pass this as parameter when called from API/manual
+            total_steps=len(flow.steps),
+            steps=[]
+        )
+
         logger.info(f"[FlowExecutor] Starting flow {flow.flow_id} ({flow.name})")
 
         try:
@@ -136,6 +154,49 @@ class FlowExecutor:
                     else:
                         logger.warning(f"  [Headless] Screen wake failed, continuing anyway (verify_screen_on=False)")
 
+            # Auto-unlock if device has auto_unlock strategy configured
+            security_config = self.security_manager.get_lock_config(flow.device_id)
+            if security_config and security_config.get('strategy') == LockStrategy.AUTO_UNLOCK.value:
+                logger.info(f"  [Security] Auto-unlock enabled for device")
+                passcode = self.security_manager.get_passcode(flow.device_id)
+                if passcode:
+                    try:
+                        unlock_success = await self.adb_bridge.unlock_device(flow.device_id, passcode)
+                        if unlock_success:
+                            logger.info(f"  [Security] Device unlocked successfully")
+                        else:
+                            logger.warning(f"  [Security] Device unlock failed (check passcode)")
+                    except Exception as e:
+                        logger.error(f"  [Security] Error during unlock: {e}")
+                else:
+                    logger.warning(f"  [Security] Auto-unlock configured but no passcode found")
+            elif security_config and security_config.get('strategy') == LockStrategy.MANUAL_ONLY.value:
+                logger.info(f"  [Security] Manual unlock strategy - user must unlock device manually")
+
+            # Wait briefly for lock screen to stabilize after wake
+            # (screen wakes first, then lock screen appears ~500ms later)
+            await asyncio.sleep(0.5)
+
+            # CRITICAL: Verify device is actually unlocked before executing flow
+            is_locked = await self.adb_bridge.is_locked(flow.device_id)
+            if is_locked:
+                result.error_message = "Device is locked - cannot execute flow. Configure auto-unlock in device security settings."
+                logger.error(f"  [Security] {result.error_message}")
+                result.execution_time_ms = int((time.time() - start_time) * 1000)
+
+                # Log failed execution to history
+                execution_log.completed_at = datetime.now().isoformat()
+                execution_log.duration_ms = result.execution_time_ms
+                execution_log.success = False
+                execution_log.error = result.error_message
+                execution_log.executed_steps = 0
+                try:
+                    self.execution_history.add_execution(execution_log)
+                except Exception as e:
+                    logger.error(f"[FlowExecutor] Failed to save execution history: {e}")
+
+                return result
+
             # Execute steps sequentially
             for i, step in enumerate(flow.steps):
                 # Timeout check
@@ -150,22 +211,50 @@ class FlowExecutor:
                 step_desc = step.description or f"Step {i+1}: {step.step_type}"
                 logger.info(f"  Executing: {step_desc}")
 
-                # Execute step with retry
-                success = await self._execute_step_with_retry(
-                    flow.device_id,
-                    step,
-                    result
+                # Create step log
+                step_start = time.time()
+                step_log = FlowStepLog(
+                    step_index=i,
+                    step_type=step.step_type,
+                    description=step_desc,
+                    started_at=datetime.now().isoformat(),
+                    success=False
                 )
 
-                if not success:
-                    result.failed_step = i
-                    logger.warning(f"  Step {i+1} failed: {step.step_type}")
+                # Execute step with retry
+                try:
+                    success = await self._execute_step_with_retry(
+                        flow.device_id,
+                        step,
+                        result
+                    )
 
-                    if flow.stop_on_error:
-                        logger.info(f"  Stopping flow (stop_on_error=True)")
-                        break
+                    step_log.success = success
+                    if not success:
+                        step_log.error = f"Step failed: {step.step_type}"
+                        result.failed_step = i
+                        logger.warning(f"  Step {i+1} failed: {step.step_type}")
 
-                result.executed_steps += 1
+                        if flow.stop_on_error:
+                            logger.info(f"  Stopping flow (stop_on_error=True)")
+                            # Complete step log
+                            step_log.completed_at = datetime.now().isoformat()
+                            step_log.duration_ms = int((time.time() - step_start) * 1000)
+                            execution_log.steps.append(step_log)
+                            break
+
+                    result.executed_steps += 1
+
+                except Exception as step_error:
+                    step_log.success = False
+                    step_log.error = str(step_error)
+                    logger.error(f"  Step {i+1} error: {step_error}")
+
+                finally:
+                    # Complete step log
+                    step_log.completed_at = datetime.now().isoformat()
+                    step_log.duration_ms = int((time.time() - step_start) * 1000)
+                    execution_log.steps.append(step_log)
 
             # Mark success if all steps executed
             result.success = (result.executed_steps == len(flow.steps))
@@ -203,6 +292,19 @@ class FlowExecutor:
                     logger.warning(f"  [Headless] Failed to sleep screen: {sleep_error}")
 
         result.execution_time_ms = int((time.time() - start_time) * 1000)
+
+        # Complete execution log
+        execution_log.completed_at = datetime.now().isoformat()
+        execution_log.duration_ms = result.execution_time_ms
+        execution_log.success = result.success
+        execution_log.error = result.error_message
+        execution_log.executed_steps = result.executed_steps
+
+        # Save execution log to history
+        try:
+            self.execution_history.add_execution(execution_log)
+        except Exception as e:
+            logger.error(f"[FlowExecutor] Failed to save execution history: {e}")
 
         logger.info(f"[FlowExecutor] Flow {flow.flow_id} finished in {result.execution_time_ms}ms")
         logger.info(f"  Steps executed: {result.executed_steps}/{len(flow.steps)}")

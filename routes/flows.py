@@ -605,3 +605,219 @@ async def get_scheduler_queue(device_id: str):
     except Exception as e:
         logger.error(f"[API] Failed to get scheduler queue: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# EXECUTION HISTORY ENDPOINTS
+# =============================================================================
+
+@router.get("/flows/{device_id}/{flow_id}/history")
+async def get_flow_execution_history(device_id: str, flow_id: str, limit: int = 50):
+    """
+    Get execution history for a flow
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+        limit: Maximum number of executions to return (default: 50)
+
+    Returns:
+        List of execution logs with detailed step-by-step information
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_executor or not deps.flow_executor.execution_history:
+            raise HTTPException(status_code=503, detail="Execution history not initialized")
+
+        history = deps.flow_executor.execution_history.get_history(flow_id, limit=limit)
+
+        # Convert to dicts for JSON response
+        history_dicts = [
+            {
+                "execution_id": log.execution_id,
+                "flow_id": log.flow_id,
+                "device_id": log.device_id,
+                "started_at": log.started_at,
+                "completed_at": log.completed_at,
+                "success": log.success,
+                "error": log.error,
+                "duration_ms": log.duration_ms,
+                "triggered_by": log.triggered_by,
+                "total_steps": log.total_steps,
+                "executed_steps": log.executed_steps,
+                "steps": [
+                    {
+                        "step_index": step.step_index,
+                        "step_type": step.step_type,
+                        "description": step.description,
+                        "started_at": step.started_at,
+                        "completed_at": step.completed_at,
+                        "success": step.success,
+                        "error": step.error,
+                        "duration_ms": step.duration_ms,
+                        "details": step.details
+                    }
+                    for step in (log.steps or [])
+                ]
+            }
+            for log in history
+        ]
+
+        return {
+            "success": True,
+            "flow_id": flow_id,
+            "device_id": device_id,
+            "history": history_dicts,
+            "count": len(history_dicts)
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Failed to get execution history: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/flows/{device_id}/{flow_id}/history/{execution_id}")
+async def get_flow_execution_details(device_id: str, flow_id: str, execution_id: str):
+    """
+    Get detailed information about a specific execution
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+        execution_id: Execution ID
+
+    Returns:
+        Detailed execution log with all step information
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_executor or not deps.flow_executor.execution_history:
+            raise HTTPException(status_code=503, detail="Execution history not initialized")
+
+        execution = deps.flow_executor.execution_history.get_execution(flow_id, execution_id)
+
+        if not execution:
+            raise HTTPException(status_code=404, detail=f"Execution {execution_id} not found")
+
+        # Convert to dict
+        execution_dict = {
+            "execution_id": execution.execution_id,
+            "flow_id": execution.flow_id,
+            "device_id": execution.device_id,
+            "started_at": execution.started_at,
+            "completed_at": execution.completed_at,
+            "success": execution.success,
+            "error": execution.error,
+            "duration_ms": execution.duration_ms,
+            "triggered_by": execution.triggered_by,
+            "total_steps": execution.total_steps,
+            "executed_steps": execution.executed_steps,
+            "steps": [
+                {
+                    "step_index": step.step_index,
+                    "step_type": step.step_type,
+                    "description": step.description,
+                    "started_at": step.started_at,
+                    "completed_at": step.completed_at,
+                    "success": step.success,
+                    "error": step.error,
+                    "duration_ms": step.duration_ms,
+                    "details": step.details
+                }
+                for step in (execution.steps or [])
+            ]
+        }
+
+        return {
+            "success": True,
+            "execution": execution_dict
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to get execution details: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/flows/{device_id}/{flow_id}/latest")
+async def get_latest_execution(device_id: str, flow_id: str):
+    """
+    Get the most recent execution log for a flow
+
+    This is useful for UI status display (last run status, error message, etc.)
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+
+    Returns:
+        Latest execution log or null if no executions
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_executor or not deps.flow_executor.execution_history:
+            raise HTTPException(status_code=503, detail="Execution history not initialized")
+
+        latest = deps.flow_executor.execution_history.get_latest_execution(flow_id)
+
+        if not latest:
+            return {
+                "success": True,
+                "latest": None
+            }
+
+        # Convert to dict (summary only, without full step details)
+        latest_dict = {
+            "execution_id": latest.execution_id,
+            "flow_id": latest.flow_id,
+            "device_id": latest.device_id,
+            "started_at": latest.started_at,
+            "completed_at": latest.completed_at,
+            "success": latest.success,
+            "error": latest.error,
+            "duration_ms": latest.duration_ms,
+            "triggered_by": latest.triggered_by,
+            "total_steps": latest.total_steps,
+            "executed_steps": latest.executed_steps
+        }
+
+        return {
+            "success": True,
+            "latest": latest_dict
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Failed to get latest execution: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/flows/{device_id}/{flow_id}/stats")
+async def get_flow_stats(device_id: str, flow_id: str):
+    """
+    Get statistics for a flow
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+
+    Returns:
+        Execution statistics (success rate, avg duration, etc.)
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_executor or not deps.flow_executor.execution_history:
+            raise HTTPException(status_code=503, detail="Execution history not initialized")
+
+        stats = deps.flow_executor.execution_history.get_stats(flow_id)
+
+        return {
+            "success": True,
+            "flow_id": flow_id,
+            "device_id": device_id,
+            "stats": stats
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Failed to get flow stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
