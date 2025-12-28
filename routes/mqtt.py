@@ -1,0 +1,222 @@
+"""
+MQTT Control Routes - MQTT Connection and Home Assistant Integration
+
+Provides endpoints for controlling MQTT sensor updates and Home Assistant discovery:
+- Start/stop/restart sensor update loops for devices
+- Get MQTT connection status
+- Manually publish/remove MQTT discovery messages for sensors
+- Bulk publish discovery for all sensors on a device
+
+Integrates with Home Assistant MQTT Discovery protocol for automatic
+sensor registration and real-time state updates.
+"""
+
+from fastapi import APIRouter, HTTPException
+import logging
+import os
+from routes import get_deps
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/mqtt", tags=["mqtt"])
+
+# MQTT Configuration (from environment variables)
+MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_DISCOVERY_PREFIX = os.getenv("MQTT_DISCOVERY_PREFIX", "homeassistant")
+
+
+# =============================================================================
+# SENSOR UPDATE CONTROL
+# =============================================================================
+
+@router.post("/start/{device_id}")
+async def start_sensor_updates(device_id: str):
+    """Start sensor update loop for device"""
+    deps = get_deps()
+    if not deps.sensor_updater:
+        raise HTTPException(status_code=503, detail="MQTT not initialized")
+
+    try:
+        logger.info(f"[API] Starting sensor updates for {device_id}")
+        success = await deps.sensor_updater.start_device_updates(device_id)
+        return {
+            "success": success,
+            "device_id": device_id,
+            "message": "Sensor updates started" if success else "Failed to start updates"
+        }
+    except Exception as e:
+        logger.error(f"[API] Start updates failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/stop/{device_id}")
+async def stop_sensor_updates(device_id: str):
+    """Stop sensor update loop for device"""
+    deps = get_deps()
+    if not deps.sensor_updater:
+        raise HTTPException(status_code=503, detail="MQTT not initialized")
+
+    try:
+        logger.info(f"[API] Stopping sensor updates for {device_id}")
+        success = await deps.sensor_updater.stop_device_updates(device_id)
+        return {
+            "success": success,
+            "device_id": device_id,
+            "message": "Sensor updates stopped" if success else "Failed to stop updates"
+        }
+    except Exception as e:
+        logger.error(f"[API] Stop updates failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/restart/{device_id}")
+async def restart_sensor_updates(device_id: str):
+    """Restart sensor update loop for device"""
+    deps = get_deps()
+    if not deps.sensor_updater:
+        raise HTTPException(status_code=503, detail="MQTT not initialized")
+
+    try:
+        logger.info(f"[API] Restarting sensor updates for {device_id}")
+        success = await deps.sensor_updater.restart_device_updates(device_id)
+        return {
+            "success": success,
+            "device_id": device_id,
+            "message": "Sensor updates restarted" if success else "Failed to restart updates"
+        }
+    except Exception as e:
+        logger.error(f"[API] Restart updates failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# MQTT STATUS
+# =============================================================================
+
+@router.get("/status")
+async def mqtt_status():
+    """Get MQTT connection status and running devices"""
+    deps = get_deps()
+    if not deps.mqtt_manager or not deps.sensor_updater:
+        return {
+            "connected": False,
+            "broker": MQTT_BROKER,
+            "port": MQTT_PORT,
+            "running_devices": [],
+            "message": "MQTT not initialized"
+        }
+
+    return {
+        "connected": deps.mqtt_manager.is_connected,
+        "broker": MQTT_BROKER,
+        "port": MQTT_PORT,
+        "discovery_prefix": MQTT_DISCOVERY_PREFIX,
+        "running_devices": list(deps.sensor_updater.get_running_devices()),
+        "message": "MQTT connected" if deps.mqtt_manager.is_connected else "MQTT disconnected"
+    }
+
+
+# =============================================================================
+# MQTT DISCOVERY MANAGEMENT
+# =============================================================================
+
+@router.post("/publish-discovery/{device_id}/{sensor_id}")
+async def publish_sensor_discovery(device_id: str, sensor_id: str):
+    """Manually publish MQTT discovery for a sensor"""
+    deps = get_deps()
+    if not deps.mqtt_manager:
+        raise HTTPException(status_code=503, detail="MQTT not initialized")
+
+    try:
+        logger.info(f"[API] Publishing discovery for {device_id}/{sensor_id}")
+        sensor = deps.sensor_manager.get_sensor(device_id, sensor_id)
+        if not sensor:
+            raise HTTPException(status_code=404, detail=f"Sensor {sensor_id} not found")
+
+        success = await deps.mqtt_manager.publish_discovery(sensor)
+        return {
+            "success": success,
+            "device_id": device_id,
+            "sensor_id": sensor_id,
+            "message": "Discovery published" if success else "Failed to publish discovery"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Publish discovery failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/remove-discovery/{device_id}/{sensor_id}")
+async def remove_sensor_discovery(device_id: str, sensor_id: str):
+    """Remove MQTT discovery for a sensor (unpublish from HA)"""
+    deps = get_deps()
+    if not deps.mqtt_manager:
+        raise HTTPException(status_code=503, detail="MQTT not initialized")
+
+    try:
+        logger.info(f"[API] Removing discovery for {device_id}/{sensor_id}")
+        sensor = deps.sensor_manager.get_sensor(device_id, sensor_id)
+        if not sensor:
+            raise HTTPException(status_code=404, detail=f"Sensor {sensor_id} not found")
+
+        success = await deps.mqtt_manager.remove_discovery(sensor)
+        return {
+            "success": success,
+            "device_id": device_id,
+            "sensor_id": sensor_id,
+            "message": "Discovery removed" if success else "Failed to remove discovery"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Remove discovery failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/publish-discovery-all/{device_id}")
+async def publish_all_sensor_discoveries(device_id: str):
+    """Publish MQTT discovery for ALL sensors on a device"""
+    deps = get_deps()
+    if not deps.mqtt_manager:
+        raise HTTPException(status_code=503, detail="MQTT not initialized")
+
+    try:
+        logger.info(f"[API] Publishing discovery for all sensors on {device_id}")
+        sensors = deps.sensor_manager.get_all_sensors(device_id)
+
+        if not sensors:
+            return {
+                "success": True,
+                "device_id": device_id,
+                "published_count": 0,
+                "message": "No sensors found for device"
+            }
+
+        published_count = 0
+        failed_sensors = []
+
+        for sensor in sensors:
+            try:
+                success = await deps.mqtt_manager.publish_discovery(sensor)
+                if success:
+                    published_count += 1
+                    logger.info(f"[API] Published discovery for {sensor.sensor_id}")
+                else:
+                    failed_sensors.append(sensor.sensor_id)
+            except Exception as e:
+                logger.error(f"[API] Failed to publish discovery for {sensor.sensor_id}: {e}")
+                failed_sensors.append(sensor.sensor_id)
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            "total_sensors": len(sensors),
+            "published_count": published_count,
+            "failed_sensors": failed_sensors,
+            "message": f"Published {published_count}/{len(sensors)} sensor discoveries"
+        }
+    except Exception as e:
+        logger.error(f"[API] Bulk publish discovery failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

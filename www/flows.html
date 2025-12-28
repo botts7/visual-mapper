@@ -9,6 +9,15 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="stylesheet" href="css/styles.css?v=0.0.5">
     <style>
+        /* Dev Mode - Hide test buttons by default, show only in dev mode */
+        .dev-only {
+            display: none !important;
+        }
+
+        body.dev-mode .dev-only {
+            display: inline-block !important;
+        }
+
         .flow-container {
             padding: 20px;
             max-width: 1400px;
@@ -982,6 +991,17 @@
         window.flowManager = new FlowManager();
         window.showToast = showToast;
 
+        // Detect dev mode (localhost or port 3000)
+        const isDevMode = window.location.hostname === 'localhost' ||
+                          window.location.hostname === '127.0.0.1' ||
+                          window.location.port === '3000';
+        window.isDevMode = isDevMode;
+
+        if (isDevMode) {
+            console.log('[Flows] 🔧 Dev Mode Enabled - Test buttons visible');
+            document.body.classList.add('dev-mode');
+        }
+
         let flows = [];
         const runningFlows = new Set(); // Track currently executing flows
         const deviceInfoMap = new Map(); // Map device_id to device info (model, etc.)
@@ -1486,6 +1506,9 @@
             const modal = document.getElementById('executionResultsModal');
             modal.classList.remove('active');
         }
+
+        // Make function globally accessible for onclick handlers
+        window.closeExecutionResultsModal = closeExecutionResultsModal;
 
         /**
          * Test a flow from the flow table
@@ -2211,6 +2234,8 @@
         window.clearAllAlerts = clearAllAlerts;
         window.dismissAlert = dismissAlert;
         window.executeFlow = executeFlow;
+        window.testFlow = testFlow;
+        window.testCurrentFlow = testCurrentFlow;
         window.deleteFlow = deleteFlow;
         window.editFlow = editFlow;
         window.closeEditModal = closeEditModal;

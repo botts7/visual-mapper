@@ -61,7 +61,7 @@ from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors
+from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt
 
 # Configure logging
 logging.basicConfig(
@@ -727,6 +727,8 @@ app.include_router(suggestions.router)
 logger.info("[Server] Registered route module: suggestions (2 endpoints: suggest-sensors + suggest-actions)")
 app.include_router(sensors.router)
 logger.info("[Server] Registered route module: sensors (7 endpoints: CRUD + test-extract + migrate-stable-ids)")
+app.include_router(mqtt.router)
+logger.info("[Server] Registered route module: mqtt (7 endpoints: start/stop/restart + status + discovery management)")
 
 # ============================================================================
 # LEGACY ENDPOINTS (Being migrated to route modules)
