@@ -61,7 +61,7 @@ from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info
+from routes import meta, health, adb_info, cache
 
 # Configure logging
 logging.basicConfig(
@@ -707,6 +707,8 @@ app.include_router(health.router)
 logger.info("[Server] Registered route module: health (1 endpoint)")
 app.include_router(adb_info.router)
 logger.info("[Server] Registered route module: adb_info (6 endpoints)")
+app.include_router(cache.router)
+logger.info("[Server] Registered route module: cache (6 endpoints)")
 
 # ============================================================================
 # LEGACY ENDPOINTS (Being migrated to route modules)
@@ -1164,74 +1166,78 @@ async def get_device_connection_metrics(device_id: str):
 
 # === UI Hierarchy Cache Endpoints ===
 
-@app.get("/api/cache/ui/stats")
-async def get_ui_cache_stats():
-    """Get UI hierarchy cache statistics"""
-    if not adb_bridge:
-        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
-    return {"success": True, "cache": adb_bridge.get_ui_cache_stats()}
-
-
-@app.post("/api/cache/ui/clear")
-async def clear_ui_cache(device_id: str = None):
-    """Clear UI hierarchy cache for a device or all devices"""
-    if not adb_bridge:
-        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
-    adb_bridge.clear_ui_cache(device_id)
-    return {
-        "success": True,
-        "message": f"UI cache cleared for {device_id}" if device_id else "UI cache cleared for all devices"
-    }
-
-
-@app.post("/api/cache/ui/settings")
-async def update_ui_cache_settings(enabled: bool = None, ttl_ms: float = None):
-    """Update UI hierarchy cache settings"""
-    if not adb_bridge:
-        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
-
-    if enabled is not None:
-        adb_bridge.set_ui_cache_enabled(enabled)
-    if ttl_ms is not None:
-        adb_bridge.set_ui_cache_ttl(ttl_ms)
-
-    return {"success": True, "cache": adb_bridge.get_ui_cache_stats()}
-
-
-# === Screenshot Cache Endpoints ===
-
-@app.get("/api/cache/screenshot/stats")
-async def get_screenshot_cache_stats():
-    """Get screenshot cache statistics"""
-    if not adb_bridge:
-        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
-    return {"success": True, "cache": adb_bridge.get_screenshot_cache_stats()}
-
-
-@app.post("/api/cache/screenshot/settings")
-async def update_screenshot_cache_settings(enabled: bool = None, ttl_ms: float = None):
-    """Update screenshot cache settings"""
-    if not adb_bridge:
-        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
-
-    if enabled is not None:
-        adb_bridge.set_screenshot_cache_enabled(enabled)
-    if ttl_ms is not None:
-        adb_bridge.set_screenshot_cache_ttl(ttl_ms)
-
-    return {"success": True, "cache": adb_bridge.get_screenshot_cache_stats()}
-
-
-@app.get("/api/cache/all/stats")
-async def get_all_cache_stats():
-    """Get all cache statistics (UI + Screenshot)"""
-    if not adb_bridge:
-        raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
-    return {
-        "success": True,
-        "ui_cache": adb_bridge.get_ui_cache_stats(),
-        "screenshot_cache": adb_bridge.get_screenshot_cache_stats()
-    }
+# ============================================================================
+# MIGRATED TO routes/cache.py - Commented out for comparison/testing
+# ============================================================================
+# @app.get("/api/cache/ui/stats")
+# async def get_ui_cache_stats():
+#     """Get UI hierarchy cache statistics"""
+#     if not adb_bridge:
+#         raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+#     return {"success": True, "cache": adb_bridge.get_ui_cache_stats()}
+#
+#
+# @app.post("/api/cache/ui/clear")
+# async def clear_ui_cache(device_id: str = None):
+#     """Clear UI hierarchy cache for a device or all devices"""
+#     if not adb_bridge:
+#         raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+#     adb_bridge.clear_ui_cache(device_id)
+#     return {
+#         "success": True,
+#         "message": f"UI cache cleared for {device_id}" if device_id else "UI cache cleared for all devices"
+#     }
+#
+#
+# @app.post("/api/cache/ui/settings")
+# async def update_ui_cache_settings(enabled: bool = None, ttl_ms: float = None):
+#     """Update UI hierarchy cache settings"""
+#     if not adb_bridge:
+#         raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+#
+#     if enabled is not None:
+#         adb_bridge.set_ui_cache_enabled(enabled)
+#     if ttl_ms is not None:
+#         adb_bridge.set_ui_cache_ttl(ttl_ms)
+#
+#     return {"success": True, "cache": adb_bridge.get_ui_cache_stats()}
+#
+#
+# # === Screenshot Cache Endpoints ===
+#
+# @app.get("/api/cache/screenshot/stats")
+# async def get_screenshot_cache_stats():
+#     """Get screenshot cache statistics"""
+#     if not adb_bridge:
+#         raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+#     return {"success": True, "cache": adb_bridge.get_screenshot_cache_stats()}
+#
+#
+# @app.post("/api/cache/screenshot/settings")
+# async def update_screenshot_cache_settings(enabled: bool = None, ttl_ms: float = None):
+#     """Update screenshot cache settings"""
+#     if not adb_bridge:
+#         raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+#
+#     if enabled is not None:
+#         adb_bridge.set_screenshot_cache_enabled(enabled)
+#     if ttl_ms is not None:
+#         adb_bridge.set_screenshot_cache_ttl(ttl_ms)
+#
+#     return {"success": True, "cache": adb_bridge.get_screenshot_cache_stats()}
+#
+#
+# @app.get("/api/cache/all/stats")
+# async def get_all_cache_stats():
+#     """Get all cache statistics (UI + Screenshot)"""
+#     if not adb_bridge:
+#         raise HTTPException(status_code=503, detail="ADB Bridge not initialized")
+#     return {
+#         "success": True,
+#         "ui_cache": adb_bridge.get_ui_cache_stats(),
+#         "screenshot_cache": adb_bridge.get_screenshot_cache_stats()
+#     }
+# ============================================================================
 
 
 # === Stream Isolation Stats ===

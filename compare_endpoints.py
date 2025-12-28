@@ -163,6 +163,13 @@ def test_meta_routes():
     # Note: /api/adb/screen-state/{device_id}, /api/adb/activity/{device_id}, and
     # /api/adb/stable-id/{device_id} require device_id parameters - tested separately
 
+    # Test cache routes (routes/cache.py)
+    print("\n[cache.py]")
+    results.append(compare_endpoint("/api/cache/ui/stats"))
+    results.append(compare_endpoint("/api/cache/screenshot/stats"))
+    results.append(compare_endpoint("/api/cache/all/stats"))
+    # Note: POST endpoints (ui/clear, ui/settings, screenshot/settings) tested separately
+
     # Summary
     print("\n" + "="*80)
     print("SUMMARY")
