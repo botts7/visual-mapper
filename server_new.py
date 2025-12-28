@@ -61,7 +61,7 @@ from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps
+from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions
 
 # Configure logging
 logging.basicConfig(
@@ -723,6 +723,8 @@ app.include_router(adb_screenshot.router)
 logger.info("[Server] Registered route module: adb_screenshot (3 endpoints: screenshot + elements + stitch)")
 app.include_router(adb_apps.router)
 logger.info("[Server] Registered route module: adb_apps (4 endpoints: apps + app-icon + launch + stop-app)")
+app.include_router(suggestions.router)
+logger.info("[Server] Registered route module: suggestions (2 endpoints: suggest-sensors + suggest-actions)")
 
 # ============================================================================
 # LEGACY ENDPOINTS (Being migrated to route modules)
@@ -1234,89 +1236,93 @@ async def get_device_stream_stats(device_id: str):
 #         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Smart Sensor Suggestions Endpoint
-@app.post("/api/devices/suggest-sensors")
-async def suggest_sensors(request: SuggestSensorsRequest):
-    """
-    Analyze current screen and suggest Home Assistant sensors
+# ============================================================================
+# MIGRATED TO routes/suggestions.py - Commented out for comparison/testing
+# ============================================================================
 
-    Uses AI-powered pattern detection to identify common sensor types
-    (battery, temperature, humidity, etc.) from UI elements.
-    """
-    try:
-        logger.info(f"[API] Analyzing UI elements for sensor suggestions on {request.device_id}")
-
-        # Get UI elements from device
-        elements_response = await adb_bridge.get_ui_elements(request.device_id)
-
-        if not elements_response or 'elements' not in elements_response:
-            elements = elements_response if isinstance(elements_response, list) else []
-        else:
-            elements = elements_response['elements']
-
-        # Use sensor suggester to analyze elements
-        from utils.sensor_suggester import get_sensor_suggester
-        suggester = get_sensor_suggester()
-        suggestions = suggester.suggest_sensors(elements)
-
-        logger.info(f"[API] Generated {len(suggestions)} sensor suggestions for {request.device_id}")
-
-        return {
-            "success": True,
-            "device_id": request.device_id,
-            "suggestions": suggestions,
-            "count": len(suggestions),
-            "timestamp": datetime.now().isoformat()
-        }
-
-    except ValueError as e:
-        logger.warning(f"[API] Sensor suggestion failed: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"[API] Sensor suggestion error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/devices/suggest-actions")
-async def suggest_actions(request: SuggestActionsRequest):
-    """
-    Analyze current screen and suggest Home Assistant actions
-
-    Uses AI-powered pattern detection to identify actionable UI elements
-    (buttons, switches, input fields, etc.) from UI elements.
-    """
-    try:
-        logger.info(f"[API] Analyzing UI elements for action suggestions on {request.device_id}")
-
-        # Get UI elements from device
-        elements_response = await adb_bridge.get_ui_elements(request.device_id)
-
-        if not elements_response or 'elements' not in elements_response:
-            elements = elements_response if isinstance(elements_response, list) else []
-        else:
-            elements = elements_response['elements']
-
-        # Use action suggester to analyze elements
-        from utils.action_suggester import get_action_suggester
-        suggester = get_action_suggester()
-        suggestions = suggester.suggest_actions(elements)
-
-        logger.info(f"[API] Generated {len(suggestions)} action suggestions for {request.device_id}")
-
-        return {
-            "success": True,
-            "device_id": request.device_id,
-            "suggestions": suggestions,
-            "count": len(suggestions),
-            "timestamp": datetime.now().isoformat()
-        }
-
-    except ValueError as e:
-        logger.warning(f"[API] Action suggestion failed: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"[API] Action suggestion error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+# # Smart Sensor Suggestions Endpoint
+# @app.post("/api/devices/suggest-sensors")
+# async def suggest_sensors(request: SuggestSensorsRequest):
+#     """
+#     Analyze current screen and suggest Home Assistant sensors
+#
+#     Uses AI-powered pattern detection to identify common sensor types
+#     (battery, temperature, humidity, etc.) from UI elements.
+#     """
+#     try:
+#         logger.info(f"[API] Analyzing UI elements for sensor suggestions on {request.device_id}")
+#
+#         # Get UI elements from device
+#         elements_response = await adb_bridge.get_ui_elements(request.device_id)
+#
+#         if not elements_response or 'elements' not in elements_response:
+#             elements = elements_response if isinstance(elements_response, list) else []
+#         else:
+#             elements = elements_response['elements']
+#
+#         # Use sensor suggester to analyze elements
+#         from utils.sensor_suggester import get_sensor_suggester
+#         suggester = get_sensor_suggester()
+#         suggestions = suggester.suggest_sensors(elements)
+#
+#         logger.info(f"[API] Generated {len(suggestions)} sensor suggestions for {request.device_id}")
+#
+#         return {
+#             "success": True,
+#             "device_id": request.device_id,
+#             "suggestions": suggestions,
+#             "count": len(suggestions),
+#             "timestamp": datetime.now().isoformat()
+#         }
+#
+#     except ValueError as e:
+#         logger.warning(f"[API] Sensor suggestion failed: {e}")
+#         raise HTTPException(status_code=400, detail=str(e))
+#     except Exception as e:
+#         logger.error(f"[API] Sensor suggestion error: {e}", exc_info=True)
+#         raise HTTPException(status_code=500, detail=str(e))
+#
+#
+# @app.post("/api/devices/suggest-actions")
+# async def suggest_actions(request: SuggestActionsRequest):
+#     """
+#     Analyze current screen and suggest Home Assistant actions
+#
+#     Uses AI-powered pattern detection to identify actionable UI elements
+#     (buttons, switches, input fields, etc.) from UI elements.
+#     """
+#     try:
+#         logger.info(f"[API] Analyzing UI elements for action suggestions on {request.device_id}")
+#
+#         # Get UI elements from device
+#         elements_response = await adb_bridge.get_ui_elements(request.device_id)
+#
+#         if not elements_response or 'elements' not in elements_response:
+#             elements = elements_response if isinstance(elements_response, list) else []
+#         else:
+#             elements = elements_response['elements']
+#
+#         # Use action suggester to analyze elements
+#         from utils.action_suggester import get_action_suggester
+#         suggester = get_action_suggester()
+#         suggestions = suggester.suggest_actions(elements)
+#
+#         logger.info(f"[API] Generated {len(suggestions)} action suggestions for {request.device_id}")
+#
+#         return {
+#             "success": True,
+#             "device_id": request.device_id,
+#             "suggestions": suggestions,
+#             "count": len(suggestions),
+#             "timestamp": datetime.now().isoformat()
+#         }
+#
+#     except ValueError as e:
+#         logger.warning(f"[API] Action suggestion failed: {e}")
+#         raise HTTPException(status_code=400, detail=str(e))
+#     except Exception as e:
+#         logger.error(f"[API] Action suggestion error: {e}", exc_info=True)
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 # Screenshot Stitching Endpoint
