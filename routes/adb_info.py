@@ -149,3 +149,32 @@ async def get_stable_device_id(device_id: str, force_refresh: bool = False):
     except Exception as e:
         logger.error(f"[API] Get stable device ID failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/screen/current/{device_id}")
+async def get_current_screen(device_id: str):
+    """
+    Get current screen info (activity with package/activity breakdown).
+    Used for screen awareness in Flow Wizard.
+
+    Returns:
+        activity: {package, activity, full_name}
+        element_count: Number of UI elements on screen
+        timestamp: Current time
+    """
+    deps = get_deps()
+    try:
+        logger.info(f"[API] Getting current screen info for {device_id}")
+
+        # Get activity info as dict (with package breakdown)
+        activity_info = await deps.adb_bridge.get_current_activity(device_id, as_dict=True)
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            "activity": activity_info,
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Get screen info failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
