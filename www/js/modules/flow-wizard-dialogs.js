@@ -573,7 +573,7 @@ export async function promptForTimestampConfig(wizard, element, refreshStep) {
         dialog.className = 'modal-content';
         dialog.style.maxWidth = '500px';
 
-        const elementName = element.text?.substring(0, 30) || element['content-desc']?.substring(0, 30) || element.class;
+        const elementName = element.text?.substring(0, 30) || element.content_desc?.substring(0, 30) || element.class;
         const stepType = refreshStep.step_type === 'pull_refresh' ? 'Pull-to-Refresh' : 'Restart App';
 
         dialog.innerHTML = `

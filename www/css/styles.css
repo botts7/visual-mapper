@@ -33,8 +33,12 @@
     --background: var(--background-color);
     --surface: var(--card-background);
     --card-bg: var(--card-background);
+    --bg-primary: var(--card-background);
+    --bg-secondary: var(--background-color);
+    --bg-hover: rgba(0, 0, 0, 0.04);
     --border: var(--border-color);
     --primary: var(--primary-color);
+    --accent: var(--primary-color);
     --primary-dark: #1565C0;
     --primary-light: #64B5F6;
     --success: var(--success-color);
@@ -71,6 +75,9 @@
         --control-section-border: #42a5f5;
         --overlay-section-bg: #1a2a1a;
         --overlay-section-border: #66bb6a;
+
+        /* Dark theme hover */
+        --bg-hover: rgba(255, 255, 255, 0.08);
     }
 }
 
@@ -94,6 +101,9 @@ body.dark-mode {
     --control-section-border: #42a5f5;
     --overlay-section-bg: #1a2a1a;
     --overlay-section-border: #66bb6a;
+
+    /* Dark mode hover */
+    --bg-hover: rgba(255, 255, 255, 0.08);
 
     /* Dark mode semantic aliases */
     --primary-dark: #1976D2;

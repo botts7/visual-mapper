@@ -144,7 +144,7 @@ class FlowRecorder {
         // Check element text and resource IDs
         for (const el of elements) {
             const text = el.text || '';
-            const resourceId = el['resource-id'] || '';
+            const resourceId = el.resource_id || '';
             const className = el.class || '';
 
             // Check for loading indicators in text/resourceId
@@ -1080,8 +1080,8 @@ class FlowRecorder {
         if (element.class) {
             info.class = element.class;
         }
-        if (element['resource-id']) {
-            info['resource-id'] = element['resource-id'];
+        if (element.resource_id) {
+            info.resource_id = element.resource_id;
         }
 
         return info;

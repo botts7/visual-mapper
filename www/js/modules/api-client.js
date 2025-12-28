@@ -61,7 +61,10 @@ class APIClient {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+                const errorMessage = typeof errorData.detail === 'object'
+                    ? JSON.stringify(errorData.detail)
+                    : (errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+                throw new Error(errorMessage);
             }
 
             const responseData = await response.json();

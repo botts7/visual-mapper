@@ -18,6 +18,38 @@
     overflow-y: auto;
 }
 
+/* Suggestion Tabs */
+.suggestion-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--border);
+    padding: 0 20px;
+}
+
+.tab-btn {
+    flex: 1;
+    padding: 12px 20px;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+    margin-bottom: -2px;
+}
+
+.tab-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
 /* Suggestion Groups */
 .suggestion-group {
     margin-bottom: 30px;
@@ -189,6 +221,16 @@
     display: flex;
     gap: 10px;
     justify-content: space-between;
+}
+
+/* Ensure buttons have proper contrast */
+.smart-suggestions-modal .modal-actions .btn-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.smart-suggestions-modal .modal-actions .btn-secondary:hover {
+    background-color: #5a6268;
 }
 
 .smart-suggestions-modal .modal-actions #selectedCount {

@@ -77,7 +77,7 @@ class ElementTree {
             if (this.searchQuery) {
                 const text = (el.text || '').toLowerCase();
                 const className = (el.class || '').toLowerCase();
-                const resourceId = (el['resource-id'] || '').toLowerCase();
+                const resourceId = (el.resource_id || '').toLowerCase();
 
                 return text.includes(this.searchQuery) ||
                        className.includes(this.searchQuery) ||
@@ -153,9 +153,9 @@ class ElementTree {
      */
     renderElement(element, index) {
         const text = element.text?.trim() || '';
-        const resourceId = element['resource-id'] || '';
+        const resourceId = element.resource_id || '';
         const shortId = resourceId.split('/').pop() || '';
-        const contentDesc = element['content-desc'] || '';
+        const contentDesc = element.content_desc || '';
         const isClickable = element.clickable;
         const bounds = element.bounds;
 

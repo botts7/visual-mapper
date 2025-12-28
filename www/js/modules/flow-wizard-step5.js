@@ -1,6 +1,7 @@
 /**
  * Flow Wizard Step 5 - Settings & Save
- * Visual Mapper v0.0.5
+ * Visual Mapper v0.0.6
+ * v0.0.6: Added headless mode options (auto_wake_before, auto_sleep_after, verify_screen_on)
  */
 
 import { showToast } from './toast.js?v=0.0.5';
@@ -62,6 +63,11 @@ export async function saveFlow(wizard) {
         const updateIntervalSeconds = intervalValue * intervalUnit;
         const flowId = `flow_${wizard.selectedDevice.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
 
+        // Headless mode options
+        const autoWakeBefore = document.getElementById('autoWakeBefore')?.checked ?? true;
+        const autoSleepAfter = document.getElementById('autoSleepAfter')?.checked ?? true;
+        const verifyScreenOn = document.getElementById('verifyScreenOn')?.checked ?? true;
+
         const flowPayload = {
             flow_id: flowId,
             device_id: wizard.selectedDevice,
@@ -72,7 +78,12 @@ export async function saveFlow(wizard) {
             enabled: true,
             stop_on_error: false,
             max_flow_retries: 3,
-            flow_timeout: 60
+            flow_timeout: 60,
+            // Headless mode settings
+            auto_wake_before: autoWakeBefore,
+            auto_sleep_after: autoSleepAfter,
+            verify_screen_on: verifyScreenOn,
+            wake_timeout_ms: 3000
         };
 
         console.log('[Step5] Saving flow:', flowPayload);
@@ -132,7 +143,8 @@ async function showFlowSavedDialog(flow) {
                 <div style="margin: 0 0 20px 0; padding: 15px; background: #f1f5f9; border-radius: 4px;">
                     <div style="margin-bottom: 8px;"><strong>Device:</strong> ${flow.device_id}</div>
                     <div style="margin-bottom: 8px;"><strong>Steps:</strong> ${flow.steps.length}</div>
-                    <div><strong>Update Interval:</strong> ${formatInterval(flow.update_interval_seconds)}</div>
+                    <div style="margin-bottom: 8px;"><strong>Update Interval:</strong> ${formatInterval(flow.update_interval_seconds)}</div>
+                    <div><strong>Headless Mode:</strong> ${flow.auto_wake_before !== false ? 'Enabled' : 'Disabled'}</div>
                 </div>
                 <div style="display: flex; gap: 10px; justify-content: flex-end;">
                     <button id="btnCreateAnother" class="btn btn-secondary">Create Another</button>

@@ -25,6 +25,10 @@ class FlowStepType(str):
     PULL_REFRESH = "pull_refresh"
     RESTART_APP = "restart_app"
     STITCH_CAPTURE = "stitch_capture"
+    # Screen power control (headless mode)
+    WAKE_SCREEN = "wake_screen"
+    SLEEP_SCREEN = "sleep_screen"
+    ENSURE_SCREEN_ON = "ensure_screen_on"
 
 
 class FlowStep(BaseModel):
@@ -119,6 +123,12 @@ class SensorCollectionFlow(BaseModel):
     stop_on_error: bool = Field(False, description="Stop flow if any step fails")
     max_flow_retries: int = Field(3, ge=1, le=10, description="Retry entire flow on failure")
     flow_timeout: int = Field(60, ge=10, le=300, description="Max seconds for entire flow")
+
+    # Headless Mode (Screen Power Control)
+    auto_wake_before: bool = Field(True, description="Auto-wake screen before flow execution")
+    auto_sleep_after: bool = Field(True, description="Auto-sleep screen after flow completion")
+    verify_screen_on: bool = Field(True, description="Fail flow if screen fails to wake")
+    wake_timeout_ms: int = Field(3000, ge=1000, le=10000, description="Max time to wait for screen wake")
 
     # Metadata
     created_at: datetime = Field(default_factory=datetime.now)

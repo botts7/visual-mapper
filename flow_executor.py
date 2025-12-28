@@ -75,6 +75,10 @@ class FlowExecutor:
             FlowStepType.PULL_REFRESH: self._execute_pull_refresh,
             FlowStepType.RESTART_APP: self._execute_restart_app,
             FlowStepType.STITCH_CAPTURE: self._execute_stitch_capture,
+            # Screen power control (headless mode)
+            FlowStepType.WAKE_SCREEN: self._execute_wake_screen,
+            FlowStepType.SLEEP_SCREEN: self._execute_sleep_screen,
+            FlowStepType.ENSURE_SCREEN_ON: self._execute_ensure_screen_on,
         }
 
         # Note: execute_action will be added when action system is integrated
@@ -116,6 +120,22 @@ class FlowExecutor:
         logger.info(f"[FlowExecutor] Starting flow {flow.flow_id} ({flow.name})")
 
         try:
+            # Auto-wake screen if headless mode enabled
+            if flow.auto_wake_before:
+                logger.info(f"  [Headless] Auto-waking screen before flow")
+                wake_success = await self.adb_bridge.ensure_screen_on(
+                    flow.device_id,
+                    timeout_ms=flow.wake_timeout_ms
+                )
+                if not wake_success:
+                    if flow.verify_screen_on:
+                        result.error_message = "Failed to wake screen for headless execution"
+                        logger.error(f"  [Headless] {result.error_message}")
+                        result.execution_time_ms = int((time.time() - start_time) * 1000)
+                        return result
+                    else:
+                        logger.warning(f"  [Headless] Screen wake failed, continuing anyway (verify_screen_on=False)")
+
             # Execute steps sequentially
             for i, step in enumerate(flow.steps):
                 # Timeout check
@@ -172,6 +192,15 @@ class FlowExecutor:
             result.success = False
             result.error_message = f"Flow execution error: {str(e)}"
             logger.error(f"[FlowExecutor] Flow {flow.flow_id} error: {e}", exc_info=True)
+
+        finally:
+            # Auto-sleep screen ONLY if flow was successful (don't sleep if failed - user might be using it!)
+            if flow.auto_sleep_after and result.success:
+                try:
+                    logger.info(f"  [Headless] Auto-sleeping screen after successful flow")
+                    await self.adb_bridge.sleep_screen(flow.device_id)
+                except Exception as sleep_error:
+                    logger.warning(f"  [Headless] Failed to sleep screen: {sleep_error}")
 
         result.execution_time_ms = int((time.time() - start_time) * 1000)
 
@@ -804,6 +833,46 @@ class FlowExecutor:
         logger.debug("  Pressing back button")
         await self.adb_bridge.keyevent(device_id, "KEYCODE_BACK")
         return True
+
+    # ========== Screen Power Control (Headless Mode) ==========
+
+    async def _execute_wake_screen(
+        self,
+        device_id: str,
+        step: FlowStep,
+        result: FlowExecutionResult
+    ) -> bool:
+        """Wake the device screen"""
+        logger.debug("  [Headless] Waking screen")
+        return await self.adb_bridge.wake_screen(device_id)
+
+    async def _execute_sleep_screen(
+        self,
+        device_id: str,
+        step: FlowStep,
+        result: FlowExecutionResult
+    ) -> bool:
+        """Put the device screen to sleep"""
+        logger.debug("  [Headless] Sleeping screen")
+        # Optional delay before sleep
+        if step.duration:
+            await asyncio.sleep(step.duration / 1000.0)
+        return await self.adb_bridge.sleep_screen(device_id)
+
+    async def _execute_ensure_screen_on(
+        self,
+        device_id: str,
+        step: FlowStep,
+        result: FlowExecutionResult
+    ) -> bool:
+        """Ensure screen is on before proceeding"""
+        timeout = step.duration or 3000  # Use duration field for timeout, default 3000ms
+        logger.debug(f"  [Headless] Ensuring screen is on (timeout: {timeout}ms)")
+        success = await self.adb_bridge.ensure_screen_on(device_id, timeout_ms=timeout)
+        if not success:
+            result.error_message = f"Screen failed to wake after {timeout}ms"
+            logger.warning(f"  [Headless] {result.error_message}")
+        return success
 
     async def _execute_stitch_capture(
         self,

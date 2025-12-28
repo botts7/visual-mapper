@@ -556,11 +556,12 @@ class LiveStream {
             }
 
             // Filter out empty elements (no text or content-desc)
+            // IMPORTANT: Always show clickable elements (they're interactive buttons/icons)
             if (this.hideEmptyElements) {
                 const hasText = el.text && el.text.trim();
-                const hasContentDesc = el['content-desc'] && el['content-desc'].trim();
-                const hasResourceId = el['resource-id'] && el['resource-id'].trim();
-                if (!hasText && !hasContentDesc && !(el.clickable && hasResourceId)) {
+                const hasContentDesc = el.content_desc && el.content_desc.trim();
+                // Skip only if: not clickable AND no text AND no content-desc
+                if (!el.clickable && !hasText && !hasContentDesc) {
                     return;
                 }
             }
@@ -691,7 +692,7 @@ class LiveStream {
 
             // Check element properties
             const hasText = el.text && el.text.trim();
-            const hasContentDesc = el['content-desc'] && el['content-desc'].trim();
+            const hasContentDesc = el.content_desc && el.content_desc.trim();
             const isContainer = el.class && this.containerClasses.includes(el.class);
 
             // Always skip containers if filter is on
@@ -701,7 +702,7 @@ class LiveStream {
 
             // Skip empty elements if filter is on (except clickable buttons)
             if (this.hideEmptyElements) {
-                const hasResourceId = el['resource-id'] && el['resource-id'].trim();
+                const hasResourceId = el.resource_id && el.resource_id.trim();
                 if (!hasText && !hasContentDesc && !(el.clickable && hasResourceId)) {
                     continue;
                 }

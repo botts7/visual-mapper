@@ -1304,6 +1304,132 @@ class ADBBridge:
         logger.debug(f"[ADBBridge] Key event {keycode} on {device_id}")
         await conn.shell(f"input keyevent {keycode}")
 
+    # ========== Screen Power Control (Headless Mode) ==========
+
+    async def is_screen_on(self, device_id: str) -> bool:
+        """
+        Check if the device screen is currently on.
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            True if screen is on, False if off/locked or device not connected
+        """
+        conn = self.devices.get(device_id)
+        if not conn:
+            logger.debug(f"[ADBBridge] Device {device_id} not in devices dict for is_screen_on check")
+            return False  # Don't raise - return False so wake logic can try to proceed
+
+        try:
+            result = await conn.shell("dumpsys power | grep 'Display Power'")
+            return "state=ON" in result
+        except Exception as e:
+            logger.warning(f"[ADBBridge] Failed to check screen state: {e}")
+            return False
+
+    async def wake_screen(self, device_id: str) -> bool:
+        """
+        Wake the device screen.
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            True if wake command sent successfully, False if device not connected or command failed
+        """
+        conn = self.devices.get(device_id)
+        if not conn:
+            logger.warning(f"[ADBBridge] Cannot wake screen - device {device_id} not in devices dict")
+            return False  # Don't raise - just return False
+
+        try:
+            logger.info(f"[ADBBridge] Waking screen on {device_id}")
+            await conn.shell("input keyevent 224")  # KEYCODE_WAKEUP
+            return True
+        except Exception as e:
+            logger.error(f"[ADBBridge] Failed to wake screen: {e}")
+            return False
+
+    async def sleep_screen(self, device_id: str) -> bool:
+        """
+        Put the device screen to sleep.
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            True if sleep command sent successfully, False if device not connected or command failed
+        """
+        conn = self.devices.get(device_id)
+        if not conn:
+            logger.warning(f"[ADBBridge] Cannot sleep screen - device {device_id} not in devices dict")
+            return False  # Don't raise - just return False
+
+        try:
+            logger.info(f"[ADBBridge] Sleeping screen on {device_id}")
+            await conn.shell("input keyevent 223")  # KEYCODE_SLEEP
+            return True
+        except Exception as e:
+            logger.error(f"[ADBBridge] Failed to sleep screen: {e}")
+            return False
+
+    async def ensure_screen_on(self, device_id: str, timeout_ms: int = 3000) -> bool:
+        """
+        Ensure the device screen is on, waking it if necessary.
+
+        Args:
+            device_id: Device identifier
+            timeout_ms: Maximum time to wait for screen to wake (default 3000ms)
+
+        Returns:
+            True if screen is on (or was successfully woken), False on timeout
+        """
+        # Check if already on
+        if await self.is_screen_on(device_id):
+            logger.debug(f"[ADBBridge] Screen already on for {device_id}")
+            return True
+
+        # Try to wake
+        await self.wake_screen(device_id)
+
+        # Wait and verify (check every 100ms)
+        attempts = timeout_ms // 100
+        for i in range(attempts):
+            await asyncio.sleep(0.1)
+            if await self.is_screen_on(device_id):
+                logger.info(f"[ADBBridge] Screen woke after {(i + 1) * 100}ms")
+                return True
+
+        logger.warning(f"[ADBBridge] Screen failed to wake after {timeout_ms}ms")
+        return False
+
+    async def unlock_screen(self, device_id: str) -> bool:
+        """
+        Attempt to unlock the screen (works for swipe-to-unlock, not PIN/pattern).
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            True if unlock command sent successfully
+        """
+        conn = self.devices.get(device_id)
+        if not conn:
+            raise ValueError(f"Device not connected: {device_id}")
+
+        try:
+            logger.info(f"[ADBBridge] Unlocking screen on {device_id}")
+            # Send menu key (often dismisses lock screen on swipe-to-unlock)
+            await conn.shell("input keyevent 82")  # KEYCODE_MENU
+            await asyncio.sleep(0.3)
+            # Also try swipe up (common unlock gesture)
+            await conn.shell("input swipe 540 1800 540 800 300")
+            return True
+        except Exception as e:
+            logger.error(f"[ADBBridge] Failed to unlock screen: {e}")
+            return False
+
     async def execute_batch_commands(self, device_id: str, commands: List[str]) -> List[tuple]:
         """
         Execute multiple shell commands in a single persistent session.

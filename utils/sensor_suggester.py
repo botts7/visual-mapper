@@ -20,7 +20,40 @@ class SensorSuggester:
     # Pattern definitions for different sensor types
     # Order matters! More specific patterns should come first
     PATTERNS = {
-        # Specific patterns with strong keywords first
+        # Class-based auto-detection patterns (highest priority)
+        'progressbar': {
+            'keywords': [],
+            'indicators': [],
+            'classes': ['android.widget.ProgressBar', 'androidx.appcompat.widget.AppCompatProgressBar'],
+            'device_class': 'none',
+            'unit': '%',
+            'icon': 'mdi:progress-clock',
+            'confidence_base': 0.9,
+            'value_range': (0, 100),
+            'is_class_based': True
+        },
+        'seekbar': {
+            'keywords': [],
+            'indicators': [],
+            'classes': ['android.widget.SeekBar', 'androidx.appcompat.widget.AppCompatSeekBar'],
+            'device_class': 'none',
+            'unit': None,
+            'icon': 'mdi:tune',
+            'confidence_base': 0.85,
+            'is_class_based': True
+        },
+        'ratingbar': {
+            'keywords': [],
+            'indicators': [],
+            'classes': ['android.widget.RatingBar'],
+            'device_class': 'none',
+            'unit': 'stars',
+            'icon': 'mdi:star',
+            'confidence_base': 0.9,
+            'value_range': (0, 5),
+            'is_class_based': True
+        },
+        # Specific patterns with strong keywords
         'temperature': {
             'keywords': ['temp', 'temperature'],
             'indicators': ['°f', '°c', '°', 'deg'],
@@ -66,6 +99,15 @@ class SensorSuggester:
             'confidence_base': 0.9,
             'value_range': (0, 100)
         },
+        'percentage': {
+            'keywords': [],
+            'indicators': ['%'],
+            'device_class': 'none',
+            'unit': '%',
+            'icon': 'mdi:percent',
+            'confidence_base': 0.65,  # Moderate confidence - % is a strong indicator
+            'value_range': (0, 100)
+        },
         'timestamp': {
             'keywords': ['updated', 'last', 'time', 'date', 'modified', 'refreshed', 'synced'],
             'indicators': [':', 'am', 'pm', 'ago', 'min', 'sec', 'hour'],
@@ -83,16 +125,6 @@ class SensorSuggester:
             'icon': 'mdi:toggle-switch',
             'confidence_base': 0.85,
             'is_binary': True
-        },
-        # Generic patterns last (lowest priority)
-        'percentage': {
-            'keywords': [],
-            'indicators': ['%'],
-            'device_class': 'none',
-            'unit': '%',
-            'icon': 'mdi:percent',
-            'confidence_base': 0.5,  # Low confidence - generic
-            'value_range': (0, 100)
         }
     }
 
@@ -106,25 +138,48 @@ class SensorSuggester:
         Returns:
             List of sensor suggestions with confidence scores
         """
+        logger.info(f"[SensorSuggester] Analyzing {len(elements)} UI elements")
         suggestions = []
-        seen_resource_ids = set()  # Avoid duplicate suggestions
+        seen_combinations = set()  # Avoid duplicate suggestions (resource_id + text combo)
+
+        skipped_no_text = 0
+        skipped_duplicate = 0
+        analyzed = 0
 
         for element in elements:
-            # Skip elements without useful text or resource-id
+            # Skip elements without any useful attributes
             text = element.get('text', '').strip()
-            resource_id = element.get('resource-id', '')
+            resource_id = element.get('resource_id', '')
+            content_desc = element.get('content_desc', '')
+            element_class = element.get('class', '')
 
-            if not text and not resource_id:
-                continue
+            # Only skip if element has no useful info AND is a generic container
+            if not text and not resource_id and not content_desc:
+                # Check if element class is useful (not a generic container)
+                if element_class in ['android.view.View', 'android.view.ViewGroup', '']:
+                    skipped_no_text += 1
+                    continue
+                # Otherwise, analyze it (might have useful class info)
+
+            analyzed += 1
+            logger.debug(f"[SensorSuggester] Analyzing element: text='{text[:50] if text else '(none)'}', resource_id='{resource_id}'")
 
             # Try to match against each pattern
+            matched_any = False
             for pattern_name, pattern in self.PATTERNS.items():
                 match_result = self._matches_pattern(element, text, pattern)
 
                 if match_result['matches']:
-                    # Avoid duplicate suggestions for same resource-id
-                    if resource_id and resource_id in seen_resource_ids:
-                        continue
+                    # Create unique key combining resource_id, text, and position
+                    # This allows multiple sensors with same ID but different values (e.g., 4 tire pressures)
+                    bounds = element.get('bounds', '')
+                    unique_key = f"{resource_id}|{text}|{bounds}"
+
+                    # Skip only if exact same element (same ID, text, AND position)
+                    if unique_key in seen_combinations:
+                        skipped_duplicate += 1
+                        logger.debug(f"[SensorSuggester] Skipping duplicate element: {unique_key}")
+                        break
 
                     suggestion = self._create_suggestion(
                         element=element,
@@ -132,21 +187,28 @@ class SensorSuggester:
                         pattern=pattern,
                         confidence=match_result['confidence'],
                         extracted_value=match_result.get('value'),
-                        extracted_unit=match_result.get('unit')
+                        extracted_unit=match_result.get('unit'),
+                        all_elements=elements
                     )
 
                     suggestions.append(suggestion)
+                    matched_any = True
+                    logger.debug(f"[SensorSuggester] Matched pattern '{pattern_name}' with confidence {match_result['confidence']:.2f}")
 
-                    if resource_id:
-                        seen_resource_ids.add(resource_id)
+                    # Mark this combination as seen
+                    seen_combinations.add(unique_key)
 
                     # Only match first pattern (highest priority)
                     break
 
+            if not matched_any:
+                logger.debug(f"[SensorSuggester] No pattern matched for element: text='{text[:50] if text else '(none)'}'")
+
         # Sort by confidence (highest first)
         suggestions.sort(key=lambda x: x['confidence'], reverse=True)
 
-        logger.info(f"Generated {len(suggestions)} sensor suggestions from {len(elements)} elements")
+        logger.info(f"[SensorSuggester] Generated {len(suggestions)} sensor suggestions from {len(elements)} elements")
+        logger.info(f"[SensorSuggester] Stats: analyzed={analyzed}, skipped_no_text={skipped_no_text}, skipped_duplicate={skipped_duplicate}")
         return suggestions
 
     def _matches_pattern(
@@ -162,8 +224,9 @@ class SensorSuggester:
             Dict with 'matches' (bool), 'confidence' (float), 'value', 'unit'
         """
         text_lower = text.lower()
-        resource_id = element.get('resource-id', '').lower()
-        content_desc = element.get('content-desc', '').lower()
+        resource_id = element.get('resource_id', '').lower()
+        content_desc = element.get('content_desc', '').lower()
+        element_class = element.get('class', '')
 
         # Combine all searchable text
         searchable = f"{text_lower} {resource_id} {content_desc}"
@@ -171,6 +234,28 @@ class SensorSuggester:
         confidence = 0.0
         extracted_value = None
         extracted_unit = None
+
+        # Check for class-based match (highest priority for class-based patterns)
+        class_match = element_class in pattern.get('classes', [])
+
+        if class_match and pattern.get('is_class_based'):
+            # Class-based auto-detection - high confidence
+            confidence = pattern['confidence_base']
+            # Try to extract numeric value if available
+            numeric_match = self._extract_numeric_value(text)
+            if numeric_match:
+                extracted_value = numeric_match['value']
+                extracted_unit = numeric_match['unit']
+            else:
+                # For widgets like ProgressBar, use resource-id or text as value
+                extracted_value = text or resource_id or element_class.split('.')[-1]
+
+            return {
+                'matches': True,
+                'confidence': confidence,
+                'value': extracted_value,
+                'unit': extracted_unit or pattern.get('unit')
+            }
 
         # Check for keywords
         keyword_match = any(kw in searchable for kw in pattern.get('keywords', []))
@@ -220,18 +305,45 @@ class SensorSuggester:
                 except:
                     in_range = False
 
-            # Calculate confidence
+            # Calculate confidence - RELAXED matching logic
             if keyword_match and indicator_match and in_range:
+                # Perfect match: keyword + indicator + range
                 confidence = pattern['confidence_base']
-            elif (keyword_match or indicator_match) and in_range:
-                confidence = pattern['confidence_base'] * 0.8
-            elif keyword_match or indicator_match:
+            elif keyword_match and indicator_match:
+                # Strong match: keyword + indicator (no range check)
+                confidence = pattern['confidence_base'] * 0.9
+            elif keyword_match and in_range:
+                # Good match: keyword + range (missing indicator)
+                confidence = pattern['confidence_base'] * 0.85
+            elif indicator_match and in_range:
+                # Indicator + range match (works for both generic and keyword patterns)
+                # Strong indicators (%, °, etc.) are sufficient even without keywords
+                if pattern['confidence_base'] >= 0.6:
+                    # High confidence pattern - indicator + range is good
+                    confidence = pattern['confidence_base'] * 0.8
+                else:
+                    # Low confidence pattern - reduce confidence
+                    confidence = pattern['confidence_base'] * 0.6
+            elif indicator_match and not pattern.get('keywords'):
+                # Generic pattern with indicator only (no range check needed)
+                confidence = pattern['confidence_base'] * 0.7
+            elif indicator_match and pattern['confidence_base'] >= 0.8:
+                # Strong indicator for high-confidence pattern (%, °, humidity, etc.)
+                # Allow match even without keyword or range
                 confidence = pattern['confidence_base'] * 0.6
-            elif in_range and numeric_match:
-                confidence = pattern['confidence_base'] * 0.5
+            elif keyword_match:
+                # Keyword only - weak match, but allow for TextViews with numeric content
+                is_textview = 'TextView' in element_class
+                if is_textview and numeric_match:
+                    confidence = pattern['confidence_base'] * 0.5
+                else:
+                    confidence = 0.0
+            else:
+                # No match
+                confidence = 0.0
 
-        # Match if confidence is above threshold
-        matches = confidence >= 0.4
+        # Match if confidence is above threshold (lowered from 0.5 to 0.3 for better detection)
+        matches = confidence >= 0.3
 
         return {
             'matches': matches,
@@ -284,16 +396,17 @@ class SensorSuggester:
         pattern: Dict[str, Any],
         confidence: float,
         extracted_value: Optional[str] = None,
-        extracted_unit: Optional[str] = None
+        extracted_unit: Optional[str] = None,
+        all_elements: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Create a sensor suggestion from element and pattern match
         """
         text = element.get('text', '').strip()
-        resource_id = element.get('resource-id', '')
+        resource_id = element.get('resource_id', '')
 
-        # Generate sensor name
-        name = self._generate_sensor_name(element, pattern_name)
+        # Generate sensor name (use spatial detection if available)
+        name = self._generate_sensor_name(element, pattern_name, all_elements)
 
         # Generate entity ID
         entity_id = self._generate_entity_id(element, pattern_name)
@@ -312,7 +425,7 @@ class SensorSuggester:
             'element': {
                 'text': text,
                 'resource-id': resource_id,
-                'content-desc': element.get('content-desc', ''),
+                'content-desc': element.get('content_desc', ''),
                 'class': element.get('class', ''),
                 'bounds': element.get('bounds', {})
             },
@@ -320,10 +433,101 @@ class SensorSuggester:
             'suggested': True  # User hasn't confirmed yet
         }
 
-    def _generate_sensor_name(self, element: Dict[str, Any], pattern_name: str) -> str:
+    def _find_nearby_label(
+        self,
+        element: Dict[str, Any],
+        elements: List[Dict[str, Any]]
+    ) -> Optional[str]:
+        """
+        Find label element spatially near this value element
+
+        Detects label-value pairs like:
+        - "Doors" (label above) + "Closed and locked" (value)
+        - "Total mileage" (label above) + "18107km" (value)
+
+        Args:
+            element: The value element to find a label for
+            elements: All UI elements to search through
+
+        Returns:
+            Label text if found, None otherwise
+        """
+        bounds = element.get('bounds', {})
+        if not bounds or 'x' not in bounds or 'y' not in bounds:
+            return None
+
+        element_text = element.get('text', '').strip()
+
+        # Look for elements above/beside this one
+        nearby_labels = []
+
+        for other in elements:
+            # Skip self
+            if other is element:
+                continue
+
+            other_bounds = other.get('bounds', {})
+            if not other_bounds or 'x' not in other_bounds or 'y' not in other_bounds:
+                continue
+
+            other_text = other.get('text', '').strip()
+            if not other_text:
+                continue
+
+            # Calculate spatial relationship
+            x_distance = abs(other_bounds['x'] - bounds['x'])
+            y_distance = bounds['y'] - other_bounds['y']  # Positive = other is above
+
+            # Check if vertically aligned (same column, within 50px)
+            if x_distance < 50:
+                # Check if element is above (within 100px)
+                if 0 < y_distance < 100:
+                    # Check if other element looks like a label (text without numbers/units)
+                    # Labels typically don't have numeric values or units
+                    if not self._extract_numeric_value(other_text):
+                        nearby_labels.append({
+                            'text': other_text,
+                            'distance': y_distance,
+                            'element': other
+                        })
+
+            # Also check horizontally aligned (same row, to the left)
+            y_distance_abs = abs(other_bounds['y'] - bounds['y'])
+            x_distance_horiz = bounds['x'] - other_bounds['x']  # Positive = other is to left
+
+            if y_distance_abs < 30:  # Same horizontal line
+                if 0 < x_distance_horiz < 200:  # Within 200px to the left
+                    if not self._extract_numeric_value(other_text):
+                        nearby_labels.append({
+                            'text': other_text,
+                            'distance': x_distance_horiz,
+                            'element': other
+                        })
+
+        # Return closest label if found
+        if nearby_labels:
+            closest = min(nearby_labels, key=lambda x: x['distance'])
+            logger.debug(f"[SensorSuggester] Found nearby label '{closest['text']}' for value '{element_text}'")
+            return closest['text']
+
+        return None
+
+    def _generate_sensor_name(
+        self,
+        element: Dict[str, Any],
+        pattern_name: str,
+        all_elements: Optional[List[Dict[str, Any]]] = None
+    ) -> str:
         """Generate human-readable sensor name"""
         text = element.get('text', '').strip()
-        resource_id = element.get('resource-id', '')
+        resource_id = element.get('resource_id', '')
+
+        # Try to find a nearby label first (spatial detection)
+        if all_elements:
+            nearby_label = self._find_nearby_label(element, all_elements)
+            if nearby_label:
+                # Use nearby label as sensor name
+                return nearby_label.title()
 
         # Try to extract meaningful name from resource-id
         if resource_id:
@@ -347,7 +551,7 @@ class SensorSuggester:
 
     def _generate_entity_id(self, element: Dict[str, Any], pattern_name: str) -> str:
         """Generate unique entity ID"""
-        resource_id = element.get('resource-id', '')
+        resource_id = element.get('resource_id', '')
 
         # Use resource-id if available
         if resource_id:
