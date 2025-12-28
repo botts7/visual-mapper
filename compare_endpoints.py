@@ -43,13 +43,27 @@ def compare_endpoint(path: str) -> Dict[str, Any]:
             print(f"   New:      {new_response.status_code}")
             return {"status": "different", "reason": "status_code_mismatch"}
 
-        # Parse JSON
+        # Parse JSON (or compare raw text if not JSON)
         try:
             original_data = original_response.json()
             new_data = new_response.json()
         except Exception as e:
-            print(f"\n[ERROR] JSON PARSE ERROR: {e}")
-            return {"status": "error", "reason": str(e)}
+            # Not JSON - compare raw text (e.g., HTML error pages)
+            original_text = original_response.text
+            new_text = new_response.text
+            if original_text == new_text:
+                print(f"\n[OK] IDENTICAL (Non-JSON response)")
+                print(f"\nResponse preview (first 200 chars):")
+                print(original_text[:200])
+                return {"status": "identical", "data": original_text}
+            else:
+                print(f"\n[FAIL] DIFFERENT (Non-JSON response)")
+                print(f"\nOriginal Response:")
+                print(original_text[:500])
+                print(f"\nNew Response:")
+                print(new_text[:500])
+                return {"status": "different", "reason": "text_mismatch"}
+
 
         # Compare responses
         if original_data == new_data:
@@ -169,6 +183,15 @@ def test_meta_routes():
     results.append(compare_endpoint("/api/cache/screenshot/stats"))
     results.append(compare_endpoint("/api/cache/all/stats"))
     # Note: POST endpoints (ui/clear, ui/settings, screenshot/settings) tested separately
+
+    # Test performance routes (routes/performance.py)
+    print("\n[performance.py]")
+    results.append(compare_endpoint("/api/performance/metrics"))
+    results.append(compare_endpoint("/api/performance/cache"))
+    results.append(compare_endpoint("/api/performance/adb"))
+    results.append(compare_endpoint("/api/diagnostics/system"))
+    # Note: Device-specific diagnostics tested separately
+    # Note: POST endpoint /api/performance/cache/clear tested separately
 
     # Summary
     print("\n" + "="*80)
