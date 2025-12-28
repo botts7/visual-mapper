@@ -892,7 +892,11 @@
                     <div id="stepsEditor" class="steps-editor">
                         <!-- Steps will be dynamically rendered here -->
                     </div>
-                    <button type="button" class="add-step-btn" onclick="addNewStep()">+ Add Step</button>
+                    <div class="add-step-container" style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+                        <button type="button" class="add-step-btn" onclick="addNewStep()">+ Add Step</button>
+                        <button type="button" class="add-step-btn" style="background: #4CAF50;" onclick="showInsertSensorDialog()">📊 Insert Sensor</button>
+                        <button type="button" class="add-step-btn" style="background: #2196F3;" onclick="showInsertActionDialog()">⚡ Insert Action</button>
+                    </div>
                 </div>
 
                 <!-- Advanced Tab -->
@@ -910,11 +914,31 @@
                     <button type="button" class="btn btn-secondary" onclick="closeEditModal()">
                         Cancel
                     </button>
+                    <button type="button" class="btn btn-secondary" onclick="testCurrentFlow()" style="background: #2196F3; color: white;">
+                        🧪 Test Flow
+                    </button>
                     <button type="submit" class="btn btn-primary">
                         Save Changes
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Execution Results Modal -->
+    <div class="modal-overlay" id="executionResultsModal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>Flow Execution Results</h2>
+            </div>
+            <div id="executionResultsContent" class="modal-body" style="min-height: 150px;">
+                <!-- Results will be dynamically inserted here -->
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-primary" onclick="closeExecutionResultsModal()">
+                    Close
+                </button>
+            </div>
         </div>
     </div>
 
@@ -1272,6 +1296,12 @@
                                     ${isRunning ? 'disabled' : ''}>
                                 ${isRunning ? '⏳' : '▶'}
                             </button>
+                            <button class="btn-icon test"
+                                    onclick="testFlow('${flow.device_id}', '${flow.flow_id}')"
+                                    title="Test Flow"
+                                    ${isRunning ? 'disabled' : ''}>
+                                🧪
+                            </button>
                             <button class="btn-icon edit"
                                     onclick="editFlow('${flow.device_id}', '${flow.flow_id}')"
                                     title="Edit">
@@ -1345,8 +1375,21 @@
 
                 showToast('Flow execution started...', 'info');
 
-                // Execute the flow
-                await window.flowManager.executeFlow(deviceId, flowId);
+                // Execute the flow via API and get execution result
+                const response = await fetch(`${window.flowManager.apiBase}/flows/${deviceId}/${flowId}/execute`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Flow execution failed');
+                }
+
+                const result = await response.json();
+                console.log('[Flows] Flow execution result:', result);
+
+                // Show execution results
+                showExecutionResults(result);
 
                 showToast('Flow execution completed!', 'success');
 
@@ -1361,6 +1404,144 @@
                 runningFlows.delete(flowKey);
                 renderFlowTable(); // Re-render to remove running state
                 showToast('Failed to execute flow: ' + error.message, 'error');
+            }
+        }
+
+        /**
+         * Show execution results in modal
+         */
+        function showExecutionResults(result) {
+            const modal = document.getElementById('executionResultsModal');
+            const content = document.getElementById('executionResultsContent');
+
+            // Get flow steps count from result or flows array
+            const flow = flows.find(f => f.flow_id === result.flow_id);
+            const totalSteps = flow ? flow.steps.length : result.executed_steps ?? 0;
+
+            // Display results based on success/failure
+            if (result.success) {
+                const executedSteps = result.executed_steps ?? 0;
+                const executionTime = result.execution_time_ms ?? 0;
+                const capturedSensors = result.captured_sensors || {};
+
+                content.innerHTML = `
+                    <div class="test-success">
+                        <h4>✅ Flow Execution Successful</h4>
+                        <p><strong>Executed Steps:</strong> ${executedSteps} / ${totalSteps}</p>
+                        <p><strong>Execution Time:</strong> ${executionTime}ms</p>
+                        ${Object.keys(capturedSensors).length > 0 ? `
+                            <div class="captured-sensors">
+                                <strong>Captured Sensors:</strong>
+                                <ul>
+                                    ${Object.entries(capturedSensors).map(([id, value]) =>
+                                        `<li><strong>${escapeHtml(id)}:</strong> ${escapeHtml(String(value))}</li>`
+                                    ).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            } else {
+                const executedSteps = result.executed_steps ?? 0;
+                const failedStep = result.failed_step !== null && result.failed_step !== undefined ? result.failed_step + 1 : 'Unknown';
+
+                content.innerHTML = `
+                    <div class="test-failure">
+                        <h4>❌ Flow Execution Failed</h4>
+                        <p><strong>Failed at Step:</strong> ${failedStep}</p>
+                        <p><strong>Error:</strong> ${escapeHtml(result.error_message || 'Unknown error')}</p>
+                        <p><strong>Executed Steps:</strong> ${executedSteps} / ${totalSteps}</p>
+                    </div>
+                `;
+            }
+
+            // Show modal
+            modal.classList.add('active');
+        }
+
+        /**
+         * Close execution results modal
+         */
+        function closeExecutionResultsModal() {
+            const modal = document.getElementById('executionResultsModal');
+            modal.classList.remove('active');
+        }
+
+        /**
+         * Test a flow from the flow table
+         */
+        async function testFlow(deviceId, flowId) {
+            try {
+                showToast('Testing flow...', 'info');
+
+                // Execute the flow via API
+                const response = await fetch(`${window.flowManager.apiBase}/flows/${deviceId}/${flowId}/execute`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Flow test failed');
+                }
+
+                const result = await response.json();
+                console.log('[Flows] Flow test result:', result);
+
+                // Show execution results
+                showExecutionResults(result);
+
+                if (result.success) {
+                    showToast('Flow test passed!', 'success');
+                } else {
+                    showToast('Flow test failed', 'error');
+                }
+
+            } catch (error) {
+                console.error('[Flows] Flow test error:', error);
+                showToast(`Test error: ${error.message}`, 'error');
+            }
+        }
+
+        /**
+         * Test the currently edited flow (from edit modal)
+         */
+        async function testCurrentFlow() {
+            if (!editingFlow) {
+                showToast('No flow is being edited', 'error');
+                return;
+            }
+
+            try {
+                showToast('Testing flow...', 'info');
+
+                const { deviceId, flowId } = editingFlow;
+
+                // Get the current flow data from the form (in case user made changes)
+                // We'll test the saved version, not the in-progress edits
+                const response = await fetch(`${window.flowManager.apiBase}/flows/${deviceId}/${flowId}/execute`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Flow test failed');
+                }
+
+                const result = await response.json();
+                console.log('[Flows] Flow test result:', result);
+
+                // Show execution results
+                showExecutionResults(result);
+
+                if (result.success) {
+                    showToast('Flow test passed!', 'success');
+                } else {
+                    showToast('Flow test failed', 'error');
+                }
+
+            } catch (error) {
+                console.error('[Flows] Flow test error:', error);
+                showToast(`Test error: ${error.message}`, 'error');
             }
         }
 
@@ -1672,6 +1853,213 @@
             renderFlowSteps();
         }
 
+        async function showInsertSensorDialog() {
+            if (!editingFlow) return;
+
+            try {
+                // Fetch existing sensors for this device
+                const response = await fetch(`/api/sensors/${encodeURIComponent(editingFlow.deviceId)}`);
+                const data = await response.json();
+                const sensors = data.sensors || [];
+
+                if (sensors.length === 0) {
+                    showToast('No sensors found for this device', 'warning');
+                    return;
+                }
+
+                // Create dialog overlay
+                const overlay = document.createElement('div');
+                overlay.id = 'insert-sensor-overlay';
+                overlay.style.cssText = `
+                    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                    background: rgba(0, 0, 0, 0.7); z-index: 10001;
+                    display: flex; align-items: center; justify-content: center;
+                `;
+
+                const dialog = document.createElement('div');
+                dialog.style.cssText = `
+                    background: var(--card-background, #1e1e1e); border-radius: 8px;
+                    padding: 20px; max-width: 500px; width: 90%; max-height: 70vh;
+                    overflow-y: auto; color: var(--text-color, #e0e0e0);
+                `;
+
+                dialog.innerHTML = `
+                    <h3 style="margin: 0 0 15px 0;">📊 Insert Existing Sensor</h3>
+                    <p style="margin-bottom: 15px; color: #888; font-size: 0.9em;">
+                        Select a sensor to add to this flow. Smart detection will find the element at runtime.
+                    </p>
+                    <div id="sensorList" style="max-height: 400px; overflow-y: auto;">
+                        ${sensors.map(s => {
+                            const resourceId = s.source?.element_resource_id ? s.source.element_resource_id.split('/').pop() : null;
+                            const elementText = s.source?.element_text || null;
+                            // Extract app name from resource_id (e.g., "com.byd.bydautolink:id/tem_tv" -> "bydautolink")
+                            const appPackage = s.source?.element_resource_id ? s.source.element_resource_id.split(':')[0].split('.').pop() : null;
+                            const extractionMethod = s.extraction_rule?.method || 'exact';
+                            const deviceClass = s.device_class && s.device_class !== 'none' ? s.device_class : null;
+                            const currentValue = s.current_value;
+                            const unit = s.unit_of_measurement || '';
+                            const lastUpdated = s.updated_at ? new Date(s.updated_at).toLocaleString() : null;
+
+                            return `
+                            <div class="sensor-option" data-sensor-id="${s.sensor_id}" data-sensor-name="${s.friendly_name}" style="
+                                padding: 12px; margin: 5px 0; background: rgba(255,255,255,0.05);
+                                border-radius: 6px; cursor: pointer; border: 2px solid transparent;
+                            ">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: bold; font-size: 1.05em;">${s.friendly_name}</span>
+                                    ${currentValue !== null && currentValue !== undefined ?
+                                        '<span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.85em; font-weight: 600;">' + currentValue + unit + '</span>' :
+                                        '<span style="background: #666; color: #ccc; padding: 2px 8px; border-radius: 10px; font-size: 0.8em;">No value</span>'
+                                    }
+                                </div>
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px;">
+                                    ${appPackage ? '<span style="background: rgba(33,150,243,0.2); color: #64B5F6; padding: 2px 6px; border-radius: 4px; font-size: 0.75em;">📱 ' + appPackage + '</span>' : ''}
+                                    ${deviceClass ? '<span style="background: rgba(156,39,176,0.2); color: #CE93D8; padding: 2px 6px; border-radius: 4px; font-size: 0.75em;">📊 ' + deviceClass + '</span>' : ''}
+                                    ${extractionMethod ? '<span style="background: rgba(255,152,0,0.2); color: #FFB74D; padding: 2px 6px; border-radius: 4px; font-size: 0.75em;">🔧 ' + extractionMethod + '</span>' : ''}
+                                </div>
+                                <div style="font-size: 0.8em; color: #888; margin-top: 6px;">
+                                    ${resourceId ? '<div>🆔 <code style="background: rgba(0,0,0,0.3); padding: 1px 4px; border-radius: 3px;">' + resourceId + '</code></div>' : ''}
+                                    ${elementText ? '<div style="margin-top: 2px;">📝 "' + (elementText.length > 40 ? elementText.substring(0, 40) + '...' : elementText) + '"</div>' : ''}
+                                </div>
+                                ${lastUpdated ? '<div style="font-size: 0.7em; color: #666; margin-top: 4px;">⏱️ Last: ' + lastUpdated + '</div>' : ''}
+                            </div>
+                        `;}).join('')}
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end;">
+                        <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+                    </div>
+                `;
+
+                overlay.appendChild(dialog);
+                document.body.appendChild(overlay);
+
+                // Handle sensor selection
+                dialog.querySelectorAll('.sensor-option').forEach(option => {
+                    option.addEventListener('mouseover', () => option.style.borderColor = '#4CAF50');
+                    option.addEventListener('mouseout', () => option.style.borderColor = 'transparent');
+                    option.addEventListener('click', () => {
+                        const sensorId = option.dataset.sensorId;
+                        const sensorName = option.dataset.sensorName;
+
+                        // Add capture_sensors step
+                        editingFlow.flow.steps.push({
+                            step_type: 'capture_sensors',
+                            sensor_ids: [sensorId],
+                            description: `Capture: ${sensorName}`
+                        });
+
+                        renderFlowSteps();
+                        document.body.removeChild(overlay);
+                        showToast(`Added sensor: ${sensorName}`, 'success');
+                    });
+                });
+
+                dialog.querySelector('#cancelBtn').addEventListener('click', () => {
+                    document.body.removeChild(overlay);
+                });
+
+                overlay.addEventListener('click', (e) => {
+                    if (e.target === overlay) document.body.removeChild(overlay);
+                });
+
+            } catch (error) {
+                console.error('Failed to load sensors:', error);
+                showToast('Failed to load sensors', 'error');
+            }
+        }
+
+        async function showInsertActionDialog() {
+            if (!editingFlow) return;
+
+            try {
+                // Fetch existing actions for this device
+                const response = await fetch(`/api/actions/${encodeURIComponent(editingFlow.deviceId)}`);
+                const data = await response.json();
+                const actions = data.actions || [];
+
+                if (actions.length === 0) {
+                    showToast('No actions found for this device', 'warning');
+                    return;
+                }
+
+                // Create dialog overlay
+                const overlay = document.createElement('div');
+                overlay.id = 'insert-action-overlay';
+                overlay.style.cssText = `
+                    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                    background: rgba(0, 0, 0, 0.7); z-index: 10001;
+                    display: flex; align-items: center; justify-content: center;
+                `;
+
+                const dialog = document.createElement('div');
+                dialog.style.cssText = `
+                    background: var(--card-background, #1e1e1e); border-radius: 8px;
+                    padding: 20px; max-width: 500px; width: 90%; max-height: 70vh;
+                    overflow-y: auto; color: var(--text-color, #e0e0e0);
+                `;
+
+                dialog.innerHTML = `
+                    <h3 style="margin: 0 0 15px 0;">⚡ Insert Existing Action</h3>
+                    <p style="margin-bottom: 15px; color: #888; font-size: 0.9em;">
+                        Select an action to add to this flow.
+                    </p>
+                    <div id="actionList" style="max-height: 300px; overflow-y: auto;">
+                        ${actions.map(a => `
+                            <div class="action-option" data-action-id="${a.id}" data-action-name="${a.action?.name || 'Action'}" style="
+                                padding: 12px; margin: 5px 0; background: rgba(255,255,255,0.05);
+                                border-radius: 6px; cursor: pointer; border: 2px solid transparent;
+                            ">
+                                <div style="font-weight: bold;">${a.action?.name || 'Unnamed Action'}</div>
+                                <div style="font-size: 0.85em; color: #888; margin-top: 4px;">
+                                    Type: ${a.action?.action_type || 'unknown'}
+                                    ${a.action?.actions ? ` • ${a.action.actions.length} steps` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end;">
+                        <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+                    </div>
+                `;
+
+                overlay.appendChild(dialog);
+                document.body.appendChild(overlay);
+
+                // Handle action selection
+                dialog.querySelectorAll('.action-option').forEach(option => {
+                    option.addEventListener('mouseover', () => option.style.borderColor = '#2196F3');
+                    option.addEventListener('mouseout', () => option.style.borderColor = 'transparent');
+                    option.addEventListener('click', () => {
+                        const actionId = option.dataset.actionId;
+                        const actionName = option.dataset.actionName;
+
+                        // Add execute_action step
+                        editingFlow.flow.steps.push({
+                            step_type: 'execute_action',
+                            action_id: actionId,
+                            description: `Execute: ${actionName}`
+                        });
+
+                        renderFlowSteps();
+                        document.body.removeChild(overlay);
+                        showToast(`Added action: ${actionName}`, 'success');
+                    });
+                });
+
+                dialog.querySelector('#cancelBtn').addEventListener('click', () => {
+                    document.body.removeChild(overlay);
+                });
+
+                overlay.addEventListener('click', (e) => {
+                    if (e.target === overlay) document.body.removeChild(overlay);
+                });
+
+            } catch (error) {
+                console.error('Failed to load actions:', error);
+                showToast('Failed to load actions', 'error');
+            }
+        }
+
         function syncJSONFromBasicForm() {
             if (!editingFlow) return;
 
@@ -1808,6 +2196,8 @@
         window.pauseScheduler = pauseScheduler;
         window.resumeScheduler = resumeScheduler;
         window.loadSchedulerStatus = loadSchedulerStatus;
+        window.showInsertSensorDialog = showInsertSensorDialog;
+        window.showInsertActionDialog = showInsertActionDialog;
 
         // Load flows on page load
         if (document.readyState === 'loading') {

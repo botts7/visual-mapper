@@ -193,6 +193,7 @@ class ElementTree {
                 <div class="tree-element-actions">
                     ${isClickable ? `<button class="tree-btn tree-btn-tap" title="Add tap action">👆</button>` : ''}
                     <button class="tree-btn tree-btn-sensor" title="Add as sensor">📊</button>
+                    <button class="tree-btn tree-btn-timestamp" title="Mark as timestamp (for refresh validation)">⏱️</button>
                     <button class="tree-btn tree-btn-highlight" title="Highlight on screen">🔍</button>
                 </div>
             </div>
@@ -245,6 +246,16 @@ class ElementTree {
                 const element = this.getElementFromButton(btn);
                 if (element && this.onSensor) {
                     this.onSensor(element);
+                }
+            });
+        });
+
+        this.container.querySelectorAll('.tree-btn-timestamp').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const element = this.getElementFromButton(btn);
+                if (element && this.onTimestamp) {
+                    this.onTimestamp(element);
                 }
             });
         });

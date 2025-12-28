@@ -367,6 +367,9 @@
         let allActions = [];
         let deviceActions = new Map(); // deviceId -> actions[]
         let deviceInfo = new Map(); // deviceId -> device info (model, activity, etc.)
+        let actionsInFlows = new Set(); // action_ids that are referenced in flows
+        let stableIdsWithFlows = new Set(); // stable_device_ids that have at least one flow
+        let allFlows = []; // all flows across all devices
 
         // Load all actions from all devices
         async function loadActions() {
@@ -379,30 +382,61 @@
                 deviceInfo.clear();
                 devices.forEach(dev => deviceInfo.set(dev.id, dev));
 
-                // Load actions for each device IN PARALLEL
+                // Load actions per device AND all flows in parallel
                 allActions = [];
                 deviceActions.clear();
+                actionsInFlows.clear();
+                stableIdsWithFlows.clear();
+                allFlows = [];
 
-                // Create parallel API call promises
+                // Create parallel API call promises for actions (per device)
                 const actionPromises = devices.map(device =>
                     apiClient.get(`/actions/${device.id}`)
-                        .then(response => ({device, actions: response.actions || []}))
+                        .then(response => ({device, data: response.actions || []}))
                         .catch(error => {
                             console.error(`[Actions] Failed to load actions for ${device.id}:`, error);
-                            return {device, actions: []};
+                            return {device, data: []};
                         })
                 );
 
-                // Wait for all API calls to complete in parallel
-                const results = await Promise.all(actionPromises);
+                // Load ALL flows (not filtered by device) to match by stable_device_id
+                const flowsPromise = apiClient.get('/flows')
+                    .then(response => response.flows || [])
+                    .catch(error => {
+                        console.error('[Actions] Failed to load flows:', error);
+                        return [];
+                    });
 
-                // Process results
-                results.forEach(({device, actions}) => {
-                    if (actions.length > 0) {
-                        deviceActions.set(device.id, actions);
+                // Wait for all API calls
+                const [actionResults, flowsData] = await Promise.all([
+                    Promise.all(actionPromises),
+                    flowsPromise
+                ]);
+
+                // Process action results
+                actionResults.forEach(({device, data}) => {
+                    if (data.length > 0) {
+                        deviceActions.set(device.id, data);
                         // Add device_id to each action for filtering
-                        actions.forEach(action => action.device_id = device.id);
-                        allActions.push(...actions);
+                        data.forEach(action => action.device_id = device.id);
+                        allActions.push(...data);
+                    }
+                });
+
+                // Process flows - extract action_ids AND stable_device_ids
+                allFlows = flowsData;
+                flowsData.forEach(flow => {
+                    // Track stable_device_id for device-level flow detection
+                    if (flow.stable_device_id) {
+                        stableIdsWithFlows.add(flow.stable_device_id);
+                    }
+                    // Extract action_ids from flow steps
+                    if (flow.steps) {
+                        flow.steps.forEach(step => {
+                            if (step.step_type === 'execute_action' && step.action_id) {
+                                actionsInFlows.add(step.action_id);
+                            }
+                        });
                     }
                 });
 
@@ -496,13 +530,39 @@
             attachActionListeners();
         }
 
+        // Format relative time
+        function formatRelativeTime(timestamp) {
+            if (!timestamp) return 'Never';
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffSec = Math.floor(diffMs / 1000);
+            const diffMin = Math.floor(diffSec / 60);
+            const diffHr = Math.floor(diffMin / 60);
+            const diffDay = Math.floor(diffHr / 24);
+
+            if (diffSec < 10) return 'Just now';
+            if (diffSec < 60) return `${diffSec}s ago`;
+            if (diffMin < 60) return `${diffMin}m ago`;
+            if (diffHr < 24) return `${diffHr}h ago`;
+            return `${diffDay}d ago`;
+        }
+
         // Render a single action card
         function renderActionCard(actionDef) {
             const action = actionDef.action;
             const device = deviceInfo.get(actionDef.device_id);
             const deviceLabel = device?.model || actionDef.device_id;
+            const lastTriggered = formatRelativeTime(actionDef.last_executed);
+            const execCount = actionDef.execution_count || 0;
+
+            const isInFlow = actionsInFlows.has(actionDef.id);
+            const isOrphaned = !isInFlow;
 
             const typeBadge = `<span class="action-type-badge action-type-${action.action_type}">${action.action_type}</span>`;
+            const flowBadge = isInFlow
+                ? '<span style="background: #2196F3; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px;">In Flow</span>'
+                : '<span style="background: #FF9800; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px;">Standalone</span>';
 
             let details = '';
             if (action.action_type === 'tap') {
@@ -523,20 +583,24 @@
 
             const tags = actionDef.tags ? actionDef.tags.map(tag => `<span class="tag">${tag}</span>`).join('') : '';
 
-            const stats = `
-                <div class="action-stats">
-                    Device: ${deviceLabel} |
-                    Executed: ${actionDef.execution_count || 0} times
-                    ${actionDef.last_executed ? `| Last: ${new Date(actionDef.last_executed).toLocaleString()}` : ''}
+            // Note: Actions can be standalone (triggered via MQTT/HA) or in flows
+            // Only show info box for standalone, not error warning
+            const standaloneInfo = isOrphaned ? `
+                <div style="background: #FF980020; border: 1px solid #FF9800; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; font-size: 0.85em; color: #FF9800;">
+                    <strong>Standalone Action</strong> - Can be triggered via MQTT/Home Assistant, but won't run automatically.
+                    <a href="flow-wizard.html?device=${encodeURIComponent(actionDef.device_id)}&action=${encodeURIComponent(actionDef.id)}"
+                       style="margin-left: 10px; color: #2196F3;">Add to Flow</a>
                 </div>
-            `;
+            ` : '';
 
             return `
-                <div class="action-card" data-action-id="${actionDef.id}" data-device-id="${actionDef.device_id}">
+                <div class="action-card" data-action-id="${actionDef.id}" data-device-id="${actionDef.device_id}" style="border-color: ${isOrphaned ? '#FF9800' : 'var(--border-color)'};">
+                    ${standaloneInfo}
                     <div class="action-card-header">
                         <div>
                             <strong>${action.name}</strong>
                             ${typeBadge}
+                            ${flowBadge}
                         </div>
                         <div class="action-card-footer">
                             <button class="btn-execute btn btn-secondary" data-id="${actionDef.id}" data-device="${actionDef.device_id}">▶ Execute</button>
@@ -547,7 +611,15 @@
                     ${action.description ? `<div class="action-card-body">${action.description}</div>` : ''}
                     <div class="action-card-details">${details}</div>
                     ${tags ? `<div style="margin: 8px 0;">${tags}</div>` : ''}
-                    ${stats}
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding: 10px; background: var(--preview-background); border-radius: 6px;">
+                        <div class="action-stats" style="margin: 0;">
+                            <strong>${deviceLabel}</strong> | ${execCount} execution${execCount !== 1 ? 's' : ''}
+                        </div>
+                        <div style="text-align: right;">
+                            <span style="font-size: 0.8em; color: var(--text-secondary);">Last Triggered</span><br>
+                            <strong style="color: var(--primary-color);">${lastTriggered}</strong>
+                        </div>
+                    </div>
                     ${actionDef.last_result ? `<div class="status ${actionDef.last_result.includes('success') ? 'success' : 'error'}" style="margin-top: 10px; font-size: 0.85em;">${actionDef.last_result}</div>` : ''}
                 </div>
             `;

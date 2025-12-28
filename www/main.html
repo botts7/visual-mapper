@@ -8,6 +8,206 @@
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="stylesheet" href="css/styles.css?v=0.0.5">
+    <style>
+        /* Dashboard-specific styles */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--card-background);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .stat-card .stat-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: var(--primary-color);
+            margin: 0;
+        }
+
+        .stat-card .stat-label {
+            font-size: 0.9em;
+            color: var(--text-secondary);
+            margin: 5px 0 0 0;
+        }
+
+        .stat-card .stat-icon {
+            font-size: 1.5em;
+            margin-bottom: 10px;
+        }
+
+        .stat-card.success { border-left: 4px solid #4CAF50; }
+        .stat-card.warning { border-left: 4px solid #FF9800; }
+        .stat-card.info { border-left: 4px solid #2196F3; }
+        .stat-card.primary { border-left: 4px solid var(--primary-color); }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+
+        .status-indicator.online {
+            background: #4CAF5020;
+            color: #4CAF50;
+        }
+
+        .status-indicator.offline {
+            background: #f4433620;
+            color: #f44336;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.online { background: #4CAF50; }
+        .status-dot.offline { background: #f44336; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .activity-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+
+        .activity-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+            flex-shrink: 0;
+        }
+
+        .activity-icon.sensor { background: #2196F320; color: #2196F3; }
+        .activity-icon.device { background: #4CAF5020; color: #4CAF50; }
+        .activity-icon.action { background: #FF980020; color: #FF9800; }
+        .activity-icon.flow { background: #9C27B020; color: #9C27B0; }
+
+        .activity-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .activity-title {
+            font-weight: 500;
+            color: var(--text-color);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .activity-meta {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+        }
+
+        .activity-time {
+            font-size: 0.8em;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .sensor-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-color);
+            gap: 10px;
+        }
+
+        .sensor-row:last-child {
+            border-bottom: none;
+        }
+
+        .sensor-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .sensor-name {
+            font-weight: 500;
+            color: var(--text-color);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sensor-device {
+            font-size: 0.8em;
+            color: var(--text-secondary);
+        }
+
+        .sensor-value {
+            font-weight: 600;
+            color: var(--primary-color);
+            white-space: nowrap;
+        }
+
+        .sensor-updated {
+            font-size: 0.75em;
+            color: var(--text-secondary);
+            text-align: right;
+        }
+
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .header-row h2 {
+            margin: 0;
+        }
+
+        .refresh-time {
+            font-size: 0.8em;
+            color: var(--text-secondary);
+        }
+    </style>
 </head>
 <body>
     <nav>
@@ -32,44 +232,98 @@
     </nav>
 
     <div class="container">
-        <div class="card dashboard-logo-header">
-            <img src="branding/logo-horizontal.svg" alt="Visual Mapper">
-            <p>Home Assistant Android Device Monitoring - Phase 3</p>
-        </div>
-
-        <!-- System Status -->
-        <div class="card">
-            <h2>System Status</h2>
-            <p><strong>Backend:</strong> <span id="backend-status">Checking...</span></p>
-            <p><strong>Version:</strong> 0.0.5</p>
-            <p><strong>Phase:</strong> 3 - Sensor Creation Complete + Performance Enhancements</p>
-            <p><strong>API Base:</strong> <span id="api-base"></span></p>
-        </div>
-
-        <!-- Connected Devices -->
-        <div class="card">
-            <h2>Connected Devices</h2>
-            <div id="devicesContainer">
-                <p class="status warning">Loading devices...</p>
+        <!-- Header with logo and status -->
+        <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <img src="branding/logo-horizontal.svg" alt="Visual Mapper" style="height: 40px;">
+            </div>
+            <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                <div id="mqttStatus" class="status-indicator offline">
+                    <span class="status-dot offline"></span>
+                    <span>MQTT: Checking...</span>
+                </div>
+                <div id="backendStatus" class="status-indicator offline">
+                    <span class="status-dot offline"></span>
+                    <span>Backend: Checking...</span>
+                </div>
             </div>
         </div>
 
-        <!-- Active Sensors -->
-        <div class="card">
-            <h2>Active Sensors</h2>
-            <div id="sensorsContainer">
-                <p class="status warning">Loading sensors...</p>
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+            <div class="stat-card success">
+                <div class="stat-icon">📱</div>
+                <p class="stat-value" id="deviceCount">-</p>
+                <p class="stat-label">Devices</p>
+            </div>
+            <div class="stat-card info">
+                <div class="stat-icon">📊</div>
+                <p class="stat-value" id="sensorCount">-</p>
+                <p class="stat-label">Sensors</p>
+            </div>
+            <div class="stat-card warning">
+                <div class="stat-icon">⚡</div>
+                <p class="stat-value" id="actionCount">-</p>
+                <p class="stat-label">Actions</p>
+            </div>
+            <div class="stat-card primary">
+                <div class="stat-icon">🔄</div>
+                <p class="stat-value" id="flowCount">-</p>
+                <p class="stat-label">Flows</p>
             </div>
         </div>
 
-        <!-- Quick Actions -->
-        <div class="card">
-            <h2>Quick Actions</h2>
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                <a href="devices.html" class="btn">Manage Devices</a>
-                <a href="sensors.html" class="btn">Manage Sensors</a>
-                <a href="diagnostic.html" class="btn btn-secondary">Diagnostic Tools</a>
+        <!-- Main Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Connected Devices -->
+            <div class="card">
+                <div class="header-row">
+                    <h2>Connected Devices</h2>
+                    <a href="devices.html" class="btn btn-secondary" style="padding: 5px 12px; font-size: 0.85em;">Manage</a>
+                </div>
+                <div id="devicesContainer">
+                    <p class="status warning">Loading devices...</p>
+                </div>
             </div>
+
+            <!-- Active Sensors -->
+            <div class="card">
+                <div class="header-row">
+                    <h2>Active Sensors</h2>
+                    <a href="sensors.html" class="btn btn-secondary" style="padding: 5px 12px; font-size: 0.85em;">View All</a>
+                </div>
+                <div id="sensorsContainer">
+                    <p class="status warning">Loading sensors...</p>
+                </div>
+            </div>
+
+            <!-- Recent Actions -->
+            <div class="card">
+                <div class="header-row">
+                    <h2>Recent Actions</h2>
+                    <a href="actions.html" class="btn btn-secondary" style="padding: 5px 12px; font-size: 0.85em;">View All</a>
+                </div>
+                <div id="actionsContainer">
+                    <p class="status warning">Loading actions...</p>
+                </div>
+            </div>
+
+            <!-- Active Flows -->
+            <div class="card">
+                <div class="header-row">
+                    <h2>Active Flows</h2>
+                    <a href="flows.html" class="btn btn-secondary" style="padding: 5px 12px; font-size: 0.85em;">View All</a>
+                </div>
+                <div id="flowsContainer">
+                    <p class="status warning">Loading flows...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer with refresh time -->
+        <div style="text-align: center; margin-top: 20px; color: var(--text-secondary); font-size: 0.85em;">
+            <span id="lastRefresh">Last updated: --</span>
+            <button id="refreshAll" class="btn btn-secondary" style="margin-left: 10px; padding: 5px 15px; font-size: 0.85em;">Refresh Now</button>
         </div>
     </div>
 
@@ -97,19 +351,53 @@
             themeToggleContainer.appendChild(toggleButton);
         }
 
-        // Show API base
-        document.getElementById('api-base').textContent = window.API_BASE || '/api';
+        // Format relative time
+        function formatRelativeTime(timestamp) {
+            if (!timestamp) return 'Never';
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffSec = Math.floor(diffMs / 1000);
+            const diffMin = Math.floor(diffSec / 60);
+            const diffHr = Math.floor(diffMin / 60);
+            const diffDay = Math.floor(diffHr / 24);
 
-        // Check backend health
-        async function checkBackend() {
+            if (diffSec < 10) return 'Just now';
+            if (diffSec < 60) return `${diffSec}s ago`;
+            if (diffMin < 60) return `${diffMin}m ago`;
+            if (diffHr < 24) return `${diffHr}h ago`;
+            return `${diffDay}d ago`;
+        }
+
+        // Check backend health and MQTT status
+        async function checkStatus() {
             try {
                 const response = await apiClient.get('/health');
-                document.getElementById('backend-status').textContent = `✅ Running (${response.version})`;
-                document.getElementById('backend-status').style.color = 'var(--success-color)';
+
+                // Backend status
+                const backendEl = document.getElementById('backendStatus');
+                backendEl.className = 'status-indicator online';
+                backendEl.innerHTML = `
+                    <span class="status-dot online"></span>
+                    <span>Backend: v${response.version}</span>
+                `;
+
+                // MQTT status
+                const mqttEl = document.getElementById('mqttStatus');
+                const mqttConnected = response.mqtt_status === 'connected';
+                mqttEl.className = `status-indicator ${mqttConnected ? 'online' : 'offline'}`;
+                mqttEl.innerHTML = `
+                    <span class="status-dot ${mqttConnected ? 'online' : 'offline'}"></span>
+                    <span>MQTT: ${mqttConnected ? 'Connected' : 'Disconnected'}</span>
+                `;
+
             } catch (error) {
-                document.getElementById('backend-status').textContent = '❌ Not responding';
-                document.getElementById('backend-status').style.color = 'var(--error-color)';
-                console.error('[Dashboard] Backend health check failed:', error);
+                console.error('[Dashboard] Status check failed:', error);
+                document.getElementById('backendStatus').className = 'status-indicator offline';
+                document.getElementById('backendStatus').innerHTML = `
+                    <span class="status-dot offline"></span>
+                    <span>Backend: Offline</span>
+                `;
             }
         }
 
@@ -120,21 +408,20 @@
                 const response = await apiClient.get('/adb/devices');
                 const devices = response.devices || [];
 
+                document.getElementById('deviceCount').textContent = devices.length;
+
                 if (devices.length === 0) {
-                    container.innerHTML = '<p class="status warning">No devices connected. <a href="devices.html">Connect a device</a></p>';
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 20px;">No devices connected</p>';
                     return;
                 }
 
-                let html = '<div style="display: grid; gap: 10px;">';
+                let html = '';
                 for (const device of devices) {
-                    const statusBadge = device.state === 'device'
-                        ? '<span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Connected</span>'
-                        : '<span style="background: #FF9800; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Offline</span>';
+                    const isOnline = device.state === 'device';
+                    const statusClass = isOnline ? 'online' : 'offline';
 
-                    // Parse activity to show just app name
                     let appName = 'No active app';
                     if (device.current_activity && device.current_activity !== 'Unknown' && device.current_activity !== 'Offline') {
-                        // Extract package/activity name (e.g., "com.sec.android.app.launcher/...")
                         const parts = device.current_activity.split('/');
                         if (parts.length > 0) {
                             appName = parts[0].split('.').pop() || device.current_activity;
@@ -142,21 +429,19 @@
                     }
 
                     html += `
-                        <div style="border: 1px solid var(--border-color); padding: 12px; border-radius: 6px; background: var(--card-background);">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div style="flex: 1;">
-                                    <strong>${device.id}</strong><br>
-                                    <small style="color: var(--text-secondary);">
-                                        📱 ${device.model || 'Unknown model'}<br>
-                                        📲 Active: <strong>${appName}</strong>
-                                    </small>
-                                </div>
-                                <div>${statusBadge}</div>
+                        <div class="activity-item">
+                            <div class="activity-icon device">📱</div>
+                            <div class="activity-content">
+                                <div class="activity-title">${device.model || 'Unknown Device'}</div>
+                                <div class="activity-meta">${appName}</div>
                             </div>
+                            <span class="status-indicator ${statusClass}" style="padding: 4px 10px; font-size: 0.75em;">
+                                <span class="status-dot ${statusClass}"></span>
+                                ${isOnline ? 'Online' : 'Offline'}
+                            </span>
                         </div>
                     `;
                 }
-                html += '</div>';
                 container.innerHTML = html;
 
             } catch (error) {
@@ -169,58 +454,57 @@
         async function loadSensors() {
             const container = document.getElementById('sensorsContainer');
             try {
-                // Get all devices first
                 const devicesResponse = await apiClient.get('/adb/devices');
                 const devices = devicesResponse.devices || [];
 
-                // Load sensors for each device IN PARALLEL
                 const sensorPromises = devices.map(device =>
                     apiClient.get(`/sensors/${device.id}`)
                         .then(response => response.sensors || [])
-                        .catch(error => {
-                            console.error(`[Dashboard] Failed to load sensors for ${device.id}:`, error);
-                            return [];
-                        })
+                        .catch(() => [])
                 );
 
-                // Wait for all API calls to complete in parallel
                 const results = await Promise.all(sensorPromises);
+                let allSensors = results.flat().filter(s => s.enabled);
 
-                // Flatten and filter enabled sensors
-                let allSensors = [];
-                results.forEach(sensors => {
-                    allSensors.push(...sensors.filter(s => s.enabled));
-                });
+                document.getElementById('sensorCount').textContent = allSensors.length;
 
                 if (allSensors.length === 0) {
-                    container.innerHTML = '<p class="status warning">No active sensors. <a href="devices.html">Create sensors</a></p>';
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 20px;">No active sensors</p>';
                     return;
                 }
 
-                let html = '<div style="display: grid; gap: 10px;">';
-                for (const sensor of allSensors.slice(0, 5)) { // Show first 5
-                    const currentValue = sensor.current_value
+                // Sort by last_updated (most recent first)
+                allSensors.sort((a, b) => {
+                    const aTime = a.last_updated ? new Date(a.last_updated) : new Date(0);
+                    const bTime = b.last_updated ? new Date(b.last_updated) : new Date(0);
+                    return bTime - aTime;
+                });
+
+                let html = '';
+                for (const sensor of allSensors.slice(0, 5)) {
+                    const value = sensor.current_value
                         ? `${sensor.current_value}${sensor.unit_of_measurement || ''}`
-                        : '<em style="color: var(--text-secondary);">Not yet updated</em>';
+                        : '--';
+                    const updated = formatRelativeTime(sensor.last_updated);
 
                     html += `
-                        <div style="border: 1px solid var(--border-color); padding: 12px; border-radius: 6px; background: var(--card-background);">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div>
-                                    <strong>${sensor.icon ? sensor.icon + ' ' : ''}${sensor.friendly_name}</strong><br>
-                                    <small style="color: var(--text-secondary);">${sensor.device_id}</small>
-                                </div>
-                                <div style="text-align: right;">
-                                    ${currentValue}
-                                </div>
+                        <div class="sensor-row">
+                            <div class="sensor-info">
+                                <div class="sensor-name">${sensor.icon || ''} ${sensor.friendly_name}</div>
+                                <div class="sensor-device">${sensor.device_id.split(':')[0]}</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div class="sensor-value">${value}</div>
+                                <div class="sensor-updated">${updated}</div>
                             </div>
                         </div>
                     `;
                 }
+
                 if (allSensors.length > 5) {
-                    html += `<p style="text-align: center; margin: 10px 0;"><a href="sensors.html">View all ${allSensors.length} sensors</a></p>`;
+                    html += `<p style="text-align: center; padding: 10px; color: var(--text-secondary); font-size: 0.85em;">+${allSensors.length - 5} more sensors</p>`;
                 }
-                html += '</div>';
+
                 container.innerHTML = html;
 
             } catch (error) {
@@ -229,16 +513,146 @@
             }
         }
 
-        // Initial load
-        checkBackend();
-        loadDevices();
-        loadSensors();
+        // Load actions
+        async function loadActions() {
+            const container = document.getElementById('actionsContainer');
+            try {
+                const devicesResponse = await apiClient.get('/adb/devices');
+                const devices = devicesResponse.devices || [];
 
-        // Refresh every 30 seconds
-        setInterval(() => {
-            loadDevices();
-            loadSensors();
-        }, 30000);
+                const actionPromises = devices.map(device =>
+                    apiClient.get(`/actions/${device.id}`)
+                        .then(response => response.actions || [])
+                        .catch(() => [])
+                );
+
+                const results = await Promise.all(actionPromises);
+                let allActions = results.flat();
+
+                document.getElementById('actionCount').textContent = allActions.length;
+
+                if (allActions.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 20px;">No actions created</p>';
+                    return;
+                }
+
+                // Sort by last_executed (most recent first)
+                allActions.sort((a, b) => {
+                    const aTime = a.last_executed ? new Date(a.last_executed) : new Date(0);
+                    const bTime = b.last_executed ? new Date(b.last_executed) : new Date(0);
+                    return bTime - aTime;
+                });
+
+                let html = '';
+                for (const actionDef of allActions.slice(0, 5)) {
+                    const action = actionDef.action;
+                    const triggered = formatRelativeTime(actionDef.last_executed);
+                    const execCount = actionDef.execution_count || 0;
+
+                    html += `
+                        <div class="activity-item">
+                            <div class="activity-icon action">⚡</div>
+                            <div class="activity-content">
+                                <div class="activity-title">${action.name}</div>
+                                <div class="activity-meta">${action.action_type} | ${execCount} runs</div>
+                            </div>
+                            <div class="activity-time">${triggered}</div>
+                        </div>
+                    `;
+                }
+
+                if (allActions.length > 5) {
+                    html += `<p style="text-align: center; padding: 10px; color: var(--text-secondary); font-size: 0.85em;">+${allActions.length - 5} more actions</p>`;
+                }
+
+                container.innerHTML = html;
+
+            } catch (error) {
+                console.error('[Dashboard] Failed to load actions:', error);
+                container.innerHTML = '<p class="status error">Failed to load actions</p>';
+            }
+        }
+
+        // Load flows
+        async function loadFlows() {
+            const container = document.getElementById('flowsContainer');
+            try {
+                const devicesResponse = await apiClient.get('/adb/devices');
+                const devices = devicesResponse.devices || [];
+
+                const flowPromises = devices.map(device =>
+                    apiClient.get(`/flows?device_id=${device.id}`)
+                        .then(response => response.flows || [])
+                        .catch(() => [])
+                );
+
+                const results = await Promise.all(flowPromises);
+                let allFlows = results.flat();
+
+                document.getElementById('flowCount').textContent = allFlows.length;
+
+                if (allFlows.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 20px;">No flows created</p>';
+                    return;
+                }
+
+                // Sort by last_executed (most recent first)
+                allFlows.sort((a, b) => {
+                    const aTime = a.last_executed ? new Date(a.last_executed) : new Date(0);
+                    const bTime = b.last_executed ? new Date(b.last_executed) : new Date(0);
+                    return bTime - aTime;
+                });
+
+                let html = '';
+                for (const flow of allFlows.slice(0, 5)) {
+                    const lastRun = formatRelativeTime(flow.last_executed);
+                    const statusIcon = flow.last_success === true ? '✅' : (flow.last_success === false ? '❌' : '⏸️');
+                    const enabledStatus = flow.enabled ? 'Active' : 'Paused';
+
+                    html += `
+                        <div class="activity-item">
+                            <div class="activity-icon flow">🔄</div>
+                            <div class="activity-content">
+                                <div class="activity-title">${flow.name}</div>
+                                <div class="activity-meta">${statusIcon} ${enabledStatus} | ${flow.steps?.length || 0} steps</div>
+                            </div>
+                            <div class="activity-time">${lastRun}</div>
+                        </div>
+                    `;
+                }
+
+                if (allFlows.length > 5) {
+                    html += `<p style="text-align: center; padding: 10px; color: var(--text-secondary); font-size: 0.85em;">+${allFlows.length - 5} more flows</p>`;
+                }
+
+                container.innerHTML = html;
+
+            } catch (error) {
+                console.error('[Dashboard] Failed to load flows:', error);
+                container.innerHTML = '<p class="status error">Failed to load flows</p>';
+            }
+        }
+
+        // Refresh all data
+        async function refreshAll() {
+            await Promise.all([
+                checkStatus(),
+                loadDevices(),
+                loadSensors(),
+                loadActions(),
+                loadFlows()
+            ]);
+            document.getElementById('lastRefresh').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        }
+
+        // Event listeners
+        document.getElementById('refreshAll').addEventListener('click', refreshAll);
+
+        // Initial load
+        refreshAll();
+
+        // Auto-refresh every 30 seconds
+        setInterval(refreshAll, 30000);
     </script>
 </body>
 </html>

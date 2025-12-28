@@ -42,8 +42,9 @@ export async function loadStep(wizard) {
 
 /**
  * Save the flow
+ * Exported so it can be called by wizard.nextStep() on final step
  */
-async function saveFlow(wizard) {
+export async function saveFlow(wizard) {
     console.log('[Step5] Saving flow...');
     showToast('Saving flow...', 'info');
 
@@ -200,4 +201,4 @@ export function getStepData(wizard) {
     };
 }
 
-export default { loadStep, validateStep, getStepData };
+export default { loadStep, validateStep, getStepData, saveFlow };

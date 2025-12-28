@@ -17,6 +17,7 @@ from flow_models import (
     FlowExecutionResult,
     FlowStepType
 )
+from utils.element_finder import SmartElementFinder, ElementMatch
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class FlowExecutor:
         self.flow_manager = flow_manager
         self.screenshot_stitcher = screenshot_stitcher
         self.performance_monitor = performance_monitor
+        self.element_finder = SmartElementFinder()
 
         # Step type to handler mapping
         self.step_handlers = {
@@ -252,6 +254,52 @@ class FlowExecutor:
     # Step Handlers
     # ============================================================================
 
+    async def _extract_timestamp_text(
+        self,
+        device_id: str,
+        timestamp_element: Dict[str, Any]
+    ) -> Optional[str]:
+        """
+        Extract text from timestamp element for validation
+
+        Args:
+            device_id: Device ID
+            timestamp_element: Element config with bounds, text, resource-id
+
+        Returns:
+            Current timestamp text or None if not found
+        """
+        try:
+            # Get current screen elements
+            elements_response = await self.adb_bridge.get_ui_elements(device_id)
+            if not elements_response or 'elements' not in elements_response:
+                return None
+
+            elements = elements_response['elements']
+
+            # Find element by matching resource-id (most reliable) or bounds
+            for el in elements:
+                # Match by resource-id (most reliable)
+                if timestamp_element.get('resource-id'):
+                    if el.get('resource-id') == timestamp_element.get('resource-id'):
+                        return el.get('text', '').strip()
+
+                # Match by bounds (if resource-id not available)
+                if timestamp_element.get('bounds'):
+                    ts_bounds = timestamp_element['bounds']
+                    el_bounds = el.get('bounds', {})
+
+                    # Check if bounds match (with small tolerance of ±10px)
+                    if (abs(el_bounds.get('x', 0) - ts_bounds.get('x', 0)) < 10 and
+                        abs(el_bounds.get('y', 0) - ts_bounds.get('y', 0)) < 10):
+                        return el.get('text', '').strip()
+
+            return None
+
+        except Exception as e:
+            logger.error(f"  Failed to extract timestamp text: {e}")
+            return None
+
     async def _execute_launch_app(
         self,
         device_id: str,
@@ -360,7 +408,7 @@ class FlowExecutor:
         step: FlowStep,
         result: FlowExecutionResult
     ) -> bool:
-        """Pull-to-refresh gesture - swipe down from top of screen"""
+        """Pull-to-refresh gesture with optional timestamp validation"""
         logger.debug("  Executing pull-to-refresh")
 
         # Get device dimensions (use defaults if not available)
@@ -374,11 +422,51 @@ class FlowExecutor:
         end_y = int(height * 0.55)
         duration = 350
 
-        await self.adb_bridge.swipe(device_id, start_x, start_y, end_x, end_y, duration)
+        # Check if timestamp validation is enabled
+        if step.validate_timestamp and step.timestamp_element:
+            logger.debug("  Timestamp validation enabled")
 
-        # Wait a moment for refresh to complete
-        await asyncio.sleep(0.8)
-        return True
+            # Extract initial timestamp before refresh
+            initial_timestamp = await self._extract_timestamp_text(device_id, step.timestamp_element)
+            logger.debug(f"  Initial timestamp: {initial_timestamp}")
+
+            # Attempt refresh with retries
+            max_retries = step.refresh_max_retries or 3
+            retry_delay = (step.refresh_retry_delay or 2000) / 1000.0  # Convert to seconds
+
+            for attempt in range(max_retries):
+                logger.debug(f"  Refresh attempt {attempt + 1}/{max_retries}")
+
+                # Execute pull-to-refresh gesture
+                await self.adb_bridge.swipe(device_id, start_x, start_y, end_x, end_y, duration)
+
+                # Wait for refresh to complete
+                await asyncio.sleep(retry_delay)
+
+                # Extract new timestamp
+                new_timestamp = await self._extract_timestamp_text(device_id, step.timestamp_element)
+                logger.debug(f"  New timestamp: {new_timestamp}")
+
+                # Check if timestamp changed
+                if new_timestamp and new_timestamp != initial_timestamp:
+                    logger.info(f"  ✓ Timestamp changed after {attempt + 1} attempt(s)")
+                    return True
+
+                # Log retry if timestamp unchanged
+                if attempt < max_retries - 1:
+                    logger.warning(f"  Timestamp unchanged, retrying refresh ({attempt + 2}/{max_retries})")
+
+            # Max retries reached
+            logger.warning(f"  Timestamp still unchanged after {max_retries} attempts (soft failure)")
+            return True  # Continue flow anyway (soft failure)
+
+        else:
+            # No timestamp validation - execute once
+            await self.adb_bridge.swipe(device_id, start_x, start_y, end_x, end_y, duration)
+
+            # Wait a moment for refresh to complete
+            await asyncio.sleep(0.8)
+            return True
 
     async def _execute_restart_app(
         self,
@@ -388,6 +476,7 @@ class FlowExecutor:
     ) -> bool:
         """
         Restart app - force stop and relaunch using batch commands for speed
+        With optional timestamp validation to ensure data actually updated
 
         Uses PersistentADBShell for 50-70% faster execution vs. individual commands
         """
@@ -397,42 +486,113 @@ class FlowExecutor:
 
         logger.debug(f"  Restarting app: {step.package} (batch mode)")
 
-        try:
-            # Execute stop and launch in a single batch (50-70% faster)
-            commands = [
-                f"am force-stop {step.package}",  # Force stop the app
-                "sleep 0.5",  # Wait for stop to complete
-                f"monkey -p {step.package} -c android.intent.category.LAUNCHER 1",  # Relaunch
-            ]
+        # Check if timestamp validation is enabled
+        if step.validate_timestamp and step.timestamp_element:
+            logger.debug("  Timestamp validation enabled")
 
-            results = await self.adb_bridge.execute_batch_commands(device_id, commands)
+            # Extract initial timestamp before restart
+            initial_timestamp = await self._extract_timestamp_text(device_id, step.timestamp_element)
+            logger.debug(f"  Initial timestamp: {initial_timestamp}")
 
-            # Check if all commands succeeded
-            all_success = all(success for success, _ in results)
+            # Attempt restart with retries
+            max_retries = step.refresh_max_retries or 3
+            retry_delay = (step.refresh_retry_delay or 2000) / 1000.0  # Convert to seconds
 
-            if not all_success:
-                # Log which command failed
-                for i, (success, output) in enumerate(results):
+            for attempt in range(max_retries):
+                logger.debug(f"  Restart attempt {attempt + 1}/{max_retries}")
+
+                try:
+                    # Execute stop and launch in a single batch (50-70% faster)
+                    commands = [
+                        f"am force-stop {step.package}",  # Force stop the app
+                        "sleep 0.5",  # Wait for stop to complete
+                        f"monkey -p {step.package} -c android.intent.category.LAUNCHER 1",  # Relaunch
+                    ]
+
+                    results = await self.adb_bridge.execute_batch_commands(device_id, commands)
+
+                    # Check if all commands succeeded
+                    all_success = all(success for success, _ in results)
+
+                    if not all_success:
+                        # Log which command failed
+                        for i, (success, output) in enumerate(results):
+                            if not success:
+                                logger.error(f"  Batch command {i} failed: {output}")
+                        return False
+
+                    # Wait for app to fully start
+                    await asyncio.sleep(1.5)
+
+                except Exception as e:
+                    logger.error(f"  Batch restart failed, falling back to sequential: {e}")
+
+                    # Fallback to sequential execution
+                    await self.adb_bridge.stop_app(device_id, step.package)
+                    await asyncio.sleep(0.5)
+                    success = await self.adb_bridge.launch_app(device_id, step.package)
                     if not success:
-                        logger.error(f"  Batch command {i} failed: {output}")
-                return False
+                        return False
+                    await asyncio.sleep(1.5)
 
-            # Wait for app to fully start
-            await asyncio.sleep(1.5)
+                # Wait for refresh to complete
+                await asyncio.sleep(retry_delay)
 
-            logger.debug(f"  App restart complete: {step.package}")
-            return True
+                # Extract new timestamp
+                new_timestamp = await self._extract_timestamp_text(device_id, step.timestamp_element)
+                logger.debug(f"  New timestamp: {new_timestamp}")
 
-        except Exception as e:
-            logger.error(f"  Batch restart failed, falling back to sequential: {e}")
+                # Check if timestamp changed
+                if new_timestamp and new_timestamp != initial_timestamp:
+                    logger.info(f"  ✓ Timestamp changed after {attempt + 1} attempt(s)")
+                    return True
 
-            # Fallback to sequential execution
-            await self.adb_bridge.stop_app(device_id, step.package)
-            await asyncio.sleep(0.5)
-            success = await self.adb_bridge.launch_app(device_id, step.package)
-            await asyncio.sleep(1.5)
+                # Log retry if timestamp unchanged
+                if attempt < max_retries - 1:
+                    logger.warning(f"  Timestamp unchanged, retrying restart ({attempt + 2}/{max_retries})")
 
-            return success
+            # Max retries reached
+            logger.warning(f"  Timestamp still unchanged after {max_retries} attempts (soft failure)")
+            return True  # Continue flow anyway (soft failure)
+
+        else:
+            # No timestamp validation - execute once
+            try:
+                # Execute stop and launch in a single batch (50-70% faster)
+                commands = [
+                    f"am force-stop {step.package}",  # Force stop the app
+                    "sleep 0.5",  # Wait for stop to complete
+                    f"monkey -p {step.package} -c android.intent.category.LAUNCHER 1",  # Relaunch
+                ]
+
+                results = await self.adb_bridge.execute_batch_commands(device_id, commands)
+
+                # Check if all commands succeeded
+                all_success = all(success for success, _ in results)
+
+                if not all_success:
+                    # Log which command failed
+                    for i, (success, output) in enumerate(results):
+                        if not success:
+                            logger.error(f"  Batch command {i} failed: {output}")
+                    return False
+
+                # Wait for app to fully start
+                await asyncio.sleep(1.5)
+
+                logger.debug(f"  App restart complete: {step.package}")
+                return True
+
+            except Exception as e:
+                logger.error(f"  Batch restart failed, falling back to sequential: {e}")
+
+                # Fallback to sequential execution
+                await self.adb_bridge.stop_app(device_id, step.package)
+                await asyncio.sleep(0.5)
+                success = await self.adb_bridge.launch_app(device_id, step.package)
+                await asyncio.sleep(1.5)
+
+                return success
 
     async def _execute_capture_sensors(
         self,
@@ -441,14 +601,15 @@ class FlowExecutor:
         result: FlowExecutionResult
     ) -> bool:
         """
-        Capture sensors at this step
+        Capture sensors at this step with smart element detection
 
         Process:
         1. Capture screenshot
-        2. Get UI elements
-        3. Extract each sensor value
-        4. Publish to MQTT immediately
-        5. Store in result
+        2. Get UI elements (full info for smart detection)
+        3. For each sensor, use smart element finder to locate dynamically
+        4. Extract value using found bounds
+        5. Publish to MQTT immediately
+        6. Store in result
         """
         if not step.sensor_ids:
             logger.warning("  capture_sensors step has no sensor_ids")
@@ -466,22 +627,55 @@ class FlowExecutor:
             # Convert to PIL Image for text extraction
             screenshot_image = Image.open(io.BytesIO(screenshot_bytes))
 
-            # 2. Get UI elements (bounds_only=True for 30-40% faster sensor extraction)
-            ui_elements = await self.adb_bridge.get_ui_elements(device_id, bounds_only=True)
+            # 2. Get UI elements with FULL info for smart element detection
+            # (not bounds_only - we need resource_id, text, class for smart matching)
+            ui_elements = await self.adb_bridge.get_ui_elements(device_id, bounds_only=False)
 
             # 3. Extract each sensor and collect for batch publishing
             sensor_updates = []  # List of (sensor, value) tuples for batch publishing
             for sensor_id in step.sensor_ids:
                 sensor = self.sensor_manager.get_sensor(device_id, sensor_id)
                 if not sensor:
-                    logger.warning(f"  Sensor {sensor_id} not found, skipping")
-                    continue
+                    # Try to find sensor by stable_device_id (may be on different port)
+                    sensor = self._find_sensor_by_stable_id(device_id, sensor_id)
+                    if not sensor:
+                        logger.warning(f"  Sensor {sensor_id} not found, skipping")
+                        continue
 
                 try:
-                    # Extract value using text extractor
+                    # Smart element detection - find element dynamically
+                    stored_bounds = None
+                    if sensor.source.custom_bounds:
+                        stored_bounds = {
+                            'x': sensor.source.custom_bounds.x,
+                            'y': sensor.source.custom_bounds.y,
+                            'width': sensor.source.custom_bounds.width,
+                            'height': sensor.source.custom_bounds.height
+                        }
+
+                    match = self.element_finder.find_element(
+                        ui_elements=ui_elements,
+                        resource_id=sensor.source.element_resource_id,
+                        element_text=sensor.source.element_text,
+                        element_class=sensor.source.element_class,
+                        stored_bounds=stored_bounds
+                    )
+
+                    if not match.found:
+                        logger.warning(f"  Could not locate element for {sensor.friendly_name}: {match.message}")
+                        continue
+
+                    # Log detection method for debugging
+                    if match.method != "stored_bounds":
+                        logger.info(f"  Smart detection for {sensor.friendly_name}: {match.method} (confidence: {match.confidence:.0%})")
+
+                    # Use found bounds for extraction
+                    extraction_bounds = match.bounds
+
+                    # Extract value using text extractor with dynamically found bounds
                     value = await self.text_extractor.extract_from_image(
                         screenshot_image,
-                        sensor.source.bounds if sensor.source.custom_bounds else None,
+                        extraction_bounds,
                         sensor.extraction_rule
                     )
 
@@ -492,6 +686,12 @@ class FlowExecutor:
 
                     # Collect for batch publishing (20-30% faster than individual)
                     sensor_updates.append((sensor, value))
+
+                    # Optionally update stored bounds if element moved significantly
+                    if match.method != "stored_bounds" and stored_bounds and match.bounds:
+                        is_similar, distance = self.element_finder.compare_bounds(stored_bounds, match.bounds)
+                        if not is_similar and distance > 10:  # Moved more than 10px
+                            logger.info(f"  Element moved {distance:.0f}px - consider updating sensor bounds")
 
                 except Exception as e:
                     logger.error(f"  Failed to extract sensor {sensor_id}: {e}")
@@ -507,6 +707,27 @@ class FlowExecutor:
         except Exception as e:
             logger.error(f"  Sensor capture failed: {e}", exc_info=True)
             return False
+
+    def _find_sensor_by_stable_id(self, current_device_id: str, sensor_id: str):
+        """
+        Try to find a sensor that may have been created on a different device port
+        but belongs to the same physical device (matched by stable_device_id).
+        """
+        try:
+            # Get stable_device_id for current device
+            # This would need async but we'll do a simple lookup for now
+            # Check all device sensors for matching sensor_id pattern
+            device_list = self.sensor_manager.get_device_list()
+            for device_id in device_list:
+                sensors = self.sensor_manager.get_all_sensors(device_id)
+                for sensor in sensors:
+                    if sensor.sensor_id == sensor_id:
+                        logger.info(f"  Found sensor {sensor_id} on device {device_id} (current: {current_device_id})")
+                        return sensor
+            return None
+        except Exception as e:
+            logger.debug(f"  Error finding sensor by stable ID: {e}")
+            return None
 
     async def _execute_validate_screen(
         self,

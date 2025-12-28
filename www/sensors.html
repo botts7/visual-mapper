@@ -85,8 +85,11 @@
         let allSensors = [];
         let deviceSensors = new Map(); // deviceId -> sensors[]
         let deviceInfo = new Map(); // deviceId -> device info (model, activity, etc.)
+        let sensorsInFlows = new Set(); // sensor_ids that are referenced in flows
+        let stableIdsWithFlows = new Set(); // stable_device_ids that have at least one flow
+        let allFlows = []; // all flows across all devices
 
-        // Load all sensors
+        // Load all sensors and flows
         async function loadSensors() {
             try {
                 // Get all devices
@@ -97,28 +100,59 @@
                 deviceInfo.clear();
                 devices.forEach(dev => deviceInfo.set(dev.id, dev));
 
-                // Load sensors for each device IN PARALLEL
+                // Load sensors per device AND all flows in parallel
                 allSensors = [];
                 deviceSensors.clear();
+                sensorsInFlows.clear();
+                stableIdsWithFlows.clear();
+                allFlows = [];
 
-                // Create parallel API call promises
+                // Create parallel API call promises for sensors (per device) and ALL flows
                 const sensorPromises = devices.map(device =>
                     apiClient.get(`/sensors/${device.id}`)
-                        .then(response => ({device, sensors: response.sensors || []}))
+                        .then(response => ({type: 'sensors', device, data: response.sensors || []}))
                         .catch(error => {
                             console.error(`[Sensors] Failed to load sensors for ${device.id}:`, error);
-                            return {device, sensors: []};
+                            return {type: 'sensors', device, data: []};
                         })
                 );
 
-                // Wait for all API calls to complete in parallel
-                const results = await Promise.all(sensorPromises);
+                // Load ALL flows (not filtered by device) to match by stable_device_id
+                const flowsPromise = apiClient.get('/flows')
+                    .then(response => response.flows || [])
+                    .catch(error => {
+                        console.error('[Sensors] Failed to load flows:', error);
+                        return [];
+                    });
 
-                // Process results
-                results.forEach(({device, sensors}) => {
-                    if (sensors.length > 0) {
-                        deviceSensors.set(device.id, sensors);
-                        allSensors.push(...sensors);
+                // Wait for all API calls
+                const [sensorResults, flowsData] = await Promise.all([
+                    Promise.all(sensorPromises),
+                    flowsPromise
+                ]);
+
+                // Process sensor results
+                sensorResults.forEach(({type, device, data}) => {
+                    if (data.length > 0) {
+                        deviceSensors.set(device.id, data);
+                        allSensors.push(...data);
+                    }
+                });
+
+                // Process flows - extract sensor_ids AND stable_device_ids
+                allFlows = flowsData;
+                flowsData.forEach(flow => {
+                    // Track stable_device_id for device-level flow detection
+                    if (flow.stable_device_id) {
+                        stableIdsWithFlows.add(flow.stable_device_id);
+                    }
+                    // Extract sensor_ids from flow steps
+                    if (flow.steps) {
+                        flow.steps.forEach(step => {
+                            if (step.step_type === 'capture_sensors' && step.sensor_ids) {
+                                step.sensor_ids.forEach(id => sensorsInFlows.add(id));
+                            }
+                        });
                     }
                 });
 
@@ -213,11 +247,44 @@
             container.innerHTML = html;
         }
 
+        // Format relative time
+        function formatRelativeTime(timestamp) {
+            if (!timestamp) return 'Never';
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffSec = Math.floor(diffMs / 1000);
+            const diffMin = Math.floor(diffSec / 60);
+            const diffHr = Math.floor(diffMin / 60);
+            const diffDay = Math.floor(diffHr / 24);
+
+            if (diffSec < 10) return 'Just now';
+            if (diffSec < 60) return `${diffSec}s ago`;
+            if (diffMin < 60) return `${diffMin}m ago`;
+            if (diffHr < 24) return `${diffHr}h ago`;
+            return `${diffDay}d ago`;
+        }
+
         // Render individual sensor card
         function renderSensorCard(sensor) {
+            const isInFlow = sensorsInFlows.has(sensor.sensor_id);
+            // Check if device has any flows by stable_device_id
+            const hasDeviceFlow = sensor.stable_device_id && stableIdsWithFlows.has(sensor.stable_device_id);
+            const isOrphaned = !isInFlow && !hasDeviceFlow;
+
             const enabledBadge = sensor.enabled
                 ? '<span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Enabled</span>'
                 : '<span style="background: #757575; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Disabled</span>';
+
+            // Flow badge: In Flow (blue) > Device Has Flow (yellow) > No Flow (red)
+            let flowBadge;
+            if (isInFlow) {
+                flowBadge = '<span style="background: #2196F3; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">In Flow</span>';
+            } else if (hasDeviceFlow) {
+                flowBadge = '<span style="background: #FF9800; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Not in Flow</span>';
+            } else {
+                flowBadge = '<span style="background: #f44336; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">No Flow</span>';
+            }
 
             const typeBadge = sensor.sensor_type === 'binary_sensor'
                 ? '<span style="background: #FF9800; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Binary</span>'
@@ -228,11 +295,41 @@
                 : '';
 
             const currentValue = sensor.current_value
-                ? `<strong>Current Value:</strong> ${sensor.current_value}${sensor.unit_of_measurement || ''}`
-                : '<strong>Current Value:</strong> <em>Not yet updated</em>';
+                ? `${sensor.current_value}${sensor.unit_of_measurement || ''}`
+                : '--';
+
+            const lastUpdated = formatRelativeTime(sensor.last_updated);
+
+            // Warning for orphaned sensors (no flow at all for this device)
+            const orphanWarning = isOrphaned ? `
+                <div style="background: #f4433620; border: 1px solid #f44336; border-radius: 6px; padding: 10px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <div style="color: #f44336;">
+                        <strong>No Flow</strong> - No flows exist for this device. Create one to capture sensor values.
+                    </div>
+                    <a href="flow-wizard.html?device=${encodeURIComponent(sensor.device_id)}&sensor=${encodeURIComponent(sensor.sensor_id)}"
+                       class="btn" style="background: #4CAF50; padding: 6px 12px; font-size: 13px; white-space: nowrap;">
+                        Create Flow
+                    </a>
+                </div>
+            ` : '';
+
+            // Info for sensors with device flow but not added to it
+            const notInFlowInfo = (!isInFlow && hasDeviceFlow) ? `
+                <div style="background: #FF980020; border: 1px solid #FF9800; border-radius: 6px; padding: 10px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <div style="color: #FF9800;">
+                        <strong>Not in Flow</strong> - Device has flows, but this sensor is not captured. Add it to an existing flow.
+                    </div>
+                    <a href="flows.html?device=${encodeURIComponent(sensor.device_id)}"
+                       class="btn" style="background: #FF9800; color: white; padding: 6px 12px; font-size: 13px; white-space: nowrap;">
+                        View Flows
+                    </a>
+                </div>
+            ` : '';
 
             return `
-                <div style="border: 1px solid var(--border-color); padding: 15px; margin-bottom: 10px; border-radius: 6px; background: var(--card-background);">
+                <div style="border: 1px solid ${isOrphaned ? '#f44336' : (hasDeviceFlow && !isInFlow) ? '#FF9800' : 'var(--border-color)'}; padding: 15px; margin-bottom: 10px; border-radius: 6px; background: var(--card-background);">
+                    ${orphanWarning}
+                    ${notInFlowInfo}
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;">
                         <div style="flex: 1; min-width: 200px;">
                             <h4 style="margin: 0 0 8px 0; color: var(--text-color);">
@@ -241,6 +338,7 @@
                             </h4>
                             <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px;">
                                 ${enabledBadge}
+                                ${flowBadge}
                                 ${typeBadge}
                                 ${deviceClassBadge}
                             </div>
@@ -259,10 +357,15 @@
                             <button onclick="window.deleteSensor('${sensor.device_id}', '${sensor.sensor_id}')" style="padding: 6px 12px; font-size: 13px; background: #f44336;">Delete</button>
                         </div>
                     </div>
-                    <div style="background: var(--preview-background); padding: 10px; border-radius: 4px; border: 1px solid var(--preview-border);">
-                        <p style="margin: 0; font-size: 13px; color: var(--preview-text);">
-                            ${currentValue}
-                        </p>
+                    <div style="background: var(--preview-background); padding: 10px; border-radius: 4px; border: 1px solid var(--preview-border); display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="font-size: 13px; color: var(--text-secondary);">Current Value:</span>
+                            <strong style="font-size: 1.2em; margin-left: 8px; color: var(--primary-color);">${currentValue}</strong>
+                        </div>
+                        <div style="text-align: right; font-size: 12px; color: var(--text-secondary);">
+                            Last Updated<br>
+                            <strong>${lastUpdated}</strong>
+                        </div>
                     </div>
                 </div>
             `;

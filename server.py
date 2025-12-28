@@ -1629,6 +1629,113 @@ async def get_stable_device_id(device_id: str, force_refresh: bool = False):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/migrate-stable-ids")
+async def migrate_all_stable_ids():
+    """
+    Smart migration: Use connected devices to update ALL sensors/flows with matching IP.
+    This handles the case where a device reconnects with a different port.
+    """
+    try:
+        logger.info("[API] Smart migration: Using connected devices to update all data")
+
+        # Step 1: Build IP -> stable_device_id map from connected devices
+        ip_to_stable = {}
+        connected_devices = await adb_bridge.get_devices()
+
+        for device in connected_devices:
+            device_id = device.get('id', '')
+            if ':' in device_id:
+                ip = device_id.split(':')[0]
+                try:
+                    stable_id = await adb_bridge.get_device_serial(device_id)
+                    if stable_id and not stable_id.startswith(ip.replace('.', '_')):
+                        # Only use real hashed IDs, not fallback format
+                        ip_to_stable[ip] = stable_id
+                        logger.info(f"[API] Mapped {ip} -> {stable_id}")
+                except Exception as e:
+                    logger.warning(f"[API] Could not get stable ID for {device_id}: {e}")
+
+        if not ip_to_stable:
+            return {
+                "success": False,
+                "message": "No connected devices with valid stable IDs found"
+            }
+
+        results = {
+            "sensors_migrated": 0,
+            "sensors_skipped": 0,
+            "flows_migrated": 0,
+            "flows_skipped": 0,
+            "ip_mappings": ip_to_stable
+        }
+
+        # Step 2: Update sensors with matching IP
+        device_list = sensor_manager.get_device_list()
+        for device_id in device_list:
+            if not device_id or ':' not in device_id:
+                continue
+            ip = device_id.split(':')[0]
+            if ip not in ip_to_stable:
+                continue
+
+            stable_id = ip_to_stable[ip]
+            sensors = sensor_manager.get_all_sensors(device_id)
+
+            for sensor in sensors:
+                # Check if needs update (no stable_id or has fallback format)
+                needs_update = (
+                    not sensor.stable_device_id or
+                    sensor.stable_device_id.startswith(ip.replace('.', '_'))
+                )
+
+                if needs_update:
+                    sensor.stable_device_id = stable_id
+                    sensor_manager.update_sensor(sensor)
+                    results["sensors_migrated"] += 1
+
+                    # Republish MQTT discovery
+                    if mqtt_manager:
+                        await mqtt_manager.publish_discovery(sensor)
+                else:
+                    results["sensors_skipped"] += 1
+
+        # Step 3: Update flows with matching IP
+        if flow_manager:
+            all_flows = flow_manager.get_all_flows()
+            for flow in all_flows:
+                if ':' not in flow.device_id:
+                    continue
+                ip = flow.device_id.split(':')[0]
+                if ip not in ip_to_stable:
+                    continue
+
+                stable_id = ip_to_stable[ip]
+
+                # Check if needs update
+                needs_update = (
+                    not flow.stable_device_id or
+                    flow.stable_device_id.startswith(ip.replace('.', '_'))
+                )
+
+                if needs_update:
+                    flow.stable_device_id = stable_id
+                    flow_manager.update_flow(flow)
+                    results["flows_migrated"] += 1
+                else:
+                    results["flows_skipped"] += 1
+
+        logger.info(f"[API] Migration complete: {results}")
+        return {
+            "success": True,
+            **results,
+            "message": f"Migrated {results['sensors_migrated']} sensors and {results['flows_migrated']} flows"
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Smart migration failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/sensors/migrate-stable-ids")
 async def migrate_sensor_stable_ids():
     """
@@ -1694,6 +1801,58 @@ async def migrate_sensor_stable_ids():
         }
     except Exception as e:
         logger.error(f"[API] Sensor migration failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/flows/migrate-stable-ids")
+async def migrate_flow_stable_ids():
+    """
+    Migrate existing flows to use stable_device_id.
+    This ensures flows can be matched to devices across IP/port changes.
+    """
+    try:
+        if not flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        logger.info("[API] Migrating flows to stable device IDs")
+        migrated = 0
+        failed = 0
+        already_set = 0
+
+        # Get all flows
+        all_flows = flow_manager.get_all_flows()
+        logger.info(f"[API] Found {len(all_flows)} flows to check")
+
+        for flow in all_flows:
+            if flow.stable_device_id:
+                already_set += 1
+                continue
+
+            # Get stable ID for this device
+            try:
+                stable_id = await adb_bridge.get_device_serial(flow.device_id)
+                if stable_id:
+                    flow.stable_device_id = stable_id
+                    flow_manager.update_flow(flow.device_id, flow.flow_id, flow.dict())
+                    migrated += 1
+                    logger.debug(f"[API] Migrated flow {flow.flow_id} to stable ID {stable_id}")
+                else:
+                    failed += 1
+                    logger.warning(f"[API] Could not get stable ID for flow {flow.flow_id}")
+            except Exception as e:
+                logger.warning(f"[API] Could not migrate flow {flow.flow_id}: {e}")
+                failed += 1
+
+        return {
+            "success": True,
+            "total_flows": len(all_flows),
+            "migrated": migrated,
+            "already_set": already_set,
+            "failed": failed,
+            "message": f"Migrated {migrated} flows, {already_set} already set, {failed} failed"
+        }
+    except Exception as e:
+        logger.error(f"[API] Flow migration failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2853,6 +3012,12 @@ async def create_flow(flow_data: dict):
         # Import here to avoid circular dependency
         from flow_models import SensorCollectionFlow
 
+        # Get stable_device_id if not provided
+        if not flow_data.get('stable_device_id') and flow_data.get('device_id'):
+            stable_id = await adb_bridge.get_device_serial(flow_data['device_id'])
+            if stable_id:
+                flow_data['stable_device_id'] = stable_id
+
         # Create flow from dict
         flow = SensorCollectionFlow(**flow_data)
 
@@ -3006,29 +3171,42 @@ async def delete_flow(device_id: str, flow_id: str):
 @app.post("/api/flows/{device_id}/{flow_id}/execute")
 async def execute_flow_on_demand(device_id: str, flow_id: str):
     """
-    Execute a flow on-demand (outside the scheduler)
+    Execute a flow on-demand (outside the scheduler) and return execution result
 
     Args:
         device_id: Device ID
         flow_id: Flow ID
 
     Returns:
-        Execution result
+        FlowExecutionResult with execution details
     """
     try:
-        if not flow_scheduler:
-            raise HTTPException(status_code=503, detail="Flow scheduler not initialized")
+        if not flow_executor:
+            raise HTTPException(status_code=503, detail="Flow executor not initialized")
 
         # Get flow
         flow = flow_manager.get_flow(device_id, flow_id)
         if not flow:
             raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
 
-        # Schedule with highest priority (on-demand execution)
-        await flow_scheduler.schedule_flow_on_demand(flow)
+        # Execute flow directly (synchronous for test/on-demand execution)
+        logger.info(f"[API] Executing flow {flow_id} on-demand")
+        result = await flow_executor.execute_flow(flow)
 
-        logger.info(f"[API] Scheduled on-demand execution for flow {flow_id}")
-        return {"success": True, "message": f"Flow {flow_id} scheduled for execution"}
+        # Convert result to dict for JSON response
+        result_dict = {
+            "flow_id": result.flow_id,
+            "success": result.success,
+            "executed_steps": result.executed_steps,
+            "failed_step": result.failed_step,
+            "error_message": result.error_message,
+            "captured_sensors": result.captured_sensors,
+            "execution_time_ms": result.execution_time_ms,
+            "timestamp": result.timestamp.isoformat() if result.timestamp else None
+        }
+
+        logger.info(f"[API] Flow {flow_id} execution complete: {result.success}")
+        return result_dict
 
     except HTTPException:
         raise

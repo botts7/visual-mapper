@@ -1,7 +1,9 @@
 /**
  * Flow Wizard Step 4 - Review & Test
- * Visual Mapper v0.0.6
- * v0.0.6: Fixed execute/delete endpoint URLs to include device_id
+ * Visual Mapper v0.0.5
+ *
+ * Handles flow review, testing, and step management
+ * Extracted from flow-wizard.js for modularity
  */
 
 import { showToast } from './toast.js?v=0.0.5';
@@ -84,68 +86,131 @@ export async function loadStep(wizard) {
 }
 
 /**
- * Test the flow
+ * Remove a step from the flow at the specified index
  */
-async function testFlow(wizard) {
+export function removeStepAt(wizard, index) {
+    if (index >= 0 && index < wizard.flowSteps.length) {
+        const removed = wizard.flowSteps.splice(index, 1)[0];
+        console.log(`[Step4] Removed step ${index}:`, removed);
+        showToast(`Step ${index + 1} removed`, 'info');
+        loadStep(wizard); // Refresh the review display
+    }
+}
+
+/**
+ * Test the flow execution
+ */
+export async function testFlow(wizard) {
     console.log('[Step4] Testing flow...');
-    showToast('Testing flow...', 'info');
+    showToast('Running flow test...', 'info');
 
     const testResults = document.getElementById('testResults');
-    const testContent = document.getElementById('testResultsContent');
+    const testResultsContent = document.getElementById('testResultsContent');
 
-    if (!testResults || !testContent) return;
+    if (!testResults || !testResultsContent) {
+        console.warn('[Step4] Test results elements not found');
+        return;
+    }
 
     testResults.style.display = 'block';
-    testContent.innerHTML = '<p>Running flow test...</p>';
+    testResultsContent.innerHTML = '<div class="loading">Executing flow...</div>';
 
     try {
-        // Create temporary flow
-        const tempFlow = {
+        // Build flow payload
+        const flowPayload = {
             flow_id: `test_${Date.now()}`,
             device_id: wizard.selectedDevice,
             name: 'Test Flow',
+            description: 'Flow test execution',
             steps: wizard.flowSteps,
-            enabled: false
+            update_interval_seconds: 60,
+            enabled: false, // Don't enable test flows
+            stop_on_error: true
         };
 
-        // Save temp flow
-        const saveResponse = await fetch(`${getApiBase()}/flows`, {
+        console.log('[Step4] Testing flow:', flowPayload);
+
+        // Create test flow
+        const response = await fetch(`${getApiBase()}/flows`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(tempFlow)
+            body: JSON.stringify(flowPayload)
         });
 
-        if (!saveResponse.ok) throw new Error('Failed to create test flow');
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to create test flow');
+        }
 
-        // Execute flow (endpoint requires device_id and flow_id)
-        const execResponse = await fetch(`${getApiBase()}/flows/${wizard.selectedDevice}/${tempFlow.flow_id}/execute`, {
+        const createdFlow = await response.json();
+        console.log('[Step4] Test flow created:', createdFlow);
+
+        // Execute the flow
+        const executeResponse = await fetch(`${getApiBase()}/flows/${wizard.selectedDevice}/${createdFlow.flow_id}/execute`, {
             method: 'POST'
         });
 
-        if (!execResponse.ok) throw new Error('Failed to execute test flow');
+        if (!executeResponse.ok) {
+            const error = await executeResponse.json();
+            throw new Error(error.detail || 'Flow execution failed');
+        }
 
-        const results = await execResponse.json();
+        const result = await executeResponse.json();
+        console.log('[Step4] Flow execution result:', result);
 
         // Display results
-        testContent.innerHTML = `
-            <div class="test-result ${results.success ? 'success' : 'error'}">
-                <strong>Status:</strong> ${results.success ? '✅ Success' : '❌ Failed'}
-            </div>
-            <div class="test-details">
-                <p><strong>Steps Executed:</strong> ${results.steps_completed || 0}/${wizard.flowSteps.length}</p>
-                ${results.error ? `<p><strong>Error:</strong> ${results.error}</p>` : ''}
-            </div>
-        `;
+        if (result.success) {
+            const executedSteps = result.executed_steps ?? 0;
+            const executionTime = result.execution_time_ms ?? 0;
+            const capturedSensors = result.captured_sensors || {};
 
-        // Delete temp flow (also requires device_id)
-        await fetch(`${getApiBase()}/flows/${wizard.selectedDevice}/${tempFlow.flow_id}`, { method: 'DELETE' });
+            testResultsContent.innerHTML = `
+                <div class="test-success">
+                    <h4>✅ Flow Test Passed</h4>
+                    <p><strong>Executed Steps:</strong> ${executedSteps} / ${wizard.flowSteps.length}</p>
+                    <p><strong>Execution Time:</strong> ${executionTime}ms</p>
+                    ${Object.keys(capturedSensors).length > 0 ? `
+                        <div class="captured-sensors">
+                            <strong>Captured Sensors:</strong>
+                            <ul>
+                                ${Object.entries(capturedSensors).map(([id, value]) =>
+                                    `<li>${id}: ${value}</li>`
+                                ).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            showToast('Flow test passed!', 'success');
+        } else {
+            const executedSteps = result.executed_steps ?? 0;
+            const failedStep = result.failed_step !== null && result.failed_step !== undefined ? result.failed_step + 1 : 'Unknown';
 
-        showToast(results.success ? 'Test passed!' : 'Test failed', results.success ? 'success' : 'error');
+            testResultsContent.innerHTML = `
+                <div class="test-failure">
+                    <h4>❌ Flow Test Failed</h4>
+                    <p><strong>Failed at Step:</strong> ${failedStep}</p>
+                    <p><strong>Error:</strong> ${result.error_message || 'Unknown error'}</p>
+                    <p><strong>Executed Steps:</strong> ${executedSteps} / ${wizard.flowSteps.length}</p>
+                </div>
+            `;
+            showToast('Flow test failed', 'error');
+        }
+
+        // Clean up test flow
+        await fetch(`${getApiBase()}/flows/${wizard.selectedDevice}/${createdFlow.flow_id}`, {
+            method: 'DELETE'
+        });
 
     } catch (error) {
-        console.error('[Step4] Test failed:', error);
-        testContent.innerHTML = `<p class="error">Test failed: ${error.message}</p>`;
-        showToast('Test failed', 'error');
+        console.error('[Step4] Flow test error:', error);
+        testResultsContent.innerHTML = `
+            <div class="test-error">
+                <h4>⚠️ Test Error</h4>
+                <p>${error.message}</p>
+            </div>
+        `;
+        showToast(`Test error: ${error.message}`, 'error');
     }
 }
 
@@ -169,4 +234,11 @@ export function getStepData(wizard) {
     };
 }
 
-export default { loadStep, validateStep, getStepData };
+// Export all Step 4 methods
+export default {
+    loadStep,
+    validateStep,
+    getStepData,
+    removeStepAt,
+    testFlow
+};

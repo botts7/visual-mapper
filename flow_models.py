@@ -87,6 +87,12 @@ class FlowStep(BaseModel):
     screen_activity: Optional[str] = Field(None, description="Activity when step was recorded (e.g., 'MainActivity')")
     screen_package: Optional[str] = Field(None, description="Package when step was recorded (e.g., 'com.example.app')")
 
+    # Timestamp validation for refresh actions (ensure data actually updated)
+    validate_timestamp: bool = Field(False, description="Validate timestamp element changed after refresh")
+    timestamp_element: Optional[Dict[str, Any]] = Field(None, description="Element containing 'last updated' timestamp (bounds, text, resource-id)")
+    refresh_max_retries: int = Field(3, ge=1, le=10, description="Max refresh attempts if timestamp unchanged")
+    refresh_retry_delay: int = Field(2000, ge=500, le=10000, description="Delay in ms between refresh retries")
+
 
 class SensorCollectionFlow(BaseModel):
     """
@@ -96,6 +102,7 @@ class SensorCollectionFlow(BaseModel):
     # Identity
     flow_id: str = Field(..., description="Unique flow ID (generated)")
     device_id: str = Field(..., description="Device this flow belongs to")
+    stable_device_id: Optional[str] = Field(None, description="Stable device identifier (hashed Android ID)")
 
     # Basic Configuration
     name: str = Field(..., min_length=1, max_length=100, description="Flow name")
