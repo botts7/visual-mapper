@@ -1436,6 +1436,49 @@ async def get_elements_only(device_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Smart Sensor Suggestions Endpoint
+@app.post("/api/devices/{device_id}/suggest-sensors")
+async def suggest_sensors(device_id: str):
+    """
+    Analyze current screen and suggest Home Assistant sensors
+
+    Uses AI-powered pattern detection to identify common sensor types
+    (battery, temperature, humidity, etc.) from UI elements.
+    """
+    try:
+        logger.info(f"[API] Analyzing UI elements for sensor suggestions on {device_id}")
+
+        # Get UI elements from device
+        elements_response = await adb_bridge.get_ui_elements(device_id)
+
+        if not elements_response or 'elements' not in elements_response:
+            elements = elements_response if isinstance(elements_response, list) else []
+        else:
+            elements = elements_response['elements']
+
+        # Use sensor suggester to analyze elements
+        from utils.sensor_suggester import get_sensor_suggester
+        suggester = get_sensor_suggester()
+        suggestions = suggester.suggest_sensors(elements)
+
+        logger.info(f"[API] Generated {len(suggestions)} sensor suggestions for {device_id}")
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            "suggestions": suggestions,
+            "count": len(suggestions),
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except ValueError as e:
+        logger.warning(f"[API] Sensor suggestion failed: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[API] Sensor suggestion error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Screenshot Stitching Endpoint
 @app.post("/api/adb/screenshot/stitch")
 async def capture_stitched_screenshot(request: ScreenshotStitchRequest):

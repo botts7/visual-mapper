@@ -1,0 +1,243 @@
+/**
+ * Smart Suggestions Panel Styles
+ *
+ * Styling for AI-powered sensor suggestion modal
+ */
+
+/* Smart Suggestions Modal */
+.smart-suggestions-modal {
+    max-width: 800px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.smart-suggestions-modal .modal-body {
+    padding: 20px;
+    min-height: 300px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+/* Suggestion Groups */
+.suggestion-group {
+    margin-bottom: 30px;
+}
+
+.suggestion-group h3 {
+    font-size: 18px;
+    margin: 0 0 10px 0;
+    color: var(--text-primary);
+}
+
+.suggestion-group-desc {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin: 0 0 15px 0;
+}
+
+.suggestion-group details summary {
+    cursor: pointer;
+    padding: 10px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.suggestion-group details summary:hover {
+    background: var(--bg-hover);
+}
+
+/* Suggestion Card */
+.suggestion-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 12px;
+    transition: all 0.2s ease;
+}
+
+.suggestion-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.suggestion-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.suggestion-checkbox {
+    margin-top: 4px;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.suggestion-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.suggestion-info strong {
+    font-size: 16px;
+    color: var(--text-primary);
+}
+
+.entity-id {
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    padding: 2px 6px;
+    border-radius: 3px;
+    display: inline-block;
+}
+
+/* Confidence Badges */
+.confidence-badge {
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.confidence-high {
+    background: rgba(76, 175, 80, 0.2);
+    color: #4CAF50;
+    border: 1px solid #4CAF50;
+}
+
+.confidence-medium {
+    background: rgba(255, 193, 7, 0.2);
+    color: #FFC107;
+    border: 1px solid #FFC107;
+}
+
+.confidence-low {
+    background: rgba(158, 158, 158, 0.2);
+    color: #9E9E9E;
+    border: 1px solid #9E9E9E;
+}
+
+/* Suggestion Details */
+.suggestion-details {
+    margin-bottom: 12px;
+}
+
+.suggestion-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 14px;
+}
+
+.suggestion-row .label {
+    color: var(--text-secondary);
+    font-weight: 600;
+    min-width: 120px;
+}
+
+.suggestion-row .value {
+    color: var(--text-primary);
+    flex: 1;
+}
+
+/* Suggestion Actions */
+.suggestion-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-small:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+}
+
+.empty-state p {
+    margin: 10px 0;
+}
+
+/* Modal Actions Specific Styling */
+.smart-suggestions-modal .modal-actions {
+    border-top: 1px solid var(--border);
+    padding: 15px 20px;
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+}
+
+.smart-suggestions-modal .modal-actions #selectedCount {
+    font-weight: bold;
+}
+
+/* Dark Theme Adjustments */
+@media (prefers-color-scheme: dark) {
+    .suggestion-card {
+        background: var(--bg-secondary);
+    }
+
+    .suggestion-card:hover {
+        background: var(--bg-hover);
+    }
+
+    .confidence-high {
+        background: rgba(76, 175, 80, 0.3);
+    }
+
+    .confidence-medium {
+        background: rgba(255, 193, 7, 0.3);
+    }
+
+    .confidence-low {
+        background: rgba(158, 158, 158, 0.3);
+    }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .smart-suggestions-modal {
+        max-width: 95vw;
+    }
+
+    .suggestion-row {
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .suggestion-row .label {
+        min-width: auto;
+    }
+
+    .smart-suggestions-modal .modal-actions {
+        flex-direction: column;
+    }
+
+    .smart-suggestions-modal .modal-actions button {
+        width: 100%;
+    }
+}

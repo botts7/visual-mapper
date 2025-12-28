@@ -1553,6 +1553,11 @@ export function setupElementTree(wizard) {
         wizard.elementTree?.setFilterOptions({ textOnly: e.target.checked });
     });
 
+    // Wire up Smart Suggestions button
+    document.getElementById('smartSuggestionsBtn')?.addEventListener('click', async () => {
+        await handleSmartSuggestions(wizard);
+    });
+
     console.log('[FlowWizard] Element tree initialized');
 }
 
@@ -1685,6 +1690,70 @@ export async function handleTreeTimestamp(wizard, element) {
 
     // Update UI to show the change
     wizard.updateFlowStepsUI();
+}
+
+/**
+ * Handle Smart Suggestions button click
+ * Shows AI-powered sensor suggestions
+ */
+export async function handleSmartSuggestions(wizard) {
+    if (!wizard.selectedDevice) {
+        showToast('Please select a device first', 'warning');
+        return;
+    }
+
+    try {
+        // Dynamically import SmartSuggestions module
+        const SmartSuggestionsModule = await import('./smart-suggestions.js?v=0.0.5');
+        const SmartSuggestions = SmartSuggestionsModule.default || window.SmartSuggestions;
+
+        // Create instance and show
+        const smartSuggestions = new SmartSuggestions();
+        await smartSuggestions.show(wizard.selectedDevice, (sensors) => {
+            // Callback when sensors are added
+            handleBulkSensorAddition(wizard, sensors);
+        });
+
+    } catch (error) {
+        console.error('[FlowWizard] Failed to load Smart Suggestions:', error);
+        showToast('Failed to load Smart Suggestions', 'error');
+    }
+}
+
+/**
+ * Handle bulk sensor addition from Smart Suggestions
+ */
+async function handleBulkSensorAddition(wizard, sensors) {
+    console.log('[FlowWizard] Adding bulk sensors:', sensors);
+
+    // Import Dialogs module
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.5');
+
+    // Add each sensor to the flow
+    for (const sensor of sensors) {
+        // Create sensor step
+        const sensorStep = {
+            step_type: 'capture_sensors',
+            sensors: [{
+                name: sensor.name,
+                entity_id: sensor.entity_id,
+                element: sensor.element,
+                device_class: sensor.device_class || 'none',
+                unit_of_measurement: sensor.unit_of_measurement || null,
+                icon: sensor.icon || 'mdi:eye'
+            }],
+            wait_before: 0,
+            wait_after: 0
+        };
+
+        // Add to flow
+        wizard.recorder.addStep(sensorStep);
+    }
+
+    // Update UI
+    wizard.updateFlowStepsUI();
+
+    showToast(`Added ${sensors.length} sensor(s) to flow!`, 'success');
 }
 
 /**
