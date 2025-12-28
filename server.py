@@ -42,6 +42,8 @@ from utils.action_models import (
     ActionListResponse
 )
 from utils.error_handler import handle_api_error
+from utils.device_migrator import DeviceMigrator
+from utils.connection_monitor import ConnectionMonitor
 
 # Phase 8: Flow System
 from flow_manager import FlowManager
@@ -195,6 +197,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Initialize ADB Bridge
 adb_bridge = ADBBridge()
 
+# Initialize Device Migrator (handles IP/port changes)
+device_migrator = DeviceMigrator()
+
 # Initialize Sensor Manager and Text Extractor
 sensor_manager = SensorManager()
 text_extractor = TextExtractor()
@@ -313,7 +318,7 @@ class ShellBatchRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize MQTT connection on startup"""
-    global mqtt_manager, sensor_updater, flow_manager, flow_executor, flow_scheduler, performance_monitor, screenshot_stitcher, app_icon_extractor, playstore_icon_scraper, device_icon_scraper, icon_background_fetcher, app_name_background_fetcher, stream_manager, adb_maintenance, shell_pool
+    global mqtt_manager, sensor_updater, flow_manager, flow_executor, flow_scheduler, performance_monitor, screenshot_stitcher, app_icon_extractor, playstore_icon_scraper, device_icon_scraper, icon_background_fetcher, app_name_background_fetcher, stream_manager, adb_maintenance, shell_pool, connection_monitor
 
     logger.info("[Server] Starting Visual Mapper v0.0.5")
     logger.info(f"[Server] MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
@@ -409,10 +414,40 @@ async def startup_event():
         await flow_scheduler.start()
         logger.info("[Server] ✅ Flow System initialized and scheduler started")
 
+        # Initialize Connection Monitor (handles device health checks and auto-recovery)
+        # Read configuration from environment (defaults for standalone, HA add-on uses options)
+        check_interval = int(os.getenv("CONNECTION_CHECK_INTERVAL", "30"))
+        max_retry_delay = int(os.getenv("CONNECTION_MAX_RETRY_DELAY", "300"))
+        retry_enabled = os.getenv("CONNECTION_RETRY_ENABLED", "true").lower() == "true"
+
+        connection_monitor = ConnectionMonitor(
+            adb_bridge=adb_bridge,
+            device_migrator=device_migrator,
+            mqtt_manager=mqtt_manager,
+            check_interval=check_interval,
+            max_retry_delay=max_retry_delay
+        )
+        logger.info(f"[Server] ✅ Connection Monitor initialized (interval={check_interval}s, max_retry={max_retry_delay}s, retry_enabled={retry_enabled})")
+
         # Register callback to publish MQTT discovery when devices are discovered
         async def on_device_discovered(device_id: str):
             """Callback triggered when ADB bridge auto-imports a device"""
             try:
+                # Check for device IP/port changes and auto-migrate
+                try:
+                    stable_device_id = await adb_bridge.get_device_serial(device_id)
+                    if stable_device_id:
+                        # Check if this is a known device with a new address
+                        migration_result = device_migrator.check_and_migrate(device_id, stable_device_id)
+                        if migration_result:
+                            logger.info(f"[Server] 🔄 Device {device_id} migrated from previous address")
+                            logger.info(f"[Server] Migrated: {migration_result['sensors']} sensors, {migration_result['actions']} actions, {migration_result['flows']} flows")
+                            # Reload managers to pick up migrated configurations
+                            sensor_manager._load_all_sensors()  # Reload sensor definitions
+                            flow_manager._load_all_flows()  # Reload flows
+                except Exception as e:
+                    logger.warning(f"[Server] Device migration check failed for {device_id}: {e}")
+
                 # Publish sensor discoveries
                 sensors = sensor_manager.get_all_sensors(device_id)
                 if sensors:
@@ -444,10 +479,88 @@ async def startup_event():
                             logger.error(f"[Server] Failed to publish action discovery for {action_def.id}: {e}")
                 else:
                     logger.debug(f"[Server] Device discovered: {device_id} - No actions configured yet")
+
+                # Add device to connection monitor for health checks
+                try:
+                    stable_device_id = await adb_bridge.get_device_serial(device_id)
+                    await connection_monitor.add_device(device_id, stable_device_id)
+                except Exception as e:
+                    logger.warning(f"[Server] Failed to add device {device_id} to connection monitor: {e}")
+
             except Exception as e:
                 logger.error(f"[Server] Failed to publish discoveries for {device_id}: {e}")
 
         adb_bridge.register_device_discovered_callback(on_device_discovered)
+
+        # Auto-reconnect to previously connected devices
+        async def auto_reconnect_devices():
+            """Attempt to reconnect to previously connected devices on startup"""
+            await asyncio.sleep(2)  # Wait for server to fully initialize
+            try:
+                import glob
+                import json
+                import subprocess
+
+                # Find all sensor files in data/ directory
+                sensor_files = glob.glob("data/sensors_*.json")
+                device_ids = set()
+
+                for file_path in sensor_files:
+                    try:
+                        with open(file_path, 'r') as f:
+                            data = json.load(f)
+                            device_id = data.get("device_id")
+                            if device_id:
+                                device_ids.add(device_id)
+                    except Exception as e:
+                        logger.debug(f"[Server] Failed to read {file_path}: {e}")
+
+                if device_ids:
+                    logger.info(f"[Server] Auto-reconnecting to {len(device_ids)} previously connected devices...")
+                    reconnected_count = 0
+
+                    for device_id in device_ids:
+                        try:
+                            # Try to connect via adb
+                            result = subprocess.run(
+                                ["adb", "connect", device_id],
+                                capture_output=True,
+                                text=True,
+                                timeout=10
+                            )
+                            if "connected" in result.stdout.lower() or "already connected" in result.stdout.lower():
+                                logger.info(f"[Server] ✅ Auto-reconnected to {device_id}")
+                                reconnected_count += 1
+                            else:
+                                logger.debug(f"[Server] Could not reconnect to {device_id}: {result.stdout.strip()}")
+                        except Exception as e:
+                            logger.debug(f"[Server] Failed to auto-reconnect to {device_id}: {e}")
+
+                    # If we couldn't reconnect to any devices, trigger a network scan
+                    # This will find devices with changed IP/port and auto-migrate them
+                    if reconnected_count == 0 and device_migrator.device_map:
+                        logger.info("[Server] No devices reconnected via direct connection - scanning network for known devices...")
+                        await asyncio.sleep(1)
+                        # Trigger device discovery which will handle migration
+                        await adb_bridge.discover_devices()
+                else:
+                    logger.debug("[Server] No previously connected devices found")
+            except Exception as e:
+                logger.error(f"[Server] Auto-reconnect failed: {e}")
+
+        asyncio.create_task(auto_reconnect_devices())
+
+        # Start connection monitor (if enabled)
+        async def start_connection_monitor():
+            """Start connection monitor after initial reconnection attempts"""
+            if retry_enabled:
+                await asyncio.sleep(10)  # Wait for initial reconnections
+                await connection_monitor.start()
+                logger.info(f"[Server] ✅ Connection Monitor started - checking device health every {check_interval}s")
+            else:
+                logger.info("[Server] Connection Monitor disabled by configuration")
+
+        asyncio.create_task(start_connection_monitor())
 
         # Background task to publish discovery for already-connected devices
         async def publish_existing_devices():
@@ -530,6 +643,10 @@ async def shutdown_event():
     # Stop all sensor updates
     if sensor_updater:
         await sensor_updater.stop_all_updates()
+
+    # Stop connection monitor
+    if connection_monitor:
+        await connection_monitor.stop()
 
     # Disconnect from MQTT
     if mqtt_manager:
@@ -1323,6 +1440,20 @@ async def get_devices():
         return {"devices": devices}
     except Exception as e:
         logger.error(f"[API] Failed to get devices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/adb/connection-status")
+async def get_connection_status():
+    """Get connection monitor status for all devices"""
+    try:
+        if not connection_monitor:
+            return {"error": "Connection monitor not initialized"}
+
+        status = connection_monitor.get_status_summary()
+        return status
+    except Exception as e:
+        logger.error(f"[API] Failed to get connection status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

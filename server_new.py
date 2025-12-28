@@ -61,7 +61,7 @@ from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta
+from routes import meta, health
 
 # Configure logging
 logging.basicConfig(
@@ -703,23 +703,29 @@ def _init_route_dependencies():
 # Register route modules
 app.include_router(meta.router)
 logger.info("[Server] Registered route module: meta (2 endpoints)")
+app.include_router(health.router)
+logger.info("[Server] Registered route module: health (1 endpoint)")
 
 # ============================================================================
 # LEGACY ENDPOINTS (Being migrated to route modules)
 # ============================================================================
 
-# Health check endpoint (must be defined BEFORE static files mount)
-@app.get("/api/health")
-async def health_check():
-    """Health check endpoint"""
-    mqtt_status = "connected" if (mqtt_manager and mqtt_manager.is_connected) else "disconnected"
-
-    return {
-        "status": "ok",
-        "version": "0.0.5",
-        "message": "Visual Mapper is running",
-        "mqtt_status": mqtt_status
-    }
+# ============================================================================
+# MIGRATED TO routes/health.py - Commented out for comparison/testing
+# ============================================================================
+# # Health check endpoint (must be defined BEFORE static files mount)
+# @app.get("/api/health")
+# async def health_check():
+#     """Health check endpoint"""
+#     mqtt_status = "connected" if (mqtt_manager and mqtt_manager.is_connected) else "disconnected"
+#
+#     return {
+#         "status": "ok",
+#         "version": "0.0.5",
+#         "message": "Visual Mapper is running",
+#         "mqtt_status": mqtt_status
+#     }
+# ============================================================================
 
 # =============================================================================
 # PERFORMANCE METRICS ENDPOINTS

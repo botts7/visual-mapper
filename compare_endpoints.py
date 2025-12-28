@@ -139,18 +139,21 @@ def find_differences(original: Any, new: Any, path: str = "") -> list:
 
 
 def test_meta_routes():
-    """Test all meta routes"""
+    """Test all extracted routes"""
     print("\n" + "="*80)
-    print("TESTING META ROUTES (routes/meta.py)")
+    print("TESTING EXTRACTED ROUTES")
     print("="*80)
 
     results = []
 
-    # Test /api/
+    # Test meta routes (routes/meta.py)
+    print("\n[meta.py]")
     results.append(compare_endpoint("/api/"))
-
-    # Test /api/device-classes
     results.append(compare_endpoint("/api/device-classes"))
+
+    # Test health routes (routes/health.py)
+    print("\n[health.py]")
+    results.append(compare_endpoint("/api/health"))
 
     # Summary
     print("\n" + "="*80)
@@ -168,7 +171,7 @@ def test_meta_routes():
 
     if different == 0 and errors == 0:
         print(f"\n{'='*80}")
-        print("[SUCCESS] ALL TESTS PASSED - Meta routes refactoring successful!")
+        print("[SUCCESS] ALL TESTS PASSED - Refactoring successful!")
         print(f"{'='*80}")
         return True
     else:

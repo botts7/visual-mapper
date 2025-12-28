@@ -51,6 +51,9 @@ options:
   mqtt_discovery_prefix: "homeassistant"
   auto_start_updates: true
   log_level: info
+  connection_check_interval: 30
+  connection_retry_enabled: true
+  connection_max_retry_delay: 300
 
 # Options schema
 schema:
@@ -63,6 +66,9 @@ schema:
   mqtt_discovery_prefix: str
   auto_start_updates: bool
   log_level: list(debug|info|warning|error)
+  connection_check_interval: int(5,300)
+  connection_retry_enabled: bool
+  connection_max_retry_delay: int(60,600)
 
 # Service dependencies
 services:
