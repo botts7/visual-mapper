@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Module Debug</title>
+</head>
+<body>
+    <h1>Module Import Debug</h1>
+    <pre id="output"></pre>
+
+    <script type="module">
+        const output = document.getElementById('output');
+
+        try {
+            // Import flow-canvas-renderer
+            const module1 = await import('./js/modules/flow-canvas-renderer.js?v=0.0.8&debug=' + Date.now());
+            output.textContent += 'flow-canvas-renderer.js loaded successfully\n';
+            output.textContent += 'Module exports: ' + Object.keys(module1).join(', ') + '\n\n';
+
+            // Check the actual code by fetching the file
+            const response = await fetch('./js/modules/flow-canvas-renderer.js?v=0.0.8&t=' + Date.now());
+            const code = await response.text();
+
+            // Check for the bug
+            const hasBug = code.includes("el['content-desc']") || code.includes("el['resource-id']");
+            const hasContent_desc = code.includes("el.content_desc");
+            const hasResource_id = code.includes("el.resource_id");
+
+            output.textContent += `File check:\n`;
+            output.textContent += `  Has BUG (el['content-desc']): ${hasBug}\n`;
+            output.textContent += `  Has FIX (el.content_desc): ${hasContent_desc}\n`;
+            output.textContent += `  Has FIX (el.resource_id): ${hasResource_id}\n\n`;
+
+            // Show snippet of code around line 360
+            const lines = code.split('\n');
+            output.textContent += `Lines 358-366:\n`;
+            for (let i = 357; i < 366 && i < lines.length; i++) {
+                output.textContent += `  ${i+1}: ${lines[i]}\n`;
+            }
+
+        } catch (e) {
+            output.textContent += 'Error: ' + e.message + '\n' + e.stack;
+        }
+    </script>
+</body>
+</html>

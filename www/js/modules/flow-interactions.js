@@ -37,16 +37,16 @@ export class FlowInteractions {
             `;
 
             const elementInfo = element ? `
-                <div style="background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #3b82f6;">
+                <div style="background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #3b82f6; color: #1e3a8a;">
                     <div style="font-size: 14px; color: #1e40af; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 20px;">🎯</span>
                         Element Selected
                     </div>
-                    ${element.text ? `<div style="margin-bottom: 6px;"><strong>Text:</strong> ${element.text}</div>` : ''}
-                    ${element.class ? `<div style="margin-bottom: 6px; font-size: 12px;"><strong>Class:</strong> <code style="background: rgba(255,255,255,0.6); padding: 2px 6px; border-radius: 3px;">${element.class}</code></div>` : ''}
-                    ${element.resource_id ? `<div style="margin-bottom: 6px; font-size: 12px;"><strong>Resource ID:</strong> <code style="background: rgba(255,255,255,0.6); padding: 2px 6px; border-radius: 3px;">${element.resource_id.split('/').pop() || element.resource_id}</code></div>` : ''}
-                    ${element.content_desc ? `<div style="margin-bottom: 6px;"><strong>Description:</strong> ${element.content_desc}</div>` : ''}
-                    <div style="margin-bottom: 6px; font-size: 12px;"><strong>Position:</strong> (${coords.x}, ${coords.y})</div>
+                    ${element.text ? `<div style="margin-bottom: 6px; color: #1e3a8a;"><strong>Text:</strong> ${element.text}</div>` : ''}
+                    ${element.class ? `<div style="margin-bottom: 6px; font-size: 12px; color: #1e3a8a;"><strong>Class:</strong> <code style="background: rgba(255,255,255,0.7); padding: 2px 6px; border-radius: 3px; color: #1e3a8a;">${element.class}</code></div>` : ''}
+                    ${element.resource_id ? `<div style="margin-bottom: 6px; font-size: 12px; color: #1e3a8a;"><strong>Resource ID:</strong> <code style="background: rgba(255,255,255,0.7); padding: 2px 6px; border-radius: 3px; color: #1e3a8a;">${element.resource_id.split('/').pop() || element.resource_id}</code></div>` : ''}
+                    ${element.content_desc ? `<div style="margin-bottom: 6px; color: #1e3a8a;"><strong>Description:</strong> ${element.content_desc}</div>` : ''}
+                    <div style="margin-bottom: 6px; font-size: 12px; color: #1e3a8a;"><strong>Position:</strong> (${coords.x}, ${coords.y})</div>
                     ${element.clickable ? `<div style="color: #22c55e; font-weight: 600; margin-top: 8px;">✓ Clickable Element</div>` : '<div style="color: #64748b; margin-top: 8px;">○ Non-Clickable Element</div>'}
                     <div style="margin-top: 10px; padding: 8px; background: rgba(59, 130, 246, 0.1); border-radius: 4px; font-size: 11px; color: #1e40af;">
                         <strong>Note:</strong> Steps will reference this element, not just coordinates
@@ -305,7 +305,7 @@ export class FlowInteractions {
             // Check for problematic elements
             const elementClass = element?.class || '';
             const elementText = element?.text?.trim() || '';
-            const elementContentDesc = element?.['content-desc']?.trim() || '';
+            const elementContentDesc = element?.content_desc?.trim() || '';
             const shortClass = elementClass.split('.').pop();
 
             // Determine warnings
@@ -342,7 +342,7 @@ export class FlowInteractions {
                     <div style="margin-top: 8px; font-size: 13px; color: #0c4a6e;">
                         <div><strong>Type:</strong> ${shortClass}</div>
                         <div><strong>Value:</strong> "${elementText || elementContentDesc || '(empty)'}"</div>
-                        ${element['resource-id'] ? `<div><strong>ID:</strong> ${element['resource-id'].split('/').pop()}</div>` : ''}
+                        ${element.resource_id ? `<div><strong>ID:</strong> ${element.resource_id.split('/').pop()}</div>` : ''}
                     </div>
                 </div>
             ` : '';
@@ -566,8 +566,8 @@ export class FlowInteractions {
                     element_index: element?.index || 0,
                     element_text: element?.text || '',
                     element_class: element?.class || '',
-                    element_resource_id: element?.['resource-id'] || element?.resource_id || '',
-                    element_content_desc: element?.['content-desc'] || element?.content_desc || '',
+                    element_resource_id: element?.resource_id || '',
+                    element_content_desc: element?.content_desc || '',
                     custom_bounds: this.validateBounds(element?.bounds)
                 },
                 extraction_rule: extractionRule,
@@ -651,8 +651,8 @@ export class FlowInteractions {
                     element_index: element?.index || 0,
                     element_text: element?.text || '',
                     element_class: element?.class || '',
-                    element_resource_id: element?.['resource-id'] || element?.resource_id || '',
-                    element_content_desc: element?.['content-desc'] || element?.content_desc || '',
+                    element_resource_id: element?.resource_id || '',
+                    element_content_desc: element?.content_desc || '',
                     custom_bounds: this.validateBounds(element?.bounds)
                 },
                 extraction_rule: {
@@ -789,13 +789,14 @@ export class FlowInteractions {
 
             // Check element properties
             const hasText = el.text && el.text.trim();
-            const hasContentDesc = el['content-desc'] && el['content-desc'].trim();
-            const hasResourceId = el['resource-id'] && el['resource-id'].trim();
+            const hasContentDesc = el.content_desc && el.content_desc.trim();
+            const hasResourceId = el.resource_id && el.resource_id.trim();
             const isContainer = el.class && FlowInteractions.containerClasses.includes(el.class);
 
-            // Skip containers if filter is on
+            // Skip containers if filter is on (BUT keep clickable containers - they're usually buttons)
             if (hideContainers && isContainer) {
-                continue;
+                const isUsefulContainer = el.clickable || hasResourceId;
+                if (!isUsefulContainer) continue;
             }
 
             // Skip empty elements if filter is on (except clickable buttons with resource-id)

@@ -261,6 +261,14 @@ class ScreenshotStitchRequest(BaseModel):
     debug: Optional[bool] = False
 
 
+class SuggestSensorsRequest(BaseModel):
+    device_id: str
+
+
+class SuggestActionsRequest(BaseModel):
+    device_id: str
+
+
 class TapRequest(BaseModel):
     device_id: str
     x: int
@@ -1437,8 +1445,8 @@ async def get_elements_only(device_id: str):
 
 
 # Smart Sensor Suggestions Endpoint
-@app.post("/api/devices/{device_id}/suggest-sensors")
-async def suggest_sensors(device_id: str):
+@app.post("/api/devices/suggest-sensors")
+async def suggest_sensors(request: SuggestSensorsRequest):
     """
     Analyze current screen and suggest Home Assistant sensors
 
@@ -1446,10 +1454,10 @@ async def suggest_sensors(device_id: str):
     (battery, temperature, humidity, etc.) from UI elements.
     """
     try:
-        logger.info(f"[API] Analyzing UI elements for sensor suggestions on {device_id}")
+        logger.info(f"[API] Analyzing UI elements for sensor suggestions on {request.device_id}")
 
         # Get UI elements from device
-        elements_response = await adb_bridge.get_ui_elements(device_id)
+        elements_response = await adb_bridge.get_ui_elements(request.device_id)
 
         if not elements_response or 'elements' not in elements_response:
             elements = elements_response if isinstance(elements_response, list) else []
@@ -1461,11 +1469,11 @@ async def suggest_sensors(device_id: str):
         suggester = get_sensor_suggester()
         suggestions = suggester.suggest_sensors(elements)
 
-        logger.info(f"[API] Generated {len(suggestions)} sensor suggestions for {device_id}")
+        logger.info(f"[API] Generated {len(suggestions)} sensor suggestions for {request.device_id}")
 
         return {
             "success": True,
-            "device_id": device_id,
+            "device_id": request.device_id,
             "suggestions": suggestions,
             "count": len(suggestions),
             "timestamp": datetime.now().isoformat()
@@ -1476,6 +1484,48 @@ async def suggest_sensors(device_id: str):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[API] Sensor suggestion error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/devices/suggest-actions")
+async def suggest_actions(request: SuggestActionsRequest):
+    """
+    Analyze current screen and suggest Home Assistant actions
+
+    Uses AI-powered pattern detection to identify actionable UI elements
+    (buttons, switches, input fields, etc.) from UI elements.
+    """
+    try:
+        logger.info(f"[API] Analyzing UI elements for action suggestions on {request.device_id}")
+
+        # Get UI elements from device
+        elements_response = await adb_bridge.get_ui_elements(request.device_id)
+
+        if not elements_response or 'elements' not in elements_response:
+            elements = elements_response if isinstance(elements_response, list) else []
+        else:
+            elements = elements_response['elements']
+
+        # Use action suggester to analyze elements
+        from utils.action_suggester import get_action_suggester
+        suggester = get_action_suggester()
+        suggestions = suggester.suggest_actions(elements)
+
+        logger.info(f"[API] Generated {len(suggestions)} action suggestions for {request.device_id}")
+
+        return {
+            "success": True,
+            "device_id": request.device_id,
+            "suggestions": suggestions,
+            "count": len(suggestions),
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except ValueError as e:
+        logger.warning(f"[API] Action suggestion failed: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[API] Action suggestion error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1632,6 +1682,77 @@ async def send_home_key(request: dict):
         raise
     except Exception as e:
         logger.error(f"[API] Home key failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== Screen Power Control (Headless Mode) ==========
+
+@app.get("/api/adb/screen-state/{device_id}")
+async def get_screen_state(device_id: str):
+    """Check if device screen is currently on"""
+    try:
+        logger.info(f"[API] Checking screen state for {device_id}")
+        is_on = await adb_bridge.is_screen_on(device_id)
+        return {
+            "success": True,
+            "device_id": device_id,
+            "screen_on": is_on,
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Screen state check failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/adb/wake/{device_id}")
+async def wake_device_screen(device_id: str):
+    """Wake the device screen"""
+    try:
+        logger.info(f"[API] Waking screen for {device_id}")
+        success = await adb_bridge.ensure_screen_on(device_id, timeout_ms=3000)
+        return {
+            "success": success,
+            "device_id": device_id,
+            "message": "Screen woken" if success else "Failed to wake screen",
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Wake screen failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/adb/sleep/{device_id}")
+async def sleep_device_screen(device_id: str):
+    """Put the device screen to sleep"""
+    try:
+        logger.info(f"[API] Sleeping screen for {device_id}")
+        success = await adb_bridge.sleep_screen(device_id)
+        return {
+            "success": success,
+            "device_id": device_id,
+            "message": "Screen put to sleep" if success else "Failed to sleep screen",
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Sleep screen failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/adb/unlock/{device_id}")
+async def unlock_device_screen(device_id: str):
+    """Attempt to unlock the device screen (swipe-to-unlock only, not PIN/pattern)"""
+    try:
+        logger.info(f"[API] Unlocking screen for {device_id}")
+        success = await adb_bridge.unlock_screen(device_id)
+        return {
+            "success": success,
+            "device_id": device_id,
+            "message": "Unlock attempt completed" if success else "Failed to unlock screen",
+            "note": "Only works for swipe-to-unlock, not PIN/pattern locked devices",
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Unlock screen failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -3554,24 +3675,8 @@ async def update_alert_thresholds(thresholds: dict):
 # Set DISABLE_HTML_CACHE=false in production to enable browser caching
 DISABLE_HTML_CACHE = os.getenv("DISABLE_HTML_CACHE", "true").lower() == "true"
 
-@app.middleware("http")
-async def add_no_cache_headers(request: Request, call_next):
-    """Add no-cache headers to HTML files during development
-
-    In development: HTML files are served with no-cache headers to ensure
-                    fresh content on every page load
-    In production: Set DISABLE_HTML_CACHE=false to enable browser caching
-                   for better performance
-    """
-    response = await call_next(request)
-
-    # If the response is an HTML file and caching is disabled, add no-cache headers
-    if DISABLE_HTML_CACHE and response.headers.get("content-type", "").startswith("text/html"):
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
-
-    return response
+# Note: Cache prevention is now handled by NoCacheStaticFiles class (see bottom of file)
+# which overrides StaticFiles.get_response() to strip ETags at the source
 
 
 # =============================================================================
@@ -3932,8 +4037,41 @@ async def websocket_logs(websocket: WebSocket):
         ws_log_handler.remove_client(websocket)
 
 
+# =============================================================================
+# CUSTOM STATIC FILES - No ETags in Development Mode
+# =============================================================================
+
+class NoCacheStaticFiles(StaticFiles):
+    """
+    Custom StaticFiles that disables ETags and caching headers in development mode.
+
+    When DISABLE_HTML_CACHE is True, this prevents 304 Not Modified responses
+    by not generating ETags or Last-Modified headers on FileResponse objects.
+    """
+
+    async def get_response(self, path: str, scope):
+        """Override to customize FileResponse headers"""
+        response = await super().get_response(path, scope)
+
+        if DISABLE_HTML_CACHE and hasattr(response, 'headers'):
+            # Remove cache validation headers to force fresh downloads
+            if "etag" in response.headers:
+                del response.headers["etag"]
+            if "last-modified" in response.headers:
+                del response.headers["last-modified"]
+
+            # Add no-cache headers for HTML/JS/CSS
+            content_type = response.headers.get("content-type", "")
+            if any(ct in content_type for ct in ["text/html", "javascript", "text/css"]):
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                response.headers["Pragma"] = "no-cache"
+                response.headers["Expires"] = "0"
+
+        return response
+
+
 # Mount static files LAST (catch-all route)
-app.mount("/", StaticFiles(directory="www", html=True), name="www")
+app.mount("/", NoCacheStaticFiles(directory="www", html=True), name="www")
 
 if __name__ == "__main__":
     # Default to port 3000, can be overridden by environment variable

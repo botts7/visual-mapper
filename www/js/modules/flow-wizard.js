@@ -10,24 +10,24 @@
  */
 
 import { showToast } from './toast.js?v=0.0.5';
-import FlowRecorder from './flow-recorder.js?v=0.0.6';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.7';
-import FlowInteractions from './flow-interactions.js?v=0.0.12';
+import FlowRecorder from './flow-recorder.js?v=0.0.7';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.9';
+import FlowInteractions from './flow-interactions.js?v=0.0.15';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
-import LiveStream from './live-stream.js?v=0.0.13';
-import ElementTree from './element-tree.js?v=0.0.4';
+import LiveStream from './live-stream.js?v=0.0.15';
+import ElementTree from './element-tree.js?v=0.0.5';
 import APIClient from './api-client.js?v=0.0.4';
 import SensorCreator from './sensor-creator.js?v=0.0.9';
 
 // Step modules
 import * as Step1 from './flow-wizard-step1.js?v=0.0.5';
 import * as Step2 from './flow-wizard-step2.js?v=0.0.5';
-import * as Step3 from './flow-wizard-step3.js?v=0.0.5';
+import * as Step3 from './flow-wizard-step3.js?v=0.0.11';
 import * as Step4 from './flow-wizard-step4.js?v=0.0.5';
-import * as Step5 from './flow-wizard-step5.js?v=0.0.5';
+import * as Step5 from './flow-wizard-step5.js?v=0.0.6';
 
 // Dialog module
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.5';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.6';
 
 // Element actions module
 import * as ElementActions from './flow-wizard-element-actions.js?v=0.0.5';

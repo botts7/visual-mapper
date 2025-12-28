@@ -885,6 +885,26 @@
                             <label for="editFlowEnabled" style="margin: 0">Flow Enabled</label>
                         </div>
                     </div>
+
+                    <!-- Headless Mode Options -->
+                    <div class="form-group" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+                        <label style="font-weight: 600; margin-bottom: 10px; display: block;">Headless Mode (Screen Control)</label>
+                        <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 15px;">
+                            Auto-wake screen before flow, sleep after. Saves battery and works while device is idle.
+                        </p>
+                        <div class="checkbox-wrapper" style="margin-bottom: 8px;">
+                            <input type="checkbox" id="editAutoWakeBefore" checked>
+                            <label for="editAutoWakeBefore" style="margin: 0">Auto-wake screen before flow</label>
+                        </div>
+                        <div class="checkbox-wrapper" style="margin-bottom: 8px;">
+                            <input type="checkbox" id="editAutoSleepAfter" checked>
+                            <label for="editAutoSleepAfter" style="margin: 0">Auto-sleep screen after flow</label>
+                        </div>
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" id="editVerifyScreenOn" checked>
+                            <label for="editVerifyScreenOn" style="margin: 0">Fail flow if screen won't wake</label>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Flow Steps Tab -->
@@ -2107,6 +2127,11 @@
             document.getElementById('editFlowInterval').value = flow.update_interval_seconds || 60;
             document.getElementById('editFlowEnabled').checked = flow.enabled !== false;
 
+            // Populate headless mode options
+            document.getElementById('editAutoWakeBefore').checked = flow.auto_wake_before !== false;
+            document.getElementById('editAutoSleepAfter').checked = flow.auto_sleep_after !== false;
+            document.getElementById('editVerifyScreenOn').checked = flow.verify_screen_on !== false;
+
             // Populate JSON editor
             document.getElementById('editFlowJSON').value = JSON.stringify(flow, null, 2);
 
@@ -2152,7 +2177,11 @@
                         name: document.getElementById('editFlowName').value,
                         description: document.getElementById('editFlowDescription').value,
                         update_interval_seconds: parseInt(document.getElementById('editFlowInterval').value),
-                        enabled: document.getElementById('editFlowEnabled').checked
+                        enabled: document.getElementById('editFlowEnabled').checked,
+                        // Headless mode settings
+                        auto_wake_before: document.getElementById('editAutoWakeBefore').checked,
+                        auto_sleep_after: document.getElementById('editAutoSleepAfter').checked,
+                        verify_screen_on: document.getElementById('editVerifyScreenOn').checked
                     };
                 }
 

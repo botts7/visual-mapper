@@ -14,12 +14,12 @@
  */
 
 import { showToast } from './toast.js?v=0.0.5';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.7';
-import FlowInteractions from './flow-interactions.js?v=0.0.12';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.9';
+import FlowInteractions from './flow-interactions.js?v=0.0.15';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
-import FlowRecorder from './flow-recorder.js?v=0.0.6';
-import LiveStream from './live-stream.js?v=0.0.13';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.5';
+import FlowRecorder from './flow-recorder.js?v=0.0.7';
+import LiveStream from './live-stream.js?v=0.0.15';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.6';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -217,7 +217,8 @@ export function setupPanelTabs(wizard) {
     const tabs = document.querySelectorAll('.panel-tab');
     const tabContents = {
         'elements': document.getElementById('tabElements'),
-        'flow': document.getElementById('tabFlow')
+        'flow': document.getElementById('tabFlow'),
+        'suggestions': document.getElementById('tabSuggestions')
     };
 
     tabs.forEach(tab => {
@@ -234,6 +235,12 @@ export function setupPanelTabs(wizard) {
                     content.classList.toggle('active', name === tabName);
                 }
             });
+
+            // If switching to suggestions tab, setup if not already done
+            if (tabName === 'suggestions' && !wizard._suggestionsTabInitialized) {
+                setupSuggestionsTab(wizard);
+                wizard._suggestionsTabInitialized = true;
+            }
         });
     });
 
@@ -247,7 +254,8 @@ export function switchToTab(wizard, tabName) {
     const tabs = document.querySelectorAll('.panel-tab');
     const tabContents = {
         'elements': document.getElementById('tabElements'),
-        'flow': document.getElementById('tabFlow')
+        'flow': document.getElementById('tabFlow'),
+        'suggestions': document.getElementById('tabSuggestions')
     };
 
     tabs.forEach(tab => {
@@ -991,16 +999,17 @@ export function handleCanvasHover(wizard, e, hoverTooltip, container) {
         const el = elements[i];
         if (!el.bounds) continue;
 
-        // Skip containers if filter is enabled
+        // Skip containers if filter is enabled (BUT keep clickable containers - they're usually buttons)
         if (wizard.overlayFilters?.hideContainers && el.class && containerClasses.includes(el.class)) {
-            continue;
+            const isUsefulContainer = el.clickable || (el.resource_id && el.resource_id.trim());
+            if (!isUsefulContainer) continue;
         }
 
         // Skip empty elements if filter is enabled
         if (wizard.overlayFilters?.hideEmptyElements) {
             const hasText = el.text && el.text.trim();
-            const hasContentDesc = el['content-desc'] && el['content-desc'].trim();
-            const hasResourceId = el['resource-id'] && el['resource-id'].trim();
+            const hasContentDesc = el.content_desc && el.content_desc.trim();
+            const hasResourceId = el.resource_id && el.resource_id.trim();
             if (!hasText && !hasContentDesc && !(el.clickable && hasResourceId)) {
                 continue;
             }
@@ -1017,7 +1026,7 @@ export function handleCanvasHover(wizard, e, hoverTooltip, container) {
     let foundElement = null;
     if (elementsAtPoint.length > 0) {
         // Prefer elements with text
-        const withText = elementsAtPoint.filter(el => el.text?.trim() || el['content-desc']?.trim());
+        const withText = elementsAtPoint.filter(el => el.text?.trim() || el.content_desc?.trim());
         const clickable = elementsAtPoint.filter(el => el.clickable);
         const candidates = withText.length > 0 ? withText : (clickable.length > 0 ? clickable : elementsAtPoint);
 
@@ -1059,9 +1068,8 @@ export function showHoverTooltip(wizard, e, element, hoverTooltip, container) {
     const header = hoverTooltip.querySelector('.tooltip-header');
     const body = hoverTooltip.querySelector('.tooltip-body');
 
-    // Header: element text or class name (handle hyphenated property names)
+    // Header: element text or class name
     const displayName = element.text?.trim() ||
-                       element['content-desc']?.trim() ||
                        element.content_desc?.trim() ||
                        element.class?.split('.').pop() ||
                        'Element';
@@ -1074,8 +1082,7 @@ export function showHoverTooltip(wizard, e, element, hoverTooltip, container) {
 
     let bodyHtml = `<div class="tooltip-row"><span class="tooltip-label">Class:</span><span class="tooltip-value">${element.class?.split('.').pop() || '-'}</span></div>`;
 
-    // Handle both hyphenated and underscore property names
-    const resourceId = element['resource-id'] || element.resource_id;
+    const resourceId = element.resource_id;
     if (resourceId) {
         const resId = resourceId.split('/').pop() || resourceId;
         bodyHtml += `<div class="tooltip-row"><span class="tooltip-label">ID:</span><span class="tooltip-value">${resId}</span></div>`;
@@ -1634,7 +1641,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.5');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.6');
 
     // Go directly to text sensor creation (most common case from element tree)
     await Dialogs.createTextSensor(wizard, element, coords);
@@ -1666,7 +1673,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.5');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.6');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -1678,8 +1685,8 @@ export async function handleTreeTimestamp(wizard, element) {
     refreshStep.validate_timestamp = true;
     refreshStep.timestamp_element = {
         text: element.text,
-        'content-desc': element['content-desc'] || element.content_desc,
-        'resource-id': element['resource-id'] || element.resource_id,
+        content_desc: element.content_desc,
+        resource_id: element.resource_id,
         class: element.class,
         bounds: element.bounds
     };
@@ -1704,12 +1711,14 @@ export async function handleSmartSuggestions(wizard) {
 
     try {
         // Dynamically import SmartSuggestions module
-        const SmartSuggestionsModule = await import('./smart-suggestions.js?v=0.0.5');
+        // Use timestamp to force cache refresh (browser was aggressively caching)
+        const cacheBust = Date.now();
+        const SmartSuggestionsModule = await import(`./smart-suggestions.js?v=0.0.10&t=${cacheBust}`);
         const SmartSuggestions = SmartSuggestionsModule.default || window.SmartSuggestions;
 
-        // Create instance and show
+        // Create instance and show (pass wizard for full creator dialog access)
         const smartSuggestions = new SmartSuggestions();
-        await smartSuggestions.show(wizard.selectedDevice, (sensors) => {
+        await smartSuggestions.show(wizard, wizard.selectedDevice, (sensors) => {
             // Callback when sensors are added
             handleBulkSensorAddition(wizard, sensors);
         });
@@ -1727,7 +1736,7 @@ async function handleBulkSensorAddition(wizard, sensors) {
     console.log('[FlowWizard] Adding bulk sensors:', sensors);
 
     // Import Dialogs module
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.5');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.6');
 
     // Add each sensor to the flow
     for (const sensor of sensors) {
@@ -1923,7 +1932,7 @@ export async function handleElementClick(wizard, canvasX, canvasY) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.5');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.6');
 
     // Execute based on choice
     switch (choice.type) {
@@ -2547,7 +2556,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.5');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.6');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });

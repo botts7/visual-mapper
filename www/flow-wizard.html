@@ -265,6 +265,9 @@
                         <button class="panel-tab" data-tab="flow">
                             Flow <span id="stepCount" class="tab-badge">0</span>
                         </button>
+                        <button class="panel-tab" data-tab="suggestions">
+                            🤖 Smart <span id="suggestionsCount" class="tab-badge">0</span>
+                        </button>
                     </div>
 
                     <!-- Elements Tab Content -->
@@ -289,6 +292,36 @@
                             <button class="btn btn-secondary btn-sm" id="btnClearFlow">Clear All</button>
                             <button class="btn btn-primary btn-done" id="btnDoneRecording">
                                 Done Recording →
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Smart Suggestions Tab Content -->
+                    <div id="tabSuggestions" class="tab-content">
+                        <div class="suggestions-toolbar">
+                            <div class="suggestion-mode-tabs">
+                                <button type="button" class="mode-tab active" data-mode="sensors">
+                                    📊 Sensors (<span id="sensorSuggestionsCount">0</span>)
+                                </button>
+                                <button type="button" class="mode-tab" data-mode="actions">
+                                    ⚡ Actions (<span id="actionSuggestionsCount">0</span>)
+                                </button>
+                            </div>
+                            <button type="button" id="refreshSuggestionsBtn" class="btn btn-secondary btn-sm">
+                                🔄 Refresh
+                            </button>
+                        </div>
+                        <div id="suggestionsContent" class="suggestions-content">
+                            <div class="suggestions-empty">
+                                <p>Click "Refresh" to analyze current screen and detect sensors/actions</p>
+                            </div>
+                        </div>
+                        <div class="suggestions-actions">
+                            <button type="button" class="btn btn-secondary btn-sm" id="selectAllSuggestionsTabBtn">
+                                Select All
+                            </button>
+                            <button type="button" class="btn btn-primary" id="addSelectedSuggestionsTabBtn">
+                                Add Selected (<span id="selectedSuggestionsCount">0</span>)
                             </button>
                         </div>
                     </div>
@@ -343,6 +376,28 @@
                         <button class="btn btn-sm" data-interval="300">5 min</button>
                         <button class="btn btn-sm" data-interval="900">15 min</button>
                         <button class="btn btn-sm" data-interval="3600">1 hour</button>
+                    </div>
+                </div>
+
+                <!-- Headless Mode Options -->
+                <div class="form-group" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+                    <label style="font-weight: 600; margin-bottom: 10px; display: block;">Headless Mode (Screen Control)</label>
+                    <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 15px;">
+                        Auto-wake screen before flow, sleep after. Saves battery and works while device is idle.
+                    </p>
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="autoWakeBefore" checked>
+                            <span>Auto-wake screen before flow</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="autoSleepAfter" checked>
+                            <span>Auto-sleep screen after flow</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="verifyScreenOn" checked>
+                            <span>Fail flow if screen won't wake</span>
+                        </label>
                     </div>
                 </div>
             </div>

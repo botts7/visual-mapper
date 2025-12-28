@@ -1,10 +1,12 @@
 /**
  * Flow Canvas Renderer Module
- * Visual Mapper v0.0.7
+ * Visual Mapper v0.0.9
  *
  * Handles screenshot rendering, element overlays, and canvas scaling
  * v0.0.6: Clickable elements on top, divider filtering
  * v0.0.7: Enhanced filtering - hide empty elements, more container types
+ * v0.0.8: Fixed canvasToDevice coordinate conversion (1:1 mapping)
+ * v0.0.9: Smart container filtering - keep clickable containers (icon buttons)
  */
 
 export class FlowCanvasRenderer {
@@ -234,8 +236,15 @@ export class FlowCanvasRenderer {
 
     /**
      * Convert canvas coordinates to device coordinates
-     * Canvas is now at full screenshot resolution, CSS handles scaling
-     * So we need to account for CSS scaling
+     *
+     * NOTE: The canvas bitmap is rendered at full screenshot resolution (e.g., 1200x1920),
+     * which matches the device resolution exactly. CSS handles scaling for display purposes only.
+     * The input coordinates (canvasX, canvasY) are already in canvas bitmap space (converted
+     * from CSS coordinates in the event handler), so they map 1:1 to device coordinates.
+     *
+     * @param {number} canvasX - X coordinate in canvas bitmap space
+     * @param {number} canvasY - Y coordinate in canvas bitmap space
+     * @returns {{x: number, y: number}} Device coordinates
      */
     canvasToDevice(canvasX, canvasY) {
         if (!this.currentImage || !this.canvas.width) {
@@ -243,18 +252,11 @@ export class FlowCanvasRenderer {
             return { x: Math.round(canvasX), y: Math.round(canvasY) };
         }
 
-        // Get CSS display size vs bitmap size to calculate CSS scale
-        const rect = this.canvas.getBoundingClientRect();
-        const cssScaleX = rect.width / this.canvas.width;
-        const cssScaleY = rect.height / this.canvas.height;
-
-        // Convert CSS coordinates to bitmap coordinates
-        const deviceX = canvasX / cssScaleX;
-        const deviceY = canvasY / cssScaleY;
-
+        // Canvas bitmap resolution = device resolution (1:1 mapping)
+        // No conversion needed - just round to integers
         return {
-            x: Math.round(deviceX),
-            y: Math.round(deviceY)
+            x: Math.round(canvasX),
+            y: Math.round(canvasY)
         };
     }
 
@@ -351,14 +353,17 @@ export class FlowCanvasRenderer {
                 if (isHorizontalLine || isVerticalLine) return false;
             }
             // Filter out container/layout elements (not useful for interaction)
+            // BUT keep clickable containers (they're usually buttons) or containers with resource IDs
             if (this.overlayFilters.hideContainers && el.class) {
-                if (this.containerClasses.includes(el.class)) return false;
+                const isContainer = this.containerClasses.includes(el.class);
+                const isUsefulContainer = el.clickable || (el.resource_id && el.resource_id.trim());
+                if (isContainer && !isUsefulContainer) return false;
             }
             // Filter out empty elements (no text or content-desc) - not useful for sensors
             if (this.overlayFilters.hideEmptyElements) {
                 const hasText = el.text && el.text.trim();
-                const hasContentDesc = el['content-desc'] && el['content-desc'].trim();
-                const hasResourceId = el['resource-id'] && el['resource-id'].trim();
+                const hasContentDesc = el.content_desc && el.content_desc.trim();
+                const hasResourceId = el.resource_id && el.resource_id.trim();
                 // Keep if it has text, content-desc, or is clickable with a resource-id
                 if (!hasText && !hasContentDesc && !(el.clickable && hasResourceId)) {
                     return false;
@@ -439,14 +444,17 @@ export class FlowCanvasRenderer {
                 if (isHorizontalLine || isVerticalLine) return false;
             }
             // Filter out container/layout elements (not useful for interaction)
+            // BUT keep clickable containers (they're usually buttons) or containers with resource IDs
             if (this.overlayFilters.hideContainers && el.class) {
-                if (this.containerClasses.includes(el.class)) return false;
+                const isContainer = this.containerClasses.includes(el.class);
+                const isUsefulContainer = el.clickable || (el.resource_id && el.resource_id.trim());
+                if (isContainer && !isUsefulContainer) return false;
             }
             // Filter out empty elements (no text or content-desc) - not useful for sensors
             if (this.overlayFilters.hideEmptyElements) {
                 const hasText = el.text && el.text.trim();
-                const hasContentDesc = el['content-desc'] && el['content-desc'].trim();
-                const hasResourceId = el['resource-id'] && el['resource-id'].trim();
+                const hasContentDesc = el.content_desc && el.content_desc.trim();
+                const hasResourceId = el.resource_id && el.resource_id.trim();
                 // Keep if it has text, content-desc, or is clickable with a resource-id
                 if (!hasText && !hasContentDesc && !(el.clickable && hasResourceId)) {
                     return false;
