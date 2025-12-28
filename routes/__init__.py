@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from utils.adb_maintenance import ADBMaintenance
     from utils.adb_subprocess import PersistentShellPool
     from utils.connection_monitor import ConnectionMonitor
+    from utils.device_security import DeviceSecurityManager
 
 
 @dataclass
@@ -83,6 +84,7 @@ class RouteDependencies:
     adb_maintenance: Optional['ADBMaintenance'] = None
     shell_pool: Optional['PersistentShellPool'] = None
     connection_monitor: Optional['ConnectionMonitor'] = None
+    device_security_manager: Optional['DeviceSecurityManager'] = None
 
     # =========================================================================
     # UTILITIES

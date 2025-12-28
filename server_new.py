@@ -44,6 +44,7 @@ from utils.action_models import (
 from utils.error_handler import handle_api_error
 from utils.device_migrator import DeviceMigrator
 from utils.connection_monitor import ConnectionMonitor
+from utils.device_security import DeviceSecurityManager
 
 # Phase 8: Flow System
 from flow_manager import FlowManager
@@ -61,7 +62,7 @@ from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration
+from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration, device_security
 
 # Configure logging
 logging.basicConfig(
@@ -212,6 +213,9 @@ element_text_extractor = ElementTextExtractor(text_extractor)
 # Initialize Action Manager and Executor
 action_manager = ActionManager()
 action_executor = ActionExecutor(adb_bridge)
+
+# Initialize Device Security Manager
+device_security_manager = DeviceSecurityManager()
 
 # Initialize MQTT Manager (will be configured on startup)
 mqtt_manager: Optional[MQTTManager] = None
@@ -695,6 +699,7 @@ def _init_route_dependencies():
         adb_maintenance=adb_maintenance,
         shell_pool=shell_pool,
         connection_monitor=connection_monitor,
+        device_security_manager=device_security_manager,
         ws_log_handler=ws_log_handler
     )
     set_dependencies(deps)
@@ -737,6 +742,8 @@ app.include_router(streaming.router)
 logger.info("[Server] Registered route module: streaming (4 endpoints: 2 HTTP stats + 2 WebSocket streams)")
 app.include_router(migration.router)
 logger.info("[Server] Registered route module: migration (1 endpoint: global stable ID migration)")
+app.include_router(device_security.router)
+logger.info("[Server] Registered route module: device_security (3 endpoints: lock screen config + unlock test)")
 
 # ============================================================================
 # LEGACY ENDPOINTS (Being migrated to route modules)
