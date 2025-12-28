@@ -155,6 +155,14 @@ def test_meta_routes():
     print("\n[health.py]")
     results.append(compare_endpoint("/api/health"))
 
+    # Test ADB info routes (routes/adb_info.py)
+    print("\n[adb_info.py]")
+    results.append(compare_endpoint("/api/adb/devices"))
+    results.append(compare_endpoint("/api/adb/connection-status"))
+    results.append(compare_endpoint("/api/adb/scan"))
+    # Note: /api/adb/screen-state/{device_id}, /api/adb/activity/{device_id}, and
+    # /api/adb/stable-id/{device_id} require device_id parameters - tested separately
+
     # Summary
     print("\n" + "="*80)
     print("SUMMARY")
