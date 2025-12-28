@@ -18,6 +18,129 @@
             display: inline-block !important;
         }
 
+        /* Execution Results Modal Styling */
+        .test-success,
+        .test-failure {
+            padding: 15px;
+        }
+
+        .test-success h4 {
+            color: #16a34a;
+            margin: 0 0 15px 0;
+        }
+
+        .test-failure h4 {
+            color: #dc2626;
+            margin: 0 0 15px 0;
+        }
+
+        .execution-summary {
+            margin-bottom: 20px;
+            padding: 10px;
+            background: var(--background-color, #f8fafc);
+            border-radius: 6px;
+        }
+
+        .execution-summary p {
+            margin: 8px 0;
+        }
+
+        .execution-steps {
+            margin-top: 20px;
+        }
+
+        .execution-steps h5 {
+            margin: 0 0 10px 0;
+            color: var(--text-color, #333);
+        }
+
+        .step-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .step-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            background: var(--background-color, #f8fafc);
+            border-left: 3px solid transparent;
+        }
+
+        .step-item.step-success {
+            border-left-color: #16a34a;
+            background: #f0fdf4;
+        }
+
+        .step-item.step-failed {
+            border-left-color: #dc2626;
+            background: #fef2f2;
+        }
+
+        .step-item.step-skipped {
+            border-left-color: #94a3b8;
+            background: #f1f5f9;
+            opacity: 0.7;
+        }
+
+        .step-status {
+            font-size: 18px;
+            line-height: 1.4;
+        }
+
+        .step-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .step-type {
+            font-size: 12px;
+            color: #64748b;
+            font-weight: normal;
+        }
+
+        .step-error {
+            margin-top: 8px;
+            padding: 8px;
+            background: #fee2e2;
+            border-radius: 4px;
+            color: #991b1b;
+            font-size: 13px;
+        }
+
+        .captured-sensors {
+            margin-top: 20px;
+            padding: 15px;
+            background: var(--background-color, #f8fafc);
+            border-radius: 6px;
+        }
+
+        .captured-sensors h5 {
+            margin: 0 0 10px 0;
+            color: var(--text-color, #333);
+        }
+
+        .captured-sensors ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .captured-sensors li {
+            padding: 6px 0;
+            border-bottom: 1px solid var(--border-color, #e2e8f0);
+        }
+
+        .captured-sensors li:last-child {
+            border-bottom: none;
+        }
+
         .flow-container {
             padding: 20px;
             max-width: 1400px;
@@ -943,8 +1066,8 @@
                     <button type="button" class="btn btn-secondary" onclick="closeEditModal()">
                         Cancel
                     </button>
-                    <button type="button" class="btn btn-secondary" onclick="testCurrentFlow()" style="background: #2196F3; color: white;">
-                        🧪 Test Flow
+                    <button type="button" class="btn btn-secondary dev-only" onclick="testCurrentFlow()" style="background: #2196F3; color: white;">
+                        🧪 Test Flow (Dev Mode)
                     </button>
                     <button type="submit" class="btn btn-primary">
                         Save Changes
@@ -1336,9 +1459,9 @@
                                     ${isRunning ? 'disabled' : ''}>
                                 ${isRunning ? '⏳' : '▶'}
                             </button>
-                            <button class="btn-icon test"
+                            <button class="btn-icon test dev-only"
                                     onclick="testFlow('${flow.device_id}', '${flow.flow_id}')"
-                                    title="Test Flow"
+                                    title="Test Flow (Dev Mode Only)"
                                     ${isRunning ? 'disabled' : ''}>
                                 🧪
                             </button>
@@ -1448,30 +1571,77 @@
         }
 
         /**
-         * Show execution results in modal
+         * Show execution results in modal with step-by-step details
          */
         function showExecutionResults(result) {
             const modal = document.getElementById('executionResultsModal');
             const content = document.getElementById('executionResultsContent');
 
-            // Get flow steps count from result or flows array
+            // Get flow definition to show step details
             const flow = flows.find(f => f.flow_id === result.flow_id);
             const totalSteps = flow ? flow.steps.length : result.executed_steps ?? 0;
+            const executedSteps = result.executed_steps ?? 0;
+            const executionTime = result.execution_time_ms ?? 0;
+            const capturedSensors = result.captured_sensors || {};
+
+            // Build step-by-step breakdown
+            let stepsHtml = '';
+            if (flow && flow.steps && flow.steps.length > 0) {
+                stepsHtml = `
+                    <div class="execution-steps">
+                        <h5>Execution Steps:</h5>
+                        <ol class="step-list">
+                            ${flow.steps.map((step, index) => {
+                                let statusIcon = '';
+                                let statusClass = '';
+                                let errorDetail = '';
+
+                                if (index < executedSteps) {
+                                    // Step was executed successfully
+                                    statusIcon = '✅';
+                                    statusClass = 'step-success';
+                                } else if (result.failed_step !== null && result.failed_step !== undefined && index === result.failed_step) {
+                                    // Step failed
+                                    statusIcon = '❌';
+                                    statusClass = 'step-failed';
+                                    errorDetail = `<div class="step-error">${escapeHtml(result.error_message || 'Unknown error')}</div>`;
+                                } else {
+                                    // Step was skipped
+                                    statusIcon = '⏭️';
+                                    statusClass = 'step-skipped';
+                                }
+
+                                const stepDesc = step.description || `${step.step_type} step`;
+
+                                return `
+                                    <li class="step-item ${statusClass}">
+                                        <span class="step-status">${statusIcon}</span>
+                                        <span class="step-info">
+                                            <strong>${escapeHtml(stepDesc)}</strong>
+                                            <span class="step-type">(${escapeHtml(step.step_type)})</span>
+                                        </span>
+                                        ${errorDetail}
+                                    </li>
+                                `;
+                            }).join('')}
+                        </ol>
+                    </div>
+                `;
+            }
 
             // Display results based on success/failure
             if (result.success) {
-                const executedSteps = result.executed_steps ?? 0;
-                const executionTime = result.execution_time_ms ?? 0;
-                const capturedSensors = result.captured_sensors || {};
-
                 content.innerHTML = `
                     <div class="test-success">
                         <h4>✅ Flow Execution Successful</h4>
-                        <p><strong>Executed Steps:</strong> ${executedSteps} / ${totalSteps}</p>
-                        <p><strong>Execution Time:</strong> ${executionTime}ms</p>
+                        <div class="execution-summary">
+                            <p><strong>Executed Steps:</strong> ${executedSteps} / ${totalSteps}</p>
+                            <p><strong>Execution Time:</strong> ${executionTime}ms</p>
+                        </div>
+                        ${stepsHtml}
                         ${Object.keys(capturedSensors).length > 0 ? `
                             <div class="captured-sensors">
-                                <strong>Captured Sensors:</strong>
+                                <h5>Captured Sensors:</h5>
                                 <ul>
                                     ${Object.entries(capturedSensors).map(([id, value]) =>
                                         `<li><strong>${escapeHtml(id)}:</strong> ${escapeHtml(String(value))}</li>`
@@ -1482,15 +1652,17 @@
                     </div>
                 `;
             } else {
-                const executedSteps = result.executed_steps ?? 0;
-                const failedStep = result.failed_step !== null && result.failed_step !== undefined ? result.failed_step + 1 : 'Unknown';
+                const failedStepNum = result.failed_step !== null && result.failed_step !== undefined ? result.failed_step + 1 : 'Unknown';
 
                 content.innerHTML = `
                     <div class="test-failure">
                         <h4>❌ Flow Execution Failed</h4>
-                        <p><strong>Failed at Step:</strong> ${failedStep}</p>
-                        <p><strong>Error:</strong> ${escapeHtml(result.error_message || 'Unknown error')}</p>
-                        <p><strong>Executed Steps:</strong> ${executedSteps} / ${totalSteps}</p>
+                        <div class="execution-summary">
+                            <p><strong>Failed at Step:</strong> ${failedStepNum}</p>
+                            <p><strong>Error:</strong> ${escapeHtml(result.error_message || 'Unknown error')}</p>
+                            <p><strong>Executed Steps:</strong> ${executedSteps} / ${totalSteps}</p>
+                        </div>
+                        ${stepsHtml}
                     </div>
                 `;
             }
