@@ -1,6 +1,6 @@
 {
   "version": "0.0.5",
-  "buildDate": "2025-12-27",
+  "buildDate": "2025-12-28",
   "name": "Visual Mapper",
   "tagline": "ANDROID DEVICE MONITOR",
   "description": "Visual Mapper - Android Device Monitor for Home Assistant. Visual element detection, screenshot stitching, and automated device control.",
