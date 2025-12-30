@@ -1436,3 +1436,386 @@ async def save_flow_as_template(device_id: str, flow_id: str, request_data: dict
     except Exception as e:
         logger.error(f"[API] Failed to save flow as template: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# FLOW IMPORT/EXPORT
+# =============================================================================
+
+@router.get("/flows/export/{device_id}")
+async def export_device_flows(device_id: str, include_sensors: bool = True):
+    """
+    Export all flows for a device as JSON (for sharing/backup)
+
+    Args:
+        device_id: Device ID
+        include_sensors: Include sensor definitions in export (default True)
+
+    Returns:
+        Exportable flow bundle with flows and optionally sensors
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        # Get flows
+        flow_data = deps.flow_manager.export_flows(device_id)
+
+        if not flow_data.get("flows"):
+            raise HTTPException(status_code=404, detail=f"No flows found for device {device_id}")
+
+        export_bundle = {
+            "export_version": "1.0",
+            "export_type": "device_flows",
+            "exported_at": __import__('datetime').datetime.now().isoformat(),
+            "device_id": device_id,
+            "flows": flow_data.get("flows", []),
+            "flow_count": len(flow_data.get("flows", []))
+        }
+
+        # Include sensors if requested
+        if include_sensors and deps.sensor_manager:
+            sensors = deps.sensor_manager.get_all_sensors(device_id)
+            export_bundle["sensors"] = [s.dict() for s in sensors]
+            export_bundle["sensor_count"] = len(sensors)
+
+        logger.info(f"[API] Exported {len(flow_data.get('flows', []))} flows for {device_id}")
+        return export_bundle
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to export flows: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/flows/{device_id}/{flow_id}/export")
+async def export_single_flow(device_id: str, flow_id: str, include_sensors: bool = True):
+    """
+    Export a single flow as JSON (for sharing)
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+        include_sensors: Include referenced sensor definitions
+
+    Returns:
+        Single flow export bundle
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        flow = deps.flow_manager.get_flow(device_id, flow_id)
+        if not flow:
+            raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
+
+        # Get app package from first launch_app step
+        app_package = None
+        for step in flow.steps:
+            if step.step_type == "launch_app" and step.package:
+                app_package = step.package
+                break
+
+        export_bundle = {
+            "export_version": "1.0",
+            "export_type": "single_flow",
+            "exported_at": __import__('datetime').datetime.now().isoformat(),
+            "app_package": app_package,
+            "flow": flow.dict(),
+            "flow_name": flow.name
+        }
+
+        # Include referenced sensors
+        if include_sensors and deps.sensor_manager:
+            sensor_ids = set()
+            for step in flow.steps:
+                if step.sensor_ids:
+                    sensor_ids.update(step.sensor_ids)
+
+            sensors = []
+            for sensor_id in sensor_ids:
+                sensor = deps.sensor_manager.get_sensor(device_id, sensor_id)
+                if sensor:
+                    sensors.append(sensor.dict())
+
+            export_bundle["sensors"] = sensors
+            export_bundle["sensor_count"] = len(sensors)
+
+        logger.info(f"[API] Exported flow {flow_id}")
+        return export_bundle
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to export flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/flows/import/{device_id}")
+async def import_flows(device_id: str, import_data: dict):
+    """
+    Import flows from an export bundle
+
+    Args:
+        device_id: Target device ID
+
+    Body:
+        import_data: Export bundle (from export endpoint)
+
+    Returns:
+        Import summary
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        export_type = import_data.get("export_type", "")
+        flows_imported = 0
+        sensors_imported = 0
+
+        # Get stable device ID for the target device
+        stable_device_id = None
+        try:
+            stable_device_id = await deps.adb_bridge.get_device_serial(device_id)
+        except Exception:
+            pass
+
+        if export_type == "single_flow":
+            # Import single flow
+            flow_data = import_data.get("flow", {})
+            if not flow_data:
+                raise HTTPException(status_code=400, detail="No flow data in import")
+
+            # Update device references
+            flow_data["device_id"] = device_id
+            flow_data["stable_device_id"] = stable_device_id
+            # Generate new flow_id to avoid conflicts
+            import uuid
+            flow_data["flow_id"] = f"imported_{uuid.uuid4().hex[:8]}"
+
+            from flow_models import SensorCollectionFlow
+            flow = SensorCollectionFlow(**flow_data)
+            deps.flow_manager.create_flow(flow)
+            flows_imported = 1
+
+        elif export_type == "device_flows":
+            # Import multiple flows
+            flows = import_data.get("flows", [])
+            for flow_data in flows:
+                flow_data["device_id"] = device_id
+                flow_data["stable_device_id"] = stable_device_id
+                import uuid
+                flow_data["flow_id"] = f"imported_{uuid.uuid4().hex[:8]}"
+
+                from flow_models import SensorCollectionFlow
+                flow = SensorCollectionFlow(**flow_data)
+                deps.flow_manager.create_flow(flow)
+                flows_imported += 1
+
+        elif export_type == "app_flow_bundle":
+            # Import app-specific bundle (from bundled flows)
+            flow_data = import_data.get("flow", {})
+            if not flow_data:
+                raise HTTPException(status_code=400, detail="No flow data in bundle")
+
+            flow_data["device_id"] = device_id
+            flow_data["stable_device_id"] = stable_device_id
+            import uuid
+            flow_data["flow_id"] = f"bundled_{uuid.uuid4().hex[:8]}"
+
+            from flow_models import SensorCollectionFlow
+            flow = SensorCollectionFlow(**flow_data)
+            deps.flow_manager.create_flow(flow)
+            flows_imported = 1
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown export type: {export_type}")
+
+        # Import sensors if provided
+        if deps.sensor_manager and import_data.get("sensors"):
+            for sensor_data in import_data["sensors"]:
+                try:
+                    sensor_data["device_id"] = device_id
+                    sensor_data["stable_device_id"] = stable_device_id
+                    # Generate new sensor_id
+                    import uuid
+                    sensor_data["sensor_id"] = f"imported_{uuid.uuid4().hex[:8]}"
+                    deps.sensor_manager.create_sensor(device_id, sensor_data)
+                    sensors_imported += 1
+                except Exception as e:
+                    logger.warning(f"[API] Failed to import sensor: {e}")
+
+        logger.info(f"[API] Imported {flows_imported} flows, {sensors_imported} sensors to {device_id}")
+
+        return {
+            "success": True,
+            "flows_imported": flows_imported,
+            "sensors_imported": sensors_imported,
+            "message": f"Imported {flows_imported} flow(s) and {sensors_imported} sensor(s)"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to import flows: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# BUNDLED APP FLOWS (Pre-made flows for common apps)
+# =============================================================================
+
+@router.get("/app-flows")
+async def list_bundled_app_flows():
+    """
+    List all bundled app flows (pre-made flows for common apps)
+
+    Returns:
+        List of app packages with available bundled flows
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        bundled_flows = deps.flow_manager.get_bundled_app_flows()
+
+        # Group by app package
+        apps = {}
+        for flow in bundled_flows:
+            pkg = flow.get("app_package", "unknown")
+            if pkg not in apps:
+                apps[pkg] = {
+                    "app_package": pkg,
+                    "app_name": flow.get("app_name", pkg),
+                    "flows": []
+                }
+            apps[pkg]["flows"].append({
+                "bundle_id": flow.get("bundle_id"),
+                "name": flow.get("name"),
+                "description": flow.get("description"),
+                "step_count": len(flow.get("steps", [])),
+                "sensors_included": len(flow.get("sensors", []))
+            })
+
+        return {
+            "success": True,
+            "apps": list(apps.values()),
+            "total_flows": len(bundled_flows)
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Failed to list bundled flows: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/app-flows/{app_package}")
+async def get_bundled_flows_for_app(app_package: str):
+    """
+    Get bundled flows for a specific app
+
+    Args:
+        app_package: Android package name (e.g., com.spotify.music)
+
+    Returns:
+        List of bundled flows for this app
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        bundled_flows = deps.flow_manager.get_bundled_app_flows()
+        app_flows = [f for f in bundled_flows if f.get("app_package") == app_package]
+
+        if not app_flows:
+            return {
+                "success": True,
+                "app_package": app_package,
+                "flows": [],
+                "message": "No bundled flows available for this app"
+            }
+
+        return {
+            "success": True,
+            "app_package": app_package,
+            "flows": app_flows
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Failed to get bundled flows for {app_package}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/app-flows/{bundle_id}/install")
+async def install_bundled_flow(bundle_id: str, request_data: dict):
+    """
+    Install a bundled app flow to a device
+
+    Args:
+        bundle_id: Bundled flow ID
+
+    Body:
+        request_data:
+            - device_id: Target device ID (required)
+
+    Returns:
+        Created flow
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        device_id = request_data.get("device_id")
+        if not device_id:
+            raise HTTPException(status_code=400, detail="device_id is required")
+
+        # Get bundled flow
+        bundled_flows = deps.flow_manager.get_bundled_app_flows()
+        bundle = next((f for f in bundled_flows if f.get("bundle_id") == bundle_id), None)
+
+        if not bundle:
+            raise HTTPException(status_code=404, detail=f"Bundled flow {bundle_id} not found")
+
+        # Get stable device ID
+        stable_device_id = None
+        try:
+            stable_device_id = await deps.adb_bridge.get_device_serial(device_id)
+        except Exception:
+            pass
+
+        # Create flow from bundle
+        import uuid
+        from flow_models import SensorCollectionFlow
+
+        flow_data = {
+            "flow_id": f"bundled_{uuid.uuid4().hex[:8]}",
+            "device_id": device_id,
+            "stable_device_id": stable_device_id,
+            "name": bundle.get("name"),
+            "description": bundle.get("description"),
+            "steps": bundle.get("steps", []),
+            "enabled": False  # Start disabled so user can review
+        }
+
+        flow = SensorCollectionFlow(**flow_data)
+        deps.flow_manager.create_flow(flow)
+
+        logger.info(f"[API] Installed bundled flow {bundle_id} to {device_id}")
+
+        return {
+            "success": True,
+            "flow": flow.dict(),
+            "message": f"Installed '{bundle.get('name')}' - review and enable when ready"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to install bundled flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

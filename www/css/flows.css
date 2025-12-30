@@ -1121,3 +1121,148 @@ body.dark-mode .steps-preview {
     background: var(--card-bg, #1e293b);
     border-color: var(--border-color, #334155);
 }
+
+/* ==========================================
+   Import/Export Styles
+   ========================================== */
+
+.import-methods {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.import-method {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 8px 16px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.import-method:hover {
+    border-color: var(--flow-primary);
+}
+
+.import-method input:checked + span {
+    color: var(--flow-primary);
+    font-weight: 600;
+}
+
+.preview-box {
+    background: var(--flow-muted-bg);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.preview-box p {
+    margin: 4px 0;
+    font-size: 0.9rem;
+}
+
+/* ==========================================
+   Bundled App Flows Styles
+   ========================================== */
+
+.modal-description {
+    margin-bottom: 16px;
+    color: var(--text-secondary, #64748b);
+}
+
+.bundled-flows-grid {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.bundled-app-section {
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.bundled-app-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.bundled-app-section .app-header {
+    margin: 0 0 4px 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary, #1e293b);
+}
+
+.bundled-app-section .app-package {
+    margin: 0 0 12px 0;
+    font-size: 0.8rem;
+    color: var(--text-secondary, #64748b);
+    font-family: monospace;
+}
+
+.app-flows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.bundled-flow-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--card-bg, #f8fafc);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.bundled-flow-card:hover {
+    border-color: var(--flow-primary);
+    background: var(--flow-muted-bg);
+}
+
+.bundled-flow-card .flow-info h5 {
+    margin: 0 0 4px 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.bundled-flow-card .flow-info p {
+    margin: 0 0 6px 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary, #64748b);
+}
+
+.bundled-flow-card .badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    background: var(--flow-muted-bg);
+    color: var(--text-secondary);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+/* Dark mode for import/bundled */
+@media (prefers-color-scheme: dark) {
+    .bundled-flow-card {
+        background: var(--card-bg, #1e293b);
+        border-color: var(--border-color, #334155);
+    }
+
+    .bundled-app-section .app-header {
+        color: var(--text-primary, #f1f5f9);
+    }
+}
+
+body.dark-mode .bundled-flow-card {
+    background: var(--card-bg, #1e293b);
+    border-color: var(--border-color, #334155);
+}
+
+body.dark-mode .bundled-app-section .app-header {
+    color: var(--text-primary, #f1f5f9);
+}

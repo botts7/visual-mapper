@@ -45,6 +45,12 @@
                 <button class="btn btn-secondary" onclick="showTemplatePickerModal()">
                     From Template
                 </button>
+                <button class="btn btn-secondary" onclick="showBundledFlowsModal()">
+                    App Flows
+                </button>
+                <button class="btn btn-secondary" onclick="showImportModal()">
+                    Import
+                </button>
                 <button class="btn btn-secondary" onclick="window.location.href='create-flow.html'">
                     Advanced
                 </button>
@@ -270,6 +276,82 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeSaveTemplateModal()">Cancel</button>
                 <button class="btn btn-primary" onclick="confirmSaveAsTemplate()">Save Template</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Flow Modal -->
+    <div class="modal-overlay" id="importFlowModal" style="display: none;">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h2>Import Flows</h2>
+                <button class="btn-close" onclick="closeImportModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="importDeviceSelect">Target Device</label>
+                    <select id="importDeviceSelect" class="form-control">
+                        <option value="">Select target device...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Import Method</label>
+                    <div class="import-methods">
+                        <label class="import-method">
+                            <input type="radio" name="importMethod" value="file" checked>
+                            <span>Upload JSON File</span>
+                        </label>
+                        <label class="import-method">
+                            <input type="radio" name="importMethod" value="paste">
+                            <span>Paste JSON</span>
+                        </label>
+                    </div>
+                </div>
+                <div id="importFileSection">
+                    <div class="form-group">
+                        <label for="importFile">Select Export File</label>
+                        <input type="file" id="importFile" class="form-control" accept=".json">
+                    </div>
+                </div>
+                <div id="importPasteSection" style="display: none;">
+                    <div class="form-group">
+                        <label for="importPasteJSON">Paste JSON</label>
+                        <textarea id="importPasteJSON" class="form-control" rows="10" placeholder="Paste exported flow JSON here..."></textarea>
+                    </div>
+                </div>
+                <div id="importPreview" style="display: none; margin-top: 15px;">
+                    <h4>Import Preview</h4>
+                    <div id="importPreviewContent" class="preview-box"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeImportModal()">Cancel</button>
+                <button class="btn btn-primary" id="confirmImportBtn" onclick="confirmImport()" disabled>Import</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bundled App Flows Modal -->
+    <div class="modal-overlay" id="bundledFlowsModal" style="display: none;">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h2>Pre-Made App Flows</h2>
+                <button class="btn-close" onclick="closeBundledFlowsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-description">Install ready-to-use flows for popular apps. Select an app and flow, then choose your target device.</p>
+                <div class="form-group">
+                    <label for="bundledDeviceSelect">Target Device</label>
+                    <select id="bundledDeviceSelect" class="form-control">
+                        <option value="">Select target device...</option>
+                    </select>
+                </div>
+                <div class="bundled-flows-grid" id="bundledFlowsGrid">
+                    <p class="loading">Loading available app flows...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeBundledFlowsModal()">Cancel</button>
             </div>
         </div>
     </div>
@@ -923,6 +1005,11 @@
                                     title="Test Flow (Dev Mode Only)"
                                     ${isRunning ? 'disabled' : ''}>
                                 🧪
+                            </button>
+                            <button class="btn-icon export"
+                                    onclick="exportFlow('${flow.device_id}', '${flow.flow_id}')"
+                                    title="Export Flow">
+                                📤
                             </button>
                             <button class="btn-icon edit"
                                     onclick="editFlow('${flow.device_id}', '${flow.flow_id}')"
@@ -2191,6 +2278,298 @@
         window.saveFlowAsTemplate = saveFlowAsTemplate;
         window.closeSaveTemplateModal = closeSaveTemplateModal;
         window.confirmSaveAsTemplate = confirmSaveAsTemplate;
+
+        // ==========================================================================
+        // Import/Export Functions
+        // ==========================================================================
+
+        let importData = null;
+
+        async function showImportModal() {
+            document.getElementById('importFlowModal').style.display = 'flex';
+            importData = null;
+            document.getElementById('importPreview').style.display = 'none';
+            document.getElementById('confirmImportBtn').disabled = true;
+
+            // Load devices
+            await loadDevicesForImport();
+
+            // Set up import method toggle
+            document.querySelectorAll('input[name="importMethod"]').forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    document.getElementById('importFileSection').style.display = e.target.value === 'file' ? 'block' : 'none';
+                    document.getElementById('importPasteSection').style.display = e.target.value === 'paste' ? 'block' : 'none';
+                });
+            });
+
+            // Set up file input
+            document.getElementById('importFile').addEventListener('change', handleImportFile);
+            document.getElementById('importPasteJSON').addEventListener('input', handleImportPaste);
+        }
+
+        function closeImportModal() {
+            document.getElementById('importFlowModal').style.display = 'none';
+            importData = null;
+        }
+
+        async function loadDevicesForImport() {
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/adb/devices`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const devices = data.devices || [];
+                    const select = document.getElementById('importDeviceSelect');
+                    select.innerHTML = '<option value="">Select target device...</option>' +
+                        devices.map(d => `<option value="${d.id}">${d.model || d.id}</option>`).join('');
+                }
+            } catch (error) {
+                console.error('Failed to load devices:', error);
+            }
+        }
+
+        function handleImportFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    importData = JSON.parse(e.target.result);
+                    showImportPreview(importData);
+                } catch (error) {
+                    showToast('Invalid JSON file', 'error');
+                    importData = null;
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function handleImportPaste() {
+            const text = document.getElementById('importPasteJSON').value.trim();
+            if (!text) {
+                importData = null;
+                document.getElementById('importPreview').style.display = 'none';
+                document.getElementById('confirmImportBtn').disabled = true;
+                return;
+            }
+
+            try {
+                importData = JSON.parse(text);
+                showImportPreview(importData);
+            } catch (error) {
+                importData = null;
+                document.getElementById('importPreview').style.display = 'none';
+                document.getElementById('confirmImportBtn').disabled = true;
+            }
+        }
+
+        function showImportPreview(data) {
+            const preview = document.getElementById('importPreview');
+            const content = document.getElementById('importPreviewContent');
+
+            let html = '';
+            if (data.export_type === 'single_flow') {
+                html = `
+                    <p><strong>Type:</strong> Single Flow</p>
+                    <p><strong>Name:</strong> ${escapeHtml(data.flow_name || data.flow?.name || 'Unknown')}</p>
+                    <p><strong>App:</strong> ${escapeHtml(data.app_package || 'Unknown')}</p>
+                    <p><strong>Steps:</strong> ${data.flow?.steps?.length || 0}</p>
+                    <p><strong>Sensors:</strong> ${data.sensor_count || 0}</p>
+                `;
+            } else if (data.export_type === 'device_flows') {
+                html = `
+                    <p><strong>Type:</strong> Device Flows Export</p>
+                    <p><strong>Flows:</strong> ${data.flow_count || 0}</p>
+                    <p><strong>Sensors:</strong> ${data.sensor_count || 0}</p>
+                    <p><strong>From Device:</strong> ${escapeHtml(data.device_id || 'Unknown')}</p>
+                `;
+            } else {
+                html = `<p><strong>Type:</strong> ${escapeHtml(data.export_type || 'Unknown')}</p>`;
+            }
+
+            content.innerHTML = html;
+            preview.style.display = 'block';
+            document.getElementById('confirmImportBtn').disabled = false;
+        }
+
+        async function confirmImport() {
+            const deviceId = document.getElementById('importDeviceSelect').value;
+            if (!deviceId) {
+                showToast('Please select a target device', 'warning');
+                return;
+            }
+
+            if (!importData) {
+                showToast('No import data', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/flows/import/${encodeURIComponent(deviceId)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(importData)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Import failed');
+                }
+
+                const result = await response.json();
+                showToast(result.message, 'success');
+                closeImportModal();
+                await loadFlows();
+
+            } catch (error) {
+                console.error('Import failed:', error);
+                showToast('Import failed: ' + error.message, 'error');
+            }
+        }
+
+        async function exportFlow(deviceId, flowId) {
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/flows/${encodeURIComponent(deviceId)}/${encodeURIComponent(flowId)}/export`);
+                if (!response.ok) throw new Error('Export failed');
+
+                const data = await response.json();
+
+                // Download as JSON file
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `flow_${data.flow_name || flowId}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                showToast('Flow exported successfully', 'success');
+            } catch (error) {
+                console.error('Export failed:', error);
+                showToast('Export failed: ' + error.message, 'error');
+            }
+        }
+
+        // Make import/export functions globally available
+        window.showImportModal = showImportModal;
+        window.closeImportModal = closeImportModal;
+        window.confirmImport = confirmImport;
+        window.exportFlow = exportFlow;
+
+        // ==========================================================================
+        // Bundled App Flows Functions
+        // ==========================================================================
+
+        let bundledFlows = [];
+
+        async function showBundledFlowsModal() {
+            document.getElementById('bundledFlowsModal').style.display = 'flex';
+
+            // Load devices
+            await loadDevicesForBundled();
+
+            // Load bundled flows
+            await loadBundledFlows();
+        }
+
+        function closeBundledFlowsModal() {
+            document.getElementById('bundledFlowsModal').style.display = 'none';
+        }
+
+        async function loadDevicesForBundled() {
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/adb/devices`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const devices = data.devices || [];
+                    const select = document.getElementById('bundledDeviceSelect');
+                    select.innerHTML = '<option value="">Select target device...</option>' +
+                        devices.map(d => `<option value="${d.id}">${d.model || d.id}</option>`).join('');
+                }
+            } catch (error) {
+                console.error('Failed to load devices:', error);
+            }
+        }
+
+        async function loadBundledFlows() {
+            const grid = document.getElementById('bundledFlowsGrid');
+            grid.innerHTML = '<p class="loading">Loading available app flows...</p>';
+
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/app-flows`);
+                if (!response.ok) throw new Error('Failed to load bundled flows');
+
+                const data = await response.json();
+                const apps = data.apps || [];
+
+                if (apps.length === 0) {
+                    grid.innerHTML = '<p>No bundled app flows available.</p>';
+                    return;
+                }
+
+                grid.innerHTML = apps.map(app => `
+                    <div class="bundled-app-section">
+                        <h4 class="app-header">${escapeHtml(app.app_name)}</h4>
+                        <p class="app-package">${escapeHtml(app.app_package)}</p>
+                        <div class="app-flows">
+                            ${app.flows.map(flow => `
+                                <div class="bundled-flow-card" data-bundle-id="${flow.bundle_id}">
+                                    <div class="flow-info">
+                                        <h5>${escapeHtml(flow.name)}</h5>
+                                        <p>${escapeHtml(flow.description)}</p>
+                                        <span class="badge">${flow.step_count} steps</span>
+                                    </div>
+                                    <button class="btn btn-sm btn-primary" onclick="installBundledFlow('${flow.bundle_id}')">
+                                        Install
+                                    </button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                console.error('Failed to load bundled flows:', error);
+                grid.innerHTML = `<p class="error">Failed to load: ${escapeHtml(error.message)}</p>`;
+            }
+        }
+
+        async function installBundledFlow(bundleId) {
+            const deviceId = document.getElementById('bundledDeviceSelect').value;
+            if (!deviceId) {
+                showToast('Please select a target device first', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/app-flows/${bundleId}/install`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device_id: deviceId })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Install failed');
+                }
+
+                const result = await response.json();
+                showToast(result.message, 'success');
+                closeBundledFlowsModal();
+                await loadFlows();
+
+            } catch (error) {
+                console.error('Install failed:', error);
+                showToast('Install failed: ' + error.message, 'error');
+            }
+        }
+
+        // Make bundled flow functions globally available
+        window.showBundledFlowsModal = showBundledFlowsModal;
+        window.closeBundledFlowsModal = closeBundledFlowsModal;
+        window.installBundledFlow = installBundledFlow;
 
         // Load flows on page load
         if (document.readyState === 'loading') {

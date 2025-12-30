@@ -669,3 +669,179 @@ class FlowManager:
                 "tags": ["refresh", "capture"]
             }
         ]
+
+    def get_bundled_app_flows(self) -> List[Dict]:
+        """
+        Get pre-made flows for common apps that users can install
+
+        These are ready-to-use flows for popular apps. Users select their app
+        and can install a complete flow with one click.
+
+        Returns:
+            List of bundled app flow definitions
+        """
+        return [
+            # =================================================================
+            # WEATHER APPS
+            # =================================================================
+            {
+                "bundle_id": "weather_generic_basic",
+                "app_package": "com.weather.Weather",
+                "app_name": "Weather (Generic)",
+                "name": "Weather Basic Capture",
+                "description": "Capture current temperature and conditions from any weather app",
+                "steps": [
+                    {"step_type": "launch_app", "package": "com.weather.Weather", "description": "Open weather app"},
+                    {"step_type": "wait", "duration": 3000, "description": "Wait for data to load"},
+                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture weather data"}
+                ],
+                "sensors": [],
+                "tags": ["weather", "temperature", "basic"]
+            },
+            # =================================================================
+            # SMART HOME / EV APPS
+            # =================================================================
+            {
+                "bundle_id": "tesla_vehicle_status",
+                "app_package": "com.teslamotors.tesla",
+                "app_name": "Tesla",
+                "name": "Tesla Vehicle Status",
+                "description": "Capture Tesla vehicle status - battery, range, climate",
+                "steps": [
+                    {"step_type": "launch_app", "package": "com.teslamotors.tesla", "description": "Open Tesla app"},
+                    {"step_type": "wait", "duration": 5000, "description": "Wait for vehicle data"},
+                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture vehicle status"}
+                ],
+                "sensors": [],
+                "tags": ["ev", "tesla", "vehicle", "battery"]
+            },
+            {
+                "bundle_id": "byd_vehicle_status",
+                "app_package": "com.byd.bydautolink",
+                "app_name": "BYD Auto Link",
+                "name": "BYD Vehicle Status",
+                "description": "Capture BYD vehicle status - battery, doors, climate",
+                "steps": [
+                    {"step_type": "launch_app", "package": "com.byd.bydautolink", "description": "Open BYD app"},
+                    {"step_type": "wait", "duration": 5000, "description": "Wait for vehicle data"},
+                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture vehicle status"}
+                ],
+                "sensors": [],
+                "tags": ["ev", "byd", "vehicle", "battery"]
+            },
+            # =================================================================
+            # FITNESS / HEALTH APPS
+            # =================================================================
+            {
+                "bundle_id": "fitbit_daily_stats",
+                "app_package": "com.fitbit.FitbitMobile",
+                "app_name": "Fitbit",
+                "name": "Fitbit Daily Stats",
+                "description": "Capture daily steps, heart rate, and sleep data",
+                "steps": [
+                    {"step_type": "launch_app", "package": "com.fitbit.FitbitMobile", "description": "Open Fitbit"},
+                    {"step_type": "wait", "duration": 4000, "description": "Wait for sync"},
+                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture daily stats"}
+                ],
+                "sensors": [],
+                "tags": ["fitness", "health", "steps", "heart_rate"]
+            },
+            {
+                "bundle_id": "samsung_health_stats",
+                "app_package": "com.sec.android.app.shealth",
+                "app_name": "Samsung Health",
+                "name": "Samsung Health Daily Stats",
+                "description": "Capture steps, heart rate, and activity from Samsung Health",
+                "steps": [
+                    {"step_type": "launch_app", "package": "com.sec.android.app.shealth", "description": "Open Samsung Health"},
+                    {"step_type": "wait", "duration": 4000, "description": "Wait for data"},
+                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture health stats"}
+                ],
+                "sensors": [],
+                "tags": ["fitness", "health", "samsung", "steps"]
+            },
+            # =================================================================
+            # MUSIC / MEDIA APPS
+            # =================================================================
+            {
+                "bundle_id": "spotify_now_playing",
+                "app_package": "com.spotify.music",
+                "app_name": "Spotify",
+                "name": "Spotify Now Playing",
+                "description": "Capture currently playing track info",
+                "steps": [
+                    {"step_type": "launch_app", "package": "com.spotify.music", "description": "Open Spotify"},
+                    {"step_type": "wait", "duration": 2000, "description": "Wait for app"},
+                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture now playing"}
+                ],
+                "sensors": [],
+                "tags": ["music", "spotify", "media", "now_playing"]
+            },
+            # =================================================================
+            # FINANCE / BANKING APPS
+            # =================================================================
+            {
+                "bundle_id": "robinhood_portfolio",
+                "app_package": "com.robinhood.android",
+                "app_name": "Robinhood",
+                "name": "Robinhood Portfolio Value",
+                "description": "Capture portfolio value and daily change",
+                "steps": [
+                    {"step_type": "launch_app", "package": "com.robinhood.android", "description": "Open Robinhood"},
+                    {"step_type": "wait", "duration": 4000, "description": "Wait for data"},
+                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture portfolio"}
+                ],
+                "sensors": [],
+                "tags": ["finance", "stocks", "portfolio", "investing"]
+            },
+            # =================================================================
+            # UTILITY APPS
+            # =================================================================
+            {
+                "bundle_id": "speedtest_result",
+                "app_package": "org.zwanoo.android.speedtest",
+                "app_name": "Speedtest by Ookla",
+                "name": "Run Speed Test",
+                "description": "Run internet speed test and capture results",
+                "steps": [
+                    {"step_type": "launch_app", "package": "org.zwanoo.android.speedtest", "description": "Open Speedtest"},
+                    {"step_type": "wait", "duration": 2000, "description": "Wait for app"},
+                    {"step_type": "tap", "x": 540, "y": 1200, "description": "Tap GO button"},
+                    {"step_type": "wait", "duration": 45000, "description": "Wait for test to complete"},
+                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture speed results"}
+                ],
+                "sensors": [],
+                "tags": ["network", "speedtest", "internet", "utility"]
+            },
+            # =================================================================
+            # HOME AUTOMATION APPS
+            # =================================================================
+            {
+                "bundle_id": "smartthings_status",
+                "app_package": "com.samsung.android.oneconnect",
+                "app_name": "SmartThings",
+                "name": "SmartThings Device Status",
+                "description": "Capture SmartThings device states",
+                "steps": [
+                    {"step_type": "launch_app", "package": "com.samsung.android.oneconnect", "description": "Open SmartThings"},
+                    {"step_type": "wait", "duration": 3000, "description": "Wait for devices"},
+                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture device states"}
+                ],
+                "sensors": [],
+                "tags": ["smarthome", "iot", "samsung", "automation"]
+            },
+            {
+                "bundle_id": "tuya_device_status",
+                "app_package": "com.tuya.smart",
+                "app_name": "Tuya Smart",
+                "name": "Tuya Device Status",
+                "description": "Capture Tuya/Smart Life device states",
+                "steps": [
+                    {"step_type": "launch_app", "package": "com.tuya.smart", "description": "Open Tuya"},
+                    {"step_type": "wait", "duration": 3000, "description": "Wait for devices"},
+                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture device states"}
+                ],
+                "sensors": [],
+                "tags": ["smarthome", "iot", "tuya", "automation"]
+            }
+        ]
