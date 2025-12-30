@@ -1136,3 +1136,303 @@ async def get_flow_stats(device_id: str, flow_id: str):
     except Exception as e:
         logger.error(f"[API] Failed to get flow stats: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# FLOW TEMPLATES (Phase 9)
+# =============================================================================
+
+@router.get("/flow-templates")
+async def list_templates():
+    """
+    List all available flow templates (built-in + user-created)
+
+    Returns:
+        List of templates with id, name, description, tags
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        templates = deps.flow_manager.list_templates()
+
+        return {
+            "success": True,
+            "templates": templates,
+            "count": len(templates)
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Failed to list templates: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/flow-templates/builtin")
+async def get_builtin_templates():
+    """
+    Get only the built-in templates (not user-created)
+
+    Returns:
+        List of built-in templates
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        templates = deps.flow_manager.get_builtin_templates()
+
+        return {
+            "success": True,
+            "templates": templates,
+            "count": len(templates)
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Failed to get builtin templates: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/flow-templates/{template_id}")
+async def get_template(template_id: str):
+    """
+    Get a specific template by ID
+
+    Args:
+        template_id: Template ID
+
+    Returns:
+        Template definition with steps
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        template = deps.flow_manager.get_template(template_id)
+        if not template:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+
+        return {
+            "success": True,
+            "template": template
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to get template: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/flow-templates")
+async def create_template(template_data: dict):
+    """
+    Create a new flow template
+
+    Body:
+        template_data: Template definition with:
+            - template_id: Unique template ID
+            - name: Display name
+            - description: Template description
+            - steps: List of flow steps
+            - tags: List of category tags (optional)
+
+    Returns:
+        Created template
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        template_id = template_data.get("template_id")
+        name = template_data.get("name")
+        description = template_data.get("description", "")
+        steps = template_data.get("steps", [])
+        tags = template_data.get("tags", [])
+
+        if not template_id or not name:
+            raise HTTPException(status_code=400, detail="template_id and name are required")
+
+        if not steps:
+            raise HTTPException(status_code=400, detail="Template must have at least one step")
+
+        success = deps.flow_manager.save_template(
+            template_id=template_id,
+            name=name,
+            description=description,
+            steps=steps,
+            tags=tags
+        )
+
+        if not success:
+            raise HTTPException(status_code=400, detail="Template already exists")
+
+        logger.info(f"[API] Created template {template_id}")
+
+        return {
+            "success": True,
+            "template_id": template_id,
+            "message": f"Template '{name}' created"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to create template: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/flow-templates/{template_id}")
+async def delete_template(template_id: str):
+    """
+    Delete a user-created template
+
+    Args:
+        template_id: Template ID
+
+    Note: Built-in templates cannot be deleted
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        # Check if it's a built-in template
+        builtin = deps.flow_manager.get_builtin_templates()
+        if any(t.get("template_id") == template_id for t in builtin):
+            raise HTTPException(status_code=400, detail="Cannot delete built-in templates")
+
+        success = deps.flow_manager.delete_template(template_id)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+
+        logger.info(f"[API] Deleted template {template_id}")
+
+        return {
+            "success": True,
+            "message": f"Template {template_id} deleted"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to delete template: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/flow-templates/{template_id}/create-flow")
+async def create_flow_from_template(template_id: str, request_data: dict):
+    """
+    Create a new flow from a template
+
+    Args:
+        template_id: Template ID to use
+
+    Body:
+        request_data:
+            - device_id: Target device ID (required)
+            - flow_name: Name for the new flow (required)
+            - overrides: Optional dict of step field overrides
+
+    Returns:
+        Created flow
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        device_id = request_data.get("device_id")
+        flow_name = request_data.get("flow_name")
+        overrides = request_data.get("overrides", {})
+
+        if not device_id or not flow_name:
+            raise HTTPException(status_code=400, detail="device_id and flow_name are required")
+
+        # Get stable device ID if possible
+        stable_device_id = None
+        try:
+            stable_device_id = await deps.adb_bridge.get_device_serial(device_id)
+        except Exception:
+            pass
+
+        flow = deps.flow_manager.create_flow_from_template(
+            template_id=template_id,
+            device_id=device_id,
+            flow_name=flow_name,
+            overrides=overrides,
+            stable_device_id=stable_device_id
+        )
+
+        if not flow:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+
+        logger.info(f"[API] Created flow {flow.flow_id} from template {template_id}")
+
+        return {
+            "success": True,
+            "flow": flow.dict(),
+            "message": f"Flow '{flow_name}' created from template"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to create flow from template: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/flows/{device_id}/{flow_id}/save-as-template")
+async def save_flow_as_template(device_id: str, flow_id: str, request_data: dict):
+    """
+    Save an existing flow as a reusable template
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+
+    Body:
+        request_data:
+            - template_name: Name for the template (required)
+            - tags: List of category tags (optional)
+
+    Returns:
+        Created template ID
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        template_name = request_data.get("template_name")
+        tags = request_data.get("tags", [])
+
+        if not template_name:
+            raise HTTPException(status_code=400, detail="template_name is required")
+
+        template_id = deps.flow_manager.save_flow_as_template(
+            device_id=device_id,
+            flow_id=flow_id,
+            template_name=template_name,
+            tags=tags
+        )
+
+        if not template_id:
+            raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
+
+        logger.info(f"[API] Saved flow {flow_id} as template {template_id}")
+
+        return {
+            "success": True,
+            "template_id": template_id,
+            "message": f"Flow saved as template '{template_name}'"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to save flow as template: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

@@ -370,10 +370,16 @@ class FlowManager:
             return False
 
     def get_template(self, template_id: str) -> Optional[Dict]:
-        """Get a specific template by ID"""
+        """Get a specific template by ID (checks builtin templates first)"""
         # Check cache first
         if template_id in self._templates:
             return self._templates[template_id]
+
+        # Check builtin templates
+        for builtin in self.get_builtin_templates():
+            if builtin.get("template_id") == template_id:
+                self._templates[template_id] = builtin
+                return builtin
 
         # Load from file
         template_file = self._get_template_file(template_id)
@@ -390,7 +396,7 @@ class FlowManager:
 
     def list_templates(self, category: str = None, tags: List[str] = None) -> List[Dict]:
         """
-        List all available templates, optionally filtered
+        List all available templates (builtin + user-created), optionally filtered
 
         Args:
             category: Filter by category
@@ -401,7 +407,29 @@ class FlowManager:
         """
         templates = []
 
-        # Load all templates from disk
+        # First, add built-in templates
+        for builtin in self.get_builtin_templates():
+            # Apply filters
+            if category and builtin.get("category") != category:
+                continue
+
+            if tags:
+                builtin_tags = set(builtin.get("tags", []))
+                if not builtin_tags.intersection(set(tags)):
+                    continue
+
+            templates.append({
+                "template_id": builtin.get("template_id"),
+                "name": builtin.get("name"),
+                "description": builtin.get("description"),
+                "category": builtin.get("category"),
+                "tags": builtin.get("tags", []),
+                "step_count": len(builtin.get("steps", [])),
+                "steps": builtin.get("steps", []),  # Include steps for preview
+                "builtin": True
+            })
+
+        # Load user templates from disk
         for template_file in self.template_dir.glob("*.json"):
             try:
                 with open(template_file, 'r') as f:
@@ -416,7 +444,7 @@ class FlowManager:
                         if not template_tags.intersection(set(tags)):
                             continue
 
-                    # Return metadata only (no steps for listing)
+                    # Return metadata with steps for preview
                     templates.append({
                         "template_id": template.get("template_id"),
                         "name": template.get("name"),
@@ -424,14 +452,16 @@ class FlowManager:
                         "category": template.get("category"),
                         "tags": template.get("tags", []),
                         "step_count": len(template.get("steps", [])),
+                        "steps": template.get("steps", []),
                         "created_at": template.get("created_at"),
-                        "version": template.get("version")
+                        "version": template.get("version"),
+                        "builtin": False
                     })
 
             except Exception as e:
                 logger.warning(f"[FlowManager] Failed to load template {template_file}: {e}")
 
-        return sorted(templates, key=lambda t: t.get("name", ""))
+        return sorted(templates, key=lambda t: (not t.get("builtin", False), t.get("name", "")))
 
     def delete_template(self, template_id: str) -> bool:
         """Delete a template"""

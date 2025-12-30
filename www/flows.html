@@ -42,6 +42,9 @@
                 <button class="btn btn-primary" onclick="window.location.href='flow-wizard.html'">
                     Create Flow Wizard
                 </button>
+                <button class="btn btn-secondary" onclick="showTemplatePickerModal()">
+                    From Template
+                </button>
                 <button class="btn btn-secondary" onclick="window.location.href='create-flow.html'">
                     Advanced
                 </button>
@@ -190,8 +193,83 @@
 
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+                <button type="button" class="btn btn-secondary" onclick="saveFlowAsTemplate()">Save as Template</button>
                 <button type="button" class="btn btn-primary dev-only" onclick="testCurrentFlow()">Test Flow</button>
                 <button type="button" class="btn btn-primary" onclick="saveFlowEdit()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template Picker Modal -->
+    <div class="modal-overlay" id="templatePickerModal" style="display: none;">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h2>Create Flow from Template</h2>
+                <button class="btn-close" onclick="closeTemplatePickerModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="template-picker-container">
+                    <!-- Step 1: Select Template -->
+                    <div id="templateStep1">
+                        <h3>Choose a Template</h3>
+                        <div class="template-grid" id="templateGrid">
+                            <p class="loading">Loading templates...</p>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Configure Flow -->
+                    <div id="templateStep2" style="display: none;">
+                        <h3>Configure Your Flow</h3>
+                        <div class="template-preview" id="templatePreview"></div>
+
+                        <div class="form-group">
+                            <label for="templateFlowName">Flow Name</label>
+                            <input type="text" id="templateFlowName" class="form-control" placeholder="Enter flow name...">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="templateDeviceSelect">Target Device</label>
+                            <select id="templateDeviceSelect" class="form-control">
+                                <option value="">Select a device...</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Template Steps Preview</label>
+                            <div class="steps-preview" id="templateStepsPreview"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeTemplatePickerModal()">Cancel</button>
+                <button type="button" class="btn btn-secondary" id="templateBackBtn" onclick="templateGoBack()" style="display: none;">Back</button>
+                <button type="button" class="btn btn-primary" id="templateNextBtn" onclick="templateGoNext()" style="display: none;">Next</button>
+                <button type="button" class="btn btn-primary" id="templateCreateBtn" onclick="createFlowFromTemplate()" style="display: none;">Create Flow</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save as Template Modal -->
+    <div class="modal-overlay" id="saveTemplateModal" style="display: none;">
+        <div class="modal-content modal-sm">
+            <div class="modal-header">
+                <h3>Save Flow as Template</h3>
+                <button class="btn-close" onclick="closeSaveTemplateModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="newTemplateName">Template Name</label>
+                    <input type="text" id="newTemplateName" class="form-control" placeholder="My Custom Template">
+                </div>
+                <div class="form-group">
+                    <label for="newTemplateTags">Tags (comma-separated)</label>
+                    <input type="text" id="newTemplateTags" class="form-control" placeholder="automation, sensor, custom">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSaveTemplateModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmSaveAsTemplate()">Save Template</button>
             </div>
         </div>
     </div>
@@ -1843,6 +1921,276 @@
         window.showInsertSensorDialog = showInsertSensorDialog;
         window.showInsertActionDialog = showInsertActionDialog;
         window.saveFlowEdit = saveFlowEdit;
+
+        // ==========================================================================
+        // Template Picker Functions
+        // ==========================================================================
+
+        let templates = [];
+        let selectedTemplate = null;
+        let templateStep = 1;
+
+        async function showTemplatePickerModal() {
+            const modal = document.getElementById('templatePickerModal');
+            modal.style.display = 'flex';
+
+            // Reset state
+            selectedTemplate = null;
+            templateStep = 1;
+            document.getElementById('templateStep1').style.display = 'block';
+            document.getElementById('templateStep2').style.display = 'none';
+            document.getElementById('templateBackBtn').style.display = 'none';
+            document.getElementById('templateNextBtn').style.display = 'none';
+            document.getElementById('templateCreateBtn').style.display = 'none';
+
+            // Load templates
+            await loadTemplates();
+        }
+
+        function closeTemplatePickerModal() {
+            document.getElementById('templatePickerModal').style.display = 'none';
+            selectedTemplate = null;
+            templateStep = 1;
+        }
+
+        async function loadTemplates() {
+            const grid = document.getElementById('templateGrid');
+            grid.innerHTML = '<p class="loading">Loading templates...</p>';
+
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/flow-templates`);
+                if (!response.ok) throw new Error('Failed to load templates');
+
+                const data = await response.json();
+                templates = data.templates || [];
+
+                if (templates.length === 0) {
+                    grid.innerHTML = `
+                        <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 40px;">
+                            <p>No templates available yet.</p>
+                            <p style="color: var(--text-secondary);">Create a flow and save it as a template to get started.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                grid.innerHTML = templates.map(template => `
+                    <div class="template-card ${selectedTemplate?.template_id === template.template_id ? 'selected' : ''}"
+                         onclick="selectTemplate('${template.template_id}')"
+                         data-template-id="${template.template_id}">
+                        <div class="template-icon">${template.builtin ? '📦' : '📄'}</div>
+                        <div class="template-info">
+                            <h4>${escapeHtml(template.name)}</h4>
+                            <p>${escapeHtml(template.description || 'No description')}</p>
+                            <div class="template-meta">
+                                <span class="template-steps">${template.step_count || 0} steps</span>
+                                ${template.tags && template.tags.length > 0 ?
+                                    template.tags.slice(0, 3).map(tag =>
+                                        `<span class="template-tag">${escapeHtml(tag)}</span>`
+                                    ).join('') : ''
+                                }
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                console.error('Failed to load templates:', error);
+                grid.innerHTML = `
+                    <div class="error-state" style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #ef4444;">
+                        <p>Failed to load templates: ${escapeHtml(error.message)}</p>
+                        <button class="btn btn-secondary" onclick="loadTemplates()">Retry</button>
+                    </div>
+                `;
+            }
+        }
+
+        function selectTemplate(templateId) {
+            selectedTemplate = templates.find(t => t.template_id === templateId);
+
+            // Update visual selection
+            document.querySelectorAll('.template-card').forEach(card => {
+                card.classList.toggle('selected', card.dataset.templateId === templateId);
+            });
+
+            // Show Next button
+            document.getElementById('templateNextBtn').style.display = 'inline-block';
+        }
+
+        async function templateGoNext() {
+            if (!selectedTemplate) {
+                showToast('Please select a template', 'warning');
+                return;
+            }
+
+            templateStep = 2;
+            document.getElementById('templateStep1').style.display = 'none';
+            document.getElementById('templateStep2').style.display = 'block';
+            document.getElementById('templateBackBtn').style.display = 'inline-block';
+            document.getElementById('templateNextBtn').style.display = 'none';
+            document.getElementById('templateCreateBtn').style.display = 'inline-block';
+
+            // Show template preview
+            const preview = document.getElementById('templatePreview');
+            preview.innerHTML = `
+                <div class="template-header">
+                    <span class="template-icon">${selectedTemplate.builtin ? '📦' : '📄'}</span>
+                    <div>
+                        <h4>${escapeHtml(selectedTemplate.name)}</h4>
+                        <p>${escapeHtml(selectedTemplate.description || '')}</p>
+                    </div>
+                </div>
+            `;
+
+            // Pre-fill flow name
+            document.getElementById('templateFlowName').value = selectedTemplate.name + ' Flow';
+
+            // Load devices for selector
+            try {
+                const devicesResponse = await fetch(`${window.flowManager.apiBase}/adb/devices`);
+                if (devicesResponse.ok) {
+                    const devicesData = await devicesResponse.json();
+                    const devices = devicesData.devices || [];
+
+                    const select = document.getElementById('templateDeviceSelect');
+                    select.innerHTML = '<option value="">Select a device...</option>' +
+                        devices.map(d => `<option value="${d.id}">${d.model || d.id}</option>`).join('');
+                }
+            } catch (error) {
+                console.error('Failed to load devices:', error);
+            }
+
+            // Show steps preview
+            const stepsPreview = document.getElementById('templateStepsPreview');
+            const steps = selectedTemplate.steps || [];
+            stepsPreview.innerHTML = steps.length > 0 ?
+                `<ol class="steps-list">
+                    ${steps.map((step, i) => `
+                        <li class="step-preview-item">
+                            <span class="step-type-badge">${step.step_type}</span>
+                            <span class="step-desc">${escapeHtml(step.description || '')}</span>
+                        </li>
+                    `).join('')}
+                </ol>` :
+                '<p style="color: var(--text-secondary);">No steps defined</p>';
+        }
+
+        function templateGoBack() {
+            templateStep = 1;
+            document.getElementById('templateStep1').style.display = 'block';
+            document.getElementById('templateStep2').style.display = 'none';
+            document.getElementById('templateBackBtn').style.display = 'none';
+            document.getElementById('templateNextBtn').style.display = selectedTemplate ? 'inline-block' : 'none';
+            document.getElementById('templateCreateBtn').style.display = 'none';
+        }
+
+        async function createFlowFromTemplate() {
+            const flowName = document.getElementById('templateFlowName').value.trim();
+            const deviceId = document.getElementById('templateDeviceSelect').value;
+
+            if (!flowName) {
+                showToast('Please enter a flow name', 'warning');
+                return;
+            }
+
+            if (!deviceId) {
+                showToast('Please select a device', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/flow-templates/${selectedTemplate.template_id}/create-flow`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device_id: deviceId,
+                        flow_name: flowName
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to create flow');
+                }
+
+                const result = await response.json();
+                showToast(`Flow "${flowName}" created successfully!`, 'success');
+                closeTemplatePickerModal();
+                await loadFlows();
+
+            } catch (error) {
+                console.error('Failed to create flow from template:', error);
+                showToast('Failed to create flow: ' + error.message, 'error');
+            }
+        }
+
+        // ==========================================================================
+        // Save as Template Functions
+        // ==========================================================================
+
+        function saveFlowAsTemplate() {
+            if (!editingFlow) {
+                showToast('No flow selected', 'error');
+                return;
+            }
+
+            // Show save template modal
+            document.getElementById('saveTemplateModal').style.display = 'flex';
+            document.getElementById('newTemplateName').value = editingFlow.flow.name + ' Template';
+            document.getElementById('newTemplateTags').value = '';
+        }
+
+        function closeSaveTemplateModal() {
+            document.getElementById('saveTemplateModal').style.display = 'none';
+        }
+
+        async function confirmSaveAsTemplate() {
+            const templateName = document.getElementById('newTemplateName').value.trim();
+            const tagsInput = document.getElementById('newTemplateTags').value.trim();
+
+            if (!templateName) {
+                showToast('Please enter a template name', 'warning');
+                return;
+            }
+
+            const tags = tagsInput ? tagsInput.split(',').map(t => t.trim()).filter(t => t) : [];
+
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/flows/${editingFlow.deviceId}/${editingFlow.flowId}/save-as-template`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        template_name: templateName,
+                        tags: tags
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to save template');
+                }
+
+                const result = await response.json();
+                showToast(`Template "${templateName}" saved!`, 'success');
+                closeSaveTemplateModal();
+
+            } catch (error) {
+                console.error('Failed to save as template:', error);
+                showToast('Failed to save template: ' + error.message, 'error');
+            }
+        }
+
+        // Make template functions globally available
+        window.showTemplatePickerModal = showTemplatePickerModal;
+        window.closeTemplatePickerModal = closeTemplatePickerModal;
+        window.loadTemplates = loadTemplates;
+        window.selectTemplate = selectTemplate;
+        window.templateGoNext = templateGoNext;
+        window.templateGoBack = templateGoBack;
+        window.createFlowFromTemplate = createFlowFromTemplate;
+        window.saveFlowAsTemplate = saveFlowAsTemplate;
+        window.closeSaveTemplateModal = closeSaveTemplateModal;
+        window.confirmSaveAsTemplate = confirmSaveAsTemplate;
 
         // Load flows on page load
         if (document.readyState === 'loading') {
