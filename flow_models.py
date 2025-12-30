@@ -29,6 +29,12 @@ class FlowStepType(str):
     WAKE_SCREEN = "wake_screen"
     SLEEP_SCREEN = "sleep_screen"
     ENSURE_SCREEN_ON = "ensure_screen_on"
+    # Phase 9: Advanced flow control
+    LOOP = "loop"  # Repeat nested steps N times
+    SET_VARIABLE = "set_variable"  # Store value in variable context
+    INCREMENT = "increment"  # Increment a numeric variable
+    BREAK_LOOP = "break_loop"  # Exit current loop early
+    CONTINUE_LOOP = "continue_loop"  # Skip to next iteration
 
 
 class FlowStep(BaseModel):
@@ -70,6 +76,16 @@ class FlowStep(BaseModel):
     condition: Optional[str] = Field(None, description="Condition to evaluate (if/else)")
     true_steps: Optional[List['FlowStep']] = Field(None, description="Steps if condition is true")
     false_steps: Optional[List['FlowStep']] = Field(None, description="Steps if condition is false")
+
+    # Loop (Phase 9)
+    iterations: Optional[int] = Field(None, ge=1, le=100, description="Number of times to repeat loop_steps")
+    loop_steps: Optional[List['FlowStep']] = Field(None, description="Steps to repeat in loop")
+    loop_variable: Optional[str] = Field(None, description="Variable name for loop counter (0-indexed)")
+
+    # Variables (Phase 9)
+    variable_name: Optional[str] = Field(None, description="Variable name for set_variable/increment")
+    variable_value: Optional[str] = Field(None, description="Value to set (can include ${var} references)")
+    increment_by: Optional[int] = Field(1, description="Amount to increment variable by")
 
     # Retry logic
     retry_on_failure: bool = Field(False, description="Retry this step if it fails")

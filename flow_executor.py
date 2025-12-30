@@ -91,7 +91,16 @@ class FlowExecutor:
             FlowStepType.WAKE_SCREEN: self._execute_wake_screen,
             FlowStepType.SLEEP_SCREEN: self._execute_sleep_screen,
             FlowStepType.ENSURE_SCREEN_ON: self._execute_ensure_screen_on,
+            # Phase 9: Advanced flow control
+            FlowStepType.LOOP: self._execute_loop,
+            FlowStepType.SET_VARIABLE: self._execute_set_variable,
+            FlowStepType.INCREMENT: self._execute_increment,
+            FlowStepType.BREAK_LOOP: self._execute_break_loop,
+            FlowStepType.CONTINUE_LOOP: self._execute_continue_loop,
         }
+
+        # Variable context for flow execution (Phase 9)
+        self._variable_context: Dict[str, Any] = {}
 
         # Note: execute_action will be added when action system is integrated
 
@@ -139,6 +148,9 @@ class FlowExecutor:
             total_steps=len(flow.steps),
             steps=[]
         )
+
+        # Clear variable context at start of each flow (Phase 9)
+        self.clear_variable_context()
 
         logger.info(f"[FlowExecutor] Starting flow {flow.flow_id} ({flow.name})")
 
@@ -1157,11 +1169,125 @@ class FlowExecutor:
         """
         Conditional step (if/else branching)
 
-        Note: This is a placeholder for future implementation.
-        Full conditional logic requires expression evaluation.
+        Condition types:
+        - "element_exists:text=Hello" - Check if UI element with text exists
+        - "element_exists:resource-id=button_ok" - Check by resource ID
+        - "var:counter>5" - Compare variable value
+        - "var:status==success" - String comparison
+        - "screen_activity:MainActivity" - Check current activity
         """
-        logger.warning("  Conditional steps not yet implemented")
-        return False
+        if not step.condition:
+            logger.warning("  Conditional step missing condition")
+            return False
+
+        logger.debug(f"  Evaluating condition: {step.condition}")
+
+        try:
+            condition_met = await self._evaluate_condition(device_id, step.condition)
+            logger.debug(f"  Condition result: {condition_met}")
+
+            # Execute appropriate branch
+            if condition_met and step.true_steps:
+                logger.debug(f"  Executing true branch ({len(step.true_steps)} steps)")
+                for nested_step in step.true_steps:
+                    success = await self._execute_single_step(device_id, nested_step, result)
+                    if not success and step.retry_on_failure:
+                        return False
+            elif not condition_met and step.false_steps:
+                logger.debug(f"  Executing false branch ({len(step.false_steps)} steps)")
+                for nested_step in step.false_steps:
+                    success = await self._execute_single_step(device_id, nested_step, result)
+                    if not success and step.retry_on_failure:
+                        return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"  Conditional evaluation failed: {e}")
+            return False
+
+    async def _evaluate_condition(self, device_id: str, condition: str) -> bool:
+        """
+        Evaluate a condition expression
+
+        Supported formats:
+        - element_exists:text=Hello
+        - element_exists:resource-id=btn_ok
+        - var:name==value
+        - var:count>5
+        - screen_activity:MainActivity
+        """
+        try:
+            if condition.startswith("element_exists:"):
+                # Check if UI element exists
+                criteria = condition[15:]  # Remove prefix
+                key, value = criteria.split("=", 1)
+                ui_elements = await self.adb_bridge.get_ui_elements(device_id)
+
+                for elem in ui_elements:
+                    if key == "text" and elem.get("text") == value:
+                        return True
+                    elif key == "resource-id" and elem.get("resource-id") == value:
+                        return True
+                    elif key == "class" and elem.get("class") == value:
+                        return True
+                return False
+
+            elif condition.startswith("var:"):
+                # Variable comparison
+                expr = condition[4:]  # Remove prefix
+                return self._evaluate_variable_expression(expr)
+
+            elif condition.startswith("screen_activity:"):
+                # Check current activity
+                expected = condition[16:]
+                current = await self.adb_bridge.get_current_activity(device_id)
+                return expected in current
+
+            else:
+                # Try as simple variable expression
+                return self._evaluate_variable_expression(condition)
+
+        except Exception as e:
+            logger.error(f"  Condition evaluation error: {e}")
+            return False
+
+    def _evaluate_variable_expression(self, expr: str) -> bool:
+        """Evaluate a simple variable expression like 'count>5' or 'status==done'"""
+        import re
+
+        # Parse comparison operators
+        for op in ["==", "!=", ">=", "<=", ">", "<"]:
+            if op in expr:
+                parts = expr.split(op, 1)
+                if len(parts) == 2:
+                    var_name = parts[0].strip()
+                    compare_value = parts[1].strip()
+
+                    # Get variable value
+                    var_value = self._variable_context.get(var_name)
+                    if var_value is None:
+                        return False
+
+                    # Try numeric comparison
+                    try:
+                        var_num = float(var_value)
+                        compare_num = float(compare_value)
+
+                        if op == "==": return var_num == compare_num
+                        elif op == "!=": return var_num != compare_num
+                        elif op == ">=": return var_num >= compare_num
+                        elif op == "<=": return var_num <= compare_num
+                        elif op == ">": return var_num > compare_num
+                        elif op == "<": return var_num < compare_num
+                    except (ValueError, TypeError):
+                        # Fall back to string comparison
+                        var_str = str(var_value)
+                        if op == "==": return var_str == compare_value
+                        elif op == "!=": return var_str != compare_value
+
+        # Check for truthy value of variable
+        return bool(self._variable_context.get(expr))
 
     # ============================================================================
     # State Validation Methods (Phase 8 - Hybrid XML + Activity + Screenshot)
@@ -1701,3 +1827,197 @@ class FlowExecutor:
     def get_supported_step_types(self) -> list:
         """Get list of supported step types"""
         return list(self.step_handlers.keys())
+
+    # ============================================================================
+    # Phase 9: Advanced Flow Control (Loops, Variables)
+    # ============================================================================
+
+    async def _execute_loop(
+        self,
+        device_id: str,
+        step: FlowStep,
+        result: FlowExecutionResult
+    ) -> bool:
+        """
+        Execute a loop step - repeat nested steps N times
+
+        Supports:
+        - Fixed iterations: iterations=5
+        - Loop variable: loop_variable="i" sets ${i} to current iteration (0-indexed)
+        - Break/continue via special return values
+        """
+        iterations = step.iterations or 1
+        loop_steps = step.loop_steps or []
+
+        if not loop_steps:
+            logger.warning("  Loop step has no nested steps")
+            return True
+
+        logger.debug(f"  Executing loop: {iterations} iterations, {len(loop_steps)} steps each")
+
+        for i in range(iterations):
+            # Set loop variable if specified
+            if step.loop_variable:
+                self._variable_context[step.loop_variable] = i
+                logger.debug(f"    Loop iteration {i + 1}/{iterations} (${step.loop_variable}={i})")
+            else:
+                logger.debug(f"    Loop iteration {i + 1}/{iterations}")
+
+            # Execute nested steps
+            for nested_step in loop_steps:
+                try:
+                    success = await self._execute_single_step(device_id, nested_step, result)
+
+                    # Check for break/continue signals
+                    if nested_step.step_type == FlowStepType.BREAK_LOOP:
+                        logger.debug(f"    Breaking out of loop at iteration {i + 1}")
+                        return True
+
+                    if nested_step.step_type == FlowStepType.CONTINUE_LOOP:
+                        logger.debug(f"    Continuing to next iteration from {i + 1}")
+                        break  # Break inner loop, continue outer
+
+                    if not success:
+                        if step.retry_on_failure:
+                            logger.warning(f"    Loop step failed at iteration {i + 1}")
+                            return False
+                        # Otherwise continue to next step
+
+                except LoopBreakException:
+                    logger.debug(f"    Breaking out of loop at iteration {i + 1}")
+                    return True
+                except LoopContinueException:
+                    logger.debug(f"    Continuing to next iteration from {i + 1}")
+                    break
+
+        logger.debug(f"  Loop completed all {iterations} iterations")
+        return True
+
+    async def _execute_set_variable(
+        self,
+        device_id: str,
+        step: FlowStep,
+        result: FlowExecutionResult
+    ) -> bool:
+        """
+        Set a variable in the execution context
+
+        Supports:
+        - Static value: variable_value="hello"
+        - Variable reference: variable_value="${other_var}"
+        - Captured sensor value: variable_value="${sensor:my_sensor}"
+        - Last extracted text: variable_value="${last_extracted}"
+        """
+        if not step.variable_name:
+            logger.warning("  set_variable step missing variable_name")
+            return False
+
+        value = step.variable_value or ""
+
+        # Substitute variable references in the value
+        resolved_value = self._substitute_variables(value, result)
+
+        self._variable_context[step.variable_name] = resolved_value
+        logger.debug(f"  Set variable: ${step.variable_name} = {resolved_value}")
+
+        return True
+
+    async def _execute_increment(
+        self,
+        device_id: str,
+        step: FlowStep,
+        result: FlowExecutionResult
+    ) -> bool:
+        """Increment a numeric variable by specified amount"""
+        if not step.variable_name:
+            logger.warning("  increment step missing variable_name")
+            return False
+
+        current = self._variable_context.get(step.variable_name, 0)
+        increment_by = step.increment_by or 1
+
+        try:
+            new_value = float(current) + increment_by
+            # Keep as int if possible
+            if new_value == int(new_value):
+                new_value = int(new_value)
+            self._variable_context[step.variable_name] = new_value
+            logger.debug(f"  Incremented: ${step.variable_name} = {new_value}")
+            return True
+        except (ValueError, TypeError):
+            logger.error(f"  Cannot increment non-numeric variable: ${step.variable_name}")
+            return False
+
+    async def _execute_break_loop(
+        self,
+        device_id: str,
+        step: FlowStep,
+        result: FlowExecutionResult
+    ) -> bool:
+        """Break out of current loop - handled by _execute_loop"""
+        logger.debug("  Break loop signal")
+        raise LoopBreakException()
+
+    async def _execute_continue_loop(
+        self,
+        device_id: str,
+        step: FlowStep,
+        result: FlowExecutionResult
+    ) -> bool:
+        """Continue to next loop iteration - handled by _execute_loop"""
+        logger.debug("  Continue loop signal")
+        raise LoopContinueException()
+
+    def _substitute_variables(self, text: str, result: FlowExecutionResult) -> str:
+        """
+        Substitute variable references in text
+
+        Patterns:
+        - ${var_name} - Get variable from context
+        - ${sensor:sensor_id} - Get captured sensor value
+        - ${last_extracted} - Last extracted text value
+        """
+        import re
+
+        if not text or "${" not in text:
+            return text
+
+        def replace_var(match):
+            var_ref = match.group(1)
+
+            # Sensor reference
+            if var_ref.startswith("sensor:"):
+                sensor_id = var_ref[7:]
+                return str(result.captured_sensors.get(sensor_id, ""))
+
+            # Last extracted
+            if var_ref == "last_extracted":
+                return str(self._variable_context.get("_last_extracted", ""))
+
+            # Regular variable
+            return str(self._variable_context.get(var_ref, ""))
+
+        return re.sub(r'\$\{([^}]+)\}', replace_var, text)
+
+    def clear_variable_context(self):
+        """Clear all variables (called at start of each flow)"""
+        self._variable_context.clear()
+
+    def get_variable(self, name: str) -> Any:
+        """Get a variable value"""
+        return self._variable_context.get(name)
+
+    def set_variable(self, name: str, value: Any):
+        """Set a variable value"""
+        self._variable_context[name] = value
+
+
+# Custom exceptions for loop control flow
+class LoopBreakException(Exception):
+    """Signal to break out of current loop"""
+    pass
+
+
+class LoopContinueException(Exception):
+    """Signal to continue to next loop iteration"""
+    pass

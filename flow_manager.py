@@ -20,14 +20,21 @@ class FlowManager:
     Supports both simple mode (auto-generated) and advanced mode (user-created)
     """
 
-    def __init__(self, storage_dir: str = "config/flows"):
+    def __init__(self, storage_dir: str = "config/flows", template_dir: str = "config/flow_templates"):
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+
+        # Template storage directory (Phase 9)
+        self.template_dir = Path(template_dir)
+        self.template_dir.mkdir(parents=True, exist_ok=True)
 
         # In-memory cache: device_id -> FlowList
         self._flows: Dict[str, FlowList] = {}
 
-        logger.info(f"[FlowManager] Initialized with storage: {self.storage_dir}")
+        # Template cache: template_id -> template data
+        self._templates: Dict[str, Dict] = {}
+
+        logger.info(f"[FlowManager] Initialized with storage: {self.storage_dir}, templates: {self.template_dir}")
 
     def _get_flow_file(self, device_id: str) -> Path:
         """Get flow file path for device"""
@@ -299,3 +306,336 @@ class FlowManager:
         except Exception as e:
             logger.error(f"[FlowManager] Failed to import flows: {e}")
             return False
+
+    # ============================================================================
+    # Phase 9: Flow Templates
+    # ============================================================================
+
+    def _get_template_file(self, template_id: str) -> Path:
+        """Get template file path"""
+        safe_id = template_id.replace(":", "_").replace(".", "_").replace(" ", "_")
+        return self.template_dir / f"{safe_id}.json"
+
+    def save_template(
+        self,
+        template_id: str,
+        name: str,
+        description: str,
+        steps: List[Dict],
+        category: str = "custom",
+        tags: List[str] = None
+    ) -> bool:
+        """
+        Save a flow as a reusable template
+
+        Args:
+            template_id: Unique template identifier
+            name: Human-readable template name
+            description: Template description
+            steps: List of flow steps (as dicts)
+            category: Template category (e.g., "navigation", "data_collection", "custom")
+            tags: Optional list of tags for filtering
+
+        Returns:
+            True if saved successfully
+        """
+        try:
+            from datetime import datetime
+
+            template = {
+                "template_id": template_id,
+                "name": name,
+                "description": description,
+                "steps": steps,
+                "category": category,
+                "tags": tags or [],
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+                "version": "1.0.0"
+            }
+
+            # Save to file
+            template_file = self._get_template_file(template_id)
+            with open(template_file, 'w') as f:
+                json.dump(template, f, indent=2)
+
+            # Update cache
+            self._templates[template_id] = template
+
+            logger.info(f"[FlowManager] Saved template: {template_id} ({name})")
+            return True
+
+        except Exception as e:
+            logger.error(f"[FlowManager] Failed to save template {template_id}: {e}")
+            return False
+
+    def get_template(self, template_id: str) -> Optional[Dict]:
+        """Get a specific template by ID"""
+        # Check cache first
+        if template_id in self._templates:
+            return self._templates[template_id]
+
+        # Load from file
+        template_file = self._get_template_file(template_id)
+        if template_file.exists():
+            try:
+                with open(template_file, 'r') as f:
+                    template = json.load(f)
+                    self._templates[template_id] = template
+                    return template
+            except Exception as e:
+                logger.error(f"[FlowManager] Failed to load template {template_id}: {e}")
+
+        return None
+
+    def list_templates(self, category: str = None, tags: List[str] = None) -> List[Dict]:
+        """
+        List all available templates, optionally filtered
+
+        Args:
+            category: Filter by category
+            tags: Filter by tags (any match)
+
+        Returns:
+            List of template metadata (without full steps for performance)
+        """
+        templates = []
+
+        # Load all templates from disk
+        for template_file in self.template_dir.glob("*.json"):
+            try:
+                with open(template_file, 'r') as f:
+                    template = json.load(f)
+
+                    # Apply filters
+                    if category and template.get("category") != category:
+                        continue
+
+                    if tags:
+                        template_tags = set(template.get("tags", []))
+                        if not template_tags.intersection(set(tags)):
+                            continue
+
+                    # Return metadata only (no steps for listing)
+                    templates.append({
+                        "template_id": template.get("template_id"),
+                        "name": template.get("name"),
+                        "description": template.get("description"),
+                        "category": template.get("category"),
+                        "tags": template.get("tags", []),
+                        "step_count": len(template.get("steps", [])),
+                        "created_at": template.get("created_at"),
+                        "version": template.get("version")
+                    })
+
+            except Exception as e:
+                logger.warning(f"[FlowManager] Failed to load template {template_file}: {e}")
+
+        return sorted(templates, key=lambda t: t.get("name", ""))
+
+    def delete_template(self, template_id: str) -> bool:
+        """Delete a template"""
+        try:
+            template_file = self._get_template_file(template_id)
+
+            if template_file.exists():
+                template_file.unlink()
+
+            # Remove from cache
+            self._templates.pop(template_id, None)
+
+            logger.info(f"[FlowManager] Deleted template: {template_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"[FlowManager] Failed to delete template {template_id}: {e}")
+            return False
+
+    def create_flow_from_template(
+        self,
+        template_id: str,
+        device_id: str,
+        flow_name: str = None,
+        flow_id: str = None,
+        variable_overrides: Dict[str, str] = None
+    ) -> Optional[SensorCollectionFlow]:
+        """
+        Create a new flow from a template
+
+        Args:
+            template_id: Template to use
+            device_id: Target device ID
+            flow_name: Optional custom flow name
+            flow_id: Optional custom flow ID
+            variable_overrides: Optional variable substitutions (e.g., {"app_package": "com.example"})
+
+        Returns:
+            New SensorCollectionFlow or None if failed
+        """
+        template = self.get_template(template_id)
+        if not template:
+            logger.error(f"[FlowManager] Template not found: {template_id}")
+            return None
+
+        try:
+            import uuid
+
+            # Generate IDs if not provided
+            if not flow_id:
+                flow_id = f"from_template_{template_id}_{uuid.uuid4().hex[:8]}"
+
+            if not flow_name:
+                flow_name = f"{template.get('name', 'Template')} - {device_id.split(':')[0]}"
+
+            # Deep copy steps and apply variable overrides
+            steps_json = json.dumps(template.get("steps", []))
+
+            if variable_overrides:
+                for var_name, var_value in variable_overrides.items():
+                    steps_json = steps_json.replace(f"${{{var_name}}}", var_value)
+
+            steps = json.loads(steps_json)
+
+            # Create flow
+            from flow_models import FlowStep
+            flow = SensorCollectionFlow(
+                flow_id=flow_id,
+                device_id=device_id,
+                name=flow_name,
+                description=f"Created from template: {template.get('name')}",
+                steps=[FlowStep(**step) for step in steps],
+                enabled=True
+            )
+
+            logger.info(f"[FlowManager] Created flow from template: {flow_id} from {template_id}")
+            return flow
+
+        except Exception as e:
+            logger.error(f"[FlowManager] Failed to create flow from template: {e}")
+            return None
+
+    def save_flow_as_template(
+        self,
+        device_id: str,
+        flow_id: str,
+        template_name: str,
+        template_id: str = None,
+        category: str = "custom",
+        tags: List[str] = None
+    ) -> bool:
+        """
+        Save an existing flow as a template
+
+        Args:
+            device_id: Source device ID
+            flow_id: Source flow ID
+            template_name: Name for the template
+            template_id: Optional template ID (auto-generated if not provided)
+            category: Template category
+            tags: Optional tags
+
+        Returns:
+            True if saved successfully
+        """
+        flow = self.get_flow(device_id, flow_id)
+        if not flow:
+            logger.error(f"[FlowManager] Flow not found: {flow_id}")
+            return False
+
+        if not template_id:
+            import uuid
+            template_id = f"template_{uuid.uuid4().hex[:8]}"
+
+        # Convert steps to dicts
+        steps = [step.dict() for step in flow.steps]
+
+        return self.save_template(
+            template_id=template_id,
+            name=template_name,
+            description=f"Template created from flow: {flow.name}",
+            steps=steps,
+            category=category,
+            tags=tags
+        )
+
+    def get_builtin_templates(self) -> List[Dict]:
+        """
+        Get list of built-in templates
+
+        Returns pre-defined common flow patterns
+        """
+        return [
+            {
+                "template_id": "builtin_open_app_wait",
+                "name": "Open App and Wait",
+                "description": "Launch an app and wait for it to load",
+                "category": "navigation",
+                "steps": [
+                    {"step_type": "launch_app", "package": "${app_package}", "description": "Launch app"},
+                    {"step_type": "wait", "duration": 2000, "description": "Wait for app to load"}
+                ],
+                "tags": ["basic", "app_launch"]
+            },
+            {
+                "template_id": "builtin_scroll_capture",
+                "name": "Scroll and Capture",
+                "description": "Scroll down and capture sensors",
+                "category": "data_collection",
+                "steps": [
+                    {"step_type": "swipe", "start_x": 540, "start_y": 1500, "end_x": 540, "end_y": 500, "duration": 500, "description": "Scroll down"},
+                    {"step_type": "wait", "duration": 1000, "description": "Wait for content"},
+                    {"step_type": "capture_sensors", "sensor_ids": ["${sensor_id}"], "description": "Capture sensor"}
+                ],
+                "tags": ["scroll", "capture"]
+            },
+            {
+                "template_id": "builtin_loop_scroll",
+                "name": "Loop Scroll and Capture",
+                "description": "Scroll multiple times and capture data each time",
+                "category": "data_collection",
+                "steps": [
+                    {
+                        "step_type": "loop",
+                        "iterations": 3,
+                        "loop_variable": "scroll_count",
+                        "loop_steps": [
+                            {"step_type": "swipe", "start_x": 540, "start_y": 1500, "end_x": 540, "end_y": 500, "duration": 500},
+                            {"step_type": "wait", "duration": 1000},
+                            {"step_type": "capture_sensors", "sensor_ids": ["${sensor_id}"]}
+                        ]
+                    }
+                ],
+                "tags": ["loop", "scroll", "capture"]
+            },
+            {
+                "template_id": "builtin_conditional_check",
+                "name": "Conditional Element Check",
+                "description": "Check if element exists and act accordingly",
+                "category": "logic",
+                "steps": [
+                    {
+                        "step_type": "conditional",
+                        "condition": "element_exists:text=${check_text}",
+                        "true_steps": [
+                            {"step_type": "tap", "x": "${tap_x}", "y": "${tap_y}", "description": "Element found - tap it"}
+                        ],
+                        "false_steps": [
+                            {"step_type": "wait", "duration": 2000, "description": "Element not found - wait"}
+                        ]
+                    }
+                ],
+                "tags": ["conditional", "element_check"]
+            },
+            {
+                "template_id": "builtin_refresh_capture",
+                "name": "Refresh and Capture",
+                "description": "Pull to refresh and capture updated data",
+                "category": "data_collection",
+                "steps": [
+                    {"step_type": "pull_refresh", "description": "Pull to refresh"},
+                    {"step_type": "wait", "duration": 2000, "description": "Wait for refresh"},
+                    {"step_type": "capture_sensors", "sensor_ids": ["${sensor_id}"], "description": "Capture refreshed data"}
+                ],
+                "tags": ["refresh", "capture"]
+            }
+        ]
