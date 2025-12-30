@@ -38,7 +38,7 @@ async def get_performance_metrics():
     deps = get_deps()
     metrics = {
         "timestamp": time.time(),
-        "version": "0.0.5",
+        "version": "0.0.7",
     }
 
     # Screenshot cache statistics
@@ -328,7 +328,7 @@ async def get_system_diagnostics():
         "flow_scheduler": {
             "running": deps.flow_scheduler.is_running if deps.flow_scheduler else False,
             "paused": deps.flow_scheduler.is_paused if deps.flow_scheduler else False,
-            "active_flows": len(deps.flow_scheduler.device_tasks) if deps.flow_scheduler else 0
+            "active_flows": len(deps.flow_scheduler._periodic_tasks) if deps.flow_scheduler else 0
         } if deps.flow_scheduler else None
     }
 

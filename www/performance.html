@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="0.0.5">
+    <meta name="version" content="0.0.5" data-build="2025-12-29">
+    <title>Performance Dashboard - Visual Mapper</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.5">
+    <link rel="stylesheet" href="css/performance.css?v=0.0.5">
+</head>
+<body>
+    <nav>
+        <ul>
+            <!-- High priority - always visible -->
+            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
+            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
+            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
+
+            <!-- Medium priority - hidden on mobile -->
+            <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
+            <li class="nav-priority-med"><a href="flows.html">Flows</a></li>
+            <li class="nav-priority-med"><a href="performance.html" class="active">Performance</a></li>
+            <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
+
+            <!-- Low priority - hidden on tablet -->
+            <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
+
+            <li class="version">v0.0.6</li>
+            <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
+            <li id="themeToggleContainer"></li>
+        </ul>
+    </nav>
+
+    <div class="performance-container">
+        <div class="performance-header">
+            <h1>Performance Dashboard</h1>
+            <div class="header-controls">
+                <select id="deviceSelector" class="device-selector">
+                    <option value="">All Devices</option>
+                </select>
+                <button class="btn btn-secondary" id="btnRefresh" onclick="refreshDashboard()">
+                    Refresh
+                </button>
+                <label class="auto-refresh-toggle">
+                    <input type="checkbox" id="autoRefreshToggle" checked>
+                    <span>Auto-refresh (30s)</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- System Status Bar -->
+        <div class="system-status-bar" id="systemStatus">
+            <div class="status-item">
+                <span class="status-label">CPU:</span>
+                <span class="status-value" id="sysCpu">--</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Memory:</span>
+                <span class="status-value" id="sysMemory">--</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Devices:</span>
+                <span class="status-value" id="sysDevices">--</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">MQTT:</span>
+                <span class="status-value" id="sysMqtt">--</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Uptime:</span>
+                <span class="status-value" id="sysUptime">--</span>
+            </div>
+        </div>
+
+        <!-- Metrics Cards Grid -->
+        <div class="metrics-grid" id="metricsGrid">
+            <div class="metric-card">
+                <div class="metric-icon success">%</div>
+                <div class="metric-content">
+                    <h3>Success Rate</h3>
+                    <div class="metric-value" id="metricSuccessRate">--</div>
+                    <div class="metric-sub" id="metricSuccessRateSub">Recent: --</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon time">ms</div>
+                <div class="metric-content">
+                    <h3>Avg Execution Time</h3>
+                    <div class="metric-value" id="metricAvgTime">--</div>
+                    <div class="metric-sub" id="metricTotalExecutions">Total: -- executions</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon queue">#</div>
+                <div class="metric-content">
+                    <h3>Queue Depth</h3>
+                    <div class="metric-value" id="metricQueueDepth">0</div>
+                    <div class="metric-sub" id="metricQueueStatus">Normal</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon flows">F</div>
+                <div class="metric-content">
+                    <h3>Active Flows</h3>
+                    <div class="metric-value" id="metricActiveFlows">--</div>
+                    <div class="metric-sub" id="metricSchedulerStatus">Scheduler: --</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts Panel -->
+        <div class="alerts-panel" id="alertsPanel">
+            <div class="alerts-header">
+                <h2>Performance Alerts</h2>
+                <div class="alerts-controls">
+                    <span class="alert-count" id="alertCount">0 alerts</span>
+                    <button class="btn btn-sm btn-secondary" onclick="clearAllAlerts()">Clear All</button>
+                </div>
+            </div>
+            <div class="alerts-list" id="alertsList">
+                <p class="no-alerts">No alerts</p>
+            </div>
+        </div>
+
+        <!-- Two Column Layout: Slowest Flows + Threshold Config -->
+        <div class="dashboard-columns">
+            <!-- Slowest Flows Table -->
+            <div class="panel slowest-flows-panel">
+                <div class="panel-header">
+                    <h2>Slowest Flows</h2>
+                </div>
+                <div class="panel-body">
+                    <table class="flows-table" id="slowestFlowsTable">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Flow Name</th>
+                                <th>Avg Time</th>
+                                <th>Executions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="slowestFlowsBody">
+                            <tr><td colspan="4" class="empty-message">No data available</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Threshold Configuration -->
+            <div class="panel threshold-config-panel">
+                <div class="panel-header">
+                    <h2>Alert Thresholds</h2>
+                </div>
+                <div class="panel-body">
+                    <form id="thresholdForm" onsubmit="saveThresholds(event)">
+                        <div class="threshold-group">
+                            <label for="queueWarning">Queue Depth Warning</label>
+                            <input type="number" id="queueWarning" min="1" max="100" value="5">
+                            <span class="threshold-unit">flows</span>
+                        </div>
+                        <div class="threshold-group">
+                            <label for="queueCritical">Queue Depth Critical</label>
+                            <input type="number" id="queueCritical" min="1" max="100" value="10">
+                            <span class="threshold-unit">flows</span>
+                        </div>
+                        <div class="threshold-group">
+                            <label for="failureWarning">Failure Rate Warning</label>
+                            <input type="number" id="failureWarning" min="0" max="100" step="1" value="20">
+                            <span class="threshold-unit">%</span>
+                        </div>
+                        <div class="threshold-group">
+                            <label for="failureCritical">Failure Rate Critical</label>
+                            <input type="number" id="failureCritical" min="0" max="100" step="1" value="50">
+                            <span class="threshold-unit">%</span>
+                        </div>
+                        <div class="threshold-group">
+                            <label for="alertCooldown">Alert Cooldown</label>
+                            <input type="number" id="alertCooldown" min="10" max="3600" value="300">
+                            <span class="threshold-unit">seconds</span>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Save Thresholds</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Last Updated Footer -->
+        <div class="dashboard-footer">
+            <span id="lastUpdated">Last updated: --</span>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/init.js?v=0.0.5"></script>
+    <script type="module">
+        import PerformanceDashboard from './js/modules/performance-dashboard.js?v=0.0.6';
+
+        // Initialize dashboard
+        let dashboard = null;
+
+        async function init() {
+            console.log('[Performance] Initializing dashboard...');
+
+            dashboard = new PerformanceDashboard();
+            await dashboard.init();
+
+            // Set up device selector change handler
+            document.getElementById('deviceSelector').addEventListener('change', (e) => {
+                dashboard.setDevice(e.target.value);
+            });
+
+            // Set up auto-refresh toggle
+            document.getElementById('autoRefreshToggle').addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    dashboard.startAutoRefresh(30000);
+                } else {
+                    dashboard.stopAutoRefresh();
+                }
+            });
+
+            console.log('[Performance] Dashboard initialized');
+        }
+
+        // Global functions for onclick handlers
+        window.refreshDashboard = function() {
+            if (dashboard) {
+                dashboard.refresh();
+            }
+        };
+
+        window.clearAllAlerts = async function() {
+            if (dashboard) {
+                await dashboard.clearAlerts();
+            }
+        };
+
+        window.saveThresholds = async function(event) {
+            event.preventDefault();
+            if (dashboard) {
+                await dashboard.saveThresholds();
+            }
+        };
+
+        // Initialize on DOM ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+</body>
+</html>

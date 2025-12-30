@@ -1,6 +1,6 @@
 /**
  * Visual Mapper - Module Initialization
- * Version: 0.0.5 (Phase 4 - MQTT Integration)
+ * Version: 0.0.7 (Navigation Learning + Bug Fixes)
  *
  * This file handles:
  * - Version management
@@ -39,6 +39,7 @@ console.log(`[Init] Visual Mapper v${APP_VERSION}`);
 console.log(`[Init] API Base: ${window.API_BASE}`);
 
 // Onboarding check - redirect to onboarding.html if not completed
+// NOTE: Disabled for existing projects - set localStorage.setItem('onboarding_complete', 'true') to skip
 function checkOnboarding() {
     // Don't check if we're already on onboarding page
     const currentPage = window.location.pathname.split('/').pop();
@@ -46,13 +47,13 @@ function checkOnboarding() {
         return false; // Don't redirect
     }
 
-    // Check if onboarding is complete
-    const isComplete = localStorage.getItem('onboarding_complete') === 'true';
-
-    if (!isComplete) {
-        console.log('[Init] Onboarding not complete, redirecting to onboarding wizard');
-        window.location.href = 'onboarding.html';
-        return true; // Redirecting
+    // For existing projects, auto-complete onboarding (one-time migration)
+    // This allows existing users to continue without seeing onboarding again
+    if (!localStorage.getItem('onboarding_complete')) {
+        // Check if user has any existing data (devices, sensors, flows configured)
+        // For now, just auto-complete to not break existing workflows
+        console.log('[Init] Auto-completing onboarding for existing project');
+        localStorage.setItem('onboarding_complete', 'true');
     }
 
     console.log('[Init] Onboarding complete');
@@ -105,5 +106,6 @@ if (document.readyState === 'loading') {
     initApp();
 }
 
-// Export functions for use in other modules
-export { initApp, getApiBase };
+// Global exports for backward compatibility (when loaded as regular script)
+window.initApp = initApp;
+window.getApiBase = getApiBase;

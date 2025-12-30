@@ -38,7 +38,8 @@ class FlowManager {
         }
 
         const data = await response.json();
-        return data.flows || [];
+        // Server returns direct array, not wrapped in {"flows": [...]}
+        return Array.isArray(data) ? data : (data.flows || []);
     }
 
     /**

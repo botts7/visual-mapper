@@ -6,7 +6,381 @@
     <meta name="app-version" content="0.0.5">
     <title>Welcome to Visual Mapper - Setup Wizard</title>
     <link rel="stylesheet" href="css/styles.css?v=0.0.5">
-    <link rel="stylesheet" href="css/onboarding.css?v=0.0.5">
+    <style>
+        /* Onboarding-specific styles */
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .onboarding-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        .onboarding-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .onboarding-header h1 {
+            margin: 0 0 10px 0;
+            font-size: 32px;
+        }
+
+        .onboarding-header p {
+            margin: 0;
+            opacity: 0.9;
+            font-size: 16px;
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: rgba(255, 255, 255, 0.3);
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: white;
+            transition: width 0.3s ease;
+        }
+
+        .step-indicator {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .step {
+            flex: 1;
+            text-align: center;
+            position: relative;
+            padding: 10px;
+        }
+
+        .step-number {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #e0e0e0;
+            color: #999;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-bottom: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .step.active .step-number {
+            background: #667eea;
+            color: white;
+            transform: scale(1.1);
+        }
+
+        .step.completed .step-number {
+            background: #4caf50;
+            color: white;
+        }
+
+        .step.completed .step-number::after {
+            content: '✓';
+        }
+
+        .step-label {
+            font-size: 12px;
+            color: #999;
+            transition: color 0.3s ease;
+        }
+
+        .step.active .step-label {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .step.completed .step-label {
+            color: #4caf50;
+        }
+
+        .onboarding-content {
+            padding: 40px;
+            min-height: 400px;
+        }
+
+        .step-content {
+            display: none;
+        }
+
+        .step-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .step-title {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .step-description {
+            color: #666;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .onboarding-actions {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px 40px;
+            border-top: 1px solid #e0e0e0;
+            background: #f8f9fa;
+        }
+
+        .btn {
+            padding: 12px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #666;
+        }
+
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn:disabled:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Connection method cards */
+        .connection-methods {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .method-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 24px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .method-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .method-card.selected {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .method-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+
+        .method-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .method-description {
+            font-size: 14px;
+            color: #666;
+        }
+
+        /* Form styles */
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        /* Status messages */
+        .status-message {
+            padding: 16px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .status-message.success {
+            background: #e8f5e9;
+            border: 1px solid #4caf50;
+            color: #2e7d32;
+        }
+
+        .status-message.error {
+            background: #ffebee;
+            border: 1px solid #f44336;
+            color: #c62828;
+        }
+
+        .status-message.info {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            color: #1565c0;
+        }
+
+        .status-message.show {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        /* Device list */
+        .device-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .device-item {
+            padding: 16px;
+            border-bottom: 1px solid #e0e0e0;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .device-item:last-child {
+            border-bottom: none;
+        }
+
+        .device-item:hover {
+            background: #f8f9fa;
+        }
+
+        .device-item.selected {
+            background: #f0f4ff;
+            border-left: 4px solid #667eea;
+        }
+
+        /* Loading spinner */
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Success animation */
+        .success-icon {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: #4caf50;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 60px;
+            margin: 0 auto 24px;
+            animation: scaleIn 0.5s ease;
+        }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0);
+            }
+            to {
+                transform: scale(1);
+            }
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .mt-4 {
+            margin-top: 24px;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
 </head>
 <body>
     <div class="onboarding-container">
@@ -55,9 +429,9 @@
                     This quick setup wizard will help you connect your first device.
                 </p>
 
-                <div class="info-box">
-                    <h3>What you'll need:</h3>
-                    <ul>
+                <div style="background: #f0f4ff; padding: 24px; border-radius: 12px; margin: 24px 0;">
+                    <h3 style="margin-top: 0; color: #667eea;">What you'll need:</h3>
+                    <ul style="color: #666; line-height: 1.8;">
                         <li>Android device connected to the same network</li>
                         <li>ADB (Wireless Debugging) enabled on your device</li>
                         <li>Device IP address (we can scan for it!)</li>
@@ -100,7 +474,7 @@
                 <div id="manualForm" class="hidden">
                     <div class="form-group">
                         <label for="connectionType">Connection Type</label>
-                        <select id="connectionType">
+                        <select id="connectionType" style="width: 100%; padding: 12px 16px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px;">
                             <option value="tcp">TCP/IP - Legacy (Port 5555)</option>
                             <option value="wireless">Wireless ADB - Android 11+ (Port 5555)</option>
                             <option value="pairing">Wireless Pairing - Android 11+ (Port varies)</option>
@@ -122,8 +496,8 @@
 
                     <!-- Pairing Config (Android 11+) -->
                     <div id="pairingConfig" class="hidden">
-                        <div class="info-box-info">
-                            <p>
+                        <div style="background: #e3f2fd; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                            <p style="margin: 0; color: #1565c0; line-height: 1.6;">
                                 <strong>Android 11+ Wireless Pairing:</strong><br>
                                 1. Settings → Developer Options → Wireless debugging<br>
                                 2. Tap "Pair device with pairing code"<br>
@@ -154,8 +528,8 @@
 
                     <!-- Wireless Config Info -->
                     <div id="wirelessConfig" class="hidden">
-                        <div class="info-box-info">
-                            <p>
+                        <div style="background: #e3f2fd; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                            <p style="margin: 0; color: #1565c0; line-height: 1.6;">
                                 <strong>Wireless ADB Setup (Android 11+):</strong><br>
                                 1. Enable Developer Options on your Android device<br>
                                 2. Go to Settings → Developer Options → Wireless debugging<br>
@@ -167,8 +541,8 @@
 
                     <!-- TLS Config Info -->
                     <div id="tlsConfig" class="hidden">
-                        <div class="info-box-warning">
-                            <p>
+                        <div style="background: #fff3cd; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                            <p style="margin: 0; color: #856404; line-height: 1.6;">
                                 <strong>TLS/Secure ADB:</strong><br>
                                 Advanced secure connection with certificate authentication.<br>
                                 Requires pre-configured certificates on both client and device.
@@ -188,8 +562,8 @@
                 </p>
 
                 <div class="text-center mt-4">
-                    <div class="spinner spinner-large"></div>
-                    <p class="connecting-text">Connecting to device...</p>
+                    <div class="spinner" style="width: 60px; height: 60px; border-width: 6px; border-color: #e0e0e0; border-top-color: #667eea;"></div>
+                    <p style="margin-top: 24px; color: #666;">Connecting to device...</p>
                 </div>
 
                 <div class="status-message" id="step3Status"></div>
@@ -218,9 +592,9 @@
                         Your device is connected and ready to use.
                     </p>
 
-                    <div class="info-box" style="text-align: left;">
-                        <h3>Next Steps:</h3>
-                        <ul class="next-steps-list">
+                    <div style="background: #f0f4ff; padding: 24px; border-radius: 12px; margin: 32px 0; text-align: left;">
+                        <h3 style="margin-top: 0; color: #667eea;">Next Steps:</h3>
+                        <ul style="color: #666; line-height: 2;">
                             <li><strong>Create Sensors:</strong> Go to Sensors page to capture data from your device</li>
                             <li><strong>Build Flows:</strong> Automate sensor collection with scheduled flows</li>
                             <li><strong>View in Home Assistant:</strong> Your sensors will appear automatically via MQTT</li>

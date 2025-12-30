@@ -169,3 +169,58 @@ async def test_device_unlock(device_id: str, request: DeviceUnlockRequest):
     except Exception as e:
         logger.error(f"[API] Error testing unlock for {device_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{device_id}/auto-unlock")
+async def auto_unlock_device(device_id: str):
+    """
+    Automatically unlock device using stored encrypted passcode.
+
+    This endpoint is used by the flow wizard to automatically unlock
+    devices when configured with auto_unlock strategy.
+
+    Returns:
+        {
+            "success": bool,
+            "message": str
+        }
+    """
+    deps = get_deps()
+    try:
+        # Check if device is connected
+        devices = await deps.adb_bridge.get_devices()
+        device_ids = [d.get('id') for d in devices]
+
+        if device_id not in device_ids:
+            raise HTTPException(status_code=404, detail=f"Device {device_id} not connected")
+
+        # Get security config
+        config = deps.device_security_manager.get_lock_config(device_id)
+
+        if not config:
+            return {"success": False, "message": "No security config found"}
+
+        if config.get('strategy') != "auto_unlock":
+            return {"success": False, "message": f"Device is configured for {config.get('strategy')}, not auto_unlock"}
+
+        # Get decrypted passcode
+        passcode = deps.device_security_manager.get_passcode(device_id)
+
+        if not passcode:
+            return {"success": False, "message": "No passcode stored"}
+
+        # Attempt unlock
+        success = await deps.adb_bridge.unlock_device(device_id, passcode)
+
+        if success:
+            logger.info(f"[API] Auto-unlocked device {device_id}")
+            return {"success": True, "message": "Device unlocked successfully"}
+        else:
+            logger.warning(f"[API] Auto-unlock failed for {device_id}")
+            return {"success": False, "message": "Failed to unlock device"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Error auto-unlocking {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

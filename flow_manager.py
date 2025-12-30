@@ -96,11 +96,38 @@ class FlowManager:
         return next((f for f in flow_list.flows if f.flow_id == flow_id), None)
 
     def get_device_flows(self, device_id: str) -> List[SensorCollectionFlow]:
-        """Get all flows for a specific device"""
+        """
+        Get all flows for a specific device
+
+        Supports both network device_id (192.168.86.2:46747) and stable_device_id (c7028879b7a83aa7).
+        This allows Android companion app to query using stable ID across IP/port changes.
+        """
+        # First try direct file load (for network device_id)
         if device_id not in self._flows:
             self._flows[device_id] = self._load_flows(device_id)
 
-        return self._flows[device_id].flows
+        flows_from_file = self._flows[device_id].flows
+
+        # If we found flows in the direct file, return them
+        if flows_from_file:
+            return flows_from_file
+
+        # Otherwise, search all flow files for flows matching stable_device_id
+        # This handles queries with stable device ID (e.g., from Android app)
+        matching_flows = []
+        for flow_file in self.storage_dir.glob("flows_*.json"):
+            try:
+                with open(flow_file, 'r') as f:
+                    data = json.load(f)
+                    flow_list = FlowList(**data)
+                    # Check each flow's stable_device_id
+                    for flow in flow_list.flows:
+                        if flow.stable_device_id == device_id:
+                            matching_flows.append(flow)
+            except Exception as e:
+                logger.error(f"[FlowManager] Failed to load {flow_file}: {e}")
+
+        return matching_flows
 
     def get_all_flows(self) -> List[SensorCollectionFlow]:
         """

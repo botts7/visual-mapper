@@ -29,7 +29,7 @@ async def health_check():
 
     return {
         "status": "ok",
-        "version": "0.0.5",
+        "version": "0.0.7",
         "message": "Visual Mapper is running",
         "mqtt_status": mqtt_status
     }

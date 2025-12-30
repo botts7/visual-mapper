@@ -21,6 +21,15 @@ async def get_devices():
     deps = get_deps()
     try:
         devices = await deps.adb_bridge.get_devices()
+
+        # Update MQTT device info cache with device models for friendly names
+        if deps.mqtt_manager:
+            for device in devices:
+                device_id = device.get('id')
+                model = device.get('model')
+                if device_id and model:
+                    deps.mqtt_manager.set_device_info(device_id, model=model)
+
         return {"devices": devices}
     except Exception as e:
         logger.error(f"[API] Failed to get devices: {e}")

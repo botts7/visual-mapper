@@ -1,7 +1,10 @@
 /**
  * Flow Wizard Step 3 Module - Recording Mode
- * Visual Mapper v0.0.5
+ * Visual Mapper v0.0.14
  *
+ * v0.0.14: Backend now returns device dimensions in elements API, frontend updates dimensions on refresh
+ * v0.0.13: Auto-update app name header when refreshing elements (detects manual app switches)
+ * v0.0.12: Force canvas redraw when refreshing elements to clear old overlays
  * Handles the complete Step 3 recording screen UI and interactions:
  * - App info header and screen awareness
  * - Recording UI setup (toolbar, panels, overlays)
@@ -17,8 +20,8 @@ import { showToast } from './toast.js?v=0.0.5';
 import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.9';
 import FlowInteractions from './flow-interactions.js?v=0.0.15';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
-import FlowRecorder from './flow-recorder.js?v=0.0.7';
-import LiveStream from './live-stream.js?v=0.0.15';
+import FlowRecorder from './flow-recorder.js?v=0.0.9';
+import LiveStream from './live-stream.js?v=0.0.18';
 import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.6';
 
 // Helper to get API base (from global set by init.js)
@@ -124,7 +127,7 @@ export async function updateScreenInfo(wizard) {
     if (!activityEl) return;
 
     try {
-        const response = await fetch(`${getApiBase()}/screen/current/${encodeURIComponent(wizard.selectedDevice)}`);
+        const response = await fetch(`${getApiBase()}/adb/screen/current/${encodeURIComponent(wizard.selectedDevice)}`);
         if (!response.ok) {
             console.warn('[FlowWizard] Failed to get screen info');
             activityEl.textContent = '--';
@@ -864,7 +867,13 @@ export async function refreshElements(wizard) {
 
             // Update device dimensions for proper overlay scaling
             if (data.device_width && data.device_height && wizard.liveStream) {
+                const oldWidth = wizard.liveStream.deviceWidth;
+                const oldHeight = wizard.liveStream.deviceHeight;
                 wizard.liveStream.setDeviceDimensions(data.device_width, data.device_height);
+
+                if (oldWidth !== data.device_width || oldHeight !== data.device_height) {
+                    console.log(`[FlowWizard] Device dimensions updated: ${oldWidth}x${oldHeight} → ${data.device_width}x${data.device_height}`);
+                }
             }
 
             console.log(`[FlowWizard] Fast elements refresh: ${elements.length} elements`);
@@ -907,12 +916,46 @@ export async function refreshElements(wizard) {
 
         // Update LiveStream elements for overlay
         if (wizard.liveStream) {
+            // Clear old elements and force canvas redraw
+            wizard.liveStream.elements = [];  // Clear first to trigger re-render
+
+            // Force canvas clear and redraw with new elements
+            if (wizard.liveStream.currentImage) {
+                wizard.liveStream.ctx.clearRect(0, 0, wizard.liveStream.canvas.width, wizard.liveStream.canvas.height);
+                wizard.liveStream.ctx.drawImage(wizard.liveStream.currentImage, 0, 0);
+            }
+
+            // Now set new elements
             wizard.liveStream.elements = elements;
+
+            // Redraw with new elements
+            if (wizard.liveStream.currentImage) {
+                wizard.liveStream._renderFrame(wizard.liveStream.currentImage, elements);
+            }
         }
 
         // Update element tree
         wizard.updateElementTree(elements);
         wizard.updateElementCount(elements.length);
+
+        // Update app info header (in case user manually switched apps)
+        try {
+            const screenResponse = await fetch(`${getApiBase()}/adb/screen/current/${encodeURIComponent(wizard.selectedDevice)}`);
+            if (screenResponse.ok) {
+                const screenData = await screenResponse.json();
+                if (screenData.activity) {
+                    const appNameEl = document.getElementById('appName');
+                    if (appNameEl && screenData.activity.package) {
+                        // Extract app name from package (e.g., "com.byd.autolink" → "BYD AUTO")
+                        const appName = screenData.activity.package.split('.').pop() || screenData.activity.package;
+                        appNameEl.textContent = appName.charAt(0).toUpperCase() + appName.slice(1);
+                        console.log(`[FlowWizard] Updated app name: ${appName}`);
+                    }
+                }
+            }
+        } catch (appInfoError) {
+            console.warn('[FlowWizard] Failed to update app info:', appInfoError);
+        }
 
         console.log(`[FlowWizard] Elements refreshed: ${elements.length} elements`);
     } catch (error) {

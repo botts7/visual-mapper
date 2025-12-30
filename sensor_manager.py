@@ -121,9 +121,35 @@ class SensorManager:
         return None
 
     def get_all_sensors(self, device_id: str) -> List[SensorDefinition]:
-        """Get all sensors for a device"""
+        """
+        Get all sensors for a device
+
+        Supports both network device_id (192.168.86.2:46747) and stable_device_id (c7028879b7a83aa7).
+        This allows Android companion app to query using stable ID across IP/port changes.
+        """
+        # First try direct file load (for network device_id)
         sensor_list = self._load_sensor_list(device_id)
-        return sensor_list.sensors
+
+        # If we found sensors in the direct file, return them
+        if sensor_list.sensors:
+            return sensor_list.sensors
+
+        # Otherwise, search all sensor files for sensors matching stable_device_id
+        # This handles queries with stable device ID (e.g., from Android app)
+        matching_sensors = []
+        for sensor_file in self.data_dir.glob("sensors_*.json"):
+            try:
+                with open(sensor_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    file_sensor_list = SensorList(**data)
+                    # Check each sensor's stable_device_id
+                    for sensor in file_sensor_list.sensors:
+                        if sensor.stable_device_id == device_id:
+                            matching_sensors.append(sensor)
+            except Exception as e:
+                logger.error(f"[SensorManager] Failed to load {sensor_file}: {e}")
+
+        return matching_sensors
 
     def update_sensor(self, sensor: SensorDefinition) -> SensorDefinition:
         """

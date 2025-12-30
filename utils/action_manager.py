@@ -149,16 +149,41 @@ class ActionManager:
         """
         List all actions for a device (or all devices)
 
+        Supports both network device_id (192.168.86.2:46747) and stable_device_id (c7028879b7a83aa7).
+        This allows Android companion app to query using stable ID across IP/port changes.
+
         Args:
-            device_id: Optional device ID filter
+            device_id: Optional device ID filter (network or stable)
 
         Returns:
             List of ActionDefinitions
         """
         if device_id:
-            return self._load_actions(device_id)
+            # First try direct file load (for network device_id)
+            actions_from_file = self._load_actions(device_id)
 
-        # Load from all device files
+            # If we found actions in the direct file, return them
+            if actions_from_file:
+                return actions_from_file
+
+            # Otherwise, search all action files for actions matching stable_device_id
+            # This handles queries with stable device ID (e.g., from Android app)
+            matching_actions = []
+            for actions_file in self.data_dir.glob("actions_*.json"):
+                try:
+                    with open(actions_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        file_actions = [ActionDefinition(**action) for action in data]
+                        # Check each action's stable_device_id
+                        for action in file_actions:
+                            if action.stable_device_id == device_id:
+                                matching_actions.append(action)
+                except Exception as e:
+                    logger.error(f"Error loading {actions_file}: {e}")
+
+            return matching_actions
+
+        # Load from all device files (no device_id filter)
         all_actions = []
         for actions_file in self.data_dir.glob("actions_*.json"):
             try:

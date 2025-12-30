@@ -1478,21 +1478,20 @@ class ADBBridge:
         try:
             logger.info(f"[ADBBridge] Unlocking device {device_id}")
 
-            # Step 1: Wake screen
+            # Step 1: Wake screen first (needs separate call to ensure screen is on)
             await self.wake_screen(device_id)
-            await asyncio.sleep(0.5)  # Wait for screen to wake
 
-            # Step 2: Swipe up to dismiss lock screen
-            await conn.shell("input swipe 540 1800 540 800 300")
-            await asyncio.sleep(0.5)  # Wait for PIN pad to appear
-
-            # Step 3: Enter passcode (each digit as text input)
-            await conn.shell(f"input text {passcode}")
-            await asyncio.sleep(0.3)  # Wait for input to register
-
-            # Step 4: Press Enter to confirm
-            await conn.shell("input keyevent 66")  # KEYCODE_ENTER
-            await asyncio.sleep(0.5)  # Wait for unlock
+            # Step 2-4: Run unlock sequence as single batched command (much faster over WiFi)
+            # Combines: swipe up, enter passcode, press enter - with inline sleeps
+            unlock_cmd = (
+                f"input swipe 540 1800 540 800 300 && "  # Swipe up
+                f"sleep 0.3 && "  # Wait for PIN pad
+                f"input text {passcode} && "  # Enter passcode
+                f"sleep 0.2 && "  # Wait for input
+                f"input keyevent 66"  # Press Enter
+            )
+            await conn.shell(unlock_cmd)
+            await asyncio.sleep(0.3)  # Brief wait for unlock to complete
 
             logger.info(f"[ADBBridge] Unlock sequence completed for {device_id}")
             return True

@@ -89,14 +89,34 @@ async def get_elements_only(device_id: str):
         elements = await deps.adb_bridge.get_ui_elements(device_id)
         logger.info(f"[API] Got {len(elements)} elements")
 
-        # Note: Device dimensions are provided by MJPEG config when streaming starts.
-        # This endpoint returns elements-only for speed. If dimensions are needed,
-        # they should come from the stream config or a separate dimensions endpoint.
+        # Infer device dimensions from element bounds
+        # CRITICAL: When user manually switches apps during streaming, frontend needs
+        # updated dimensions to correctly scale element overlays. We infer native device
+        # resolution by finding max bounds across all elements.
+        device_width = 1080  # Default
+        device_height = 1920
+
+        if elements:
+            max_x = max_y = 0
+            for el in elements:
+                if el.get('bounds'):
+                    bounds = el['bounds']
+                    max_x = max(max_x, bounds.get('x', 0) + bounds.get('width', 0))
+                    max_y = max(max_y, bounds.get('y', 0) + bounds.get('height', 0))
+
+            # Only update if we found valid bounds
+            if max_x > 100 and max_y > 100:
+                # Round to common device dimensions (nearest 10 pixels)
+                device_width = round(max_x / 10) * 10
+                device_height = round(max_y / 10) * 10
+                logger.debug(f"[API] Inferred device dimensions: {device_width}x{device_height}")
 
         return {
             "success": True,
             "elements": elements,
             "count": len(elements),
+            "device_width": device_width,
+            "device_height": device_height,
             "timestamp": datetime.now().isoformat()
         }
     except ValueError as e:

@@ -10,6 +10,7 @@ Provides endpoints for managing apps on Android devices:
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 import logging
 import time
 from routes import get_deps

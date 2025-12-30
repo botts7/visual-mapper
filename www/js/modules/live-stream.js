@@ -1,6 +1,6 @@
 /**
  * Visual Mapper - Live Stream Module
- * Version: 0.0.14 (Enhanced with stream_manager backend support)
+ * Version: 0.0.18 (Auto-clear cached elements when screenshot dimensions change - fixes manual app switching)
  *
  * WebSocket-based live screenshot streaming with UI element overlays.
  * Supports two modes:
@@ -157,7 +157,7 @@ class LiveStream {
             return `${protocol}//${host}${ingressMatch[0]}/${endpoint}/${deviceId}${queryParams}`;
         }
 
-        return `${protocol}//${host}/${endpoint}/${deviceId}${queryParams}`;
+        return `${protocol}//${host}/api/${endpoint}/${deviceId}${queryParams}`;
     }
 
     /**
@@ -496,6 +496,48 @@ class LiveStream {
             // Update elements if provided
             if (data.elements && data.elements.length > 0) {
                 this.elements = data.elements;
+
+                // Infer device dimensions from element bounds (fixes coordinate issues when switching apps)
+                // Elements are always in device pixel coordinates, so we can extract the native dimensions
+                let maxX = 0, maxY = 0;
+                data.elements.forEach(el => {
+                    if (el.bounds) {
+                        maxX = Math.max(maxX, el.bounds.x + el.bounds.width);
+                        maxY = Math.max(maxY, el.bounds.y + el.bounds.height);
+                    }
+                });
+
+                // Only update if we found valid bounds and they differ significantly
+                if (maxX > 100 && maxY > 100) {
+                    // Round to common device widths/heights
+                    const inferredWidth = Math.round(maxX / 10) * 10;
+                    const inferredHeight = Math.round(maxY / 10) * 10;
+
+                    if (inferredWidth !== this.deviceWidth || inferredHeight !== this.deviceHeight) {
+                        this.deviceWidth = inferredWidth;
+                        this.deviceHeight = inferredHeight;
+                        console.log(`[LiveStream] Updated device dimensions from elements: ${inferredWidth}x${inferredHeight}`);
+                    }
+                }
+            }
+
+            // CRITICAL FIX: Detect app changes by screenshot dimension changes
+            // When user manually switches apps during streaming, screenshot dimensions change
+            // but elements array is empty (streaming sends [] to save bandwidth)
+            // Clear old cached elements to prevent misaligned overlays on new app
+            if (this.currentImage && this.elements && this.elements.length > 0) {
+                const dimensionsChanged =
+                    img.naturalWidth !== this.currentImage.naturalWidth ||
+                    img.naturalHeight !== this.currentImage.naturalHeight;
+
+                if (dimensionsChanged) {
+                    console.log(`[LiveStream] Screenshot dimensions changed: ${this.currentImage.naturalWidth}x${this.currentImage.naturalHeight} → ${img.naturalWidth}x${img.naturalHeight}`);
+                    console.log(`[LiveStream] App switch detected - clearing ${this.elements.length} cached elements`);
+                    this.elements = [];
+                    // Update device dimensions to match new screenshot
+                    this.deviceWidth = img.naturalWidth;
+                    this.deviceHeight = img.naturalHeight;
+                }
             }
 
             // Render frame
@@ -527,6 +569,9 @@ class LiveStream {
             this.canvas.width = img.width;
             this.canvas.height = img.height;
         }
+
+        // Clear canvas to remove old overlays
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
         // Draw screenshot
         this.ctx.drawImage(img, 0, 0);

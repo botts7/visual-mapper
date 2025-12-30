@@ -1,6 +1,6 @@
 /**
  * Flow Recorder Module
- * Visual Mapper v0.0.6
+ * Visual Mapper v0.0.9
  *
  * Handles interactive flow recording with screenshot capture,
  * tap detection, and step management
@@ -40,6 +40,9 @@ class FlowRecorder {
     async start() {
         try {
             console.log('[FlowRecorder] Starting recording session...');
+
+            // Ensure device is unlocked before starting
+            await this.ensureDeviceUnlocked();
 
             // Launch the app
             await this.launchApp();
@@ -205,12 +208,115 @@ class FlowRecorder {
         const result = await response.json();
         console.log('[FlowRecorder] App launched:', result);
 
-        // Add launch step to flow
+        // Wait for app to fully load before capturing activity
+        await this.wait(2000);
+
+        // Capture the activity that was launched for state validation
+        const screenInfo = await this.getCurrentScreen();
+        const expectedActivity = screenInfo?.activity?.activity || null;
+        const screenPackage = screenInfo?.activity?.package || this.appPackage;
+
+        console.log(`[FlowRecorder] Launched to activity: ${expectedActivity}`);
+
+        // Add launch step to flow with state validation data
         await this.addStep({
             step_type: 'launch_app',
             package: this.appPackage,
-            description: `Launch ${this.appPackage}`
+            description: `Launch ${this.appPackage}`,
+            expected_activity: expectedActivity,
+            screen_activity: expectedActivity,
+            screen_package: screenPackage,
+            validate_state: true,
+            recovery_action: 'force_restart_app'
         });
+    }
+
+    /**
+     * Ensure device is unlocked before screenshot capture
+     * Checks lock state and attempts automatic unlock if configured
+     */
+    async ensureDeviceUnlocked() {
+        try {
+            // Check screen state
+            const screenResponse = await fetch(`${this.apiBase}/adb/screen-state/${encodeURIComponent(this.deviceId)}`);
+            if (!screenResponse.ok) {
+                console.warn('[FlowRecorder] Could not check screen state');
+                return; // Continue anyway
+            }
+
+            const screenState = await screenResponse.json();
+            console.log('[FlowRecorder] Screen state:', screenState);
+
+            // If screen is off, wake it first
+            if (!screenState.screen_on) {
+                console.log('[FlowRecorder] Screen is off, waking device...');
+                await fetch(`${this.apiBase}/adb/wake/${encodeURIComponent(this.deviceId)}`, { method: 'POST' });
+                await this.wait(500); // Wait for screen to turn on
+            }
+
+            // Check if device is locked
+            const isLocked = screenState.keyguard_locked || !screenState.screen_on;
+
+            if (!isLocked) {
+                console.log('[FlowRecorder] Device is already unlocked');
+                return; // Already unlocked
+            }
+
+            console.log('[FlowRecorder] Device is locked, attempting unlock...');
+            showToast('🔐 Unlocking device...', 'info', 3000);
+
+            // Try to get stored security config
+            const securityResponse = await fetch(`${this.apiBase}/device/${encodeURIComponent(this.deviceId)}/security`);
+
+            if (securityResponse.ok) {
+                const securityConfig = await securityResponse.json();
+                console.log('[FlowRecorder] Security config:', securityConfig.config?.strategy);
+
+                // If auto_unlock is configured and has passcode, unlock with it
+                if (securityConfig.config?.strategy === 'auto_unlock' && securityConfig.config?.has_passcode) {
+                    console.log('[FlowRecorder] Using stored passcode for unlock...');
+
+                    // Call backend unlock API (which retrieves and decrypts passcode)
+                    const unlockResponse = await fetch(`${this.apiBase}/device/${encodeURIComponent(this.deviceId)}/auto-unlock`, {
+                        method: 'POST'
+                    });
+
+                    if (unlockResponse.ok) {
+                        const result = await unlockResponse.json();
+                        if (result.success) {
+                            console.log('[FlowRecorder] Device unlocked successfully with passcode');
+                            showToast('🔓 Device unlocked', 'success', 2000);
+                            await this.wait(300); // Brief wait for unlock animation
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Fallback: Try simple swipe-to-unlock
+            console.log('[FlowRecorder] Trying swipe-to-unlock...');
+            const swipeResponse = await fetch(`${this.apiBase}/adb/unlock/${encodeURIComponent(this.deviceId)}`, {
+                method: 'POST'
+            });
+
+            if (swipeResponse.ok) {
+                const result = await swipeResponse.json();
+                if (result.success) {
+                    console.log('[FlowRecorder] Device unlocked with swipe');
+                    showToast('🔓 Device unlocked', 'success', 2000);
+                    await this.wait(500);
+                    return;
+                }
+            }
+
+            // If we get here, unlock failed
+            console.warn('[FlowRecorder] Automatic unlock failed');
+            showToast('⚠️ Please unlock device manually to continue', 'warning', 4000);
+
+        } catch (error) {
+            console.warn('[FlowRecorder] Error checking/unlocking device:', error);
+            // Don't throw - just continue and let screenshot fail if needed
+        }
     }
 
     /**
@@ -218,6 +324,9 @@ class FlowRecorder {
      */
     async captureScreenshot() {
         console.log('[FlowRecorder] Capturing screenshot...');
+
+        // Ensure device is unlocked before capturing
+        await this.ensureDeviceUnlocked();
 
         // Show progress
         this.showStitchProgress('📸 Capturing screenshot with UI elements...');
@@ -339,6 +448,9 @@ class FlowRecorder {
         // Phase 8: Find tapped UI element for state validation
         const tappedElement = this.findElementAtCoordinates(deviceCoords.x, deviceCoords.y);
 
+        // Phase 9: Capture screen BEFORE action for navigation learning
+        const beforeScreen = await this.getCurrentScreen();
+
         // Show tap indicator
         this.showTapIndicator(screenX, screenY);
 
@@ -378,6 +490,19 @@ class FlowRecorder {
         if (this.recordMode === 'execute') {
             await this.wait(500); // Wait for UI to update
             await this.captureScreenshot();
+
+            // Phase 9: Capture screen AFTER action and report transition
+            const afterScreen = await this.getCurrentScreen();
+            if (beforeScreen && afterScreen) {
+                await this.reportScreenTransition(beforeScreen, afterScreen, {
+                    action_type: 'tap',
+                    x: deviceCoords.x,
+                    y: deviceCoords.y,
+                    element_resource_id: tappedElement?.resource_id || null,
+                    element_text: tappedElement?.text || null,
+                    description: step.description
+                });
+            }
         }
 
         return deviceCoords;
@@ -497,6 +622,9 @@ class FlowRecorder {
     async goBack() {
         console.log('[FlowRecorder] Going back...');
 
+        // Phase 9: Capture screen BEFORE action
+        const beforeScreen = await this.getCurrentScreen();
+
         const response = await fetch(`${this.apiBase}/adb/back`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -514,6 +642,16 @@ class FlowRecorder {
 
         await this.wait(300);
         await this.captureScreenshot();
+
+        // Phase 9: Report transition if screen changed
+        const afterScreen = await this.getCurrentScreen();
+        if (beforeScreen && afterScreen) {
+            await this.reportScreenTransition(beforeScreen, afterScreen, {
+                action_type: 'go_back',
+                keycode: 'KEYCODE_BACK',
+                description: 'Press back button'
+            });
+        }
 
         showToast('Back', 'info', 1000);
     }
@@ -551,6 +689,9 @@ class FlowRecorder {
      */
     async swipe(direction) {
         console.log(`[FlowRecorder] Swiping ${direction}...`);
+
+        // Phase 9: Capture screen BEFORE action
+        this._beforeSwipeScreen = await this.getCurrentScreen();
 
         // Ensure dimensions are available
         if (!this.screenshotMetadata.width || !this.screenshotMetadata.height) {
@@ -624,6 +765,21 @@ class FlowRecorder {
 
         await this.wait(300);
         await this.captureScreenshot();
+
+        // Phase 9: Report transition if screen changed
+        const afterScreen = await this.getCurrentScreen();
+        if (this._beforeSwipeScreen && afterScreen) {
+            await this.reportScreenTransition(this._beforeSwipeScreen, afterScreen, {
+                action_type: 'swipe',
+                start_x: startX,
+                start_y: startY,
+                end_x: endX,
+                end_y: endY,
+                swipe_direction: direction,
+                description: `Swipe ${direction}`
+            });
+        }
+        this._beforeSwipeScreen = null;
 
         showToast(`Swipe ${direction}`, 'info', 1000);
     }
@@ -1085,6 +1241,56 @@ class FlowRecorder {
         }
 
         return info;
+    }
+
+    /**
+     * Phase 9 Navigation Learning: Report a screen transition to the backend
+     * Called when an action causes a screen change
+     *
+     * @param {Object} beforeScreen - Screen info before action
+     * @param {Object} afterScreen - Screen info after action
+     * @param {Object} action - The action that caused the transition
+     */
+    async reportScreenTransition(beforeScreen, afterScreen, action) {
+        if (!beforeScreen?.activity || !afterScreen?.activity) {
+            console.warn('[FlowRecorder] Cannot report transition: missing screen info');
+            return;
+        }
+
+        // Check if screen actually changed
+        if (beforeScreen.activity.activity === afterScreen.activity.activity &&
+            beforeScreen.activity.package === afterScreen.activity.package) {
+            console.log('[FlowRecorder] No screen change detected, skipping transition report');
+            return;
+        }
+
+        const package_name = beforeScreen.activity.package || this.appPackage;
+
+        try {
+            const payload = {
+                before_activity: beforeScreen.activity.activity,
+                before_package: beforeScreen.activity.package,
+                before_ui_elements: this.screenshotMetadata?.elements || [],
+                after_activity: afterScreen.activity.activity,
+                after_package: afterScreen.activity.package,
+                after_ui_elements: [],  // Will be populated after next screenshot
+                action: action
+            };
+
+            const response = await fetch(`${this.apiBase}/navigation/${encodeURIComponent(package_name)}/learn-transition`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                console.log(`[FlowRecorder] Learned transition: ${beforeScreen.activity.activity} -> ${afterScreen.activity.activity}`);
+            } else {
+                console.warn('[FlowRecorder] Failed to report transition:', await response.text());
+            }
+        } catch (error) {
+            console.error('[FlowRecorder] Error reporting transition:', error);
+        }
     }
 }
 

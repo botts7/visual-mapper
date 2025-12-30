@@ -19,7 +19,7 @@ async def api_root():
     """API root endpoint"""
     return {
         "name": "Visual Mapper API",
-        "version": "0.0.5",
+        "version": "0.0.7",
         "endpoints": {
             "health": "/api/health",
             "diagnostics_adb": "/api/diagnostics/adb/{device_id}",

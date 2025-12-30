@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="0.0.5">
-    <meta name="version" content="0.0.5" data-build="2025-12-28">
+    <meta name="version" content="0.0.5" data-build="2025-12-29">
     <title>Live Stream - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -18,10 +18,11 @@
             <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
             <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
             <li class="nav-priority-med"><a href="flows.html">Flows</a></li>
+            <li class="nav-priority-med"><a href="performance.html">Performance</a></li>
             <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
             <li class="nav-priority-low"><a href="live-stream.html" class="active">Live Stream</a></li>
             <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
-            <li class="version">v0.0.5</li>
+            <li class="version">v0.0.8</li>
         </ul>
     </nav>
 
@@ -120,7 +121,25 @@
                 <div class="control-group">
                     <label>
                         <input type="checkbox" id="filterLargeElements" checked>
-                        Hide Small Elements (&lt;20px)
+                        Hide Small (&lt;20px)
+                    </label>
+                </div>
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="filterContainers" checked>
+                        Hide Containers
+                    </label>
+                </div>
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="filterDividers" checked>
+                        Hide Dividers
+                    </label>
+                </div>
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="filterEmpty" checked>
+                        Hide Empty
                     </label>
                 </div>
             </div>
@@ -310,7 +329,14 @@
 
         <div class="card">
             <h2>Touch Controls</h2>
-            <p><strong>Click</strong> = Tap &nbsp;|&nbsp; <strong>Click + Drag</strong> = Swipe</p>
+            <p>
+                <strong>Click</strong> = Tap &nbsp;|&nbsp;
+                <strong>Click + Drag</strong> = Swipe &nbsp;|&nbsp;
+                <strong>Ctrl + Scroll</strong> = Zoom
+            </p>
+            <p style="font-size: 0.85em; color: #666; margin-top: 5px;">
+                Use +/- buttons or Ctrl+scroll to zoom. Middle-click or right-click to pan when zoomed.
+            </p>
             <div id="lastTap" class="tap-info">Last action: --</div>
         </div>
 
@@ -431,6 +457,25 @@
         const filterClickable = document.getElementById('filterClickable');
         const filterWithText = document.getElementById('filterWithText');
         const filterLargeElements = document.getElementById('filterLargeElements');
+        const filterContainers = document.getElementById('filterContainers');
+        const filterDividers = document.getElementById('filterDividers');
+        const filterEmpty = document.getElementById('filterEmpty');
+
+        // Container classes to filter out (matches live-stream.js)
+        const containerClasses = [
+            'android.view.View', 'android.view.ViewGroup',
+            'android.widget.FrameLayout', 'android.widget.LinearLayout',
+            'android.widget.RelativeLayout', 'android.widget.ScrollView',
+            'androidx.constraintlayout.widget.ConstraintLayout',
+            'androidx.recyclerview.widget.RecyclerView',
+            'androidx.coordinatorlayout.widget.CoordinatorLayout',
+            'androidx.core.widget.NestedScrollView'
+        ];
+
+        // Divider classes to filter out
+        const dividerClasses = [
+            'android.widget.Space', 'android.view.View'
+        ];
 
         // Selected element controls
         const selectedElementCard = document.getElementById('selectedElementCard');
@@ -526,20 +571,35 @@
             console.log(`[UI] Connection state: ${state}` + (attempts > 0 ? ` (attempt ${attempts})` : ''));
         };
 
-        // Load devices
+        // Load devices (preserves current selection if still available)
         async function loadDevices() {
             try {
+                // Preserve current selection
+                const previousSelection = deviceSelect.value;
+
                 const data = await apiGet('/adb/devices');
                 deviceSelect.innerHTML = '<option value="">-- Select Device --</option>';
 
+                let selectionStillValid = false;
                 data.devices.forEach(device => {
                     const option = document.createElement('option');
                     option.value = device.id;
                     option.textContent = `${device.id} (${device.model || 'Unknown'})`;
                     deviceSelect.appendChild(option);
+
+                    // Check if previous selection is still valid
+                    if (device.id === previousSelection) {
+                        selectionStillValid = true;
+                    }
                 });
 
-                console.log(`Loaded ${data.devices.length} devices`);
+                // Restore selection if device still exists
+                if (previousSelection && selectionStillValid) {
+                    deviceSelect.value = previousSelection;
+                    console.log(`Loaded ${data.devices.length} devices, restored selection: ${previousSelection}`);
+                } else {
+                    console.log(`Loaded ${data.devices.length} devices`);
+                }
             } catch (error) {
                 console.error('Failed to load devices:', error);
                 alert('Failed to load devices: ' + error.message);
@@ -562,8 +622,8 @@
                 streamModeValue.textContent = 'scrcpy - High FPS';
 
                 // Get the canvas element
-                const canvas = document.getElementById('streamCanvas');
-                if (!canvas) {
+                const streamCanvas = document.getElementById('streamCanvas');
+                if (!streamCanvas) {
                     alert('Stream canvas not found');
                     return;
                 }
@@ -571,15 +631,51 @@
                 // Try to dynamically import scrcpy client
                 try {
                     const { default: ScrcpyClient } = await import('./js/modules/scrcpy-client.js?v=0.0.5');
-                    const scrcpyClient = new ScrcpyClient(canvas);
+                    const scrcpyClient = new ScrcpyClient(streamCanvas);
 
                     // Set up callbacks
+                    scrcpyClient.onConnect = () => {
+                        console.log('[scrcpy] Connected');
+                        statusValue.textContent = 'Connected (scrcpy)';
+                        statusValue.className = 'metric-value status-connected';
+                        noStream.style.display = 'none';
+                    };
+
                     scrcpyClient.onFrame = () => {
                         fpsValue.textContent = scrcpyClient.fps || '--';
                     };
+
                     scrcpyClient.onError = (error) => {
                         console.error('[scrcpy] Error:', error);
-                        alert('scrcpy error: ' + error.message);
+
+                        // Reset UI on error
+                        startBtn.disabled = false;
+                        stopBtn.disabled = true;
+                        noStream.style.display = 'flex';
+                        statusValue.textContent = 'Error';
+                        statusValue.className = 'metric-value status-error';
+                        streamModeValue.textContent = '--';
+
+                        // Clean up
+                        if (window._scrcpyClient) {
+                            window._scrcpyClient.stop();
+                            window._scrcpyClient = null;
+                        }
+
+                        // Show user-friendly error
+                        console.warn('[scrcpy] ws-scrcpy server not available. Use MJPEG mode instead.');
+                        alert('scrcpy connection failed.\n\nMake sure ws-scrcpy is running on port 8000, or use MJPEG mode instead.\n\nError: ' + error.message);
+                    };
+
+                    scrcpyClient.onDisconnect = () => {
+                        console.log('[scrcpy] Disconnected');
+                        startBtn.disabled = false;
+                        stopBtn.disabled = true;
+                        noStream.style.display = 'flex';
+                        statusValue.textContent = 'Disconnected';
+                        statusValue.className = 'metric-value status-disconnected';
+                        streamModeValue.textContent = '--';
+                        window._scrcpyClient = null;
                     };
 
                     scrcpyClient.start(deviceId, 'ws://localhost:8000');
@@ -591,7 +687,11 @@
                     stopBtn.disabled = false;
                 } catch (e) {
                     console.error('[scrcpy] Failed to start:', e);
-                    alert('Failed to start scrcpy stream. Make sure ws-scrcpy is running on port 8000.\n\nError: ' + e.message);
+                    // Reset UI
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                    streamModeValue.textContent = '--';
+                    alert('Failed to start scrcpy stream.\n\nMake sure ws-scrcpy is running on port 8000, or use MJPEG mode instead.\n\nError: ' + e.message);
                 }
             } else {
                 // Regular MJPEG or WebSocket mode
@@ -601,12 +701,32 @@
         });
 
         stopBtn.addEventListener('click', () => {
+            console.log('[UI] Stop button clicked');
+
             // Stop scrcpy if active
             if (window._scrcpyClient) {
                 window._scrcpyClient.stop();
                 window._scrcpyClient = null;
+                console.log('[UI] Stopped scrcpy client');
             }
+
+            // Stop live stream
             liveStream.stop();
+
+            // Reset UI state
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            noStream.style.display = 'flex';
+            statusValue.textContent = 'Disconnected';
+            statusValue.className = 'metric-value status-disconnected';
+            streamModeValue.textContent = '--';
+            bandwidthValue.textContent = '0 KB/s';
+
+            // Stop auto-refresh
+            stopAutoRefresh();
+            autoRefreshElements.checked = false;
+
+            console.log('[UI] Stream stopped, UI reset');
         });
 
         refreshDevicesBtn.addEventListener('click', loadDevices);
@@ -627,15 +747,52 @@
             }
 
             filteredElements = allElements.filter(el => {
-                // Filter by clickable
+                // Filter by clickable only
                 if (filterClickable.checked && !el.clickable) return false;
 
-                // Filter by text
+                // Filter by text only
                 if (filterWithText.checked && (!el.text || !el.text.trim())) return false;
 
                 // Filter small elements
                 if (filterLargeElements.checked && el.bounds) {
                     if (el.bounds.width < 20 || el.bounds.height < 20) return false;
+                }
+
+                // Filter containers (layout elements)
+                if (filterContainers.checked && el.class) {
+                    if (containerClasses.some(c => el.class.includes(c))) {
+                        // Keep if it has text or is clickable (might be a button styled as View)
+                        const hasText = el.text && el.text.trim();
+                        const hasContentDesc = el.content_desc && el.content_desc.trim();
+                        if (!el.clickable && !hasText && !hasContentDesc) {
+                            return false;
+                        }
+                    }
+                }
+
+                // Filter dividers (Space, thin Views)
+                if (filterDividers.checked && el.bounds) {
+                    // Dividers are typically very thin (< 5px in one dimension)
+                    const isThinHorizontal = el.bounds.height < 5 && el.bounds.width > 50;
+                    const isThinVertical = el.bounds.width < 5 && el.bounds.height > 50;
+                    if (isThinHorizontal || isThinVertical) {
+                        return false;
+                    }
+                    // Also filter Space elements
+                    if (el.class && el.class.includes('Space')) {
+                        return false;
+                    }
+                }
+
+                // Filter empty elements (no text, no content-desc, not clickable)
+                if (filterEmpty.checked) {
+                    const hasText = el.text && el.text.trim();
+                    const hasContentDesc = el.content_desc && el.content_desc.trim();
+                    const hasResourceId = el.resource_id && el.resource_id.trim();
+                    // Keep if: has text OR has content-desc OR is clickable with resource-id
+                    if (!hasText && !hasContentDesc && !(el.clickable && hasResourceId)) {
+                        return false;
+                    }
                 }
 
                 return true;
@@ -666,14 +823,25 @@
             refreshElementsBtn.disabled = true;
 
             try {
-                const data = await apiPost('/adb/screenshot', { device_id: deviceId });
+                // Use dedicated elements-only endpoint (faster - no screenshot capture)
+                // This endpoint also returns device dimensions for proper scaling
+                const data = await apiGet(`/adb/elements/${encodeURIComponent(deviceId)}`);
+
                 if (data.elements && data.elements.length > 0) {
                     allElements = data.elements;
+
+                    // Update device dimensions for proper overlay scaling
+                    if (data.device_width && data.device_height) {
+                        liveStream.setDeviceDimensions(data.device_width, data.device_height);
+                        console.log(`[Elements] Device dimensions: ${data.device_width}x${data.device_height}`);
+                    }
+
                     applyFilters();
                     elementStatus.textContent = `${allElements.length} elements (${filteredElements.length} shown)`;
                 } else {
                     allElements = [];
                     filteredElements = [];
+                    liveStream.elements = [];
                     elementStatus.textContent = 'No elements found';
                 }
             } catch (error) {
@@ -868,6 +1036,9 @@
         filterClickable.addEventListener('change', applyFilters);
         filterWithText.addEventListener('change', applyFilters);
         filterLargeElements.addEventListener('change', applyFilters);
+        filterContainers.addEventListener('change', applyFilters);
+        filterDividers.addEventListener('change', applyFilters);
+        filterEmpty.addEventListener('change', applyFilters);
         createActionBtn.addEventListener('click', showCreateActionDialog);
         clearSelectionBtn.addEventListener('click', clearSelection);
 
@@ -886,201 +1057,197 @@
             }
         });
 
-        // Canvas drag/swipe and tap handler
+        // ========================================
+        // Canvas Gesture Handling (matches flow-wizard pattern)
+        // ========================================
         let dragStart = null;
         let isDragging = false;
         const MIN_SWIPE_DISTANCE = 30; // Minimum pixels to count as swipe
 
+        /**
+         * Convert mouse/touch event to canvas coordinates
+         * Uses simple cssToCanvas scaling like flow-wizard
+         */
         function getCanvasCoords(e) {
             const rect = canvas.getBoundingClientRect();
-            const container = document.getElementById('canvasContainer').getBoundingClientRect();
+            let clientX, clientY;
 
-            // Canvas is centered in container - calculate the actual canvas position
-            // The canvas maintains aspect ratio, so we need to find where it actually is
-            const canvasAspect = canvas.width / canvas.height;
-            const containerAspect = container.width / container.height;
-
-            let actualWidth, actualHeight, offsetX, offsetY;
-
-            if (canvasAspect > containerAspect) {
-                // Canvas is wider - limited by container width
-                actualWidth = container.width;
-                actualHeight = container.width / canvasAspect;
-                offsetX = 0;
-                offsetY = (container.height - actualHeight) / 2;
+            if (e.touches) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else if (e.changedTouches) {
+                clientX = e.changedTouches[0].clientX;
+                clientY = e.changedTouches[0].clientY;
             } else {
-                // Canvas is taller - limited by container height (this is our case)
-                actualHeight = container.height;
-                actualWidth = container.height * canvasAspect;
-                offsetX = (container.width - actualWidth) / 2;
-                offsetY = 0;
+                clientX = e.clientX;
+                clientY = e.clientY;
             }
 
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            // Simple cssToCanvas scaling (same as flow-wizard-step3.js)
+            const cssToCanvas = canvas.width / rect.width;
+            const canvasX = Math.round((clientX - rect.left) * cssToCanvas);
+            const canvasY = Math.round((clientY - rect.top) * cssToCanvas);
 
-            // Account for zoom and pan
-            // When zoomed, the canvas is scaled and translated
-            const zoomedWidth = actualWidth * zoomScale;
-            const zoomedHeight = actualHeight * zoomScale;
-
-            // Center of zoomed canvas
-            const zoomOffsetX = (container.width - zoomedWidth) / 2 + (panX * zoomScale);
-            const zoomOffsetY = (container.height - zoomedHeight) / 2 + (panY * zoomScale);
-
-            // Calculate position relative to zoomed canvas
-            const relX = (clientX - container.left - zoomOffsetX) / zoomScale;
-            const relY = (clientY - container.top - zoomOffsetY) / zoomScale;
-
-            // Scale to canvas coordinates
-            const scaleX = canvas.width / actualWidth;
-            const scaleY = canvas.height / actualHeight;
-
-            const coords = {
-                x: Math.round(relX * scaleX),
-                y: Math.round(relY * scaleY)
+            return {
+                canvasX: Math.max(0, Math.min(canvas.width - 1, canvasX)),
+                canvasY: Math.max(0, Math.min(canvas.height - 1, canvasY))
             };
-
-            // Clamp to valid canvas coordinates
-            coords.x = Math.max(0, Math.min(canvas.width - 1, coords.x));
-            coords.y = Math.max(0, Math.min(canvas.height - 1, coords.y));
-
-            if (zoomScale !== 1) {
-                console.log(`[Coords] Zoom: ${Math.round(zoomScale * 100)}%, Pan: (${Math.round(panX)}, ${Math.round(panY)}), Click: (${coords.x}, ${coords.y})`);
-            }
-            return coords;
         }
 
-        function onDragStart(e) {
+        /**
+         * Get display coordinates for visual feedback (ripples, paths)
+         */
+        function canvasToDisplay(canvasX, canvasY) {
+            const rect = canvas.getBoundingClientRect();
+            const container = document.getElementById('canvasContainer');
+            const containerRect = container.getBoundingClientRect();
+
+            // CSS scale: canvas bitmap to display
+            const cssScale = rect.width / canvas.width;
+
+            // Canvas offset within container
+            const canvasOffsetX = rect.left - containerRect.left;
+            const canvasOffsetY = rect.top - containerRect.top;
+
+            return {
+                x: canvasX * cssScale + canvasOffsetX,
+                y: canvasY * cssScale + canvasOffsetY
+            };
+        }
+
+        /**
+         * Handle gesture start (mousedown/touchstart)
+         */
+        function onGestureStart(e) {
             if (!liveStream.isActive()) return;
             e.preventDefault();
-            dragStart = getCanvasCoords(e);
+
+            const coords = getCanvasCoords(e);
+            dragStart = {
+                canvasX: coords.canvasX,
+                canvasY: coords.canvasY,
+                timestamp: Date.now()
+            };
             isDragging = true;
             canvas.style.cursor = 'grabbing';
         }
 
-        async function onDragEnd(e) {
+        /**
+         * Handle gesture end (mouseup/touchend)
+         */
+        async function onGestureEnd(e) {
             if (!isDragging || !dragStart) return;
 
-            const endCoords = e.changedTouches
-                ? { x: Math.round((e.changedTouches[0].clientX - canvas.getBoundingClientRect().left) * (canvas.width / canvas.getBoundingClientRect().width)),
-                    y: Math.round((e.changedTouches[0].clientY - canvas.getBoundingClientRect().top) * (canvas.height / canvas.getBoundingClientRect().height)) }
-                : getCanvasCoords(e);
-
-            const dx = endCoords.x - dragStart.x;
-            const dy = endCoords.y - dragStart.y;
+            const endCoords = getCanvasCoords(e);
+            const dx = endCoords.canvasX - dragStart.canvasX;
+            const dy = endCoords.canvasY - dragStart.canvasY;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             isDragging = false;
             canvas.style.cursor = 'crosshair';
 
             const deviceId = deviceSelect.value;
-            if (!deviceId) return;
+            if (!deviceId) {
+                dragStart = null;
+                return;
+            }
+
+            const container = document.getElementById('canvasContainer');
 
             if (distance < MIN_SWIPE_DISTANCE) {
-                // It's a tap
-                console.log(`Tap at (${dragStart.x}, ${dragStart.y})`);
-                lastTapDiv.textContent = `Last tap: (${dragStart.x}, ${dragStart.y})`;
-
-                // Show tap ripple effect at click position
-                const container = document.getElementById('canvasContainer');
-                const containerRect = container.getBoundingClientRect();
-                const canvasAspect = canvas.width / canvas.height;
-                const containerAspect = containerRect.width / containerRect.height;
-
-                let actualWidth, actualHeight, offsetX, offsetY;
-                if (canvasAspect > containerAspect) {
-                    actualWidth = containerRect.width;
-                    actualHeight = containerRect.width / canvasAspect;
-                    offsetX = 0;
-                    offsetY = (containerRect.height - actualHeight) / 2;
-                } else {
-                    actualHeight = containerRect.height;
-                    actualWidth = containerRect.height * canvasAspect;
-                    offsetX = (containerRect.width - actualWidth) / 2;
-                    offsetY = 0;
+                // It's a tap - convert canvas coords to device coords
+                let deviceX, deviceY;
+                try {
+                    const deviceCoords = liveStream.canvasToDevice(dragStart.canvasX, dragStart.canvasY);
+                    deviceX = deviceCoords.x;
+                    deviceY = deviceCoords.y;
+                } catch (err) {
+                    // Fallback: canvas coords = device coords (1:1)
+                    deviceX = dragStart.canvasX;
+                    deviceY = dragStart.canvasY;
                 }
 
-                const displayX = (dragStart.x / canvas.width) * actualWidth + offsetX;
-                const displayY = (dragStart.y / canvas.height) * actualHeight + offsetY;
+                console.log(`[Tap] Canvas: (${dragStart.canvasX}, ${dragStart.canvasY}) -> Device: (${deviceX}, ${deviceY})`);
+                lastTapDiv.textContent = `Last tap: (${deviceX}, ${deviceY})`;
 
-                // Show tap indicator with ripple animation
-                showTapRipple(container, displayX, displayY);
-                console.log(`[TapRipple] Display pos: (${Math.round(displayX)}, ${Math.round(displayY)}), Canvas pos: (${dragStart.x}, ${dragStart.y})`);
+                // Show tap ripple effect
+                const displayPos = canvasToDisplay(dragStart.canvasX, dragStart.canvasY);
+                showTapRipple(container, displayPos.x, displayPos.y);
 
-                // Check for element at tap position (use filteredElements directly)
-                console.log(`[Tap] Checking ${filteredElements.length} elements for hit at (${dragStart.x}, ${dragStart.y})`);
+                // Check for element at tap position (elements are in device coords)
                 let foundElement = null;
                 for (let i = filteredElements.length - 1; i >= 0; i--) {
                     const el = filteredElements[i];
                     if (!el.bounds) continue;
                     const b = el.bounds;
-                    if (dragStart.x >= b.x && dragStart.x <= b.x + b.width &&
-                        dragStart.y >= b.y && dragStart.y <= b.y + b.height) {
+                    if (deviceX >= b.x && deviceX <= b.x + b.width &&
+                        deviceY >= b.y && deviceY <= b.y + b.height) {
                         foundElement = el;
                         break;
                     }
                 }
 
                 if (foundElement) {
-                    console.log(`[Tap] Found element:`, foundElement);
+                    console.log(`[Tap] Found element:`, foundElement.text || foundElement.class);
                     showSelectedElement(foundElement);
-                    lastTapDiv.textContent = `Last tap: (${dragStart.x}, ${dragStart.y}) - ${foundElement.text || foundElement.class || 'element'}`;
-                } else {
-                    console.log(`[Tap] No element found at position`);
+                    lastTapDiv.textContent = `Last tap: (${deviceX}, ${deviceY}) - ${foundElement.text || foundElement.class || 'element'}`;
                 }
 
                 try {
-                    console.log(`[Input] Sending tap at (${dragStart.x}, ${dragStart.y})`);
                     const tapResult = await apiPost('/adb/tap', {
                         device_id: deviceId,
-                        x: dragStart.x,
-                        y: dragStart.y
+                        x: deviceX,
+                        y: deviceY
                     });
                     console.log(`[ADB] Tap result:`, tapResult);
-
-                    // Record the tap if recording
-                    recordAction('tap', { x: dragStart.x, y: dragStart.y });
-
-                    // Auto-refresh elements after tap
+                    recordAction('tap', { x: deviceX, y: deviceY });
                     refreshAfterAction(500);
                 } catch (error) {
                     console.error('Tap failed:', error);
                 }
             } else {
-                // It's a swipe
-                console.log(`Swipe from (${dragStart.x},${dragStart.y}) to (${endCoords.x},${endCoords.y})`);
-                lastTapDiv.textContent = `Swipe: (${dragStart.x},${dragStart.y}) → (${endCoords.x},${endCoords.y})`;
+                // It's a swipe - convert both start and end to device coords
+                let startDevice, endDevice;
+                try {
+                    startDevice = liveStream.canvasToDevice(dragStart.canvasX, dragStart.canvasY);
+                    endDevice = liveStream.canvasToDevice(endCoords.canvasX, endCoords.canvasY);
+                } catch (err) {
+                    // Fallback: canvas coords = device coords (1:1)
+                    startDevice = { x: dragStart.canvasX, y: dragStart.canvasY };
+                    endDevice = { x: endCoords.canvasX, y: endCoords.canvasY };
+                }
 
-                // Show swipe path visualization
-                const container = document.getElementById('canvasContainer');
-                showSwipePath(container, dragStart.x, dragStart.y, endCoords.x, endCoords.y);
+                console.log(`[Swipe] Device: (${startDevice.x},${startDevice.y}) -> (${endDevice.x},${endDevice.y})`);
+                lastTapDiv.textContent = `Swipe: (${startDevice.x},${startDevice.y}) → (${endDevice.x},${endDevice.y})`;
+
+                // Show swipe path visualization (in display coords)
+                const startDisplay = canvasToDisplay(dragStart.canvasX, dragStart.canvasY);
+                const endDisplay = canvasToDisplay(endCoords.canvasX, endCoords.canvasY);
+                showSwipePathDisplay(container, startDisplay.x, startDisplay.y, endDisplay.x, endDisplay.y);
 
                 try {
                     await apiPost('/adb/swipe', {
                         device_id: deviceId,
-                        x1: dragStart.x,
-                        y1: dragStart.y,
-                        x2: endCoords.x,
-                        y2: endCoords.y,
+                        x1: startDevice.x,
+                        y1: startDevice.y,
+                        x2: endDevice.x,
+                        y2: endDevice.y,
                         duration: 300
                     });
-
-                    // Record the swipe if recording
-                    recordAction('swipe', { x1: dragStart.x, y1: dragStart.y, x2: endCoords.x, y2: endCoords.y });
-
-                    // Auto-refresh elements after swipe
+                    console.log(`[ADB] Swipe complete`);
+                    recordAction('swipe', { x1: startDevice.x, y1: startDevice.y, x2: endDevice.x, y2: endDevice.y });
                     refreshAfterAction(500);
                 } catch (error) {
                     console.error('Swipe failed:', error);
                 }
             }
+
             dragStart = null;
         }
 
         // Mouse events
-        canvas.addEventListener('mousedown', onDragStart);
-        canvas.addEventListener('mouseup', onDragEnd);
+        canvas.addEventListener('mousedown', onGestureStart);
+        canvas.addEventListener('mouseup', onGestureEnd);
         canvas.addEventListener('mouseleave', () => {
             if (isDragging) {
                 isDragging = false;
@@ -1090,8 +1257,8 @@
         });
 
         // Touch events for mobile
-        canvas.addEventListener('touchstart', onDragStart, { passive: false });
-        canvas.addEventListener('touchend', onDragEnd);
+        canvas.addEventListener('touchstart', onGestureStart, { passive: false });
+        canvas.addEventListener('touchend', onGestureEnd);
 
         // Navigation controls
         const lastActionDiv = document.getElementById('lastAction');
@@ -1135,9 +1302,10 @@
                 return;
             }
 
-            // Get canvas dimensions for swipe calculations
-            const w = canvas.width || 1080;
-            const h = canvas.height || 1920;
+            // Use DEVICE dimensions for swipe calculations (not canvas dimensions)
+            // Canvas dims vary by stream quality, device dims are actual screen size
+            const w = liveStream.deviceWidth || 1080;
+            const h = liveStream.deviceHeight || 1920;
             const cx = Math.round(w / 2);
             const cy = Math.round(h / 2);
             const swipeLen = Math.round(Math.min(w, h) * 0.4); // 40% of screen
@@ -1166,7 +1334,7 @@
                     duration: 300
                 });
                 lastActionDiv.textContent = `Last action: Swipe ${direction}`;
-                console.log(`Swipe ${direction}: (${x1},${y1}) -> (${x2},${y2})`);
+                console.log(`[Swipe] ${direction}: (${x1},${y1}) -> (${x2},${y2}) [device: ${w}x${h}]`);
                 // Auto-refresh elements after swipe
                 refreshAfterAction(500);
             } catch (error) {
@@ -1589,51 +1757,22 @@
         }
 
         /**
-         * Show animated swipe path from start to end
+         * Show animated swipe path (accepts display coordinates directly)
          */
-        function showSwipePath(container, startX, startY, endX, endY) {
+        function showSwipePathDisplay(container, displayStartX, displayStartY, displayEndX, displayEndY) {
             const swipeContainer = document.getElementById('swipePathContainer');
-            const containerRect = container.getBoundingClientRect();
-
-            // Convert canvas coords to display coords
-            const canvasAspect = canvas.width / canvas.height;
-            const containerAspect = containerRect.width / containerRect.height;
-
-            let actualWidth, actualHeight, offsetX, offsetY;
-            if (canvasAspect > containerAspect) {
-                actualWidth = containerRect.width;
-                actualHeight = containerRect.width / canvasAspect;
-                offsetX = 0;
-                offsetY = (containerRect.height - actualHeight) / 2;
-            } else {
-                actualHeight = containerRect.height;
-                actualWidth = containerRect.height * canvasAspect;
-                offsetX = (containerRect.width - actualWidth) / 2;
-                offsetY = 0;
-            }
-
-            const displayStartX = (startX / canvas.width) * actualWidth + offsetX;
-            const displayStartY = (startY / canvas.height) * actualHeight + offsetY;
-            const displayEndX = (endX / canvas.width) * actualWidth + offsetX;
-            const displayEndY = (endY / canvas.height) * actualHeight + offsetY;
-
-            // Calculate arrow direction
-            const dx = displayEndX - displayStartX;
-            const dy = displayEndY - displayStartY;
-            const angle = Math.atan2(dy, dx);
-            const arrowSize = 12;
 
             // Create SVG path with arrow
             swipeContainer.innerHTML = `
                 <svg style="width: 100%; height: 100%; position: absolute; top: 0; left: 0; overflow: visible;">
                     <defs>
                         <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                            <polygon points="0 0, 10 3.5, 0 7" class="swipe-arrow"/>
+                            <polygon points="0 0, 10 3.5, 0 7" class="swipe-arrow" fill="#22c55e"/>
                         </marker>
                     </defs>
                     <line x1="${displayStartX}" y1="${displayStartY}"
                           x2="${displayEndX}" y2="${displayEndY}"
-                          class="swipe-line" marker-end="url(#arrowhead)"/>
+                          class="swipe-line" stroke="#22c55e" stroke-width="4" marker-end="url(#arrowhead)"/>
                 </svg>
             `;
 
@@ -1710,16 +1849,21 @@
             applyZoom();
         }
 
-        // Mouse wheel zoom
+        // Mouse wheel zoom (Ctrl+scroll only - prevents trackpad scroll from zooming)
         canvas.addEventListener('wheel', (e) => {
             if (!liveStream.isActive()) return;
-            e.preventDefault();
 
-            if (e.deltaY < 0) {
-                zoomIn();
-            } else {
-                zoomOut();
+            // Only zoom when Ctrl is held (standard browser zoom behavior)
+            // This prevents trackpad two-finger scroll from triggering zoom
+            if (e.ctrlKey) {
+                e.preventDefault();
+                if (e.deltaY < 0) {
+                    zoomIn();
+                } else {
+                    zoomOut();
+                }
             }
+            // Without Ctrl, allow normal page scroll
         }, { passive: false });
 
         // Pan when zoomed (middle mouse or when scale > 1)

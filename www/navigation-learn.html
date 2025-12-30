@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="0.0.5">
+    <meta name="version" content="0.0.5" data-build="2025-12-29">
+    <title>Learn Navigation - Visual Mapper</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.5">
+    <style>
+        .learn-container {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 20px;
+            height: calc(100vh - 120px);
+        }
+
+        .screen-area {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .screen-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .screen-info {
+            background: var(--bg-tertiary);
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .screen-info .activity {
+            color: var(--primary);
+            font-weight: bold;
+        }
+
+        .screen-info .package {
+            color: var(--text-secondary);
+        }
+
+        .screen-wrapper {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #deviceScreen {
+            max-width: 100%;
+            max-height: 100%;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-drag: none;
+            -khtml-user-drag: none;
+            -moz-user-drag: none;
+            -o-user-drag: none;
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .sidebar-card {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .sidebar-card h3 {
+            margin: 0 0 15px 0;
+            font-size: 14px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .stat-item {
+            background: var(--bg-tertiary);
+            padding: 12px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .screen-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .screen-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .screen-item:hover {
+            background: var(--bg-hover);
+        }
+
+        .screen-item.current {
+            border-left: 3px solid var(--primary);
+        }
+
+        .screen-item.home {
+            border-left: 3px solid var(--success);
+        }
+
+        .screen-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 10px;
+            font-size: 18px;
+        }
+
+        .screen-details {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .screen-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .screen-activity {
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .screen-badges {
+            display: flex;
+            gap: 5px;
+        }
+
+        .badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            background: var(--bg-secondary);
+        }
+
+        .badge.home {
+            background: var(--success);
+            color: white;
+        }
+
+        .transition-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .transition-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            margin-bottom: 6px;
+            font-size: 12px;
+        }
+
+        .transition-arrow {
+            color: var(--primary);
+            margin: 0 8px;
+        }
+
+        .controls-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn-learn {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-learn.active {
+            background: var(--warning);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            background: var(--bg-tertiary);
+            border-radius: 20px;
+            font-size: 13px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--text-secondary);
+        }
+
+        .status-dot.learning {
+            background: var(--success);
+            animation: pulse 1s infinite;
+        }
+
+        .status-dot.connected {
+            background: var(--primary);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .tap-indicator {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--primary);
+            border-radius: 50%;
+            pointer-events: none;
+            animation: tap-ripple 0.5s ease-out forwards;
+        }
+
+        @keyframes tap-ripple {
+            0% { transform: scale(0.5); opacity: 1; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <ul>
+            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
+            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
+            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
+            <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
+            <li class="nav-priority-med"><a href="flows.html">Flows</a></li>
+            <li class="nav-priority-med"><a href="performance.html">Performance</a></li>
+            <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
+            <li class="nav-priority-med"><a href="navigation-learn.html" class="active">Learn Nav</a></li>
+            <li class="nav-priority-low"><a href="live-stream.html">Live Stream</a></li>
+            <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
+            <li class="version">v0.0.6</li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <h1>Learn App Navigation</h1>
+            <p>Explore an app to teach Visual Mapper its screen hierarchy. Tap through the app and we'll learn the navigation paths automatically.</p>
+        </div>
+
+        <div class="controls-bar">
+            <select id="deviceSelect" class="form-control" style="width: 250px;">
+                <option value="">-- Select Device --</option>
+            </select>
+
+            <select id="appSelect" class="form-control" style="width: 300px;">
+                <option value="">-- Select App (or launch manually) --</option>
+            </select>
+
+            <button id="startLearningBtn" class="btn btn-learn">
+                Start Learning
+            </button>
+
+            <button id="stopLearningBtn" class="btn btn-secondary" style="display: none;">
+                Stop Learning
+            </button>
+
+            <button id="refreshScreenBtn" class="btn">
+                Refresh Screen
+            </button>
+
+            <button id="backBtn" class="btn" title="Android Back Button">
+                ← Back
+            </button>
+
+            <button id="homeBtn" class="btn" title="Android Home Button">
+                ⌂ Home
+            </button>
+
+            <div class="status-indicator">
+                <div id="statusDot" class="status-dot"></div>
+                <span id="statusText">Not connected</span>
+            </div>
+        </div>
+
+        <div class="learn-container">
+            <div class="screen-area">
+                <div class="screen-header">
+                    <div class="screen-info">
+                        <span class="package" id="currentPackage">-</span> /
+                        <span class="activity" id="currentActivity">-</span>
+                    </div>
+                    <button id="setHomeBtn" class="btn btn-sm" disabled>Set as Home Screen</button>
+                </div>
+
+                <div class="screen-wrapper">
+                    <img id="deviceScreen" src="" alt="Device Screen" style="display: none;">
+                    <div id="noScreenMsg" class="empty-state">
+                        <div class="empty-state-icon">📱</div>
+                        <p>Select a device and click "Start Learning" to begin</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="sidebar-card">
+                    <h3>Learning Progress</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="screenCount">0</div>
+                            <div class="stat-label">Screens</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="transitionCount">0</div>
+                            <div class="stat-label">Transitions</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-card" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+                    <h3>Discovered Screens</h3>
+                    <div id="screenList" class="screen-list">
+                        <div class="empty-state">
+                            <p>No screens discovered yet.<br>Start learning to explore the app.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-card">
+                    <h3>Recent Transitions</h3>
+                    <div id="transitionList" class="transition-list">
+                        <div class="empty-state">
+                            <p>Tap on the screen to navigate and learn transitions.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import shared modules
+        import APIClient from './js/modules/api-client.js?v=0.0.6';
+        import DeviceManager from './js/modules/device-manager.js?v=0.0.6';
+        import DeviceControl from './js/modules/device-control.js?v=0.0.6';
+        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.6';
+        import MobileNav from './js/modules/mobile-nav.js?v=0.0.6';
+
+        // Initialize theme and mobile nav
+        new ThemeToggle();
+        new MobileNav();
+
+        const APP_VERSION = '0.0.6';
+        const MIN_SWIPE_DISTANCE = 30; // Same as flow-wizard
+
+        class NavigationLearner {
+            constructor(apiClient, deviceManager, deviceControl) {
+                this.apiClient = apiClient;
+                this.deviceManager = deviceManager;
+                this.deviceControl = deviceControl;
+                this.deviceId = null;
+                this.currentPackage = null;
+                this.currentActivity = null;
+                this.isLearning = false;
+                this.refreshInterval = null;
+                this.screens = [];
+                this.transitions = [];
+                this.lastScreenState = null;
+                this.dragStart = null;
+                this.isDragging = false;
+            }
+
+            async init() {
+                await this.loadDevices();
+                this.setupEventListeners();
+            }
+
+            async loadDevices() {
+                try {
+                    await this.deviceManager.loadDevices();
+                    const devices = this.deviceManager.getDevices();
+
+                    const select = document.getElementById('deviceSelect');
+                    select.innerHTML = '<option value="">-- Select Device --</option>';
+
+                    devices.forEach(device => {
+                        const option = document.createElement('option');
+                        option.value = device.id;
+                        option.textContent = `${device.model || device.id} (${device.id})`;
+                        select.appendChild(option);
+                    });
+
+                    console.log(`[NavigationLearner] Loaded ${devices.length} devices`);
+                } catch (error) {
+                    console.error('[NavigationLearner] Failed to load devices:', error);
+                }
+            }
+
+            async loadApps() {
+                if (!this.deviceId) return;
+
+                try {
+                    const data = await this.apiClient.get(`/adb/apps/${encodeURIComponent(this.deviceId)}`);
+
+                    const select = document.getElementById('appSelect');
+                    select.innerHTML = '<option value="">-- Select App (or launch manually) --</option>';
+
+                    if (data.apps) {
+                        data.apps.forEach(app => {
+                            const option = document.createElement('option');
+                            option.value = app.package;
+                            option.textContent = app.label || app.package;
+                            select.appendChild(option);
+                        });
+                        console.log(`[NavigationLearner] Loaded ${data.apps.length} apps`);
+                    }
+                } catch (error) {
+                    console.error('[NavigationLearner] Failed to load apps:', error);
+                }
+            }
+
+            setupEventListeners() {
+                document.getElementById('deviceSelect').addEventListener('change', async (e) => {
+                    this.deviceId = e.target.value;
+                    if (this.deviceId) {
+                        this.deviceManager.setSelectedDevice(this.deviceId);
+                        this.deviceControl.setDevice(this.deviceId);
+                        await this.loadApps();
+                        this.updateStatus('connected', 'Connected');
+                    } else {
+                        this.updateStatus('', 'Not connected');
+                    }
+                });
+
+                document.getElementById('appSelect').addEventListener('change', async (e) => {
+                    if (e.target.value && this.deviceId) {
+                        await this.launchApp(e.target.value);
+                    }
+                });
+
+                document.getElementById('startLearningBtn').addEventListener('click', () => this.startLearning());
+                document.getElementById('stopLearningBtn').addEventListener('click', () => this.stopLearning());
+                document.getElementById('refreshScreenBtn').addEventListener('click', () => this.refreshScreen());
+                document.getElementById('setHomeBtn').addEventListener('click', () => this.setHomeScreen());
+
+                // Hardware buttons
+                document.getElementById('backBtn').addEventListener('click', () => this.sendKeyEvent('KEYCODE_BACK', 'Back'));
+                document.getElementById('homeBtn').addEventListener('click', () => this.sendKeyEvent('KEYCODE_HOME', 'Home'));
+
+                // Gesture handling - same pattern as flow-wizard
+                const screen = document.getElementById('deviceScreen');
+                screen.addEventListener('mousedown', (e) => this.onGestureStart(e));
+                screen.addEventListener('mouseup', (e) => this.onGestureEnd(e));
+                screen.addEventListener('mouseleave', () => { this.isDragging = false; });
+
+                // Touch support
+                screen.addEventListener('touchstart', (e) => this.onGestureStart(e));
+                screen.addEventListener('touchend', (e) => this.onGestureEnd(e));
+            }
+
+            /**
+             * Handle gesture start (mousedown/touchstart) - same pattern as flow-wizard
+             */
+            onGestureStart(e) {
+                if (!this.isLearning || !this.deviceId) return;
+                e.preventDefault();
+
+                const img = document.getElementById('deviceScreen');
+                const rect = img.getBoundingClientRect();
+                let clientX, clientY;
+
+                if (e.touches) {
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+
+                // Scale from display coords to image natural size (device coords)
+                const scaleX = img.naturalWidth / rect.width;
+                const scaleY = img.naturalHeight / rect.height;
+
+                this.dragStart = {
+                    displayX: clientX - rect.left,
+                    displayY: clientY - rect.top,
+                    deviceX: Math.round((clientX - rect.left) * scaleX),
+                    deviceY: Math.round((clientY - rect.top) * scaleY)
+                };
+                this.isDragging = true;
+                console.log(`[NavigationLearner] Gesture start at device (${this.dragStart.deviceX}, ${this.dragStart.deviceY})`);
+            }
+
+            /**
+             * Handle gesture end (mouseup/touchend) - same pattern as flow-wizard
+             */
+            async onGestureEnd(e) {
+                if (!this.isDragging || !this.dragStart) return;
+                e.preventDefault();
+
+                const img = document.getElementById('deviceScreen');
+                const rect = img.getBoundingClientRect();
+                let clientX, clientY;
+
+                if (e.changedTouches) {
+                    clientX = e.changedTouches[0].clientX;
+                    clientY = e.changedTouches[0].clientY;
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+
+                const scaleX = img.naturalWidth / rect.width;
+                const scaleY = img.naturalHeight / rect.height;
+
+                const endDeviceX = Math.round((clientX - rect.left) * scaleX);
+                const endDeviceY = Math.round((clientY - rect.top) * scaleY);
+
+                // Calculate distance in device coordinates
+                const dx = endDeviceX - this.dragStart.deviceX;
+                const dy = endDeviceY - this.dragStart.deviceY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                this.isDragging = false;
+                console.log(`[NavigationLearner] Gesture end: distance=${distance.toFixed(1)}px`);
+
+                // Record before state
+                const beforeActivity = this.currentActivity;
+                const beforePackage = this.currentPackage;
+
+                if (distance < MIN_SWIPE_DISTANCE) {
+                    // It's a tap
+                    console.log(`[NavigationLearner] TAP at (${this.dragStart.deviceX}, ${this.dragStart.deviceY})`);
+                    this.showTapIndicator(this.dragStart.displayX, this.dragStart.displayY, rect);
+
+                    try {
+                        await this.deviceControl.tap(this.dragStart.deviceX, this.dragStart.deviceY);
+                        await new Promise(r => setTimeout(r, 1500));
+                        await this.refreshScreen();
+
+                        if (beforeActivity && this.currentActivity !== beforeActivity) {
+                            await this.recordTransition(beforePackage, beforeActivity, this.currentPackage, this.currentActivity, {
+                                action_type: 'tap',
+                                x: this.dragStart.deviceX,
+                                y: this.dragStart.deviceY
+                            });
+                        }
+                    } catch (error) {
+                        console.error('[NavigationLearner] Tap failed:', error);
+                    }
+                } else {
+                    // It's a swipe
+                    const direction = this.getSwipeDirection(dx, dy);
+                    console.log(`[NavigationLearner] SWIPE ${direction}: (${this.dragStart.deviceX},${this.dragStart.deviceY}) -> (${endDeviceX},${endDeviceY})`);
+                    this.showSwipeIndicator(this.dragStart.displayX, this.dragStart.displayY, clientX - rect.left, clientY - rect.top);
+
+                    try {
+                        await this.deviceControl.swipe(this.dragStart.deviceX, this.dragStart.deviceY, endDeviceX, endDeviceY, 300);
+                        await new Promise(r => setTimeout(r, 1500));
+                        await this.refreshScreen();
+
+                        if (beforeActivity && this.currentActivity !== beforeActivity) {
+                            await this.recordTransition(beforePackage, beforeActivity, this.currentPackage, this.currentActivity, {
+                                action_type: 'swipe',
+                                start_x: this.dragStart.deviceX,
+                                start_y: this.dragStart.deviceY,
+                                end_x: endDeviceX,
+                                end_y: endDeviceY,
+                                swipe_direction: direction
+                            });
+                        }
+                    } catch (error) {
+                        console.error('[NavigationLearner] Swipe failed:', error);
+                    }
+                }
+
+                this.dragStart = null;
+            }
+
+            getSwipeDirection(dx, dy) {
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    return dx > 0 ? 'right' : 'left';
+                } else {
+                    return dy > 0 ? 'down' : 'up';
+                }
+            }
+
+            async launchApp(packageName) {
+                try {
+                    await this.apiClient.post('/adb/launch', {
+                        device_id: this.deviceId,
+                        package: packageName
+                    });
+
+                    // Wait for app to launch
+                    await new Promise(r => setTimeout(r, 2000));
+                    await this.refreshScreen();
+                } catch (error) {
+                    console.error('[NavigationLearner] Failed to launch app:', error);
+                }
+            }
+
+            async startLearning() {
+                if (!this.deviceId) {
+                    alert('Please select a device first');
+                    return;
+                }
+
+                this.isLearning = true;
+                document.getElementById('startLearningBtn').style.display = 'none';
+                document.getElementById('stopLearningBtn').style.display = 'inline-block';
+                document.getElementById('setHomeBtn').disabled = false;
+
+                this.updateStatus('learning', 'Learning...');
+
+                // Start refreshing screen
+                await this.refreshScreen();
+                this.refreshInterval = setInterval(() => this.refreshScreen(), 2000);
+
+                // Load existing navigation for current package
+                if (this.currentPackage) {
+                    await this.loadExistingNavigation();
+                }
+            }
+
+            stopLearning() {
+                this.isLearning = false;
+                document.getElementById('startLearningBtn').style.display = 'inline-block';
+                document.getElementById('stopLearningBtn').style.display = 'none';
+                document.getElementById('setHomeBtn').disabled = true;
+
+                if (this.refreshInterval) {
+                    clearInterval(this.refreshInterval);
+                    this.refreshInterval = null;
+                }
+
+                this.updateStatus('connected', 'Stopped');
+            }
+
+            async refreshScreen() {
+                if (!this.deviceId) return;
+
+                try {
+                    // Get screenshot (POST with device_id in body, quick mode for speed)
+                    const screenshotData = await this.apiClient.post('/adb/screenshot', {
+                        device_id: this.deviceId,
+                        quick: true
+                    });
+
+                    if (screenshotData.screenshot) {
+                        const img = document.getElementById('deviceScreen');
+                        img.src = `data:image/png;base64,${screenshotData.screenshot}`;
+                        img.style.display = 'block';
+                        document.getElementById('noScreenMsg').style.display = 'none';
+                    }
+
+                    // Get current activity
+                    const activityData = await this.apiClient.get(`/adb/activity/${encodeURIComponent(this.deviceId)}`);
+
+                    if (activityData.activity) {
+                        const parts = activityData.activity.split('/');
+                        const newPackage = parts[0];
+                        const newActivity = parts[1] || activityData.activity;
+
+                        // Check if screen changed
+                        if (this.isLearning && this.currentActivity && newActivity !== this.currentActivity) {
+                            console.log(`Screen changed: ${this.currentActivity} -> ${newActivity}`);
+                        }
+
+                        this.currentPackage = newPackage;
+                        this.currentActivity = newActivity;
+
+                        document.getElementById('currentPackage').textContent = newPackage;
+                        document.getElementById('currentActivity').textContent = newActivity.split('.').pop();
+
+                        // Record this screen if learning
+                        if (this.isLearning) {
+                            await this.recordScreen(newPackage, newActivity);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Failed to refresh screen:', error);
+                }
+            }
+
+            async recordScreen(packageName, activity) {
+                // Check if we already know this screen
+                const screenId = this.computeScreenId(activity);
+                const existingScreen = this.screens.find(s => s.screen_id === screenId);
+
+                if (!existingScreen) {
+                    // Add new screen
+                    try {
+                        const data = await this.apiClient.post(`/navigation/${encodeURIComponent(packageName)}/screens`, {
+                            activity: activity,
+                            display_name: activity.split('.').pop(),
+                            is_home_screen: this.screens.length === 0
+                        });
+
+                        if (data.screen) {
+                            this.screens.push(data.screen);
+                            this.updateScreenList();
+                            this.updateStats();
+                        }
+                    } catch (error) {
+                        console.error('[NavigationLearner] Failed to record screen:', error);
+                    }
+                }
+
+                // Mark current screen
+                this.updateCurrentScreen(screenId);
+            }
+
+            computeScreenId(activity) {
+                // Simple hash for screen ID
+                let hash = 0;
+                for (let i = 0; i < activity.length; i++) {
+                    const char = activity.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash;
+                }
+                return `screen_${Math.abs(hash).toString(16)}`;
+            }
+
+            async sendKeyEvent(keycode, keyName) {
+                if (!this.deviceId) return;
+
+                console.log(`[NavigationLearner] Sending ${keyName} key`);
+
+                // Record before state
+                const beforeActivity = this.currentActivity;
+                const beforePackage = this.currentPackage;
+
+                try {
+                    await this.apiClient.post('/adb/keyevent', {
+                        device_id: this.deviceId,
+                        keycode: keycode
+                    });
+
+                    // Wait for UI to update
+                    await new Promise(r => setTimeout(r, 1000));
+
+                    // Refresh and check for transition
+                    await this.refreshScreen();
+
+                    // If screen changed and we're learning, record transition
+                    if (this.isLearning && beforeActivity && this.currentActivity !== beforeActivity) {
+                        const actionType = keycode === 'KEYCODE_BACK' ? 'go_back' : 'go_home';
+                        await this.recordTransition(beforePackage, beforeActivity, this.currentPackage, this.currentActivity, {
+                            action_type: actionType,
+                            keycode: keycode
+                        });
+                    }
+                } catch (error) {
+                    console.error(`[NavigationLearner] Failed to send ${keyName}:`, error);
+                }
+            }
+
+            showSwipeIndicator(x1, y1, x2, y2) {
+                const wrapper = document.querySelector('.screen-wrapper');
+                const line = document.createElement('div');
+                line.style.cssText = `
+                    position: absolute;
+                    left: ${x1}px;
+                    top: ${y1}px;
+                    width: ${Math.sqrt((x2-x1)**2 + (y2-y1)**2)}px;
+                    height: 3px;
+                    background: var(--primary);
+                    transform-origin: left center;
+                    transform: rotate(${Math.atan2(y2-y1, x2-x1)}rad);
+                    pointer-events: none;
+                    opacity: 0.8;
+                `;
+                wrapper.appendChild(line);
+                setTimeout(() => line.remove(), 500);
+            }
+
+            showTapIndicator(x, y, containerRect) {
+                const wrapper = document.querySelector('.screen-wrapper');
+                const indicator = document.createElement('div');
+                indicator.className = 'tap-indicator';
+                indicator.style.left = `${x - 20}px`;
+                indicator.style.top = `${y - 20}px`;
+                wrapper.appendChild(indicator);
+
+                setTimeout(() => indicator.remove(), 500);
+            }
+
+            async recordTransition(fromPackage, fromActivity, toPackage, toActivity, action) {
+                try {
+                    // Build action object based on action type
+                    const actionObj = {
+                        action_type: action.action_type
+                    };
+
+                    // Add type-specific fields
+                    if (action.action_type === 'tap') {
+                        actionObj.x = action.x;
+                        actionObj.y = action.y;
+                    } else if (action.action_type === 'swipe') {
+                        actionObj.start_x = action.start_x;
+                        actionObj.start_y = action.start_y;
+                        actionObj.end_x = action.end_x;
+                        actionObj.end_y = action.end_y;
+                        actionObj.swipe_direction = action.swipe_direction;
+                    } else if (action.action_type === 'go_back' || action.action_type === 'go_home') {
+                        actionObj.keycode = action.keycode;
+                    }
+
+                    // Build full payload with action nested
+                    const payload = {
+                        before_package: fromPackage,
+                        before_activity: fromActivity,
+                        after_package: toPackage,
+                        after_activity: toActivity,
+                        action: actionObj,
+                        before_ui_elements: [],
+                        after_ui_elements: []
+                    };
+
+                    await this.apiClient.post(`/navigation/${encodeURIComponent(fromPackage)}/learn-transition`, payload);
+
+                    // Add to local list with action type indicator
+                    const actionIcon = {
+                        'tap': '👆',
+                        'swipe': '↔️',
+                        'go_back': '←',
+                        'go_home': '🏠'
+                    }[action.action_type] || '?';
+
+                    this.transitions.push({
+                        from: fromActivity.split('.').pop(),
+                        to: toActivity.split('.').pop(),
+                        action: actionIcon
+                    });
+                    this.updateTransitionList();
+                    this.updateStats();
+
+                    console.log(`[NavigationLearner] Recorded ${action.action_type} transition: ${fromActivity} -> ${toActivity}`);
+                } catch (error) {
+                    console.error('[NavigationLearner] Failed to record transition:', error);
+                }
+            }
+
+            async loadExistingNavigation() {
+                if (!this.currentPackage) return;
+
+                try {
+                    const data = await this.apiClient.get(`/navigation/${encodeURIComponent(this.currentPackage)}`);
+                    if (data.graph) {
+                        this.screens = Object.values(data.graph.screens || {});
+                        this.transitions = (data.graph.transitions || []).map(t => ({
+                            from: t.source_screen_id,
+                            to: t.target_screen_id
+                        }));
+                        this.updateScreenList();
+                        this.updateTransitionList();
+                        this.updateStats();
+                    }
+                } catch (error) {
+                    console.error('[NavigationLearner] Failed to load existing navigation:', error);
+                }
+            }
+
+            async setHomeScreen() {
+                if (!this.currentPackage || !this.currentActivity) return;
+
+                try {
+                    await this.apiClient.post(`/navigation/${encodeURIComponent(this.currentPackage)}/set-home-screen?activity=${encodeURIComponent(this.currentActivity)}`, {});
+
+                    // Update local state
+                    this.screens.forEach(s => s.is_home_screen = false);
+                    const current = this.screens.find(s => s.activity === this.currentActivity);
+                    if (current) current.is_home_screen = true;
+
+                    this.updateScreenList();
+                    alert('Home screen set!');
+                } catch (error) {
+                    console.error('Failed to set home screen:', error);
+                }
+            }
+
+            updateStatus(type, text) {
+                const dot = document.getElementById('statusDot');
+                const textEl = document.getElementById('statusText');
+
+                dot.className = 'status-dot';
+                if (type) dot.classList.add(type);
+                textEl.textContent = text;
+            }
+
+            updateStats() {
+                document.getElementById('screenCount').textContent = this.screens.length;
+                document.getElementById('transitionCount').textContent = this.transitions.length;
+            }
+
+            updateScreenList() {
+                const list = document.getElementById('screenList');
+
+                if (this.screens.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><p>No screens discovered yet.</p></div>';
+                    return;
+                }
+
+                list.innerHTML = this.screens.map(screen => `
+                    <div class="screen-item ${screen.is_home_screen ? 'home' : ''} ${screen.activity === this.currentActivity ? 'current' : ''}">
+                        <div class="screen-icon">${screen.is_home_screen ? '🏠' : '📱'}</div>
+                        <div class="screen-details">
+                            <div class="screen-name">${screen.display_name || screen.activity.split('.').pop()}</div>
+                            <div class="screen-activity">${screen.activity}</div>
+                        </div>
+                        <div class="screen-badges">
+                            ${screen.is_home_screen ? '<span class="badge home">Home</span>' : ''}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            updateTransitionList() {
+                const list = document.getElementById('transitionList');
+
+                if (this.transitions.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><p>Tap or swipe on screen, use Back/Home buttons to learn transitions.</p></div>';
+                    return;
+                }
+
+                // Show last 5 transitions
+                const recent = this.transitions.slice(-5).reverse();
+                list.innerHTML = recent.map(t => `
+                    <div class="transition-item">
+                        <span>${t.from}</span>
+                        <span class="transition-arrow">${t.action || '→'}</span>
+                        <span>${t.to}</span>
+                    </div>
+                `).join('');
+            }
+
+            updateCurrentScreen(screenId) {
+                document.querySelectorAll('.screen-item').forEach(item => {
+                    item.classList.remove('current');
+                });
+                // Would need to match by screen ID
+            }
+        }
+
+        // Initialize shared modules and learner
+        const apiClient = new APIClient();
+        const deviceManager = new DeviceManager(apiClient);
+        const deviceControl = new DeviceControl(apiClient, null); // No screenshot capture needed
+        const learner = new NavigationLearner(apiClient, deviceManager, deviceControl);
+        learner.init();
+    </script>
+</body>
+</html>

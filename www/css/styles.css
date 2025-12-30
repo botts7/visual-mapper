@@ -1264,3 +1264,153 @@ label {
         transform: rotate(360deg);
     }
 }
+
+/* ========== Device Security Configuration Styles ========== */
+.security-config h3 {
+    margin-top: 0;
+    color: var(--text-color);
+}
+
+.security-description {
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+}
+
+.strategy-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.strategy-option {
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: start;
+    gap: 12px;
+}
+
+.strategy-option:hover {
+    border-color: var(--primary-color);
+    background: var(--bg-hover);
+}
+
+.strategy-option input[type="radio"] {
+    margin-top: 4px;
+    cursor: pointer;
+}
+
+.strategy-option input[type="radio"]:checked {
+    accent-color: var(--primary-color);
+}
+
+.strategy-option.recommended {
+    border-color: var(--success-color);
+}
+
+.strategy-info {
+    flex: 1;
+}
+
+.strategy-info strong {
+    display: block;
+    color: var(--text-color);
+    margin-bottom: 4px;
+    font-size: 15px;
+}
+
+.strategy-info p {
+    color: var(--text-secondary);
+    margin: 4px 0;
+    font-size: 14px;
+}
+
+.strategy-info .badge {
+    display: inline-block;
+    background: var(--success-color);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-left: 8px;
+}
+
+.passcode-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+}
+
+.passcode-section h4 {
+    margin-top: 0;
+    color: var(--text-color);
+}
+
+.help-text {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+
+.passcode-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.test-result {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.test-result.success {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #4caf50;
+}
+
+.test-result.error {
+    background: #ffebee;
+    color: #c62828;
+    border: 1px solid #f44336;
+}
+
+.test-result.info {
+    background: #e3f2fd;
+    color: #1565c0;
+    border: 1px solid #2196f3;
+}
+
+.security-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 24px;
+}
+
+/* Dark mode adjustments */
+body.dark-mode .test-result.success {
+    background: #1b3a1b;
+    color: #81c784;
+    border-color: #66bb6a;
+}
+
+body.dark-mode .test-result.error {
+    background: #3a1b1b;
+    color: #ef9a9a;
+    border-color: #e57373;
+}
+
+body.dark-mode .test-result.info {
+    background: #1a2a3a;
+    color: #64b5f6;
+    border-color: #42a5f5;
+}

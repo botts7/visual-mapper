@@ -15,6 +15,325 @@ from flow_models import SensorCollectionFlow
 logger = logging.getLogger(__name__)
 
 
+class ExecutionRouter:
+    """
+    Routes flow execution to appropriate executor based on execution_method field
+
+    Execution Methods:
+    - "server": Execute via ADB on server (default, traditional method)
+    - "android": Execute via MQTT command to Android companion app
+    - "auto": Smart routing - try preferred_executor first, fallback if fails
+    """
+
+    def __init__(self, flow_executor, mqtt_manager=None):
+        """
+        Initialize execution router
+
+        Args:
+            flow_executor: FlowExecutor for server-side ADB execution
+            mqtt_manager: MQTTManager for Android app communication (optional)
+        """
+        self.flow_executor = flow_executor
+        self.mqtt_manager = mqtt_manager
+
+        # Track Android execution results for fallback logic
+        self._pending_android_executions: Dict[str, asyncio.Future] = {}
+        self._android_timeout_seconds = 30  # Timeout for Android execution
+
+        # Track execution history for reporting
+        self._execution_history: Dict[str, List[Dict]] = {}  # device_id -> list of results
+        self._max_history_per_device = 50
+
+        # Track device capabilities from companion app
+        self._device_capabilities: Dict[str, Dict] = {}  # device_id -> capabilities dict
+
+        logger.info("[ExecutionRouter] Initialized")
+
+    def set_mqtt_manager(self, mqtt_manager):
+        """Set MQTT manager for Android execution and register result callback"""
+        self.mqtt_manager = mqtt_manager
+
+        # Register callbacks
+        if mqtt_manager:
+            mqtt_manager.set_flow_result_callback(self._handle_android_flow_result)
+            mqtt_manager.set_companion_status_callback(self._handle_device_status)
+            logger.info("[ExecutionRouter] Registered flow result and status callbacks with MQTT manager")
+
+        logger.info("[ExecutionRouter] MQTT manager configured")
+
+    def _handle_device_status(self, device_id: str, status_data: dict):
+        """
+        Handle device status update from Android companion app
+
+        Caches capabilities for smart routing decisions.
+
+        Args:
+            device_id: Android device ID
+            status_data: Status data including capabilities
+        """
+        logger.info(f"[ExecutionRouter] Received device status: {device_id} - capabilities={status_data.get('capabilities', [])}")
+
+        self._device_capabilities[device_id] = {
+            "device_id": device_id,
+            "platform": status_data.get("platform", "android"),
+            "app_version": status_data.get("app_version", "unknown"),
+            "accessibility_enabled": status_data.get("accessibility_enabled", False),
+            "capabilities": status_data.get("capabilities", []),
+            "timestamp": status_data.get("timestamp"),
+            "last_updated": datetime.now().isoformat()
+        }
+
+    def get_device_capabilities(self, device_id: str) -> Dict:
+        """
+        Get cached capabilities for a device
+
+        Args:
+            device_id: Device ID
+
+        Returns:
+            Capabilities dict or empty dict if not known
+        """
+        return self._device_capabilities.get(device_id, {})
+
+    def is_android_capable(self, device_id: str, required_capabilities: List[str] = None) -> bool:
+        """
+        Check if device has Android companion app with required capabilities
+
+        Args:
+            device_id: Device ID
+            required_capabilities: List of required capability strings (e.g., ["flow_execution", "gestures"])
+
+        Returns:
+            True if device has companion app with all required capabilities
+        """
+        caps = self._device_capabilities.get(device_id, {})
+
+        # No status received = no companion app
+        if not caps:
+            return False
+
+        # Accessibility service must be running for most operations
+        if not caps.get("accessibility_enabled", False):
+            return False
+
+        # Check specific capabilities if required
+        if required_capabilities:
+            device_caps = caps.get("capabilities", [])
+            for req in required_capabilities:
+                if req not in device_caps:
+                    return False
+
+        return True
+
+    def _handle_android_flow_result(self, device_id: str, flow_id: str, result_data: dict):
+        """
+        Handle flow execution result from Android companion app via MQTT
+
+        Args:
+            device_id: Android device ID
+            flow_id: Flow ID that was executed
+            result_data: Result data from Android app
+        """
+        logger.info(f"[ExecutionRouter] Received Android flow result: {device_id}/{flow_id} - success={result_data.get('success')}")
+
+        # Store in execution history
+        if device_id not in self._execution_history:
+            self._execution_history[device_id] = []
+
+        history_entry = {
+            "flow_id": flow_id,
+            "device_id": device_id,
+            "success": result_data.get("success", False),
+            "error": result_data.get("error"),
+            "duration_ms": result_data.get("duration", 0),
+            "timestamp": result_data.get("timestamp", datetime.now().isoformat()),
+            "executor": "android"
+        }
+        self._execution_history[device_id].append(history_entry)
+
+        # Trim history to max size
+        if len(self._execution_history[device_id]) > self._max_history_per_device:
+            self._execution_history[device_id] = self._execution_history[device_id][-self._max_history_per_device:]
+
+        # Resolve pending future if waiting for this result
+        execution_key = f"{device_id}/{flow_id}"
+        if execution_key in self._pending_android_executions:
+            future = self._pending_android_executions.pop(execution_key)
+            if not future.done():
+                future.set_result(result_data)
+                logger.debug(f"[ExecutionRouter] Resolved pending execution: {execution_key}")
+
+    def get_execution_history(self, device_id: str, limit: int = 20) -> List[Dict]:
+        """
+        Get recent execution history for a device
+
+        Args:
+            device_id: Device ID
+            limit: Maximum number of entries to return
+
+        Returns:
+            List of execution history entries (most recent first)
+        """
+        history = self._execution_history.get(device_id, [])
+        return list(reversed(history[-limit:]))
+
+    async def execute_flow(self, flow: SensorCollectionFlow, device_lock: asyncio.Lock = None) -> 'ExecutionResult':
+        """
+        Execute flow using appropriate method based on execution_method field
+
+        Args:
+            flow: Flow to execute
+            device_lock: Optional lock for ADB operations
+
+        Returns:
+            ExecutionResult with success status and data
+        """
+        execution_method = getattr(flow, 'execution_method', 'server')
+
+        logger.info(f"[ExecutionRouter] Routing flow {flow.flow_id} via {execution_method}")
+
+        if execution_method == "server":
+            return await self._execute_on_server(flow, device_lock)
+        elif execution_method == "android":
+            return await self._execute_on_android(flow)
+        elif execution_method == "auto":
+            return await self._execute_auto(flow, device_lock)
+        else:
+            logger.warning(f"[ExecutionRouter] Unknown execution_method '{execution_method}', defaulting to server")
+            return await self._execute_on_server(flow, device_lock)
+
+    async def _execute_on_server(self, flow: SensorCollectionFlow, device_lock: asyncio.Lock = None):
+        """Execute flow via server ADB"""
+        logger.debug(f"[ExecutionRouter] Executing flow {flow.flow_id} on server (ADB)")
+        return await self.flow_executor.execute_flow(flow, device_lock=device_lock)
+
+    async def _execute_on_android(self, flow: SensorCollectionFlow):
+        """Execute flow via MQTT command to Android companion app"""
+        if not self.mqtt_manager:
+            logger.error("[ExecutionRouter] MQTT manager not configured for Android execution")
+            return ExecutionResult(success=False, error_message="MQTT not configured")
+
+        if not self.mqtt_manager.is_connected():
+            logger.error("[ExecutionRouter] MQTT not connected for Android execution")
+            return ExecutionResult(success=False, error_message="MQTT not connected")
+
+        logger.debug(f"[ExecutionRouter] Executing flow {flow.flow_id} on Android via MQTT")
+
+        try:
+            # Create execution request
+            payload = {
+                "command": "execute_flow",
+                "flow_id": flow.flow_id,
+                "flow_name": flow.name,
+                "sensors": [
+                    {
+                        "sensor_id": sensor.sensor_id,
+                        "name": sensor.name,
+                        "source_type": sensor.source.source_type,
+                        "source_config": sensor.source.model_dump() if hasattr(sensor.source, 'model_dump') else {}
+                    }
+                    for sensor in flow.sensors
+                ],
+                "timestamp": datetime.now().isoformat()
+            }
+
+            # Send MQTT command
+            success = await self.mqtt_manager.publish_flow_command(
+                device_id=flow.device_id,
+                flow_id=flow.flow_id,
+                payload=payload
+            )
+
+            if success:
+                logger.info(f"[ExecutionRouter] Sent flow execution command to Android: {flow.flow_id}")
+                # Note: Actual result comes back via MQTT callback - this just confirms command sent
+                return ExecutionResult(success=True, execution_method="android")
+            else:
+                logger.error(f"[ExecutionRouter] Failed to send flow command to Android: {flow.flow_id}")
+                return ExecutionResult(success=False, error_message="Failed to publish MQTT command")
+
+        except Exception as e:
+            logger.error(f"[ExecutionRouter] Android execution error: {e}", exc_info=True)
+            return ExecutionResult(success=False, error_message=str(e))
+
+    async def _execute_auto(self, flow: SensorCollectionFlow, device_lock: asyncio.Lock = None):
+        """
+        Smart execution with fallback and capability awareness
+
+        Process:
+        1. Check if Android companion app is available with required capabilities
+        2. If available and preferred=android, try Android first
+        3. If not available or failed, use fallback
+        4. Track which method was used for logging/metrics
+        """
+        preferred = getattr(flow, 'preferred_executor', 'android')
+        fallback = getattr(flow, 'fallback_executor', 'server')
+
+        # Check Android capability
+        android_capable = self.is_android_capable(
+            flow.device_id,
+            required_capabilities=["flow_execution", "accessibility"]
+        )
+
+        logger.info(f"[ExecutionRouter] Auto mode: preferred={preferred}, fallback={fallback}, android_capable={android_capable}")
+
+        # Smart routing: if preferred is android but not capable, start with server
+        actual_preferred = preferred
+        if preferred == "android" and not android_capable:
+            logger.info(f"[ExecutionRouter] Device not Android-capable, starting with server")
+            actual_preferred = "server"
+        elif preferred == "server" and fallback == "android" and not android_capable:
+            # If fallback is android but not capable, warn (will still try server first)
+            logger.debug(f"[ExecutionRouter] Fallback android not available, will stick with server")
+
+        # Try preferred executor
+        if actual_preferred == "android":
+            result = await self._execute_on_android(flow)
+            result.execution_method = "android"
+        else:
+            result = await self._execute_on_server(flow, device_lock)
+            result.execution_method = "server"
+
+        # If failed, try fallback
+        if not result.success:
+            actual_fallback = fallback
+
+            # Don't try android fallback if not capable
+            if fallback == "android" and not android_capable:
+                logger.warning(f"[ExecutionRouter] Fallback android requested but device not capable, skipping")
+                actual_fallback = None
+
+            if actual_fallback and actual_fallback != actual_preferred:
+                logger.warning(f"[ExecutionRouter] Preferred executor '{actual_preferred}' failed, trying fallback '{actual_fallback}'")
+
+                if actual_fallback == "android":
+                    result = await self._execute_on_android(flow)
+                    result.execution_method = "android"
+                elif actual_fallback == "server":
+                    result = await self._execute_on_server(flow, device_lock)
+                    result.execution_method = "server"
+
+                if result.success:
+                    result.used_fallback = True
+                    logger.info(f"[ExecutionRouter] Fallback executor '{actual_fallback}' succeeded")
+
+        return result
+
+
+@dataclass
+class ExecutionResult:
+    """Result of flow execution"""
+    success: bool
+    error_message: str = ""
+    execution_method: str = "server"
+    used_fallback: bool = False
+    sensor_values: Dict = None
+
+    def __post_init__(self):
+        if self.sensor_values is None:
+            self.sensor_values = {}
+
+
 @dataclass
 class QueuedFlow:
     """Represents a flow in the execution queue"""
@@ -49,16 +368,21 @@ class FlowScheduler:
     - 15-19: Low priority periodic (slow update intervals >300s)
     """
 
-    def __init__(self, flow_executor, flow_manager):
+    def __init__(self, flow_executor, flow_manager, mqtt_manager=None):
         """
         Initialize flow scheduler
 
         Args:
             flow_executor: FlowExecutor instance for executing flows
             flow_manager: FlowManager instance for loading flows
+            mqtt_manager: MQTTManager instance for Android execution (optional)
         """
         self.flow_executor = flow_executor
         self.flow_manager = flow_manager
+        self.mqtt_manager = mqtt_manager
+
+        # Create execution router for smart execution method routing
+        self.execution_router = ExecutionRouter(flow_executor, mqtt_manager)
 
         # Device locks (prevent concurrent ADB operations)
         self._device_locks: Dict[str, asyncio.Lock] = {}
@@ -82,6 +406,17 @@ class FlowScheduler:
         self._paused = False  # Pause state for periodic scheduling
 
         logger.info("[FlowScheduler] Initialized")
+
+    def set_mqtt_manager(self, mqtt_manager):
+        """
+        Set MQTT manager for Android execution routing
+
+        Allows setting MQTT manager after scheduler initialization,
+        which is useful when scheduler is created before MQTT is connected.
+        """
+        self.mqtt_manager = mqtt_manager
+        self.execution_router.set_mqtt_manager(mqtt_manager)
+        logger.info("[FlowScheduler] MQTT manager configured for execution routing")
 
     async def start(self):
         """Start the scheduler"""
@@ -215,20 +550,23 @@ class FlowScheduler:
                     queue.task_done()
                     continue
 
-                # 3. Acquire device lock
+                # 3. Acquire device lock (only needed for server/ADB execution)
                 async with lock:
-                    logger.info(f"[FlowScheduler] Executing flow {queued.flow.flow_id} (priority={queued.priority}, reason={queued.reason})")
+                    logger.info(f"[FlowScheduler] Executing flow {queued.flow.flow_id} (priority={queued.priority}, reason={queued.reason}, method={getattr(queued.flow, 'execution_method', 'server')})")
 
                     try:
-                        # 4. Execute flow
-                        result = await self.flow_executor.execute_flow(queued.flow, device_lock=lock)
+                        # 4. Execute flow via execution router (handles server/android/auto routing)
+                        result = await self.execution_router.execute_flow(queued.flow, device_lock=lock)
 
                         # 5. Update metrics
                         self._last_execution[device_id] = datetime.now()
                         self._total_executions[device_id] = self._total_executions.get(device_id, 0) + 1
 
                         if result.success:
-                            logger.debug(f"[FlowScheduler] Flow {queued.flow.flow_id} completed successfully")
+                            method = getattr(result, 'execution_method', 'server')
+                            fallback = getattr(result, 'used_fallback', False)
+                            fallback_msg = " (fallback)" if fallback else ""
+                            logger.debug(f"[FlowScheduler] Flow {queued.flow.flow_id} completed successfully via {method}{fallback_msg}")
                         else:
                             logger.warning(f"[FlowScheduler] Flow {queued.flow.flow_id} failed: {result.error_message}")
 

@@ -20,12 +20,15 @@
             <!-- Medium priority - hidden on mobile -->
             <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
             <li class="nav-priority-med"><a href="flows.html">Flows</a></li>
+            <li class="nav-priority-med"><a href="performance.html">Performance</a></li>
             <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
 
             <!-- Low priority - hidden on tablet -->
+            <li class="nav-priority-med"><a href="navigation-learn.html">Learn Nav</a></li>
+            <li class="nav-priority-low"><a href="live-stream.html">Live Stream</a></li>
             <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
 
-            <li class="version">v0.0.5</li>
+            <li class="version">v0.0.6</li>
             <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
             <li id="themeToggleContainer"></li>
         </ul>
@@ -165,22 +168,47 @@
 
         <!-- Reconfigure Device Modal -->
         <div id="reconfigureModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
-            <div style="background: var(--card-background, white); padding: 30px; border-radius: 12px; max-width: 400px; width: 90%;">
-                <h3 style="margin: 0 0 20px 0; color: var(--text-color);">Reconfigure Device Connection</h3>
+            <div style="background: var(--card-background, white); padding: 30px; border-radius: 12px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+                <h3 style="margin: 0 0 20px 0; color: var(--text-color);">Configure Device</h3>
                 <p style="color: var(--text-secondary); margin-bottom: 15px;">
-                    Update the IP address and port for device: <strong id="reconfigureDeviceId"></strong>
+                    Device: <strong id="reconfigureDeviceId"></strong>
                 </p>
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px;">New IP Address:</label>
-                    <input type="text" id="newDeviceHost" placeholder="192.168.1.100" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+
+                <!-- Tab Navigation -->
+                <div style="border-bottom: 2px solid var(--border-color); margin-bottom: 20px;">
+                    <button id="tab-connection" class="config-tab active" style="padding: 10px 20px; background: none; border: none; border-bottom: 2px solid var(--primary-color); color: var(--primary-color); font-weight: 600; cursor: pointer; margin-right: 10px;">
+                        Connection
+                    </button>
+                    <button id="tab-security" class="config-tab" style="padding: 10px 20px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); cursor: pointer;">
+                        Lock Screen Security
+                    </button>
                 </div>
-                <div style="margin-bottom: 20px;">
-                    <label style="display: block; margin-bottom: 5px;">Port:</label>
-                    <input type="number" id="newDevicePort" value="5555" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+
+                <!-- Connection Tab Content -->
+                <div id="content-connection" class="tab-content">
+                    <p style="color: var(--text-secondary); margin-bottom: 15px;">
+                        Update the IP address and port for this device.
+                    </p>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px;">New IP Address:</label>
+                        <input type="text" id="newDeviceHost" placeholder="192.168.1.100" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+                    </div>
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 5px;">Port:</label>
+                        <input type="number" id="newDevicePort" value="5555" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+                    </div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button id="reconfigureCancel" class="btn btn-secondary">Cancel</button>
+                        <button id="reconfigureConfirm" class="btn btn-primary">Reconnect</button>
+                    </div>
                 </div>
-                <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                    <button id="reconfigureCancel" class="btn btn-secondary">Cancel</button>
-                    <button id="reconfigureConfirm" class="btn btn-primary">Reconnect</button>
+
+                <!-- Security Tab Content -->
+                <div id="content-security" class="tab-content" style="display: none;">
+                    <div id="securityConfigContainer">
+                        <!-- Security config UI will be injected here by device-security.js -->
+                        <p style="text-align: center; color: var(--text-secondary);">Loading security settings...</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -342,19 +370,20 @@
     </div>
 
     <script type="module">
-        import APIClient from './js/modules/api-client.js?v=0.0.5';
-        import ScreenshotCapture from './js/modules/screenshot-capture.js?v=0.0.5';
-        import DeviceControl from './js/modules/device-control.js?v=0.0.5';
-        import AutoRefresh from './js/modules/auto-refresh.js?v=0.0.5';
-        import ActivityMonitor from './js/modules/activity-monitor.js?v=0.0.5';
-        import DeviceManager from './js/modules/device-manager.js?v=0.0.5';
-        import OverlayFilters from './js/modules/overlay-filters.js?v=0.0.5';
-        import ElementSelector from './js/modules/element-selector.js?v=0.0.5';
-        import SensorCreator from './js/modules/sensor-creator.js?v=0.0.9';
-        import ActionManager from './js/modules/action-manager.js?v=0.0.5';
-        import IconRenderer from './js/modules/icon-renderer.js?v=0.0.5';
-        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.5';
-        import MobileNav from './js/modules/mobile-nav.js?v=0.0.5';
+        import APIClient from './js/modules/api-client.js?v=0.0.6';
+        import ScreenshotCapture from './js/modules/screenshot-capture.js?v=0.0.6';
+        import DeviceControl from './js/modules/device-control.js?v=0.0.6';
+        import AutoRefresh from './js/modules/auto-refresh.js?v=0.0.6';
+        import ActivityMonitor from './js/modules/activity-monitor.js?v=0.0.6';
+        import DeviceManager from './js/modules/device-manager.js?v=0.0.6';
+        import OverlayFilters from './js/modules/overlay-filters.js?v=0.0.6';
+        import ElementSelector from './js/modules/element-selector.js?v=0.0.6';
+        import SensorCreator from './js/modules/sensor-creator.js?v=0.0.6';
+        import ActionManager from './js/modules/action-manager.js?v=0.0.6';
+        import IconRenderer from './js/modules/icon-renderer.js?v=0.0.6';
+        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.6';
+        import MobileNav from './js/modules/mobile-nav.js?v=0.0.6';
+        import DeviceSecurityUI from './js/modules/device-security.js?v=0.0.6';
 
         const apiClient = new APIClient();
         const canvas = document.getElementById('screenshotCanvas');
@@ -369,6 +398,7 @@
         const actionManager = new ActionManager(apiClient);
         const themeToggle = new ThemeToggle();
         const mobileNav = new MobileNav();
+        const deviceSecurityUI = new DeviceSecurityUI();
 
         // Apply theme immediately
         themeToggle.apply();
@@ -999,10 +1029,43 @@
             }
         };
 
+        // Tab switching for reconfigure modal
+        function switchConfigTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.config-tab').forEach(tab => {
+                tab.classList.remove('active');
+                tab.style.borderBottom = '2px solid transparent';
+                tab.style.color = 'var(--text-secondary)';
+                tab.style.fontWeight = '400';
+            });
+
+            const activeTab = document.getElementById(`tab-${tabName}`);
+            if (activeTab) {
+                activeTab.classList.add('active');
+                activeTab.style.borderBottom = '2px solid var(--primary-color)';
+                activeTab.style.color = 'var(--primary-color)';
+                activeTab.style.fontWeight = '600';
+            }
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.style.display = 'none';
+            });
+
+            const activeContent = document.getElementById(`content-${tabName}`);
+            if (activeContent) {
+                activeContent.style.display = 'block';
+            }
+        }
+
+        // Attach tab click handlers
+        document.getElementById('tab-connection').addEventListener('click', () => switchConfigTab('connection'));
+        document.getElementById('tab-security').addEventListener('click', () => switchConfigTab('security'));
+
         // Reconfigure device handler
         let reconfigureOldDeviceId = null;
 
-        window.reconfigureDeviceHandler = (deviceId) => {
+        window.reconfigureDeviceHandler = async (deviceId) => {
             // Parse current IP:PORT from device ID
             const ipMatch = deviceId.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):?(\d+)?$/);
             if (!ipMatch) {
@@ -1017,6 +1080,27 @@
             document.getElementById('reconfigureDeviceId').textContent = deviceId;
             document.getElementById('newDeviceHost').value = currentIp;
             document.getElementById('newDevicePort').value = currentPort;
+
+            // Reset to connection tab
+            switchConfigTab('connection');
+
+            // Initialize security UI for this device with callbacks to close modal
+            const securityContainer = document.getElementById('securityConfigContainer');
+            if (securityContainer) {
+                await deviceSecurityUI.initialize(deviceId, securityContainer, {
+                    onSave: () => {
+                        // Close modal after successful save
+                        document.getElementById('reconfigureModal').style.display = 'none';
+                        reconfigureOldDeviceId = null;
+                    },
+                    onCancel: () => {
+                        // Close modal on cancel
+                        document.getElementById('reconfigureModal').style.display = 'none';
+                        reconfigureOldDeviceId = null;
+                    }
+                });
+            }
+
             document.getElementById('reconfigureModal').style.display = 'flex';
         };
 

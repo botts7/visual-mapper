@@ -91,6 +91,10 @@ class FlowStep(BaseModel):
     screen_activity: Optional[str] = Field(None, description="Activity when step was recorded (e.g., 'MainActivity')")
     screen_package: Optional[str] = Field(None, description="Package when step was recorded (e.g., 'com.example.app')")
 
+    # Navigation (Phase 9 - Navigation Learning)
+    expected_screen_id: Optional[str] = Field(None, description="Screen ID this step should start on (from navigation graph)")
+    navigation_required: bool = Field(False, description="If true, navigate to expected_screen_id before executing")
+
     # Timestamp validation for refresh actions (ensure data actually updated)
     validate_timestamp: bool = Field(False, description="Validate timestamp element changed after refresh")
     timestamp_element: Optional[Dict[str, Any]] = Field(None, description="Element containing 'last updated' timestamp (bounds, text, resource-id)")
@@ -123,6 +127,20 @@ class SensorCollectionFlow(BaseModel):
     stop_on_error: bool = Field(False, description="Stop flow if any step fails")
     max_flow_retries: int = Field(3, ge=1, le=10, description="Retry entire flow on failure")
     flow_timeout: int = Field(60, ge=10, le=300, description="Max seconds for entire flow")
+
+    # Execution Method (Phase 1 - Execution Routing)
+    execution_method: Literal["server", "android", "auto"] = Field(
+        default="server",
+        description="Where to execute this flow: server (ADB), android (companion app), or auto (smart routing)"
+    )
+    preferred_executor: str = Field(
+        default="android",
+        description="Preferred executor when using auto mode"
+    )
+    fallback_executor: str = Field(
+        default="server",
+        description="Fallback executor if preferred fails"
+    )
 
     # Headless Mode (Screen Power Control)
     auto_wake_before: bool = Field(True, description="Auto-wake screen before flow execution")

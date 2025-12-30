@@ -8,899 +8,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="stylesheet" href="css/styles.css?v=0.0.5">
-    <style>
-        /* Dev Mode - Hide test buttons by default, show only in dev mode */
-        .dev-only {
-            display: none !important;
-        }
-
-        body.dev-mode .dev-only {
-            display: inline-block !important;
-        }
-
-        /* Execution Results Modal Styling */
-        .test-success,
-        .test-failure {
-            padding: 15px;
-        }
-
-        .test-success h4 {
-            color: #16a34a;
-            margin: 0 0 15px 0;
-        }
-
-        .test-failure h4 {
-            color: #dc2626;
-            margin: 0 0 15px 0;
-        }
-
-        .execution-summary {
-            margin-bottom: 20px;
-            padding: 10px;
-            background: var(--background-color, #f8fafc);
-            border-radius: 6px;
-        }
-
-        .execution-summary p {
-            margin: 8px 0;
-        }
-
-        .execution-steps {
-            margin-top: 20px;
-        }
-
-        .execution-steps h5 {
-            margin: 0 0 10px 0;
-            color: var(--text-color, #333);
-        }
-
-        .step-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-
-        .step-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            padding: 10px;
-            margin-bottom: 8px;
-            border-radius: 6px;
-            background: var(--background-color, #f8fafc);
-            border-left: 3px solid transparent;
-        }
-
-        .step-item.step-success {
-            border-left-color: #16a34a;
-            background: #f0fdf4;
-        }
-
-        .step-item.step-failed {
-            border-left-color: #dc2626;
-            background: #fef2f2;
-        }
-
-        .step-item.step-skipped {
-            border-left-color: #94a3b8;
-            background: #f1f5f9;
-            opacity: 0.7;
-        }
-
-        .step-status {
-            font-size: 18px;
-            line-height: 1.4;
-        }
-
-        .step-info {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .step-type {
-            font-size: 12px;
-            color: #64748b;
-            font-weight: normal;
-        }
-
-        .step-error {
-            margin-top: 8px;
-            padding: 8px;
-            background: #fee2e2;
-            border-radius: 4px;
-            color: #991b1b;
-            font-size: 13px;
-        }
-
-        .captured-sensors {
-            margin-top: 20px;
-            padding: 15px;
-            background: var(--background-color, #f8fafc);
-            border-radius: 6px;
-        }
-
-        .captured-sensors h5 {
-            margin: 0 0 10px 0;
-            color: var(--text-color, #333);
-        }
-
-        .captured-sensors ul {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-
-        .captured-sensors li {
-            padding: 6px 0;
-            border-bottom: 1px solid var(--border-color, #e2e8f0);
-        }
-
-        .captured-sensors li:last-child {
-            border-bottom: none;
-        }
-
-        .flow-container {
-            padding: 20px;
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        .flow-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .flow-header h1 {
-            margin: 0;
-            color: var(--text-color);
-        }
-
-        .flow-actions {
-            display: flex;
-            gap: 10px;
-        }
-
-        .flow-table {
-            width: 100%;
-            border-collapse: collapse;
-            background: var(--card-background);
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        .flow-table thead {
-            background: #3b82f6;
-            color: white;
-        }
-
-        .flow-table th,
-        .flow-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid var(--border-color);
-            color: var(--text-color);
-        }
-
-        .flow-table tbody tr:hover {
-            background: var(--hover);
-        }
-
-        .flow-table tbody tr {
-            background: var(--card-background);
-        }
-
-        .flow-table td code {
-            color: var(--text-secondary);
-        }
-
-        .flow-status {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-
-        .flow-status.enabled {
-            background: #22c55e;
-            color: white;
-        }
-
-        .flow-status.disabled {
-            background: #94a3b8;
-            color: white;
-        }
-
-        .flow-stats {
-            display: flex;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-
-        .stat-card {
-            flex: 1;
-            background: var(--card-background);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        .stat-card h3 {
-            margin: 0 0 8px 0;
-            color: var(--text-secondary);
-            font-size: 14px;
-            font-weight: 500;
-        }
-
-        .stat-card .value {
-            font-size: 32px;
-            font-weight: 700;
-            color: var(--text-color);
-        }
-
-        .flow-row-actions {
-            display: flex;
-            gap: 8px;
-        }
-
-        .btn-icon {
-            padding: 6px 12px;
-            background: transparent;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            cursor: pointer;
-            color: var(--text-color);
-            transition: all 0.2s;
-        }
-
-        .btn-icon:hover {
-            background: var(--hover);
-        }
-
-        .btn-icon.execute {
-            color: #3b82f6;
-            border-color: #3b82f6;
-            position: relative;
-        }
-
-        .btn-icon.execute:hover {
-            background: #3b82f6;
-            color: white;
-        }
-
-        .btn-icon.execute.running {
-            background: #10b981;
-            color: white;
-            border-color: #10b981;
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
-        }
-
-        .flow-status.running {
-            background: #10b981;
-            color: white;
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        .btn-icon.delete {
-            color: #ef4444;
-            border-color: #ef4444;
-        }
-
-        .btn-icon.delete:hover {
-            background: #ef4444;
-            color: white;
-        }
-
-        .btn-icon.edit {
-            color: #f59e0b;
-            border-color: #f59e0b;
-        }
-
-        .btn-icon.edit:hover {
-            background: #f59e0b;
-            color: white;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--text-secondary);
-        }
-
-        /* Edit Modal Styles */
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.7);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 10000;
-        }
-
-        .modal-overlay.active {
-            display: flex;
-        }
-
-        .modal-content {
-            background: var(--card-background);
-            padding: 30px;
-            border-radius: 12px;
-            max-width: 900px;
-            width: 95%;
-            max-height: 85vh;
-            overflow-y: auto;
-            position: relative;
-            z-index: 10001;
-            color: var(--text-color);
-        }
-
-        .modal-header {
-            margin-bottom: 20px;
-        }
-
-        .modal-header h2 {
-            margin: 0;
-            color: var(--text-color);
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            color: var(--text-color);
-        }
-
-        .form-group input,
-        .form-group textarea,
-        .form-group select {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            font-size: 14px;
-            background: var(--background-color);
-            color: var(--text-color);
-        }
-
-        .form-group textarea {
-            resize: vertical;
-            min-height: 80px;
-        }
-
-        .form-group .checkbox-wrapper {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .form-group input[type="checkbox"] {
-            width: auto;
-        }
-
-        .modal-actions {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-            margin-top: 20px;
-        }
-
-        .modal-tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            border-bottom: 2px solid var(--border-color);
-        }
-
-        .modal-tab {
-            padding: 10px 20px;
-            background: transparent;
-            border: none;
-            border-bottom: 3px solid transparent;
-            cursor: pointer;
-            font-weight: 600;
-            color: var(--text-secondary);
-            transition: all 0.2s;
-        }
-
-        .modal-tab.active {
-            color: #3b82f6;
-            border-bottom-color: #3b82f6;
-        }
-
-        .modal-tab:hover {
-            color: var(--text-color);
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        .json-editor {
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            line-height: 1.5;
-            padding: 15px;
-            min-height: 500px;
-            height: 60vh;
-            max-height: none;
-            overflow-y: auto;
-            background: #1e1e1e;
-            color: #d4d4d4;
-            border: 1px solid #e2e8f0;
-            border-radius: 4px;
-            white-space: pre;
-        }
-
-        .json-editor-warning {
-            background: #fef3c7;
-            border: 1px solid #fbbf24;
-            color: #92400e;
-            padding: 12px;
-            border-radius: 4px;
-            margin-bottom: 10px;
-            font-size: 13px;
-        }
-
-        /* Toggle Switch */
-        .toggle-switch {
-            position: relative;
-            display: inline-block;
-            width: 40px;
-            height: 20px;
-            cursor: pointer;
-        }
-
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #cbd5e0;
-            transition: 0.3s;
-            border-radius: 20px;
-        }
-
-        .toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 14px;
-            width: 14px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            transition: 0.3s;
-            border-radius: 50%;
-        }
-
-        .toggle-switch input:checked + .toggle-slider {
-            background-color: #10b981;
-        }
-
-        .toggle-switch input:checked + .toggle-slider:before {
-            transform: translateX(20px);
-        }
-
-        /* Flow Steps UI Editor */
-        .steps-editor {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            max-height: 60vh;
-            overflow-y: auto;
-        }
-
-        .step-card {
-            background: var(--preview-background);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 15px;
-            position: relative;
-        }
-
-        .step-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
-
-        .step-type-badge {
-            background: #3b82f6;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .step-actions {
-            display: flex;
-            gap: 5px;
-        }
-
-        .step-action-btn {
-            background: transparent;
-            border: 1px solid var(--border-color);
-            padding: 4px 8px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            color: var(--text-color);
-        }
-
-        .step-action-btn:hover {
-            background: var(--hover);
-        }
-
-        .step-fields {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-
-        .step-field {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .step-field label {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-bottom: 4px;
-        }
-
-        .step-field input,
-        .step-field select {
-            padding: 6px 8px;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            font-size: 13px;
-            background: var(--background-color);
-            color: var(--text-color);
-        }
-
-        .add-step-btn {
-            background: #3b82f6;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-            margin-top: 10px;
-        }
-
-        .add-step-btn:hover {
-            background: #2563eb;
-        }
-
-        /* Alerts Panel */
-        .alerts-panel {
-            background: var(--card-background);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        .alerts-panel.hidden {
-            display: none;
-        }
-
-        .alerts-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-
-        .alerts-header h3 {
-            margin: 0;
-            color: var(--text-color);
-        }
-
-        .alerts-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .alert-card {
-            background: var(--preview-background);
-            border-left: 4px solid;
-            padding: 15px;
-            border-radius: 4px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-        }
-
-        .alert-card.severity-info {
-            border-left-color: #3b82f6;
-            background: rgba(59, 130, 246, 0.1);
-        }
-
-        .alert-card.severity-warning {
-            border-left-color: #f59e0b;
-            background: rgba(245, 158, 11, 0.1);
-        }
-
-        .alert-card.severity-error {
-            border-left-color: #ef4444;
-            background: rgba(239, 68, 68, 0.1);
-        }
-
-        .alert-card.severity-critical {
-            border-left-color: #dc2626;
-            background: rgba(220, 38, 38, 0.15);
-        }
-
-        .alert-content {
-            flex: 1;
-        }
-
-        .alert-message {
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: var(--text-color);
-        }
-
-        .alert-timestamp {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-bottom: 10px;
-        }
-
-        .alert-recommendations {
-            list-style: none;
-            padding: 0;
-            margin: 8px 0 0 0;
-        }
-
-        .alert-recommendations li {
-            padding: 4px 0;
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-
-        .alert-recommendations li:before {
-            content: "→ ";
-            color: var(--text-secondary);
-            margin-right: 5px;
-        }
-
-        .alert-dismiss {
-            background: transparent;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-            padding: 4px 8px;
-            font-size: 18px;
-            line-height: 1;
-        }
-
-        .alert-dismiss:hover {
-            color: var(--text-color);
-        }
-
-        /* Scheduler Dashboard */
-        .scheduler-dashboard {
-            background: var(--card-background, #fff);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        .scheduler-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .scheduler-header h3 {
-            margin: 0;
-            color: var(--text-color, #333);
-        }
-
-        .scheduler-controls {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-
-        .scheduler-status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: 600;
-        }
-
-        .scheduler-status-badge.running {
-            background: #dcfce7;
-            color: #166534;
-        }
-
-        .scheduler-status-badge.paused {
-            background: #fef3c7;
-            color: #92400e;
-        }
-
-        .scheduler-status-badge.stopped {
-            background: #fee2e2;
-            color: #991b1b;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            animation: pulse-dot 2s infinite;
-        }
-
-        .status-dot.running {
-            background: #22c55e;
-        }
-
-        .status-dot.paused {
-            background: #f59e0b;
-            animation: none;
-        }
-
-        .status-dot.stopped {
-            background: #ef4444;
-            animation: none;
-        }
-
-        @keyframes pulse-dot {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        .device-queue-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 15px;
-            margin-top: 15px;
-        }
-
-        .device-queue-card {
-            background: var(--background-color, #f8fafc);
-            border: 1px solid var(--border-color, #e2e8f0);
-            border-radius: 8px;
-            padding: 15px;
-        }
-
-        .device-queue-card h4 {
-            margin: 0 0 10px 0;
-            font-size: 14px;
-            color: var(--text-color, #333);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .device-queue-card .queue-stats {
-            display: flex;
-            gap: 15px;
-        }
-
-        .queue-stat {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .queue-stat-label {
-            font-size: 11px;
-            color: var(--text-secondary, #64748b);
-            text-transform: uppercase;
-        }
-
-        .queue-stat-value {
-            font-size: 20px;
-            font-weight: 700;
-            color: var(--text-color, #333);
-        }
-
-        .queue-stat-value.warning {
-            color: #f59e0b;
-        }
-
-        .queue-stat-value.critical {
-            color: #ef4444;
-        }
-
-        .btn-pause {
-            background: #f59e0b;
-            color: white;
-        }
-
-        .btn-pause:hover {
-            background: #d97706;
-        }
-
-        .btn-resume {
-            background: #22c55e;
-            color: white;
-        }
-
-        .btn-resume:hover {
-            background: #16a34a;
-        }
-
-        /* Execution Status Indicators */
-        .status-loading {
-            color: var(--text-secondary);
-            font-size: 0.875rem;
-        }
-
-        .status-none {
-            color: var(--text-secondary);
-            font-size: 0.875rem;
-        }
-
-        .status-success {
-            color: #22c55e;
-            font-weight: 500;
-            font-size: 0.875rem;
-        }
-
-        .status-failed {
-            color: #ef4444;
-            font-weight: 500;
-            font-size: 0.875rem;
-        }
-
-        .status-error {
-            color: #f59e0b;
-            font-weight: 500;
-            font-size: 0.875rem;
-        }
-
-        /* Logs Button */
-        .btn-icon.logs {
-            font-size: 16px;
-        }
-
-        .btn-icon.logs:hover {
-            background: #3b82f6;
-            color: white;
-        }
-    </style>
+    <link rel="stylesheet" href="css/flows.css?v=0.0.5">
 </head>
 <body>
     <nav>
@@ -913,12 +21,15 @@
             <!-- Medium priority - hidden on mobile -->
             <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
             <li class="nav-priority-med"><a href="flows.html" class="active">Flows</a></li>
+            <li class="nav-priority-med"><a href="performance.html">Performance</a></li>
             <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
 
             <!-- Low priority - hidden on tablet -->
+            <li class="nav-priority-med"><a href="navigation-learn.html">Learn Nav</a></li>
+            <li class="nav-priority-low"><a href="live-stream.html">Live Stream</a></li>
             <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
 
-            <li class="version">v0.0.5</li>
+            <li class="version">v0.0.6</li>
             <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
             <li id="themeToggleContainer"></li>
         </ul>
@@ -929,7 +40,7 @@
             <h1>Flow Management</h1>
             <div class="flow-actions">
                 <button class="btn btn-primary" onclick="window.location.href='flow-wizard.html'">
-                    ✨ Create Flow Wizard
+                    Create Flow Wizard
                 </button>
                 <button class="btn btn-secondary" onclick="window.location.href='create-flow.html'">
                     Advanced
@@ -976,47 +87,44 @@
                     </button>
                 </div>
             </div>
-            <div id="deviceQueues" class="device-queue-grid">
-                <!-- Device queue cards will be populated here -->
-                <p style="color: var(--text-secondary); grid-column: 1 / -1; text-align: center;">
-                    Loading scheduler status...
-                </p>
+
+            <div class="device-queue-grid" id="deviceQueueGrid">
+                <!-- Device queue cards will be rendered here -->
             </div>
         </div>
 
         <!-- Alerts Panel -->
-        <div id="alertsPanel" class="alerts-panel hidden">
+        <div class="alerts-panel" id="alertsPanel" style="display: none;">
             <div class="alerts-header">
                 <h3>Performance Alerts</h3>
-                <button type="button" class="btn btn-sm" onclick="clearAllAlerts()">Clear All</button>
+                <button class="btn-clear-alerts" onclick="clearAllAlerts()">Clear All</button>
             </div>
-            <div id="alertsList" class="alerts-list"></div>
+            <div class="alerts-list" id="alertsList">
+                <!-- Alerts will be rendered here -->
+            </div>
         </div>
 
-        <div id="flowTableContainer">
-            <table class="flow-table" id="flowTable">
+        <!-- Flow Table -->
+        <div class="flow-table-container">
+            <table class="flow-table">
                 <thead>
                     <tr>
-                        <th>Name</th>
-                        <th>App(s)</th>
+                        <th>Flow Name</th>
+                        <th>App</th>
                         <th>Device</th>
                         <th>IP</th>
                         <th>Steps</th>
                         <th>Interval</th>
                         <th>Enabled</th>
                         <th>Status</th>
+                        <th>Last Executed</th>
+                        <th>Success Rate</th>
                         <th>Last Run</th>
-                        <th>Success</th>
-                        <th>Last Run Status</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="flowTableBody">
-                    <tr>
-                        <td colspan="11" class="empty-state">
-                            Loading flows...
-                        </td>
-                    </tr>
+                    <!-- Flow rows will be dynamically inserted here -->
                 </tbody>
             </table>
         </div>
@@ -1024,150 +132,164 @@
 
     <!-- Edit Flow Modal -->
     <div class="modal-overlay" id="editModal">
-        <div class="modal-content">
+        <div class="modal-content flow-edit-modal">
             <div class="modal-header">
-                <h2>Edit Flow</h2>
+                <h2>Edit Flow: <span id="editFlowName"></span></h2>
+                <button class="btn-close" onclick="closeEditModal()">&times;</button>
             </div>
 
-            <!-- Tabs -->
-            <div class="modal-tabs">
-                <button type="button" class="modal-tab active" onclick="switchEditTab('basic')">Basic Settings</button>
-                <button type="button" class="modal-tab" onclick="switchEditTab('steps')">Flow Steps</button>
-                <button type="button" class="modal-tab" onclick="switchEditTab('advanced')">Advanced (JSON)</button>
+            <div class="edit-tabs">
+                <button class="tab active" id="tabBasic" onclick="switchEditTab('basic')">Basic Editor</button>
+                <button class="tab" id="tabJSON" onclick="switchEditTab('json')">JSON</button>
             </div>
 
-            <form id="editFlowForm">
-                <!-- Basic Settings Tab -->
-                <div id="tabBasic" class="tab-content active">
+            <div class="modal-body">
+                <!-- Basic Editor -->
+                <div id="basicEditor">
                     <div class="form-group">
-                        <label for="editFlowName">Flow Name *</label>
-                        <input type="text" id="editFlowName" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="editFlowDescription">Description</label>
-                        <textarea id="editFlowDescription"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label for="editFlowInterval">Update Interval (seconds)</label>
-                        <input type="number" id="editFlowInterval" min="5" required>
-                    </div>
-                    <div class="form-group">
-                        <div class="checkbox-wrapper">
-                            <input type="checkbox" id="editFlowEnabled">
-                            <label for="editFlowEnabled" style="margin: 0">Flow Enabled</label>
-                        </div>
+                        <label for="editFlowNameInput">Flow Name</label>
+                        <input type="text" id="editFlowNameInput" class="form-control">
                     </div>
 
-                    <!-- Headless Mode Options -->
-                    <div class="form-group" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
-                        <label style="font-weight: 600; margin-bottom: 10px; display: block;">Headless Mode (Screen Control)</label>
-                        <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 15px;">
-                            Auto-wake screen before flow, sleep after. Saves battery and works while device is idle.
-                        </p>
-                        <div class="checkbox-wrapper" style="margin-bottom: 8px;">
-                            <input type="checkbox" id="editAutoWakeBefore" checked>
-                            <label for="editAutoWakeBefore" style="margin: 0">Auto-wake screen before flow</label>
+                    <div class="form-group">
+                        <label for="editTrigger">Trigger</label>
+                        <select id="editTrigger" class="form-control">
+                            <option value="manual">Manual</option>
+                            <option value="periodic">Periodic (Scheduled)</option>
+                            <option value="sensor">Sensor Change</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editUpdateInterval">Update Interval (seconds)</label>
+                        <input type="number" id="editUpdateInterval" class="form-control" min="10" value="60">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Steps</label>
+                        <div class="steps-editor" id="stepsEditor">
+                            <!-- Steps will be rendered here -->
                         </div>
-                        <div class="checkbox-wrapper" style="margin-bottom: 8px;">
-                            <input type="checkbox" id="editAutoSleepAfter" checked>
-                            <label for="editAutoSleepAfter" style="margin: 0">Auto-sleep screen after flow</label>
-                        </div>
-                        <div class="checkbox-wrapper">
-                            <input type="checkbox" id="editVerifyScreenOn" checked>
-                            <label for="editVerifyScreenOn" style="margin: 0">Fail flow if screen won't wake</label>
+                        <div class="add-step-buttons">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="showInsertSensorDialog()">
+                                + Add Sensor
+                            </button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="showInsertActionDialog()">
+                                + Add Action
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Flow Steps Tab -->
-                <div id="tabSteps" class="tab-content">
-                    <div id="stepsEditor" class="steps-editor">
-                        <!-- Steps will be dynamically rendered here -->
-                    </div>
-                    <div class="add-step-container" style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
-                        <button type="button" class="add-step-btn" onclick="addNewStep()">+ Add Step</button>
-                        <button type="button" class="add-step-btn" style="background: #4CAF50;" onclick="showInsertSensorDialog()">📊 Insert Sensor</button>
-                        <button type="button" class="add-step-btn" style="background: #2196F3;" onclick="showInsertActionDialog()">⚡ Insert Action</button>
-                    </div>
+                <!-- JSON Editor -->
+                <div id="jsonEditor" style="display: none;">
+                    <textarea id="editFlowJSON" class="form-control" rows="20"></textarea>
+                    <p class="help-text">Edit the raw JSON definition. Changes will sync with the basic editor when you switch tabs.</p>
                 </div>
+            </div>
 
-                <!-- Advanced Tab -->
-                <div id="tabAdvanced" class="tab-content">
-                    <div class="json-editor-warning">
-                        ⚠️ <strong>Advanced Mode:</strong> Edit flow JSON directly. Changes must be valid JSON or save will fail.
-                    </div>
-                    <div class="form-group">
-                        <label for="editFlowJSON">Flow JSON</label>
-                        <textarea id="editFlowJSON" class="json-editor"></textarea>
-                    </div>
-                </div>
-
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeEditModal()">
-                        Cancel
-                    </button>
-                    <button type="button" class="btn btn-secondary dev-only" onclick="testCurrentFlow()" style="background: #2196F3; color: white;">
-                        🧪 Test Flow (Dev Mode)
-                    </button>
-                    <button type="submit" class="btn btn-primary">
-                        Save Changes
-                    </button>
-                </div>
-            </form>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+                <button type="button" class="btn btn-primary dev-only" onclick="testCurrentFlow()">Test Flow</button>
+                <button type="button" class="btn btn-primary" onclick="saveFlowEdit()">Save Changes</button>
+            </div>
         </div>
     </div>
 
     <!-- Execution Results Modal -->
     <div class="modal-overlay" id="executionResultsModal">
-        <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-content">
             <div class="modal-header">
-                <h2>Flow Execution Results</h2>
+                <h2>Execution Results</h2>
+                <button class="btn-close" onclick="closeExecutionResultsModal()">&times;</button>
             </div>
-            <div id="executionResultsContent" class="modal-body" style="min-height: 150px;">
+            <div class="modal-body" id="executionResultsBody">
                 <!-- Results will be dynamically inserted here -->
             </div>
-            <div class="modal-actions">
-                <button type="button" class="btn btn-primary" onclick="closeExecutionResultsModal()">
-                    Close
-                </button>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeExecutionResultsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Insert Sensor Dialog -->
+    <div class="modal-overlay" id="insertSensorDialog" style="display: none;">
+        <div class="modal-content modal-sm">
+            <div class="modal-header">
+                <h3>Add Sensor Step</h3>
+                <button class="btn-close" onclick="closeInsertSensorDialog()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="sensorSelect">Select Sensor</label>
+                    <select id="sensorSelect" class="form-control">
+                        <option value="">Loading sensors...</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeInsertSensorDialog()">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmInsertSensor()">Add Sensor</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Insert Action Dialog -->
+    <div class="modal-overlay" id="insertActionDialog" style="display: none;">
+        <div class="modal-content modal-sm">
+            <div class="modal-header">
+                <h3>Add Action Step</h3>
+                <button class="btn-close" onclick="closeInsertActionDialog()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="actionSelect">Select Action</label>
+                    <select id="actionSelect" class="form-control">
+                        <option value="">Loading actions...</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeInsertActionDialog()">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmInsertAction()">Add Action</button>
             </div>
         </div>
     </div>
 
     <!-- Execution Logs Modal -->
-    <div class="modal-overlay" id="executionLogsModal">
-        <div class="modal-content" style="max-width: 900px;">
+    <div class="modal-overlay" id="executionLogsModal" style="display: none;">
+        <div class="modal-content modal-lg">
             <div class="modal-header">
-                <h2 id="executionLogsTitle">Flow Execution History</h2>
+                <h2>Execution History: <span id="logsFlowName"></span></h2>
+                <button class="btn-close" onclick="closeLogsModal()">&times;</button>
             </div>
-            <div id="executionLogsContent" class="modal-body" style="min-height: 300px; max-height: 600px; overflow-y: auto;">
-                <!-- Execution logs will be dynamically inserted here -->
+            <div class="modal-body">
+                <div class="logs-container" id="logsContainer">
+                    <p class="loading">Loading execution history...</p>
+                </div>
             </div>
-            <div class="modal-actions">
-                <button type="button" class="btn btn-primary" onclick="closeExecutionLogsModal()">
-                    Close
-                </button>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeLogsModal()">Close</button>
             </div>
         </div>
     </div>
 
+    <script src="js/init.js?v=0.0.5"></script>
     <script type="module">
-        import FlowManager from './js/modules/flow-manager.js?v=0.0.6';
-        import { showToast } from './js/modules/toast.js?v=0.0.6';
-        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.6';
-        import MobileNav from './js/modules/mobile-nav.js?v=0.0.6';
+        import FlowManager from './js/modules/flow-manager.js?v=0.0.6.1';
 
-        // Initialize theme and mobile nav
-        const themeToggle = new ThemeToggle();
-        const mobileNav = new MobileNav();
-        themeToggle.apply();
-        mobileNav.init();
-        const themeToggleContainer = document.getElementById('themeToggleContainer');
-        if (themeToggleContainer) {
-            themeToggleContainer.appendChild(themeToggle.createToggleButton());
+        // Toast notification helper
+        function showToast(message, type = 'info') {
+            console.log(`[Toast ${type}] ${message}`);
+            // Simple toast - could be enhanced
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
         }
 
-        // Make functions globally available
+        // Initialize FlowManager
         window.flowManager = new FlowManager();
         window.showToast = showToast;
 
@@ -1178,7 +300,7 @@
         window.isDevMode = isDevMode;
 
         if (isDevMode) {
-            console.log('[Flows] 🔧 Dev Mode Enabled - Test buttons visible');
+            console.log('[Flows] Dev Mode Enabled - Test buttons visible');
             document.body.classList.add('dev-mode');
         }
 
@@ -1282,16 +404,20 @@
         async function viewFlowLogs(deviceId, flowId, flowName) {
             try {
                 // Update modal title
-                const title = document.getElementById('executionLogsTitle');
-                title.textContent = `Execution History: ${flowName}`;
+                const title = document.getElementById('logsFlowName');
+                if (title) title.textContent = flowName;
 
                 // Show loading state
-                const content = document.getElementById('executionLogsContent');
+                const content = document.getElementById('logsContainer');
+                if (!content) {
+                    console.error('[Flows] logsContainer element not found');
+                    return;
+                }
                 content.innerHTML = '<p style="text-align: center; padding: 40px;">Loading execution history...</p>';
 
                 // Show modal
                 const modal = document.getElementById('executionLogsModal');
-                modal.classList.add('active');
+                if (modal) modal.style.display = 'flex';
 
                 // Fetch execution history
                 const response = await fetch(`${window.flowManager.apiBase}/flows/${deviceId}/${flowId}/history?limit=20`);
@@ -1380,23 +506,25 @@
 
             } catch (error) {
                 console.error('Failed to load execution logs:', error);
-                const content = document.getElementById('executionLogsContent');
-                content.innerHTML = `
-                    <p style="text-align: center; padding: 40px; color: #ef4444;">
-                        Failed to load execution history: ${escapeHtml(error.message)}
-                    </p>
-                `;
+                const content = document.getElementById('logsContainer');
+                if (content) {
+                    content.innerHTML = `
+                        <p style="text-align: center; padding: 40px; color: #ef4444;">
+                            Failed to load execution history: ${escapeHtml(error.message)}
+                        </p>
+                    `;
+                }
             }
         }
 
-        function closeExecutionLogsModal() {
+        function closeLogsModal() {
             const modal = document.getElementById('executionLogsModal');
-            modal.classList.remove('active');
+            if (modal) modal.style.display = 'none';
         }
 
         // Make functions globally accessible for onclick handlers
         window.viewFlowLogs = viewFlowLogs;
-        window.closeExecutionLogsModal = closeExecutionLogsModal;
+        window.closeLogsModal = closeLogsModal;
 
         async function loadSchedulerStatus() {
             try {
@@ -1409,11 +537,14 @@
                 renderSchedulerStatus(status);
             } catch (error) {
                 console.error('Failed to load scheduler status:', error);
-                document.getElementById('deviceQueues').innerHTML = `
-                    <p style="color: var(--text-secondary); grid-column: 1 / -1; text-align: center;">
-                        Unable to load scheduler status
-                    </p>
-                `;
+                const deviceGrid = document.getElementById('deviceQueueGrid');
+                if (deviceGrid) {
+                    deviceGrid.innerHTML = `
+                        <p style="color: var(--text-secondary); grid-column: 1 / -1; text-align: center;">
+                            Unable to load scheduler status
+                        </p>
+                    `;
+                }
             }
         }
 
@@ -1423,33 +554,37 @@
             const statusText = document.getElementById('schedulerStatusText');
             const pauseBtn = document.getElementById('btnPauseScheduler');
             const resumeBtn = document.getElementById('btnResumeScheduler');
-            const deviceQueues = document.getElementById('deviceQueues');
+            const deviceQueues = document.getElementById('deviceQueueGrid');
 
             // Update status badge
             let state = 'stopped';
             if (status.running && !status.paused) {
                 state = 'running';
-                statusText.textContent = 'Running';
+                if (statusText) statusText.textContent = 'Running';
             } else if (status.paused) {
                 state = 'paused';
-                statusText.textContent = 'Paused';
+                if (statusText) statusText.textContent = 'Paused';
             } else {
-                statusText.textContent = 'Stopped';
+                if (statusText) statusText.textContent = 'Stopped';
             }
 
-            statusBadge.className = `scheduler-status-badge ${state}`;
-            statusDot.className = `status-dot ${state}`;
+            if (statusBadge) statusBadge.className = `scheduler-status-badge ${state}`;
+            if (statusDot) statusDot.className = `status-dot ${state}`;
 
             // Toggle buttons
-            if (status.paused) {
-                pauseBtn.style.display = 'none';
-                resumeBtn.style.display = 'inline-block';
-            } else {
-                pauseBtn.style.display = 'inline-block';
-                resumeBtn.style.display = 'none';
+            if (pauseBtn && resumeBtn) {
+                if (status.paused) {
+                    pauseBtn.style.display = 'none';
+                    resumeBtn.style.display = 'inline-block';
+                } else {
+                    pauseBtn.style.display = 'inline-block';
+                    resumeBtn.style.display = 'none';
+                }
             }
 
             // Render device queue cards
+            if (!deviceQueues) return;
+
             const devices = status.devices || {};
             const deviceIds = Object.keys(devices);
 
@@ -1844,7 +979,13 @@
          */
         function showExecutionResults(result) {
             const modal = document.getElementById('executionResultsModal');
-            const content = document.getElementById('executionResultsContent');
+            const content = document.getElementById('executionResultsBody');
+
+            // Guard against missing elements
+            if (!modal || !content) {
+                console.warn('[Flows] Execution results modal elements not found');
+                return;
+            }
 
             // Get flow definition to show step details
             const flow = flows.find(f => f.flow_id === result.flow_id);
@@ -2547,28 +1688,38 @@
         function syncJSONFromBasicForm() {
             if (!editingFlow) return;
 
-            // Build updated flow object from basic form
+            // Build updated flow object from basic form (use only existing elements)
+            const nameInput = document.getElementById('editFlowNameInput');
+            const intervalInput = document.getElementById('editUpdateInterval');
+
             const updatedFlow = {
-                ...editingFlow.flow,
-                name: document.getElementById('editFlowName').value,
-                description: document.getElementById('editFlowDescription').value,
-                update_interval_seconds: parseInt(document.getElementById('editFlowInterval').value),
-                enabled: document.getElementById('editFlowEnabled').checked
+                ...editingFlow.flow
             };
 
+            if (nameInput) updatedFlow.name = nameInput.value;
+            if (intervalInput) updatedFlow.update_interval_seconds = parseInt(intervalInput.value);
+
             // Update JSON editor
-            document.getElementById('editFlowJSON').value = JSON.stringify(updatedFlow, null, 2);
+            const jsonEditor = document.getElementById('editFlowJSON');
+            if (jsonEditor) jsonEditor.value = JSON.stringify(updatedFlow, null, 2);
         }
 
         function syncBasicFormFromJSON() {
             if (!editingFlow) return;
 
             try {
-                const flowData = JSON.parse(document.getElementById('editFlowJSON').value);
-                document.getElementById('editFlowName').value = flowData.name || '';
-                document.getElementById('editFlowDescription').value = flowData.description || '';
-                document.getElementById('editFlowInterval').value = flowData.update_interval_seconds || 60;
-                document.getElementById('editFlowEnabled').checked = flowData.enabled !== false;
+                const jsonEditor = document.getElementById('editFlowJSON');
+                if (!jsonEditor) return;
+
+                const flowData = JSON.parse(jsonEditor.value);
+
+                const nameSpan = document.getElementById('editFlowName');
+                const nameInput = document.getElementById('editFlowNameInput');
+                const intervalInput = document.getElementById('editUpdateInterval');
+
+                if (nameSpan) nameSpan.textContent = flowData.name || '';
+                if (nameInput) nameInput.value = flowData.name || '';
+                if (intervalInput) intervalInput.value = flowData.update_interval_seconds || 60;
             } catch (error) {
                 console.warn('Failed to sync basic form from JSON:', error);
             }
@@ -2585,26 +1736,28 @@
             // Store reference for saving
             editingFlow = { deviceId, flowId, flow };
 
-            // Populate basic form
-            document.getElementById('editFlowName').value = flow.name || '';
-            document.getElementById('editFlowDescription').value = flow.description || '';
-            document.getElementById('editFlowInterval').value = flow.update_interval_seconds || 60;
-            document.getElementById('editFlowEnabled').checked = flow.enabled !== false;
+            // Populate basic form (use actual element IDs from the HTML)
+            const nameSpan = document.getElementById('editFlowName');
+            if (nameSpan) nameSpan.textContent = flow.name || '';
 
-            // Populate headless mode options
-            document.getElementById('editAutoWakeBefore').checked = flow.auto_wake_before !== false;
-            document.getElementById('editAutoSleepAfter').checked = flow.auto_sleep_after !== false;
-            document.getElementById('editVerifyScreenOn').checked = flow.verify_screen_on !== false;
+            const nameInput = document.getElementById('editFlowNameInput');
+            if (nameInput) nameInput.value = flow.name || '';
+
+            const intervalInput = document.getElementById('editUpdateInterval');
+            if (intervalInput) intervalInput.value = flow.update_interval_seconds || 60;
 
             // Populate JSON editor
-            document.getElementById('editFlowJSON').value = JSON.stringify(flow, null, 2);
+            const jsonEditor = document.getElementById('editFlowJSON');
+            if (jsonEditor) jsonEditor.value = JSON.stringify(flow, null, 2);
 
             // Reset to basic tab
             currentEditTab = 'basic';
             document.querySelectorAll('.modal-tab').forEach(tab => tab.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-            document.querySelector('.modal-tab:first-child').classList.add('active');
-            document.getElementById('tabBasic').classList.add('active');
+            const firstTab = document.querySelector('.modal-tab:first-child');
+            if (firstTab) firstTab.classList.add('active');
+            const tabBasic = document.getElementById('tabBasic');
+            if (tabBasic) tabBasic.classList.add('active');
 
             // Show modal
             document.getElementById('editModal').classList.add('active');
@@ -2616,17 +1769,15 @@
             currentEditTab = 'basic';
         }
 
-        // Handle edit form submission
-        document.getElementById('editFlowForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-
+        // Save flow edit function (called from Save button onclick)
+        async function saveFlowEdit() {
             if (!editingFlow) return;
 
             let updatedFlow;
 
             try {
-                // If on advanced tab, parse JSON
-                if (currentEditTab === 'advanced') {
+                // If on JSON tab, parse JSON
+                if (currentEditTab === 'json' || currentEditTab === 'advanced') {
                     const jsonText = document.getElementById('editFlowJSON').value;
                     updatedFlow = JSON.parse(jsonText);
 
@@ -2635,18 +1786,16 @@
                         throw new Error('Invalid flow JSON: missing flow_id or device_id');
                     }
                 } else {
-                    // Use basic form values
+                    // Use basic form values (only existing elements)
                     updatedFlow = {
-                        ...editingFlow.flow,
-                        name: document.getElementById('editFlowName').value,
-                        description: document.getElementById('editFlowDescription').value,
-                        update_interval_seconds: parseInt(document.getElementById('editFlowInterval').value),
-                        enabled: document.getElementById('editFlowEnabled').checked,
-                        // Headless mode settings
-                        auto_wake_before: document.getElementById('editAutoWakeBefore').checked,
-                        auto_sleep_after: document.getElementById('editAutoSleepAfter').checked,
-                        verify_screen_on: document.getElementById('editVerifyScreenOn').checked
+                        ...editingFlow.flow
                     };
+
+                    const nameInput = document.getElementById('editFlowNameInput');
+                    const intervalInput = document.getElementById('editUpdateInterval');
+
+                    if (nameInput) updatedFlow.name = nameInput.value;
+                    if (intervalInput) updatedFlow.update_interval_seconds = parseInt(intervalInput.value);
                 }
 
                 await window.flowManager.updateFlow(editingFlow.deviceId, editingFlow.flowId, updatedFlow);
@@ -2660,7 +1809,7 @@
                     showToast('Failed to update flow: ' + error.message, 'error', 5000);
                 }
             }
-        });
+        }
 
         // Close modal when clicking outside
         document.getElementById('editModal').addEventListener('click', (e) => {
@@ -2693,6 +1842,7 @@
         window.loadSchedulerStatus = loadSchedulerStatus;
         window.showInsertSensorDialog = showInsertSensorDialog;
         window.showInsertActionDialog = showInsertActionDialog;
+        window.saveFlowEdit = saveFlowEdit;
 
         // Load flows on page load
         if (document.readyState === 'loading') {

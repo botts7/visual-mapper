@@ -147,10 +147,101 @@ async def list_flows(device_id: Optional[str] = None):
         else:
             flows = deps.flow_manager.get_all_flows()
 
-        return {"flows": [f.dict() for f in flows]}
+        return [f.dict() for f in flows]
 
     except Exception as e:
         logger.error(f"[API] Failed to list flows: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/flows/android-sync")
+async def get_flows_for_android(
+    stable_device_id: Optional[str] = None,
+    adb_device_id: Optional[str] = None
+):
+    """
+    Get flows enriched with embedded sensor definitions for Android execution.
+
+    This endpoint is used by the Android companion app to sync flows with
+    full sensor definitions embedded in CAPTURE_SENSORS steps, allowing
+    Android to execute sensor capture without needing the server.
+
+    Args:
+        stable_device_id: Android stable device ID (from VisualMapperApp)
+        adb_device_id: ADB device ID (IP:port format)
+
+    Returns:
+        List of flows with embedded_sensors populated in CAPTURE_SENSORS steps
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+        if not deps.sensor_manager:
+            raise HTTPException(status_code=503, detail="Sensor manager not initialized")
+
+        logger.info(f"[API] Android sync request - stable_id={stable_device_id}, adb_id={adb_device_id}")
+
+        # Find flows for this device
+        all_flows = deps.flow_manager.get_all_flows()
+        matching_flows = []
+
+        for flow in all_flows:
+            # Match by stable_device_id or device_id (ADB device ID)
+            matches_stable = stable_device_id and flow.stable_device_id == stable_device_id
+            matches_adb = adb_device_id and flow.device_id == adb_device_id
+
+            if matches_stable or matches_adb:
+                matching_flows.append(flow)
+
+        logger.info(f"[API] Found {len(matching_flows)} flows for Android sync")
+
+        # Get all sensors for device (for embedding in steps)
+        device_sensors = {}
+        if adb_device_id:
+            sensors = deps.sensor_manager.get_all_sensors(adb_device_id)
+            for sensor in sensors:
+                device_sensors[sensor.sensor_id] = sensor
+
+        # Enrich flows with embedded sensor definitions
+        enriched_flows = []
+        for flow in matching_flows:
+            flow_dict = flow.dict()
+
+            # Enrich CAPTURE_SENSORS steps with full sensor definitions
+            enriched_steps = []
+            for step in flow_dict.get('steps', []):
+                step_type = step.get('step_type')
+                if step_type == 'capture_sensors':
+                    # Get sensor IDs from step
+                    sensor_ids = step.get('sensor_ids', [])
+
+                    # Embed full sensor definitions
+                    embedded_sensors = []
+                    for sensor_id in sensor_ids:
+                        sensor = device_sensors.get(sensor_id)
+                        if sensor:
+                            # Convert sensor to dict for embedding
+                            sensor_dict = sensor.dict() if hasattr(sensor, 'dict') else sensor.model_dump()
+                            embedded_sensors.append(sensor_dict)
+                        else:
+                            logger.warning(f"[API] Sensor {sensor_id} not found for embedding")
+
+                    step['embedded_sensors'] = embedded_sensors
+                    logger.debug(f"[API] Embedded {len(embedded_sensors)} sensors in step")
+
+                enriched_steps.append(step)
+
+            flow_dict['steps'] = enriched_steps
+            enriched_flows.append(flow_dict)
+
+        logger.info(f"[API] Returning {len(enriched_flows)} enriched flows for Android")
+        return enriched_flows
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to get flows for Android: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -217,6 +308,14 @@ async def update_flow(device_id: str, flow_id: str, flow_data: dict):
         if not success:
             raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
 
+        # Reload flows in scheduler to reflect enabled/disabled changes
+        if deps.flow_scheduler and deps.flow_scheduler.is_running():
+            try:
+                await deps.flow_scheduler.reload_flows(device_id)
+                logger.info(f"[API] Reloaded scheduler flows for {device_id}")
+            except Exception as e:
+                logger.warning(f"[API] Failed to reload scheduler flows: {e}")
+
         logger.info(f"[API] Updated flow {flow_id} for device {device_id}")
         return flow.dict()
 
@@ -247,6 +346,17 @@ async def delete_flow(device_id: str, flow_id: str):
         success = deps.flow_manager.delete_flow(device_id, flow_id)
         if not success:
             raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
+
+        # Cancel periodic task for deleted flow
+        if deps.flow_scheduler and deps.flow_scheduler.is_running():
+            try:
+                # Cancel specific flow task if exists
+                if flow_id in deps.flow_scheduler._periodic_tasks:
+                    deps.flow_scheduler._periodic_tasks[flow_id].cancel()
+                    del deps.flow_scheduler._periodic_tasks[flow_id]
+                    logger.info(f"[API] Cancelled periodic task for deleted flow {flow_id}")
+            except Exception as e:
+                logger.warning(f"[API] Failed to cancel periodic task: {e}")
 
         logger.info(f"[API] Deleted flow {flow_id} for device {device_id}")
         return {"success": True, "message": f"Flow {flow_id} deleted"}
@@ -307,6 +417,211 @@ async def execute_flow_on_demand(device_id: str, flow_id: str):
         raise
     except Exception as e:
         logger.error(f"[API] Failed to execute flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/flows/{device_id}/{flow_id}/execute/android")
+async def execute_flow_on_android(device_id: str, flow_id: str):
+    """
+    Execute a flow on Android companion app via MQTT
+
+    This bypasses the normal execution routing and directly sends the flow
+    to the Android app for execution. Use this for testing or when you
+    explicitly want Android-side execution.
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+
+    Returns:
+        Result of MQTT command send (actual execution is async on Android)
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+        if not deps.mqtt_manager:
+            raise HTTPException(status_code=503, detail="MQTT manager not initialized")
+        if not deps.mqtt_manager.is_connected():
+            raise HTTPException(status_code=503, detail="MQTT not connected")
+
+        # Get flow
+        flow = deps.flow_manager.get_flow(device_id, flow_id)
+        if not flow:
+            raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
+
+        logger.info(f"[API] Sending flow {flow_id} to Android for execution")
+
+        # Import datetime for timestamp
+        from datetime import datetime
+
+        # Create execution payload
+        payload = {
+            "command": "execute_flow",
+            "flow_id": flow.flow_id,
+            "flow_name": flow.name,
+            "sensors": [
+                {
+                    "sensor_id": sensor.sensor_id,
+                    "name": sensor.name,
+                    "source_type": sensor.source.source_type,
+                    "source_config": sensor.source.model_dump() if hasattr(sensor.source, 'model_dump') else {}
+                }
+                for sensor in flow.sensors
+            ],
+            "timestamp": datetime.now().isoformat()
+        }
+
+        # Send to Android via MQTT
+        success = await deps.mqtt_manager.publish_flow_command(
+            device_id=device_id,
+            flow_id=flow_id,
+            payload=payload
+        )
+
+        if success:
+            logger.info(f"[API] Flow {flow_id} sent to Android via MQTT")
+            return {
+                "success": True,
+                "message": f"Flow {flow_id} sent to Android for execution",
+                "execution_method": "android",
+                "note": "Execution is asynchronous - results will be reported via MQTT callback"
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send flow command via MQTT")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to execute flow on Android: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/flows/{device_id}/{flow_id}/execute/routed")
+async def execute_flow_routed(device_id: str, flow_id: str):
+    """
+    Execute a flow using the execution router (respects execution_method field)
+
+    This uses the smart routing logic:
+    - "server": Execute via ADB on server
+    - "android": Execute via MQTT to Android app
+    - "auto": Try preferred_executor, fallback if fails
+
+    Args:
+        device_id: Device ID
+        flow_id: Flow ID
+
+    Returns:
+        FlowExecutionResult with routing information
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+        if not deps.flow_scheduler:
+            raise HTTPException(status_code=503, detail="Flow scheduler not initialized")
+
+        # Get flow
+        flow = deps.flow_manager.get_flow(device_id, flow_id)
+        if not flow:
+            raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
+
+        # Get execution method for logging
+        execution_method = getattr(flow, 'execution_method', 'server')
+        logger.info(f"[API] Executing flow {flow_id} via router (method={execution_method})")
+
+        # Execute via router
+        result = await deps.flow_scheduler.execution_router.execute_flow(flow)
+
+        return {
+            "success": result.success,
+            "flow_id": flow_id,
+            "configured_method": execution_method,
+            "actual_method": getattr(result, 'execution_method', 'server'),
+            "used_fallback": getattr(result, 'used_fallback', False),
+            "error_message": result.error_message if hasattr(result, 'error_message') else None
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to execute flow via router: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/flows/{device_id}/execution-history")
+async def get_execution_history(device_id: str, limit: int = 20):
+    """
+    Get recent execution history for a device
+
+    Returns results from both server and Android execution,
+    including success/failure status, duration, and timestamps.
+
+    Args:
+        device_id: Device ID
+        limit: Maximum number of entries to return (default 20)
+
+    Returns:
+        List of execution history entries (most recent first)
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_scheduler:
+            raise HTTPException(status_code=503, detail="Flow scheduler not initialized")
+
+        # Get execution history from router
+        history = deps.flow_scheduler.execution_router.get_execution_history(device_id, limit)
+
+        return {
+            "device_id": device_id,
+            "count": len(history),
+            "executions": history
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to get execution history: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/flows/{device_id}/capabilities")
+async def get_device_capabilities(device_id: str):
+    """
+    Get Android companion app capabilities for a device
+
+    Returns capabilities reported by the companion app via MQTT,
+    used for smart routing decisions in auto execution mode.
+
+    Args:
+        device_id: Device ID
+
+    Returns:
+        Device capabilities including accessibility status and feature list
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_scheduler:
+            raise HTTPException(status_code=503, detail="Flow scheduler not initialized")
+
+        # Get cached capabilities from router
+        capabilities = deps.flow_scheduler.execution_router.get_device_capabilities(device_id)
+
+        # Check if device is Android-capable
+        is_capable = deps.flow_scheduler.execution_router.is_android_capable(device_id)
+
+        return {
+            "device_id": device_id,
+            "android_capable": is_capable,
+            "capabilities": capabilities if capabilities else {
+                "message": "No companion app status received for this device"
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to get device capabilities: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

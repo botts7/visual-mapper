@@ -220,3 +220,70 @@ async def publish_all_sensor_discoveries(device_id: str):
     except Exception as e:
         logger.error(f"[API] Bulk publish discovery failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# DEVICE INFO (FOR FRIENDLY MQTT NAMES)
+# =============================================================================
+
+@router.post("/device-info/{device_id}")
+async def set_device_info(device_id: str, info: dict):
+    """
+    Set device info for friendly MQTT device names in Home Assistant
+
+    Body:
+        model: Device model (e.g., "SM X205", "Galaxy Tab A7")
+        friendly_name: Custom name (overrides model)
+        app_name: App context (e.g., "BYD", "Spotify")
+
+    Example:
+        POST /api/mqtt/device-info/192.168.86.2:46747
+        {"model": "Galaxy Tab A7", "app_name": "BYD"}
+
+    Result in HA: Device name becomes "Galaxy Tab A7 - BYD"
+    """
+    deps = get_deps()
+    if not deps.mqtt_manager:
+        raise HTTPException(status_code=503, detail="MQTT not initialized")
+
+    try:
+        deps.mqtt_manager.set_device_info(
+            device_id,
+            model=info.get('model'),
+            friendly_name=info.get('friendly_name'),
+            app_name=info.get('app_name')
+        )
+
+        # Return current display name
+        display_name = deps.mqtt_manager.get_device_display_name(device_id)
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            "display_name": display_name,
+            "message": f"Device info updated. MQTT device name: {display_name}"
+        }
+    except Exception as e:
+        logger.error(f"[API] Set device info failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/device-info/{device_id}")
+async def get_device_info(device_id: str):
+    """Get current device info and display name"""
+    deps = get_deps()
+    if not deps.mqtt_manager:
+        raise HTTPException(status_code=503, detail="MQTT not initialized")
+
+    try:
+        info = deps.mqtt_manager._device_info.get(device_id, {})
+        display_name = deps.mqtt_manager.get_device_display_name(device_id)
+
+        return {
+            "device_id": device_id,
+            "info": info,
+            "display_name": display_name
+        }
+    except Exception as e:
+        logger.error(f"[API] Get device info failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

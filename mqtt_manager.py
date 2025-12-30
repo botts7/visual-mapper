@@ -55,7 +55,63 @@ class MQTTManager:
         self._connected = False
         self._event_loop = None  # Store event loop for thread-safe async calls
 
+        # Device info cache for friendly names in MQTT discovery
+        # Maps device_id -> {model: str, friendly_name: str, app_name: str}
+        self._device_info: Dict[str, Dict[str, str]] = {}
+
         logger.info(f"[MQTTManager] Initialized with broker={broker}:{port} (Platform: {'Windows' if IS_WINDOWS else 'Linux'})")
+
+    def set_device_info(self, device_id: str, model: str = None, friendly_name: str = None, app_name: str = None):
+        """
+        Set device info for friendly MQTT device names
+
+        Args:
+            device_id: ADB device ID (e.g., "192.168.86.2:46747")
+            model: Device model (e.g., "SM X205", "Galaxy Tab A7")
+            friendly_name: Custom friendly name (overrides model)
+            app_name: Current app name for context (e.g., "BYD")
+        """
+        if device_id not in self._device_info:
+            self._device_info[device_id] = {}
+
+        if model:
+            self._device_info[device_id]['model'] = model
+        if friendly_name:
+            self._device_info[device_id]['friendly_name'] = friendly_name
+        if app_name:
+            self._device_info[device_id]['app_name'] = app_name
+
+        logger.debug(f"[MQTTManager] Set device info for {device_id}: {self._device_info[device_id]}")
+
+    def get_device_display_name(self, device_id: str, app_name: str = None) -> str:
+        """
+        Get friendly display name for device
+
+        Format: "[Model/Name] - [App]" or "[Model/Name]" if no app
+        Falls back to "Visual Mapper [device_id]" if no info
+
+        Args:
+            device_id: ADB device ID
+            app_name: Optional app name to include
+
+        Returns:
+            Friendly display name
+        """
+        info = self._device_info.get(device_id, {})
+
+        # Priority: friendly_name > model > device_id
+        name = info.get('friendly_name') or info.get('model')
+
+        if not name:
+            return f"Visual Mapper {device_id}"
+
+        # Use provided app_name or cached app_name
+        app = app_name or info.get('app_name')
+
+        if app:
+            return f"{name} - {app}"
+        else:
+            return name
 
     async def connect(self) -> bool:
         """Connect to MQTT broker"""
@@ -212,10 +268,10 @@ class MQTTManager:
             "device": {
                 # Use stable ID for identifiers so all sensors from same device group together
                 "identifiers": [f"visual_mapper_{sanitized_stable_id}"],
-                "name": f"Visual Mapper {sensor.device_id}",
+                "name": self.get_device_display_name(sensor.device_id),
                 "manufacturer": "Visual Mapper",
                 "model": "Android Device Monitor",
-                "sw_version": "0.0.5"
+                "sw_version": "0.0.7"
             }
         }
 
@@ -404,16 +460,30 @@ class MQTTManager:
                             value = "ON"
 
                     # Publish using QoS 0 for speed (fire and forget)
-                    # Use retain=False to reduce broker memory usage
+                    # Use retain=True so values persist across MQTT reconnects
                     if IS_WINDOWS:
-                        result = self.client.publish(state_topic, value, qos=0, retain=False)
+                        result = self.client.publish(state_topic, value, qos=0, retain=True)
                         if result.rc == mqtt.MQTT_ERR_SUCCESS:
                             success_count += 1
                         else:
                             failed_sensors.append(sensor.sensor_id)
                     else:
-                        await self.client.publish(state_topic, value, qos=0, retain=False)
+                        await self.client.publish(state_topic, value, qos=0, retain=True)
                         success_count += 1
+
+                    # Also publish attributes with last_updated timestamp
+                    attributes_topic = self._get_attributes_topic(sensor)
+                    attributes = {
+                        "last_updated": datetime.now().isoformat(),
+                        "source_element": sensor.source.element_resource_id if sensor.source else None,
+                        "extraction_method": sensor.extraction_rule.method if sensor.extraction_rule else None,
+                        "device_id": sensor.device_id
+                    }
+                    attributes_json = json.dumps(attributes)
+                    if IS_WINDOWS:
+                        self.client.publish(attributes_topic, attributes_json, retain=True)
+                    else:
+                        await self.client.publish(attributes_topic, attributes_json, retain=True)
 
                 except Exception as e:
                     logger.debug(f"[MQTTManager] Batch publish failed for {sensor.sensor_id}: {e}")
@@ -531,10 +601,10 @@ class MQTTManager:
             "icon": icon,
             "device": {
                 "identifiers": [f"visual_mapper_{sanitized_device}"],
-                "name": f"Visual Mapper {action_def.action.device_id}",
+                "name": self.get_device_display_name(action_def.action.device_id),
                 "manufacturer": "Visual Mapper",
                 "model": "Android Device Monitor",
-                "sw_version": "0.0.5"
+                "sw_version": "0.0.7"
             },
             "payload_press": "EXECUTE"
         }
@@ -663,3 +733,235 @@ class MQTTManager:
             # Store callback for manual message loop processing
             self._action_callback = callback
             logger.info("[MQTTManager] Action command callback registered (Linux)")
+
+    # ========== Companion App Communication Methods ==========
+
+    async def subscribe_companion_device(self, device_id: str) -> bool:
+        """
+        Subscribe to all companion app topics for a device.
+
+        Topics subscribed:
+        - visual_mapper/{device_id}/availability - Device online/offline status
+        - visual_mapper/{device_id}/status - Device capabilities and info
+        - visual_mapper/{device_id}/flow/+/result - Flow execution results
+        - visual_mapper/{device_id}/gesture/result - Gesture execution results
+
+        Args:
+            device_id: Android device ID (e.g., "192.168.86.2")
+
+        Returns:
+            True if subscriptions successful, False otherwise
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected to broker - cannot subscribe to companion device")
+            return False
+
+        try:
+            sanitized_device = self._sanitize_device_id(device_id)
+            topics = [
+                f"visual_mapper/{sanitized_device}/availability",
+                f"visual_mapper/{sanitized_device}/status",
+                f"visual_mapper/{sanitized_device}/flow/+/result",
+                f"visual_mapper/{sanitized_device}/gesture/result"
+            ]
+
+            if IS_WINDOWS:
+                for topic in topics:
+                    self.client.subscribe(topic)
+                    logger.info(f"[MQTTManager] Subscribed to companion topic: {topic}")
+            else:
+                for topic in topics:
+                    await self.client.subscribe(topic)
+                    logger.info(f"[MQTTManager] Subscribed to companion topic: {topic}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to subscribe to companion device {device_id}: {e}")
+            return False
+
+    def set_companion_status_callback(self, callback):
+        """
+        Set callback for companion device status updates.
+
+        Callback signature: callback(device_id: str, status_data: dict)
+
+        Status data includes:
+        - device_id: Android device ID
+        - platform: "android"
+        - app_version: App version string
+        - capabilities: List of capabilities
+        - timestamp: Unix timestamp
+
+        Args:
+            callback: Function to call when status update received
+        """
+        if IS_WINDOWS:
+            def on_message_sync(client, userdata, message):
+                import re
+                topic = message.topic
+                # Match: visual_mapper/{device_id}/status
+                match = re.match(r"visual_mapper/([^/]+)/status", topic)
+                if match:
+                    device_id = match.group(1)
+                    try:
+                        status_data = json.loads(message.payload.decode())
+                        callback(device_id, status_data)
+                    except Exception as e:
+                        logger.error(f"[MQTTManager] Error processing companion status: {e}")
+
+            # Replace existing on_message handler or chain them
+            self.client.on_message = on_message_sync
+            logger.info("[MQTTManager] Companion status callback registered (Windows)")
+        else:
+            # Linux: Store callback for manual message loop processing
+            self._companion_status_callback = callback
+            logger.info("[MQTTManager] Companion status callback registered (Linux)")
+
+    def set_flow_result_callback(self, callback):
+        """
+        Set callback for flow execution result updates.
+
+        Callback signature: callback(device_id: str, flow_id: str, result_data: dict)
+
+        Result data includes:
+        - flow_id: Flow ID that was executed
+        - success: Boolean
+        - error: Error message (if failed)
+        - duration: Execution time in milliseconds
+        - timestamp: Unix timestamp
+
+        Args:
+            callback: Function to call when flow result received
+        """
+        if IS_WINDOWS:
+            def on_message_sync(client, userdata, message):
+                import re
+                topic = message.topic
+                # Match: visual_mapper/{device_id}/flow/{flow_id}/result
+                match = re.match(r"visual_mapper/([^/]+)/flow/([^/]+)/result", topic)
+                if match:
+                    device_id = match.group(1)
+                    flow_id = match.group(2)
+                    try:
+                        result_data = json.loads(message.payload.decode())
+                        callback(device_id, flow_id, result_data)
+                    except Exception as e:
+                        logger.error(f"[MQTTManager] Error processing flow result: {e}")
+
+            self.client.on_message = on_message_sync
+            logger.info("[MQTTManager] Flow result callback registered (Windows)")
+        else:
+            self._flow_result_callback = callback
+            logger.info("[MQTTManager] Flow result callback registered (Linux)")
+
+    def set_gesture_result_callback(self, callback):
+        """
+        Set callback for gesture execution result updates.
+
+        Callback signature: callback(device_id: str, result_data: dict)
+
+        Result data includes:
+        - gesture_type: Type of gesture executed
+        - success: Boolean
+        - error: Error message (if failed)
+        - timestamp: Unix timestamp
+
+        Args:
+            callback: Function to call when gesture result received
+        """
+        if IS_WINDOWS:
+            def on_message_sync(client, userdata, message):
+                import re
+                topic = message.topic
+                # Match: visual_mapper/{device_id}/gesture/result
+                match = re.match(r"visual_mapper/([^/]+)/gesture/result", topic)
+                if match:
+                    device_id = match.group(1)
+                    try:
+                        result_data = json.loads(message.payload.decode())
+                        callback(device_id, result_data)
+                    except Exception as e:
+                        logger.error(f"[MQTTManager] Error processing gesture result: {e}")
+
+            self.client.on_message = on_message_sync
+            logger.info("[MQTTManager] Gesture result callback registered (Windows)")
+        else:
+            self._gesture_result_callback = callback
+            logger.info("[MQTTManager] Gesture result callback registered (Linux)")
+
+    async def publish_flow_command(self, device_id: str, flow_id: str, payload: dict) -> bool:
+        """
+        Publish flow execution command to companion app.
+
+        Args:
+            device_id: Android device ID
+            flow_id: Flow ID to execute
+            payload: Flow execution parameters (dict)
+
+        Returns:
+            True if published successfully, False otherwise
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected to broker")
+            return False
+
+        try:
+            sanitized_device = self._sanitize_device_id(device_id)
+            topic = f"visual_mapper/{sanitized_device}/flow/{flow_id}/execute"
+            payload_json = json.dumps(payload)
+
+            if IS_WINDOWS:
+                result = self.client.publish(topic, payload_json, qos=1)
+                success = result.rc == mqtt.MQTT_ERR_SUCCESS
+            else:
+                await self.client.publish(topic, payload_json, qos=1)
+                success = True
+
+            if success:
+                logger.info(f"[MQTTManager] Published flow command to {device_id}: {flow_id}")
+            return success
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to publish flow command: {e}")
+            return False
+
+    async def publish_gesture_command(self, device_id: str, gesture_type: str, params: dict) -> bool:
+        """
+        Publish gesture execution command to companion app.
+
+        Args:
+            device_id: Android device ID
+            gesture_type: Type of gesture (tap, swipe, scroll, etc.)
+            params: Gesture parameters (coordinates, duration, etc.)
+
+        Returns:
+            True if published successfully, False otherwise
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected to broker")
+            return False
+
+        try:
+            sanitized_device = self._sanitize_device_id(device_id)
+            topic = f"visual_mapper/{sanitized_device}/gesture/execute"
+            payload = {
+                "gesture_type": gesture_type,
+                **params
+            }
+            payload_json = json.dumps(payload)
+
+            if IS_WINDOWS:
+                result = self.client.publish(topic, payload_json, qos=1)
+                success = result.rc == mqtt.MQTT_ERR_SUCCESS
+            else:
+                await self.client.publish(topic, payload_json, qos=1)
+                success = True
+
+            if success:
+                logger.info(f"[MQTTManager] Published gesture command to {device_id}: {gesture_type}")
+            return success
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to publish gesture command: {e}")
+            return False
