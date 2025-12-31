@@ -4,6 +4,11 @@ Smart Action Suggester - AI-powered action detection from UI elements
 This module analyzes Android UI elements and suggests Home Assistant actions
 based on pattern detection heuristics. It identifies common action types like
 buttons, switches, toggles, input fields, and more.
+
+Enhanced to reduce false positives by:
+- Distinguishing clickable from focusable elements
+- Filtering out sensor-like elements (numeric values with units)
+- Filtering out wrapper/container elements without actionable content
 """
 
 import re
@@ -109,16 +114,31 @@ class ActionSuggester:
         skipped_duplicate = 0
         analyzed = 0
 
+        skipped_sensor_like = 0
+        skipped_wrapper = 0
+
         for element in elements:
             # Skip elements without useful identifiers
             text = element.get('text', '').strip()
             resource_id = element.get('resource_id', '')
             content_desc = element.get('content_desc', '')
             element_class = element.get('class', '')
-            clickable = element.get('clickable', False)
+
+            # FILTER 1: Skip sensor-like elements (numeric values with units, status words)
+            if self._looks_like_sensor(element):
+                skipped_sensor_like += 1
+                continue
+
+            # FILTER 2: Skip wrapper/container elements without content
+            if self._is_wrapper_element(element):
+                skipped_wrapper += 1
+                continue
+
+            # FILTER 3: Check if truly interactive (not just focusable)
+            is_interactive = self._is_truly_interactive(element)
 
             # Only skip non-interactive elements if they have no useful attributes
-            if not clickable and not text and not resource_id and not content_desc:
+            if not is_interactive and not text and not resource_id and not content_desc:
                 # Check if element class is actionable (Button, Switch, etc.)
                 actionable_classes = ['Button', 'Switch', 'CheckBox', 'EditText', 'SeekBar']
                 if not any(cls in element_class for cls in actionable_classes):
@@ -127,7 +147,7 @@ class ActionSuggester:
                 # Otherwise, analyze it (might have useful class info)
 
             analyzed += 1
-            logger.debug(f"[ActionSuggester] Analyzing element: text='{text[:50] if text else '(none)'}', class='{element_class}', clickable={clickable}")
+            logger.debug(f"[ActionSuggester] Analyzing element: text='{text[:50] if text else '(none)'}', class='{element_class}', interactive={is_interactive}")
 
             # Try to match against each pattern
             matched_any = False
@@ -170,7 +190,7 @@ class ActionSuggester:
         suggestions.sort(key=lambda x: x['confidence'], reverse=True)
 
         logger.info(f"[ActionSuggester] Generated {len(suggestions)} action suggestions from {len(elements)} elements")
-        logger.info(f"[ActionSuggester] Stats: analyzed={analyzed}, skipped_non_interactive={skipped_non_interactive}, skipped_duplicate={skipped_duplicate}")
+        logger.info(f"[ActionSuggester] Stats: analyzed={analyzed}, skipped_non_interactive={skipped_non_interactive}, skipped_duplicate={skipped_duplicate}, skipped_sensor_like={skipped_sensor_like}, skipped_wrapper={skipped_wrapper}")
         return suggestions
 
     def _matches_pattern(
@@ -189,8 +209,10 @@ class ActionSuggester:
         resource_id = element.get('resource_id', '').lower()
         content_desc = element.get('content_desc', '').lower()
         element_class = element.get('class', '')
-        clickable = element.get('clickable', False)
-        focusable = element.get('focusable', False)
+
+        # Use truly interactive check (distinguishes clickable from just focusable)
+        is_interactive = self._is_truly_interactive(element)
+        clickable = element.get('clickable', False)  # Keep for specific checks
 
         # Combine all searchable text
         searchable = f"{text_lower} {resource_id} {content_desc}"
@@ -203,8 +225,7 @@ class ActionSuggester:
         # Check for keywords
         keyword_match = any(kw in searchable for kw in pattern.get('keywords', []))
 
-        # Calculate confidence based on matches - RELAXED logic
-        has_keywords = len(pattern.get('keywords', [])) > 0
+        # Calculate confidence based on matches
         is_button_class = 'Button' in element_class  # More flexible check
         is_class_based = pattern.get('is_class_based', False)
 
@@ -217,43 +238,42 @@ class ActionSuggester:
         ]
 
         # Class-based auto-detection (generic_button pattern)
-        if is_class_based and class_match and (clickable or focusable):
-            # Button widget + clickable is very strong signal, even without keywords
+        if is_class_based and class_match and is_interactive:
+            # Button widget + interactive is very strong signal
             confidence = pattern['confidence_base'] * 0.95
-        # Perfect match: class + keyword + clickable
-        elif class_match and keyword_match and (clickable or focusable):
+        # Perfect match: class + keyword + interactive
+        elif class_match and keyword_match and is_interactive:
             confidence = pattern['confidence_base']
-        # Strong match: class + keyword
+        # Strong match: class + keyword (even without interactive)
         elif class_match and keyword_match:
-            confidence = pattern['confidence_base'] * 0.95
-        # Good match: specific widget class + clickable (Switch, CheckBox, etc.)
-        elif is_specific_widget and (clickable or focusable):
             confidence = pattern['confidence_base'] * 0.9
-        # Good match: class + clickable (Button + clickable, even with keywords defined)
-        elif class_match and (clickable or focusable):
+        # Good match: specific widget class + interactive (Switch, CheckBox, etc.)
+        elif is_specific_widget and is_interactive:
+            confidence = pattern['confidence_base'] * 0.9
+        # Good match: class + interactive (Button + clickable)
+        elif class_match and is_interactive:
             if is_button_class:
-                # Button + clickable is strong even without keyword match
-                confidence = pattern['confidence_base'] * 0.8  # Boosted from 0.3
+                confidence = pattern['confidence_base'] * 0.8
             else:
-                confidence = pattern['confidence_base'] * 0.9
-        # Medium match: keyword + clickable (for patterns where class doesn't match)
-        elif keyword_match and (clickable or focusable):
+                confidence = pattern['confidence_base'] * 0.85
+        # Medium match: keyword + interactive
+        elif keyword_match and is_interactive:
             confidence = pattern['confidence_base'] * 0.7
-        # For generic patterns, accept clickable alone
+        # For generic patterns, accept clickable alone (must be truly clickable, not just focusable)
         elif pattern.get('is_generic') and clickable and not text_lower.startswith('android'):
-            confidence = pattern['confidence_base']  # Use full base confidence
+            confidence = pattern['confidence_base'] * 0.9
         # Weak match: specific widget class only
         elif is_specific_widget:
-            confidence = pattern['confidence_base'] * 0.7
-        # Weak match: class only (no keywords or not clickable)
+            confidence = pattern['confidence_base'] * 0.6
+        # Weak match: class only (no keywords or not interactive)
         elif class_match:
-            confidence = pattern['confidence_base'] * 0.5
+            confidence = pattern['confidence_base'] * 0.4
         # Very weak match: keyword only
         elif keyword_match:
-            confidence = pattern['confidence_base'] * 0.4
+            confidence = pattern['confidence_base'] * 0.3
 
-        # Match if confidence is above threshold (lowered from 0.5 to 0.3 for better detection)
-        matches = confidence >= 0.3
+        # Match if confidence is above threshold (raised to 0.5 for better quality)
+        matches = confidence >= 0.5
 
         return {
             'matches': matches,
@@ -340,6 +360,110 @@ class ActionSuggester:
         entity_id = re.sub(r'[^a-z0-9_]', '_', entity_id.lower())
 
         return entity_id
+
+    def _looks_like_sensor(self, element: Dict[str, Any]) -> bool:
+        """
+        Check if element looks like a sensor value (should not be an action)
+
+        Filters out:
+        - Numeric values with units (e.g., "71%", "25°C", "100km")
+        - Status words that are state indicators, not buttons
+        """
+        text = element.get('text', '').strip()
+        if not text:
+            return False
+
+        text_lower = text.lower()
+
+        # Numeric value with unit pattern - very likely a sensor
+        sensor_unit_pattern = r'\d+\.?\d*\s*(%|°[cfCF]?|km|mi|mph|km/h|v|a|w|kw|kwh|db|dbm|ppm|hz|mhz|gb|mb|kb|lux|hpa|psi)'
+        if re.search(sensor_unit_pattern, text, re.IGNORECASE):
+            logger.debug(f"[ActionSuggester] Skipping sensor-like element: '{text}'")
+            return True
+
+        # Pure percentage value (just number with %)
+        if re.match(r'^\d+\.?\d*\s*%$', text):
+            return True
+
+        # Pure status words that are state indicators, not buttons
+        status_indicators = [
+            'on', 'off', 'open', 'closed', 'locked', 'unlocked',
+            'connected', 'disconnected', 'charging', 'charged',
+            'online', 'offline', 'active', 'inactive', 'enabled', 'disabled',
+            'home', 'away', 'armed', 'disarmed', 'running', 'stopped'
+        ]
+
+        # Only filter if text is EXACTLY a status word (not containing action verbs)
+        if text_lower in status_indicators:
+            # Check if element is not a button/switch class
+            element_class = element.get('class', '')
+            if 'Button' not in element_class and 'Switch' not in element_class:
+                logger.debug(f"[ActionSuggester] Skipping status indicator: '{text}'")
+                return True
+
+        return False
+
+    def _is_wrapper_element(self, element: Dict[str, Any]) -> bool:
+        """
+        Check if element is a container/wrapper without actionable content
+
+        Filters out:
+        - FrameLayout, LinearLayout, etc. without text/content_desc
+        - ViewGroups that are just containers for other elements
+        """
+        element_class = element.get('class', '')
+        text = element.get('text', '').strip()
+        content_desc = element.get('content_desc', '').strip()
+
+        # List of wrapper/container classes that shouldn't be actions by themselves
+        wrapper_classes = [
+            'android.widget.FrameLayout',
+            'android.widget.LinearLayout',
+            'android.widget.RelativeLayout',
+            'android.view.ViewGroup',
+            'androidx.constraintlayout.widget.ConstraintLayout',
+            'androidx.cardview.widget.CardView',
+            'android.widget.ScrollView',
+            'android.widget.HorizontalScrollView',
+            'androidx.recyclerview.widget.RecyclerView',
+            'android.widget.ListView'
+        ]
+
+        # If it's a wrapper class without text/content_desc, skip it
+        if element_class in wrapper_classes:
+            if not text and not content_desc:
+                logger.debug(f"[ActionSuggester] Skipping wrapper element: '{element_class}'")
+                return True
+
+        return False
+
+    def _is_truly_interactive(self, element: Dict[str, Any]) -> bool:
+        """
+        Check if element is truly interactive (not just focusable)
+
+        Focusable alone doesn't mean clickable - many text elements are focusable
+        for accessibility but aren't meant to be tapped as actions.
+        """
+        clickable = element.get('clickable', False)
+        focusable = element.get('focusable', False)
+        element_class = element.get('class', '')
+
+        # Clickable is always interactive
+        if clickable:
+            return True
+
+        # Focusable is only interactive if it's a known interactive widget class
+        interactive_classes = [
+            'Button', 'ImageButton', 'Switch', 'CheckBox', 'ToggleButton',
+            'EditText', 'SeekBar', 'Spinner', 'RadioButton', 'FloatingActionButton'
+        ]
+
+        if focusable:
+            for cls in interactive_classes:
+                if cls in element_class:
+                    return True
+
+        return False
 
 
 # Singleton instance

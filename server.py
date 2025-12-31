@@ -61,10 +61,11 @@ from app_name_background_fetcher import AppNameBackgroundFetcher
 from stream_manager import StreamManager, get_stream_manager
 from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 from navigation_manager import NavigationManager
+from navigation_mqtt_handler import NavigationMqttHandler
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration, device_security, device_registration, navigation
+from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration, device_security, device_registration, navigation, companion
 
 # Configure logging
 logging.basicConfig(
@@ -161,6 +162,9 @@ app = FastAPI(
     version="0.0.7",
     description="Android Device Monitoring & Automation for Home Assistant"
 )
+
+# Track devices with active wizard sessions (prevents auto-sleep during flow editing)
+wizard_active_devices: set = set()
 
 # Configure CORS to expose custom headers
 app.add_middleware(
@@ -433,6 +437,11 @@ async def startup_event():
         # Start scheduler
         await flow_scheduler.start()
         logger.info("[Server] ✅ Flow System initialized and scheduler started")
+
+        # Initialize Navigation MQTT Handler for passive navigation learning
+        navigation_mqtt_handler = NavigationMqttHandler(navigation_manager)
+        mqtt_manager.set_navigation_learn_callback(navigation_mqtt_handler.handle_learn_transition)
+        logger.info("[Server] ✅ Navigation MQTT handler initialized for passive learning")
 
         # Initialize Connection Monitor (handles device health checks and auto-recovery)
         connection_monitor = ConnectionMonitor(
@@ -764,6 +773,8 @@ app.include_router(device_registration.router)
 logger.info("[Server] Registered route module: device_registration (5 endpoints: register + heartbeat + list + get + unregister)")
 app.include_router(navigation.router)
 logger.info("[Server] Registered route module: navigation (11 endpoints: graph CRUD + screens + transitions + pathfinding + learning)")
+app.include_router(companion.router)
+logger.info("[Server] Registered route module: companion (5 endpoints: ui-tree + status + devices + discover-screens + select-elements)")
 
 # ============================================================================
 # All API endpoints have been migrated to routes/ modules

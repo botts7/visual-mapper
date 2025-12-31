@@ -120,6 +120,26 @@ async def get_screen_state(device_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/lock-status/{device_id}")
+async def get_lock_status(device_id: str):
+    """Check if device is locked (showing lock screen)"""
+    deps = get_deps()
+    try:
+        logger.info(f"[API] Checking lock status for {device_id}")
+        is_locked = await deps.adb_bridge.is_locked(device_id)
+        is_screen_on = await deps.adb_bridge.is_screen_on(device_id)
+        return {
+            "success": True,
+            "device_id": device_id,
+            "is_locked": is_locked,
+            "screen_on": is_screen_on,
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"[API] Lock status check failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/activity/{device_id}")
 async def get_current_activity(device_id: str):
     """Get current focused activity/window on device"""

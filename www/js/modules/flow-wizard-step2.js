@@ -140,15 +140,106 @@ function setupFiltering(wizard) {
  */
 function setupAppSelection(wizard, apps) {
     document.querySelectorAll('.app-item').forEach((item, index) => {
-        item.addEventListener('click', () => {
+        item.addEventListener('click', async () => {
             document.querySelectorAll('.app-item').forEach(i => i.classList.remove('selected'));
             item.classList.add('selected');
 
             const appIndex = Array.from(document.querySelectorAll('.app-item')).indexOf(item);
             wizard.selectedApp = apps[appIndex];
             console.log('[Step2] App selected:', wizard.selectedApp);
+
+            // Load navigation graph data if available
+            await loadNavigationData(wizard, wizard.selectedApp.package);
         });
     });
+}
+
+/**
+ * Load navigation graph data for the selected app
+ * Shows screen count and navigation info if the Android app has learned this app's navigation
+ */
+async function loadNavigationData(wizard, packageName) {
+    const navInfoEl = document.getElementById('navigationInfo');
+
+    // Create navigation info panel if it doesn't exist
+    let navPanel = navInfoEl;
+    if (!navPanel) {
+        const appList = document.getElementById('appList');
+        navPanel = document.createElement('div');
+        navPanel.id = 'navigationInfo';
+        navPanel.className = 'navigation-info-panel';
+        appList.parentNode.insertBefore(navPanel, appList);
+    }
+
+    navPanel.innerHTML = '<div class="nav-loading">🔍 Checking navigation data...</div>';
+    navPanel.style.display = 'block';
+
+    try {
+        const response = await fetch(`${getApiBase()}/navigation/${encodeURIComponent(packageName)}/stats`);
+
+        if (!response.ok) {
+            // No navigation data for this app
+            navPanel.innerHTML = `
+                <div class="nav-no-data">
+                    <span class="nav-icon">📱</span>
+                    <span class="nav-text">No navigation data yet</span>
+                    <span class="nav-hint">The Android app will learn navigation as you create flows</span>
+                </div>
+            `;
+            wizard.navigationGraph = null;
+            return;
+        }
+
+        const data = await response.json();
+        const stats = data.stats;
+
+        // Store navigation data for use in Step 3
+        wizard.navigationStats = stats;
+
+        // Also load full graph for screen lookups
+        const graphResponse = await fetch(`${getApiBase()}/navigation/${encodeURIComponent(packageName)}`);
+        if (graphResponse.ok) {
+            const graphData = await graphResponse.json();
+            wizard.navigationGraph = graphData.graph;
+        }
+
+        console.log('[Step2] Navigation data loaded:', stats);
+
+        navPanel.innerHTML = `
+            <div class="nav-data-found">
+                <span class="nav-icon">🗺️</span>
+                <span class="nav-title">Navigation Data Available</span>
+                <div class="nav-stats">
+                    <span class="nav-stat">
+                        <span class="stat-value">${stats.screen_count}</span>
+                        <span class="stat-label">Screens</span>
+                    </span>
+                    <span class="nav-stat">
+                        <span class="stat-value">${stats.transition_count}</span>
+                        <span class="stat-label">Transitions</span>
+                    </span>
+                    ${stats.home_screen_id ? `
+                    <span class="nav-stat home">
+                        <span class="stat-value">✓</span>
+                        <span class="stat-label">Home Screen</span>
+                    </span>
+                    ` : ''}
+                </div>
+                <span class="nav-hint">Navigation context will be shown during recording</span>
+            </div>
+        `;
+
+    } catch (error) {
+        console.warn('[Step2] Error loading navigation data:', error);
+        navPanel.innerHTML = `
+            <div class="nav-no-data">
+                <span class="nav-icon">📱</span>
+                <span class="nav-text">No navigation data yet</span>
+                <span class="nav-hint">The Android app will learn navigation as you create flows</span>
+            </div>
+        `;
+        wizard.navigationGraph = null;
+    }
 }
 
 /**

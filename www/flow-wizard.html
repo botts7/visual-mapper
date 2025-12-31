@@ -175,24 +175,24 @@
                         </button>
                         <div class="quick-divider"></div>
 
-                        <!-- Capture Mode -->
+                        <!-- Stream Controls (logically ordered) -->
                         <select id="captureMode" class="quick-select" title="Capture Mode">
                             <option value="polling">Polling</option>
                             <option value="streaming">Stream</option>
                         </select>
-                        <select id="streamMode" class="quick-select" title="Stream Protocol">
-                            <option value="mjpeg">MJPEG</option>
-                            <option value="websocket">WebSocket</option>
-                            <option value="scrcpy">scrcpy (30-60fps)</option>
-                        </select>
                         <select id="streamQuality" class="quick-select" title="Stream Quality">
-                            <option value="medium">720p</option>
                             <option value="high">Native</option>
+                            <option value="medium">720p</option>
                             <option value="low">480p</option>
                             <option value="fast">360p</option>
                         </select>
-                        <span id="connectionStatus" class="connection-status"></span>
+                        <select id="streamMode" class="quick-select" title="Stream Protocol">
+                            <option value="websocket">WebSocket</option>
+                            <option value="mjpeg">MJPEG</option>
+                            <option value="scrcpy">scrcpy</option>
+                        </select>
                         <button class="quick-btn" id="qabReconnect" title="Reconnect Stream">⟳</button>
+                        <span id="connectionStatus" class="connection-status" style="min-width: 100px; text-align: center;"></span>
                         <div class="quick-divider"></div>
 
                         <!-- Actions -->

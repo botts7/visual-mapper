@@ -175,6 +175,31 @@ class FlowExecutor:
             security_config = self.security_manager.get_lock_config(flow.device_id)
             if security_config and security_config.get('strategy') == LockStrategy.AUTO_UNLOCK.value:
                 logger.info(f"  [Security] Auto-unlock enabled for device")
+
+                # Check unlock status first (cooldown protection)
+                unlock_status = self.adb_bridge.get_unlock_status(flow.device_id)
+                if unlock_status.get("in_cooldown"):
+                    cooldown_remaining = unlock_status.get("cooldown_remaining_seconds", 0)
+                    result.error_message = (
+                        f"Device unlock in cooldown ({cooldown_remaining}s remaining) to prevent lockout. "
+                        f"Please unlock device manually, then call /api/device/{flow.device_id}/reset-unlock-failures"
+                    )
+                    logger.error(f"  [Security] {result.error_message}")
+                    result.execution_time_ms = int((time.time() - start_time) * 1000)
+
+                    # Log failed execution to history
+                    execution_log.completed_at = datetime.now().isoformat()
+                    execution_log.duration_ms = result.execution_time_ms
+                    execution_log.success = False
+                    execution_log.error = result.error_message
+                    execution_log.executed_steps = 0
+                    try:
+                        self.execution_history.add_execution(execution_log)
+                    except Exception as e:
+                        logger.error(f"[FlowExecutor] Failed to save execution history: {e}")
+
+                    return result
+
                 passcode = self.security_manager.get_passcode(flow.device_id)
                 if passcode:
                     try:
@@ -182,7 +207,13 @@ class FlowExecutor:
                         if unlock_success:
                             logger.info(f"  [Security] Device unlocked successfully")
                         else:
-                            logger.warning(f"  [Security] Device unlock failed (check passcode)")
+                            # Get updated status after failed attempt
+                            unlock_status = self.adb_bridge.get_unlock_status(flow.device_id)
+                            if unlock_status.get("in_cooldown"):
+                                logger.error(f"  [Security] Device unlock failed - max attempts reached, entering cooldown")
+                            else:
+                                remaining = unlock_status.get("max_attempts", 2) - unlock_status.get("failure_count", 0)
+                                logger.warning(f"  [Security] Device unlock failed - {remaining} attempt(s) remaining")
                     except Exception as e:
                         logger.error(f"  [Security] Error during unlock: {e}")
                 else:
@@ -302,7 +333,16 @@ class FlowExecutor:
         finally:
             # Auto-sleep screen ONLY if flow was successful (don't sleep if failed - user might be using it!)
             if flow.auto_sleep_after and result.success:
+                # Check if wizard is active on this device - skip sleep if so
                 try:
+                    from server import wizard_active_devices
+                    if flow.device_id in wizard_active_devices:
+                        logger.info(f"  [Headless] Skipping auto-sleep - wizard active on device {flow.device_id}")
+                    else:
+                        logger.info(f"  [Headless] Auto-sleeping screen after successful flow")
+                        await self.adb_bridge.sleep_screen(flow.device_id)
+                except ImportError:
+                    # Fallback if import fails (shouldn't happen)
                     logger.info(f"  [Headless] Auto-sleeping screen after successful flow")
                     await self.adb_bridge.sleep_screen(flow.device_id)
                 except Exception as sleep_error:

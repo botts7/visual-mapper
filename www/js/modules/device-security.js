@@ -121,6 +121,23 @@ class DeviceSecurityUI {
                         ${hasPasscode ? 'Passcode is already saved (encrypted). Enter a new passcode to update it.' : 'Enter your device passcode. It will be encrypted and stored securely.'}
                     </p>
 
+                    <div class="security-warning" style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px; margin-bottom: 15px;">
+                        <strong style="color: #856404;">⚠️ Privacy Notice:</strong>
+                        <p style="color: #856404; margin: 8px 0 0 0; font-size: 13px;">
+                            When auto-unlock runs, each PIN digit will briefly appear on the device screen before being masked.
+                            This is Android's built-in behavior and cannot be hidden via ADB.
+                            Consider using <strong>Smart Lock</strong> for a more discrete unlock experience.
+                        </p>
+                    </div>
+
+                    <div class="security-info" style="background: #e3f2fd; border: 1px solid #2196f3; border-radius: 6px; padding: 12px; margin-bottom: 15px;">
+                        <strong style="color: #1565c0;">🔒 Lockout Protection:</strong>
+                        <p style="color: #1565c0; margin: 8px 0 0 0; font-size: 13px;">
+                            To prevent device lockout, auto-unlock will only attempt <strong>2 times</strong> before entering a 5-minute cooldown.
+                            If unlock fails, you'll need to manually unlock the device.
+                        </p>
+                    </div>
+
                     <div class="form-group">
                         <label for="passcode-input">Passcode / PIN:</label>
                         <input type="password" id="passcode-input" class="form-control" placeholder="Enter passcode">

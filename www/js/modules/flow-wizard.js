@@ -22,7 +22,7 @@ import SensorCreator from './sensor-creator.js?v=0.0.9';
 // Step modules
 import * as Step1 from './flow-wizard-step1.js?v=0.0.5';
 import * as Step2 from './flow-wizard-step2.js?v=0.0.5';
-import * as Step3 from './flow-wizard-step3.js?v=0.0.14';
+import * as Step3 from './flow-wizard-step3.js?v=0.0.16';
 import * as Step4 from './flow-wizard-step4.js?v=0.0.5';
 import * as Step5 from './flow-wizard-step5.js?v=0.0.6';
 
@@ -130,9 +130,13 @@ class FlowWizard {
      * Setup cleanup handlers for page unload
      */
     setupCleanup() {
-        // Resume scheduler when leaving the page
+        // Resume scheduler and mark wizard inactive when leaving the page
         window.addEventListener('beforeunload', () => {
             this.resumeSchedulerAfterEditing();
+            // Mark wizard inactive for the device (if any)
+            if (this._wizardActiveDevice) {
+                this.setWizardInactive(this._wizardActiveDevice);
+            }
         });
 
         // Also handle visibility change (tab switch)
@@ -192,6 +196,36 @@ class FlowWizard {
         } else {
             const indicator = document.getElementById('scheduler-pause-indicator');
             if (indicator) indicator.remove();
+        }
+    }
+
+    /**
+     * Mark device as having active wizard session
+     * Prevents auto-sleep after flow execution while wizard is open
+     */
+    async setWizardActive(deviceId) {
+        if (!deviceId) return;
+        try {
+            await this.apiClient.post(`/wizard/active/${encodeURIComponent(deviceId)}`);
+            console.log(`[FlowWizard] Marked wizard active for device ${deviceId}`);
+            this._wizardActiveDevice = deviceId;
+        } catch (e) {
+            console.warn('[FlowWizard] Could not mark wizard active:', e);
+        }
+    }
+
+    /**
+     * Mark device as no longer having active wizard session
+     * Re-enables auto-sleep after flow execution
+     */
+    async setWizardInactive(deviceId) {
+        if (!deviceId) return;
+        try {
+            await this.apiClient.delete(`/wizard/active/${encodeURIComponent(deviceId)}`);
+            console.log(`[FlowWizard] Marked wizard inactive for device ${deviceId}`);
+            this._wizardActiveDevice = null;
+        } catch (e) {
+            console.warn('[FlowWizard] Could not mark wizard inactive:', e);
         }
     }
 

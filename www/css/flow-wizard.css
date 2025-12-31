@@ -2127,6 +2127,9 @@ img.app-icon {
 
 /* Suggestion Card in Tab */
 .suggestion-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 6px;
@@ -2166,24 +2169,245 @@ img.app-icon {
     font-weight: 600;
     font-size: 13px;
     color: var(--text-primary);
+}
+
+.suggestion-details {
     flex: 1;
+    min-width: 0;
+}
+
+/* Prominent value display */
+.suggestion-value-big {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin: 4px 0;
+    line-height: 1.2;
+}
+
+/* Meta info row (device class + confidence) */
+.suggestion-meta {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.suggestion-device-class {
+    background: var(--bg-secondary);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 500;
 }
 
 .suggestion-confidence {
     font-size: 11px;
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 10px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* Suggestion action buttons */
+.suggestion-buttons {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+    margin-left: auto;
+    align-self: center;
+}
+
+.suggestion-buttons .btn-edit,
+.suggestion-buttons .btn-quick-add {
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.suggestion-buttons .btn-edit {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.suggestion-buttons .btn-edit:hover {
+    background: var(--bg-hover);
+    border-color: var(--primary-color);
+}
+
+.suggestion-buttons .btn-quick-add {
     background: var(--primary-color);
+    color: white;
+    border: none;
+}
+
+.suggestion-buttons .btn-quick-add:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+}
+
+/* Suggestion Edit Dialog */
+.suggestion-edit-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.suggestion-edit-dialog {
+    background: var(--bg-primary);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    width: 90%;
+    max-width: 450px;
+    max-height: 90vh;
+    overflow: auto;
+}
+
+.suggestion-edit-dialog .dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.suggestion-edit-dialog .dialog-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.suggestion-edit-dialog .dialog-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    padding: 0;
+    line-height: 1;
+}
+
+.suggestion-edit-dialog .dialog-close:hover {
+    color: var(--text-primary);
+}
+
+.suggestion-edit-dialog .dialog-body {
+    padding: 20px;
+}
+
+.suggestion-edit-dialog .form-group {
+    margin-bottom: 16px;
+}
+
+.suggestion-edit-dialog .form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.suggestion-edit-dialog .form-group input,
+.suggestion-edit-dialog .form-group select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 14px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.suggestion-edit-dialog .form-group input:focus,
+.suggestion-edit-dialog .form-group select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.2);
+}
+
+.suggestion-edit-dialog .suggestion-preview {
+    background: var(--bg-secondary);
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.suggestion-edit-dialog .dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.suggestion-edit-dialog .dialog-footer .btn {
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.suggestion-edit-dialog .dialog-footer .btn-secondary {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.suggestion-edit-dialog .dialog-footer .btn-secondary:hover {
+    background: var(--bg-hover);
+}
+
+.suggestion-edit-dialog .dialog-footer .btn-primary {
+    background: var(--primary-color);
+    border: none;
     color: white;
 }
 
-.suggestion-details {
+.suggestion-edit-dialog .dialog-footer .btn-primary:hover {
+    background: var(--primary-hover);
+}
+
+.suggestions-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+    gap: 10px;
+    color: var(--text-secondary);
+}
+
+.suggestions-loading .spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.suggestions-empty .hint {
     font-size: 12px;
     color: var(--text-secondary);
-    margin-left: 26px;
-    display: flex;
-    gap: 12px;
+    margin-top: 5px;
 }
 
 .suggestion-detail-item {
@@ -2207,4 +2431,374 @@ img.app-icon {
 .suggestions-actions .btn-sm {
     padding: 6px 12px;
     font-size: 13px;
+}
+
+/* ==========================================
+   Navigation Info Panel (Step 2)
+   ========================================== */
+
+.navigation-info-panel {
+    background: var(--card-background);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+}
+
+.nav-loading {
+    color: var(--text-secondary);
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.nav-no-data {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.nav-no-data .nav-icon {
+    font-size: 20px;
+}
+
+.nav-no-data .nav-text {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.nav-no-data .nav-hint {
+    width: 100%;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-left: 30px;
+}
+
+.nav-data-found {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.nav-data-found .nav-icon {
+    font-size: 24px;
+}
+
+.nav-data-found .nav-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.nav-stats {
+    display: flex;
+    gap: 16px;
+    margin-left: auto;
+}
+
+.nav-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 12px;
+    background: var(--background-color);
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}
+
+.nav-stat .stat-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+.nav-stat .stat-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+}
+
+.nav-stat.home .stat-value {
+    color: #22c55e;
+}
+
+.nav-data-found .nav-hint {
+    width: 100%;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-left: 34px;
+    margin-top: 4px;
+}
+
+/* ==========================================
+   Navigation Context Panel (Step 3 - Recording)
+   ========================================== */
+
+.navigation-context-panel {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid #2d3a5e;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.nav-context-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: #4ade80;
+    font-size: 13px;
+}
+
+.nav-context-current {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.nav-screen-badge {
+    background: rgba(74, 222, 128, 0.15);
+    border: 1px solid rgba(74, 222, 128, 0.3);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #4ade80;
+    font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.nav-screen-name {
+    color: #e2e8f0;
+    font-size: 13px;
+}
+
+.nav-context-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.nav-context-btn {
+    background: rgba(59, 130, 246, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.4);
+    color: #60a5fa;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.nav-context-btn:hover {
+    background: rgba(59, 130, 246, 0.3);
+    border-color: rgba(59, 130, 246, 0.6);
+}
+
+.nav-context-btn.active {
+    background: #3b82f6;
+    color: white;
+}
+
+/* Known Screens Dropdown */
+.nav-screens-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.nav-screens-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--card-background);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    display: none;
+}
+
+.nav-screens-list.open {
+    display: block;
+}
+
+.nav-screen-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.nav-screen-item:last-child {
+    border-bottom: none;
+}
+
+.nav-screen-item:hover {
+    background: var(--hover-background);
+}
+
+.nav-screen-item.current {
+    background: rgba(74, 222, 128, 0.1);
+}
+
+.nav-screen-item .screen-icon {
+    font-size: 14px;
+}
+
+.nav-screen-item .screen-activity {
+    font-size: 12px;
+    font-family: monospace;
+    color: var(--text-secondary);
+}
+
+/* Dark mode adjustments */
+[data-theme="dark"] .navigation-info-panel {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+[data-theme="dark"] .nav-stat {
+    background: #0f172a;
+    border-color: #334155;
+}
+
+/* =============================================================================
+   Device Preparation Dialog
+   ============================================================================= */
+
+.device-prep-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10001;
+}
+
+.device-prep-dialog {
+    background: var(--bg-primary);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    width: 90%;
+    max-width: 400px;
+    overflow: hidden;
+}
+
+.device-prep-dialog .dialog-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.device-prep-dialog .dialog-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.device-prep-dialog .dialog-body {
+    padding: 20px;
+}
+
+.device-prep-dialog .prep-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.device-prep-dialog .prep-spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.device-prep-dialog .prep-message {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.device-prep-dialog .prep-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.device-prep-dialog .prep-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.device-prep-dialog .step-icon {
+    font-size: 16px;
+    width: 24px;
+    text-align: center;
+}
+
+.device-prep-dialog .step-text {
+    color: var(--text-secondary);
+}
+
+.device-prep-dialog .dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.device-prep-dialog .btn {
+    padding: 10px 24px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.device-prep-dialog .btn-secondary {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.device-prep-dialog .btn-secondary:hover {
+    background: var(--bg-hover);
+}
+
+.device-prep-dialog .btn-primary {
+    background: var(--primary-color);
+    border: none;
+    color: white;
+}
+
+.device-prep-dialog .btn-primary:hover {
+    background: var(--primary-hover);
 }

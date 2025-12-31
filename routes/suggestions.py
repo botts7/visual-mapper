@@ -10,29 +10,32 @@ Uses pattern detection and AI analysis to identify common sensor/action types.
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 import logging
 from datetime import datetime
 from routes import get_deps
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/devices", tags=["suggestions"])
+router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
 
 
 # Request models
 class SuggestSensorsRequest(BaseModel):
     device_id: str
+    package_name: Optional[str] = None
 
 
 class SuggestActionsRequest(BaseModel):
     device_id: str
+    package_name: Optional[str] = None
 
 
 # =============================================================================
 # SMART SENSOR SUGGESTIONS
 # =============================================================================
 
-@router.post("/suggest-sensors")
+@router.post("/sensors")
 async def suggest_sensors(request: SuggestSensorsRequest):
     """
     Analyze current screen and suggest Home Assistant sensors
@@ -79,7 +82,7 @@ async def suggest_sensors(request: SuggestSensorsRequest):
 # SMART ACTION SUGGESTIONS
 # =============================================================================
 
-@router.post("/suggest-actions")
+@router.post("/actions")
 async def suggest_actions(request: SuggestActionsRequest):
     """
     Analyze current screen and suggest Home Assistant actions

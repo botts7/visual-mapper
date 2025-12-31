@@ -745,6 +745,7 @@ class MQTTManager:
         - visual_mapper/{device_id}/status - Device capabilities and info
         - visual_mapper/{device_id}/flow/+/result - Flow execution results
         - visual_mapper/{device_id}/gesture/result - Gesture execution results
+        - visual_mapper/{device_id}/navigation/learn - Navigation learning data
 
         Args:
             device_id: Android device ID (e.g., "192.168.86.2")
@@ -762,7 +763,8 @@ class MQTTManager:
                 f"visual_mapper/{sanitized_device}/availability",
                 f"visual_mapper/{sanitized_device}/status",
                 f"visual_mapper/{sanitized_device}/flow/+/result",
-                f"visual_mapper/{sanitized_device}/gesture/result"
+                f"visual_mapper/{sanitized_device}/gesture/result",
+                f"visual_mapper/{sanitized_device}/navigation/learn"
             ]
 
             if IS_WINDOWS:
@@ -890,6 +892,46 @@ class MQTTManager:
             self._gesture_result_callback = callback
             logger.info("[MQTTManager] Gesture result callback registered (Linux)")
 
+    def set_navigation_learn_callback(self, callback):
+        """
+        Set callback for navigation learning messages from companion app.
+
+        Callback signature: async callback(device_id: str, payload: str)
+
+        The callback receives the raw JSON payload from the companion app
+        containing transition data for navigation learning.
+
+        Args:
+            callback: Async function to call when navigation learn message received
+        """
+        if IS_WINDOWS:
+            def on_message_sync(client, userdata, message):
+                import re
+                topic = message.topic
+                # Match: visual_mapper/{device_id}/navigation/learn
+                match = re.match(r"visual_mapper/([^/]+)/navigation/learn", topic)
+                if match:
+                    device_id = match.group(1)
+                    try:
+                        payload = message.payload.decode()
+                        # Run async callback in event loop (thread-safe)
+                        if self._event_loop:
+                            import asyncio
+                            asyncio.run_coroutine_threadsafe(
+                                callback(device_id, payload),
+                                self._event_loop
+                            )
+                        else:
+                            logger.error("[MQTTManager] Event loop not available for navigation learn callback")
+                    except Exception as e:
+                        logger.error(f"[MQTTManager] Error processing navigation learn message: {e}")
+
+            self.client.on_message = on_message_sync
+            logger.info("[MQTTManager] Navigation learn callback registered (Windows)")
+        else:
+            self._navigation_learn_callback = callback
+            logger.info("[MQTTManager] Navigation learn callback registered (Linux)")
+
     async def publish_flow_command(self, device_id: str, flow_id: str, payload: dict) -> bool:
         """
         Publish flow execution command to companion app.
@@ -964,4 +1006,186 @@ class MQTTManager:
 
         except Exception as e:
             logger.error(f"[MQTTManager] Failed to publish gesture command: {e}")
+            return False
+
+    # ========== UI Tree Discovery Methods ==========
+
+    async def request_ui_tree(self, device_id: str, package_name: str = None, timeout: float = 10.0) -> Optional[Dict[str, Any]]:
+        """
+        Request UI tree from Android companion app and wait for response.
+
+        This uses a request-response pattern with asyncio.Future to wait
+        for the companion app to return the current UI hierarchy.
+
+        Args:
+            device_id: Android device ID (sanitized or unsanitized)
+            package_name: Optional package name to filter for specific app
+            timeout: Maximum seconds to wait for response (default 10s)
+
+        Returns:
+            UI tree dict with elements, or None if timeout/error
+
+        Response structure from Android:
+        {
+            "request_id": "uuid",
+            "package": "com.example.app",
+            "activity": "MainActivity",
+            "elements": [
+                {
+                    "resource_id": "com.example:id/button1",
+                    "class": "android.widget.Button",
+                    "text": "Click Me",
+                    "content_desc": "Button description",
+                    "bounds": {"left": 0, "top": 100, "right": 200, "bottom": 150},
+                    "clickable": true,
+                    "scrollable": false,
+                    "children": [...]
+                }
+            ],
+            "timestamp": 1234567890
+        }
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected to broker - cannot request UI tree")
+            return None
+
+        import uuid
+        request_id = str(uuid.uuid4())
+
+        # Create a Future to wait for the response
+        response_future = asyncio.Future()
+
+        # Store pending request
+        if not hasattr(self, '_pending_ui_requests'):
+            self._pending_ui_requests = {}
+        self._pending_ui_requests[request_id] = response_future
+
+        try:
+            sanitized_device = self._sanitize_device_id(device_id)
+
+            # Subscribe to response topic if not already
+            response_topic = f"visual_mapper/{sanitized_device}/ui/response"
+            if IS_WINDOWS:
+                self.client.subscribe(response_topic)
+            else:
+                await self.client.subscribe(response_topic)
+
+            # Build request payload
+            request_payload = {
+                "request_id": request_id,
+                "command": "get_ui_tree",
+                "package": package_name,
+                "timestamp": datetime.now().isoformat()
+            }
+
+            # Publish request
+            request_topic = f"visual_mapper/{sanitized_device}/ui/request"
+            payload_json = json.dumps(request_payload)
+
+            if IS_WINDOWS:
+                result = self.client.publish(request_topic, payload_json, qos=1)
+                if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                    logger.error(f"[MQTTManager] Failed to publish UI tree request")
+                    return None
+            else:
+                await self.client.publish(request_topic, payload_json, qos=1)
+
+            logger.info(f"[MQTTManager] Sent UI tree request to {device_id}, request_id={request_id}")
+
+            # Wait for response with timeout
+            try:
+                response = await asyncio.wait_for(response_future, timeout=timeout)
+                logger.info(f"[MQTTManager] Received UI tree response for request {request_id}")
+                return response
+            except asyncio.TimeoutError:
+                logger.warning(f"[MQTTManager] UI tree request timed out after {timeout}s")
+                return None
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to request UI tree: {e}")
+            return None
+        finally:
+            # Clean up pending request
+            self._pending_ui_requests.pop(request_id, None)
+
+    def _setup_ui_response_handler(self):
+        """
+        Setup handler for UI tree responses from companion app.
+        Called once during initialization or first UI request.
+        """
+        if hasattr(self, '_ui_response_handler_setup'):
+            return
+
+        if IS_WINDOWS:
+            # Store the original callback if any
+            original_callback = getattr(self.client, 'on_message', None)
+
+            def on_message_with_ui(client, userdata, message):
+                import re
+                topic = message.topic
+
+                # Check for UI response
+                match = re.match(r"visual_mapper/([^/]+)/ui/response", topic)
+                if match:
+                    try:
+                        response_data = json.loads(message.payload.decode())
+                        request_id = response_data.get('request_id')
+
+                        if request_id and hasattr(self, '_pending_ui_requests'):
+                            future = self._pending_ui_requests.get(request_id)
+                            if future and not future.done():
+                                # Set result in the event loop thread
+                                if self._event_loop:
+                                    self._event_loop.call_soon_threadsafe(
+                                        future.set_result, response_data
+                                    )
+                    except Exception as e:
+                        logger.error(f"[MQTTManager] Error processing UI response: {e}")
+
+                # Call original callback if exists
+                if original_callback:
+                    original_callback(client, userdata, message)
+
+            self.client.on_message = on_message_with_ui
+            self._ui_response_handler_setup = True
+            logger.info("[MQTTManager] UI response handler registered (Windows)")
+        else:
+            # Linux: Store for manual message loop
+            self._ui_response_handler_setup = True
+            logger.info("[MQTTManager] UI response handler registered (Linux)")
+
+    async def subscribe_ui_topics(self, device_id: str) -> bool:
+        """
+        Subscribe to UI-related topics for a device.
+
+        Topics subscribed:
+        - visual_mapper/{device_id}/ui/response - UI tree responses
+
+        Args:
+            device_id: Android device ID
+
+        Returns:
+            True if subscription successful
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected to broker")
+            return False
+
+        try:
+            # Setup response handler first
+            self._setup_ui_response_handler()
+
+            sanitized_device = self._sanitize_device_id(device_id)
+            topic = f"visual_mapper/{sanitized_device}/ui/response"
+
+            if IS_WINDOWS:
+                self.client.subscribe(topic)
+            else:
+                await self.client.subscribe(topic)
+
+            logger.info(f"[MQTTManager] Subscribed to UI response topic: {topic}")
+            return True
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to subscribe to UI topics: {e}")
             return False

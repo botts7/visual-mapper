@@ -182,7 +182,8 @@ async def auto_unlock_device(device_id: str):
     Returns:
         {
             "success": bool,
-            "message": str
+            "message": str,
+            "unlock_status": dict (failure_count, in_cooldown, etc.)
         }
     """
     deps = get_deps()
@@ -194,33 +195,114 @@ async def auto_unlock_device(device_id: str):
         if device_id not in device_ids:
             raise HTTPException(status_code=404, detail=f"Device {device_id} not connected")
 
+        # Check unlock status first
+        unlock_status = deps.adb_bridge.get_unlock_status(device_id)
+
+        if unlock_status["in_cooldown"]:
+            logger.warning(f"[API] Auto-unlock blocked - device {device_id} in cooldown")
+            return {
+                "success": False,
+                "message": f"Unlock blocked - in cooldown for {unlock_status['cooldown_remaining_seconds']}s to prevent device lockout. Please unlock manually.",
+                "unlock_status": unlock_status
+            }
+
         # Get security config
         config = deps.device_security_manager.get_lock_config(device_id)
 
         if not config:
-            return {"success": False, "message": "No security config found"}
+            return {"success": False, "message": "No security config found", "unlock_status": unlock_status}
 
         if config.get('strategy') != "auto_unlock":
-            return {"success": False, "message": f"Device is configured for {config.get('strategy')}, not auto_unlock"}
+            return {"success": False, "message": f"Device is configured for {config.get('strategy')}, not auto_unlock", "unlock_status": unlock_status}
 
         # Get decrypted passcode
         passcode = deps.device_security_manager.get_passcode(device_id)
 
         if not passcode:
-            return {"success": False, "message": "No passcode stored"}
+            return {"success": False, "message": "No passcode stored", "unlock_status": unlock_status}
 
         # Attempt unlock
         success = await deps.adb_bridge.unlock_device(device_id, passcode)
 
+        # Get updated status after attempt
+        unlock_status = deps.adb_bridge.get_unlock_status(device_id)
+
         if success:
             logger.info(f"[API] Auto-unlocked device {device_id}")
-            return {"success": True, "message": "Device unlocked successfully"}
+            return {"success": True, "message": "Device unlocked successfully", "unlock_status": unlock_status}
         else:
             logger.warning(f"[API] Auto-unlock failed for {device_id}")
-            return {"success": False, "message": "Failed to unlock device"}
+            message = "Failed to unlock device"
+            if unlock_status["in_cooldown"]:
+                message = f"Unlock failed - max attempts reached. In cooldown for {unlock_status['cooldown_remaining_seconds']}s. Please unlock manually."
+            elif unlock_status["failure_count"] > 0:
+                remaining = unlock_status["max_attempts"] - unlock_status["failure_count"]
+                message = f"Unlock failed - {remaining} attempt(s) remaining before cooldown"
+            return {"success": False, "message": message, "unlock_status": unlock_status}
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"[API] Error auto-unlocking {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{device_id}/unlock-status")
+async def get_unlock_status(device_id: str):
+    """
+    Get unlock attempt status for device.
+
+    Returns information about failed unlock attempts and cooldown status.
+    Use this to check if the device needs manual intervention.
+
+    Returns:
+        {
+            "device_id": str,
+            "failure_count": int,
+            "in_cooldown": bool,
+            "cooldown_remaining_seconds": int,
+            "locked_out": bool,
+            "max_attempts": int
+        }
+    """
+    deps = get_deps()
+    try:
+        status = deps.adb_bridge.get_unlock_status(device_id)
+        return {
+            "device_id": device_id,
+            **status
+        }
+    except Exception as e:
+        logger.error(f"[API] Error getting unlock status for {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{device_id}/reset-unlock-failures")
+async def reset_unlock_failures(device_id: str):
+    """
+    Reset unlock failure count for device.
+
+    Call this after manually unlocking the device to allow
+    auto-unlock attempts again.
+
+    Returns:
+        {
+            "success": bool,
+            "message": str,
+            "unlock_status": dict
+        }
+    """
+    deps = get_deps()
+    try:
+        deps.adb_bridge.reset_unlock_failures(device_id)
+        status = deps.adb_bridge.get_unlock_status(device_id)
+
+        logger.info(f"[API] Reset unlock failures for {device_id}")
+        return {
+            "success": True,
+            "message": "Unlock failures reset successfully",
+            "unlock_status": status
+        }
+    except Exception as e:
+        logger.error(f"[API] Error resetting unlock failures for {device_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

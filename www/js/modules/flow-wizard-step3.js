@@ -36,8 +36,19 @@ export async function loadStep3(wizard) {
     console.log('Loading Step 3: Recording Mode');
     showToast(`Starting recording session...`, 'info');
 
+    // Mark wizard as active on this device (prevents auto-sleep from flow executions)
+    if (wizard.selectedDevice) {
+        wizard.setWizardActive(wizard.selectedDevice);
+    }
+
+    // Start keep-awake immediately to prevent device screen timeout
+    startKeepAwake(wizard);
+
     // Populate app info header
     populateAppInfo(wizard);
+
+    // Setup navigation context panel if navigation data is available
+    setupNavigationContext(wizard);
 
     // Phase 1 Screen Awareness: Update screen info initially
     updateScreenInfo(wizard);
@@ -61,6 +72,11 @@ export async function loadStep3(wizard) {
     // Initialize FlowRecorder (pass package name, not full object)
     const packageName = wizard.selectedApp?.package || wizard.selectedApp;
     wizard.recorder = new FlowRecorder(wizard.selectedDevice, packageName, wizard.recordMode);
+
+    // Pass navigation context to recorder if available
+    if (wizard.navigationGraph) {
+        wizard.recorder.setNavigationContext(wizard.currentScreenId || null, wizard.navigationGraph);
+    }
 
     // Setup UI event listeners
     setupRecordingUI(wizard);
@@ -119,6 +135,190 @@ export function populateAppInfo(wizard) {
 }
 
 /**
+ * Setup navigation context panel if navigation data is available
+ * Shows current screen from navigation graph and known screens
+ */
+export function setupNavigationContext(wizard) {
+    // Only show if we have navigation data from Step 2
+    if (!wizard.navigationGraph || !wizard.navigationStats) {
+        console.log('[FlowWizard] No navigation data available, skipping context panel');
+        return;
+    }
+
+    const screenshotPanel = document.querySelector('.screenshot-panel');
+    if (!screenshotPanel) {
+        console.warn('[FlowWizard] Screenshot panel not found');
+        return;
+    }
+
+    // Create navigation context panel
+    const navPanel = document.createElement('div');
+    navPanel.id = 'navigationContextPanel';
+    navPanel.className = 'navigation-context-panel';
+    navPanel.innerHTML = `
+        <div class="nav-context-title">
+            <span>🗺️</span>
+            <span>Navigation</span>
+        </div>
+        <div class="nav-context-current">
+            <span class="nav-screen-badge" id="navCurrentScreen">--</span>
+            <span class="nav-screen-name" id="navScreenName">Loading...</span>
+        </div>
+        <div class="nav-context-actions">
+            <div class="nav-screens-dropdown">
+                <button class="nav-context-btn" id="btnShowScreens">
+                    📋 Screens (${wizard.navigationStats.screen_count})
+                </button>
+                <div class="nav-screens-list" id="navScreensList"></div>
+            </div>
+        </div>
+    `;
+
+    // Insert before the quick-actions-bar
+    const quickActionsBar = screenshotPanel.querySelector('.quick-actions-bar');
+    if (quickActionsBar) {
+        screenshotPanel.insertBefore(navPanel, quickActionsBar);
+    } else {
+        screenshotPanel.prepend(navPanel);
+    }
+
+    // Populate known screens
+    populateKnownScreens(wizard);
+
+    // Setup dropdown toggle
+    const btnShowScreens = document.getElementById('btnShowScreens');
+    const screensList = document.getElementById('navScreensList');
+
+    if (btnShowScreens && screensList) {
+        btnShowScreens.addEventListener('click', (e) => {
+            e.stopPropagation();
+            screensList.classList.toggle('open');
+            btnShowScreens.classList.toggle('active');
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.nav-screens-dropdown')) {
+                screensList.classList.remove('open');
+                btnShowScreens.classList.remove('active');
+            }
+        });
+    }
+
+    console.log('[FlowWizard] Navigation context panel initialized');
+}
+
+/**
+ * Populate the known screens dropdown from navigation graph
+ */
+function populateKnownScreens(wizard) {
+    const screensList = document.getElementById('navScreensList');
+    if (!screensList || !wizard.navigationGraph?.screens) return;
+
+    const screens = Object.values(wizard.navigationGraph.screens);
+
+    if (screens.length === 0) {
+        screensList.innerHTML = '<div class="nav-screen-item">No screens recorded yet</div>';
+        return;
+    }
+
+    screensList.innerHTML = screens.map(screen => {
+        const activityShort = screen.activity?.split('.').pop() || 'Unknown';
+        const displayName = screen.display_name || activityShort;
+        const isHome = screen.is_home_screen ? '🏠' : '📱';
+
+        return `
+            <div class="nav-screen-item" data-screen-id="${screen.screen_id}" data-activity="${screen.activity || ''}">
+                <span class="screen-icon">${isHome}</span>
+                <span class="screen-name">${displayName}</span>
+                <span class="screen-activity">${activityShort}</span>
+            </div>
+        `;
+    }).join('');
+
+    // Setup click handlers for screen items
+    screensList.querySelectorAll('.nav-screen-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const activity = item.dataset.activity;
+            if (activity) {
+                console.log('[FlowWizard] Screen selected from nav:', activity);
+                // Could navigate to this screen in the future
+            }
+        });
+    });
+}
+
+/**
+ * Update navigation context with current screen
+ * Called when screen info is updated
+ */
+export function updateNavigationContext(wizard, activityInfo) {
+    const navCurrentScreen = document.getElementById('navCurrentScreen');
+    const navScreenName = document.getElementById('navScreenName');
+    const screensList = document.getElementById('navScreensList');
+
+    if (!navCurrentScreen || !navScreenName) return;
+
+    if (!activityInfo?.activity) {
+        navCurrentScreen.textContent = '--';
+        navScreenName.textContent = 'Unknown screen';
+        return;
+    }
+
+    const currentActivity = activityInfo.activity;
+    const shortName = currentActivity.split('.').pop();
+
+    // Check if this screen is in our navigation graph
+    let screenInfo = null;
+    let screenId = null;
+
+    if (wizard.navigationGraph?.screens) {
+        for (const [id, screen] of Object.entries(wizard.navigationGraph.screens)) {
+            if (screen.activity === currentActivity) {
+                screenInfo = screen;
+                screenId = id;
+                break;
+            }
+        }
+    }
+
+    if (screenInfo) {
+        const displayName = screenInfo.display_name || shortName;
+        const isHome = screenInfo.is_home_screen ? ' 🏠' : '';
+        navCurrentScreen.textContent = shortName;
+        navScreenName.textContent = `${displayName}${isHome} (known)`;
+        navCurrentScreen.style.color = '#4ade80';
+        navCurrentScreen.style.borderColor = 'rgba(74, 222, 128, 0.3)';
+
+        // Store current screen ID for use in step recording
+        wizard.currentScreenId = screenId;
+
+        // Sync with recorder so new steps include this screen ID
+        if (wizard.recorder) {
+            wizard.recorder.setNavigationContext(screenId);
+        }
+
+        // Highlight current screen in dropdown
+        if (screensList) {
+            screensList.querySelectorAll('.nav-screen-item').forEach(item => {
+                item.classList.toggle('current', item.dataset.activity === currentActivity);
+            });
+        }
+    } else {
+        navCurrentScreen.textContent = shortName;
+        navScreenName.textContent = 'New screen (will be learned)';
+        navCurrentScreen.style.color = '#fbbf24';
+        navCurrentScreen.style.borderColor = 'rgba(251, 191, 36, 0.3)';
+        wizard.currentScreenId = null;
+
+        // Clear screen ID on recorder
+        if (wizard.recorder) {
+            wizard.recorder.setNavigationContext(null);
+        }
+    }
+}
+
+/**
  * Phase 1 Screen Awareness: Update current screen info in toolbar
  * Shows the current Android activity name
  */
@@ -143,12 +343,17 @@ export async function updateScreenInfo(wizard) {
             activityEl.textContent = shortName;
             activityEl.title = activityInfo.full_name || activityInfo.activity;
             console.log(`[FlowWizard] Screen: ${shortName} (${activityInfo.package})`);
+
+            // Update navigation context panel if available
+            updateNavigationContext(wizard, activityInfo);
         } else {
             activityEl.textContent = '--';
+            updateNavigationContext(wizard, null);
         }
     } catch (e) {
         console.warn('[FlowWizard] Error updating screen info:', e);
         activityEl.textContent = '--';
+        updateNavigationContext(wizard, null);
     }
 }
 
@@ -645,16 +850,282 @@ export function setCaptureMode(wizard, mode) {
 }
 
 /**
- * Start live streaming
+ * Prepare device for streaming - check lock, wake screen, unlock if needed
+ * Shows a status dialog keeping user informed
  */
-export function startStreaming(wizard) {
+async function prepareDeviceForStreaming(wizard) {
+    return new Promise((resolve) => {
+        // Create preparation dialog
+        const dialog = document.createElement('div');
+        dialog.className = 'dialog-overlay device-prep-dialog-overlay';
+        dialog.innerHTML = `
+            <div class="dialog device-prep-dialog">
+                <div class="dialog-header">
+                    <h3>Preparing Device</h3>
+                </div>
+                <div class="dialog-body">
+                    <div class="prep-status">
+                        <div class="prep-spinner"></div>
+                        <div class="prep-message" id="prepMessage">Checking device state...</div>
+                    </div>
+                    <div class="prep-steps">
+                        <div class="prep-step" id="step-screen">
+                            <span class="step-icon">⏳</span>
+                            <span class="step-text">Check screen state</span>
+                        </div>
+                        <div class="prep-step" id="step-wake">
+                            <span class="step-icon">⏳</span>
+                            <span class="step-text">Wake screen if needed</span>
+                        </div>
+                        <div class="prep-step" id="step-unlock">
+                            <span class="step-icon">⏳</span>
+                            <span class="step-text">Unlock device</span>
+                        </div>
+                        <div class="prep-step" id="step-connect">
+                            <span class="step-icon">⏳</span>
+                            <span class="step-text">Connect to stream</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="dialog-footer">
+                    <button class="btn btn-secondary" id="prepCancel">Cancel</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(dialog);
+
+        const messageEl = dialog.querySelector('#prepMessage');
+        const cancelBtn = dialog.querySelector('#prepCancel');
+        let cancelled = false;
+
+        const updateStep = (stepId, status) => {
+            const step = dialog.querySelector(`#${stepId}`);
+            if (step) {
+                const icon = step.querySelector('.step-icon');
+                if (status === 'done') icon.textContent = '✅';
+                else if (status === 'fail') icon.textContent = '❌';
+                else if (status === 'skip') icon.textContent = '⏭️';
+                else if (status === 'working') icon.textContent = '🔄';
+            }
+        };
+
+        const cleanup = () => {
+            dialog.remove();
+        };
+
+        cancelBtn.addEventListener('click', () => {
+            cancelled = true;
+            cleanup();
+            resolve(false);
+        });
+
+        // Run preparation sequence
+        (async () => {
+            try {
+                // Step 1: Check screen and lock state
+                updateStep('step-screen', 'working');
+                messageEl.textContent = 'Checking device state...';
+
+                const apiBase = wizard.recorder?.apiBase || '/api';
+                const lockResponse = await fetch(`${apiBase}/adb/lock-status/${encodeURIComponent(wizard.selectedDevice)}`);
+
+                if (cancelled) return;
+
+                if (!lockResponse.ok) {
+                    updateStep('step-screen', 'skip');
+                    updateStep('step-wake', 'skip');
+                    updateStep('step-unlock', 'skip');
+                    messageEl.textContent = 'Could not check device state, continuing...';
+                    await new Promise(r => setTimeout(r, 1000));
+                    updateStep('step-connect', 'done');
+                    cleanup();
+                    resolve(true);
+                    return;
+                }
+
+                const lockState = await lockResponse.json();
+                updateStep('step-screen', 'done');
+
+                if (cancelled) return;
+
+                // Step 2: Wake screen if needed
+                if (!lockState.screen_on) {
+                    updateStep('step-wake', 'working');
+                    messageEl.textContent = 'Waking screen...';
+                    await fetch(`${apiBase}/adb/wake/${encodeURIComponent(wizard.selectedDevice)}`, { method: 'POST' });
+                    await new Promise(r => setTimeout(r, 500));
+                    updateStep('step-wake', 'done');
+                } else {
+                    updateStep('step-wake', 'skip');
+                }
+
+                if (cancelled) return;
+
+                // Step 3: Unlock if needed
+                if (lockState.is_locked) {
+                    updateStep('step-unlock', 'working');
+                    messageEl.textContent = 'Device is locked, attempting unlock...';
+
+                    // Try auto-unlock first
+                    const securityResponse = await fetch(`${apiBase}/device/${encodeURIComponent(wizard.selectedDevice)}/security`);
+
+                    if (cancelled) return;
+
+                    let unlockSuccess = false;
+
+                    if (securityResponse.ok) {
+                        const securityConfig = await securityResponse.json();
+
+                        if (securityConfig.config?.strategy === 'auto_unlock' && securityConfig.config?.has_passcode) {
+                            messageEl.textContent = 'Using stored passcode...';
+                            const unlockResponse = await fetch(`${apiBase}/device/${encodeURIComponent(wizard.selectedDevice)}/auto-unlock`, {
+                                method: 'POST'
+                            });
+
+                            if (unlockResponse.ok) {
+                                const result = await unlockResponse.json();
+                                unlockSuccess = result.success;
+                            }
+                        }
+                    }
+
+                    if (cancelled) return;
+
+                    // Fallback: Try swipe unlock
+                    if (!unlockSuccess) {
+                        messageEl.textContent = 'Trying swipe unlock...';
+                        const swipeResponse = await fetch(`${apiBase}/adb/unlock/${encodeURIComponent(wizard.selectedDevice)}`, {
+                            method: 'POST'
+                        });
+
+                        if (swipeResponse.ok) {
+                            const result = await swipeResponse.json();
+                            unlockSuccess = result.success;
+                        }
+                    }
+
+                    if (cancelled) return;
+
+                    if (unlockSuccess) {
+                        updateStep('step-unlock', 'done');
+                        messageEl.textContent = 'Device unlocked!';
+                        showToast('🔓 Device unlocked', 'success', 2000);
+                        await new Promise(r => setTimeout(r, 300));
+                    } else {
+                        updateStep('step-unlock', 'fail');
+                        messageEl.textContent = 'Please unlock device manually, then click Continue';
+
+                        // Change cancel button to continue
+                        cancelBtn.textContent = 'Continue Anyway';
+                        cancelBtn.className = 'btn btn-primary';
+
+                        // Wait for user to click continue
+                        await new Promise(resolveWait => {
+                            cancelBtn.onclick = () => {
+                                resolveWait();
+                            };
+                        });
+                    }
+                } else {
+                    updateStep('step-unlock', 'skip');
+                }
+
+                if (cancelled) return;
+
+                // Step 4: Preload screenshot in background while finishing up
+                updateStep('step-connect', 'working');
+                messageEl.textContent = 'Loading first frame...';
+
+                // Fetch screenshot to preload (don't wait too long)
+                try {
+                    const screenshotPromise = fetch(`${apiBase}/adb/screenshot`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ device_id: wizard.selectedDevice, quick: false })
+                    });
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject('timeout'), 3000));
+
+                    const response = await Promise.race([screenshotPromise, timeoutPromise]);
+                    if (response && response.ok) {
+                        const data = await response.json();
+                        if (data.screenshot) {
+                            // Preload the image
+                            wizard._preloadedImage = data.screenshot;
+                            wizard._preloadedElements = data.elements || [];
+                            console.log('[FlowWizard] Preloaded screenshot with', wizard._preloadedElements.length, 'elements');
+                        }
+                    }
+                } catch (e) {
+                    console.log('[FlowWizard] Screenshot preload skipped:', e);
+                }
+
+                updateStep('step-connect', 'done');
+                messageEl.textContent = 'Device ready! Starting stream...';
+                await new Promise(r => setTimeout(r, 300));
+
+                cleanup();
+                resolve(true);
+
+            } catch (error) {
+                console.error('[FlowWizard] Device preparation error:', error);
+                messageEl.textContent = 'Error preparing device, continuing anyway...';
+                await new Promise(r => setTimeout(r, 1500));
+                cleanup();
+                resolve(true);
+            }
+        })();
+    });
+}
+
+/**
+ * Start live streaming with device preparation
+ */
+export async function startStreaming(wizard) {
     if (!wizard.selectedDevice) {
         showToast('No device selected', 'error');
         return;
     }
 
-    // Show loading indicator immediately
-    wizard.showLoadingOverlay('Connecting to device...');
+    // Show device preparation dialog
+    const prepared = await prepareDeviceForStreaming(wizard);
+    if (!prepared) {
+        console.log('[FlowWizard] Device preparation cancelled or failed');
+        return;
+    }
+
+    // Show loading indicator (or preloaded image if available)
+    if (wizard._preloadedImage) {
+        // Display preloaded image immediately
+        console.log('[FlowWizard] Using preloaded image');
+        const img = new Image();
+        img.onload = () => {
+            wizard.canvas.width = img.width;
+            wizard.canvas.height = img.height;
+            const ctx = wizard.canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            wizard.hideLoadingOverlay();
+            if (wizard.canvasRenderer) {
+                wizard.canvasRenderer.applyZoom();
+            }
+        };
+        img.src = 'data:image/jpeg;base64,' + wizard._preloadedImage;
+
+        // Use preloaded elements
+        if (wizard._preloadedElements && wizard._preloadedElements.length > 0) {
+            if (wizard.liveStream) {
+                wizard.liveStream.elements = wizard._preloadedElements;
+            }
+            wizard.recorder.screenshotMetadata = { elements: wizard._preloadedElements };
+            drawElementOverlays(wizard);
+        }
+
+        // Clear preloaded data
+        wizard._preloadedImage = null;
+        wizard._preloadedElements = null;
+    } else {
+        wizard.showLoadingOverlay('Starting stream...');
+    }
 
     // Pre-fetch elements while stream is connecting (faster startup)
     refreshElements(wizard).catch(e => console.warn('[FlowWizard] Pre-fetch elements failed:', e));
@@ -685,6 +1156,8 @@ export function startStreaming(wizard) {
             refreshElements(wizard);
             // Start periodic element refresh (every 3 seconds)
             startElementAutoRefresh(wizard);
+            // Start keep-awake to prevent screen timeout while working
+            startKeepAwake(wizard);
         };
 
         wizard.liveStream.onDisconnect = () => {
@@ -770,6 +1243,9 @@ export function stopStreaming(wizard) {
     // Stop element auto-refresh
     stopElementAutoRefresh(wizard);
 
+    // Stop keep-awake
+    stopKeepAwake(wizard);
+
     if (wizard.liveStream) {
         wizard.liveStream.stop();
     }
@@ -836,6 +1312,45 @@ export function stopElementAutoRefresh(wizard) {
 }
 
 /**
+ * Start keep-awake interval to prevent device screen timeout
+ * Sends periodic wake signal every 30 seconds
+ */
+export function startKeepAwake(wizard) {
+    // Clear any existing interval
+    stopKeepAwake(wizard);
+
+    if (!wizard.selectedDevice) return;
+
+    // Send wake signal every 30 seconds to prevent screen timeout
+    wizard._keepAwakeInterval = setInterval(async () => {
+        if (!wizard.selectedDevice) return;
+        try {
+            // Send wake keyevent silently
+            await fetch(`${getApiBase()}/adb/keyevent`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device_id: wizard.selectedDevice, keycode: 224 })  // KEYCODE_WAKEUP
+            });
+        } catch (e) {
+            // Silently ignore errors
+        }
+    }, 30000);  // Every 30 seconds
+
+    console.log('[FlowWizard] Keep-awake started (30s interval)');
+}
+
+/**
+ * Stop keep-awake interval
+ */
+export function stopKeepAwake(wizard) {
+    if (wizard._keepAwakeInterval) {
+        clearInterval(wizard._keepAwakeInterval);
+        wizard._keepAwakeInterval = null;
+        console.log('[FlowWizard] Keep-awake stopped');
+    }
+}
+
+/**
  * Update stream status display
  */
 export function updateStreamStatus(wizard, className, text) {
@@ -856,6 +1371,7 @@ export async function refreshElements(wizard) {
 
     try {
         let elements = [];
+        let currentPackage = null;
 
         if (wizard.captureMode === 'streaming') {
             // Fast path: elements-only endpoint (no screenshot capture)
@@ -864,6 +1380,38 @@ export async function refreshElements(wizard) {
 
             const data = await response.json();
             elements = data.elements || [];
+            currentPackage = data.current_package;
+            const currentActivity = data.current_activity;
+
+            // CRITICAL: Detect app/screen change and clear stale elements immediately
+            // This prevents old screen's elements from being shown on new screen's video
+            const packageChanged = currentPackage && wizard.currentElementsPackage &&
+                currentPackage !== wizard.currentElementsPackage;
+            const activityChanged = currentActivity && wizard.currentElementsActivity &&
+                currentActivity !== wizard.currentElementsActivity;
+
+            if (packageChanged || activityChanged) {
+                const changeType = packageChanged ? 'App' : 'Screen';
+                const from = packageChanged ? wizard.currentElementsPackage : wizard.currentElementsActivity;
+                const to = packageChanged ? currentPackage : currentActivity;
+                console.log(`[FlowWizard] ${changeType} changed: ${from} → ${to}, clearing stale elements`);
+                // Clear ALL element sources so hover/overlay don't use old data
+                if (wizard.liveStream) {
+                    wizard.liveStream.elements = [];
+                    // Force immediate redraw without old overlays
+                    if (wizard.liveStream.currentImage) {
+                        wizard.liveStream.ctx.clearRect(0, 0, wizard.liveStream.canvas.width, wizard.liveStream.canvas.height);
+                        wizard.liveStream.ctx.drawImage(wizard.liveStream.currentImage, 0, 0);
+                    }
+                }
+                // Also clear recorder metadata (hover checks this first!)
+                if (wizard.recorder?.screenshotMetadata) {
+                    wizard.recorder.screenshotMetadata.elements = [];
+                }
+            }
+            // Track current package and activity for next comparison
+            wizard.currentElementsPackage = currentPackage;
+            wizard.currentElementsActivity = currentActivity;
 
             // Update device dimensions for proper overlay scaling
             if (data.device_width && data.device_height && wizard.liveStream) {
@@ -876,7 +1424,7 @@ export async function refreshElements(wizard) {
                 }
             }
 
-            console.log(`[FlowWizard] Fast elements refresh: ${elements.length} elements`);
+            console.log(`[FlowWizard] Fast elements refresh: ${elements.length} elements (pkg: ${currentPackage || 'unknown'})`);
         } else {
             // Polling mode: full screenshot with elements
             const response = await fetch(`${getApiBase()}/adb/screenshot`, {
@@ -1007,7 +1555,13 @@ export function setupHoverTooltip(wizard) {
  * Handle mouse movement over canvas for element hover
  */
 export function handleCanvasHover(wizard, e, hoverTooltip, container) {
-    const elements = wizard.recorder?.screenshotMetadata?.elements || wizard.liveStream?.elements || [];
+    // Use elements based on current capture mode to avoid stale data
+    // In streaming mode: use liveStream.elements (updated from elements API)
+    // In polling mode: use recorder.screenshotMetadata.elements (from screenshot response)
+    const elements = wizard.captureMode === 'streaming'
+        ? (wizard.liveStream?.elements || [])
+        : (wizard.recorder?.screenshotMetadata?.elements || wizard.liveStream?.elements || []);
+
     if (elements.length === 0) {
         hideHoverTooltip(wizard, hoverTooltip);
         return;
@@ -1664,6 +2218,14 @@ export function handleTreeTap(wizard, element) {
         description: `Tap "${element.text || element.class}"`
     });
 
+    // Clear stale elements immediately (video updates faster than elements API)
+    if (wizard.captureMode === 'streaming' && wizard.liveStream) {
+        wizard.liveStream.elements = [];
+        if (wizard.recorder?.screenshotMetadata) {
+            wizard.recorder.screenshotMetadata.elements = [];
+        }
+    }
+
     showToast('Tap recorded from tree', 'success', 1500);
     refreshAfterAction(wizard, 500);
 }
@@ -1740,6 +2302,522 @@ export async function handleTreeTimestamp(wizard, element) {
 
     // Update UI to show the change
     wizard.updateFlowStepsUI();
+}
+
+/**
+ * Setup the Suggestions tab in the right panel
+ * This provides inline sensor/action suggestions without a modal
+ */
+export function setupSuggestionsTab(wizard) {
+    console.log('[FlowWizard] Setting up Suggestions tab');
+
+    const refreshBtn = document.getElementById('refreshSuggestionsBtn');
+    const selectAllBtn = document.getElementById('selectAllSuggestionsTabBtn');
+    const addSelectedBtn = document.getElementById('addSelectedSuggestionsTabBtn');
+    const suggestionsContent = document.getElementById('suggestionsContent');
+    const modeTabs = document.querySelectorAll('.suggestions-toolbar .mode-tab');
+
+    // Track current mode and suggestions
+    wizard._suggestionsMode = 'sensors';
+    wizard._sensorSuggestions = [];
+    wizard._actionSuggestions = [];
+    wizard._selectedSuggestions = new Set();
+
+    // Mode tab switching
+    modeTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            modeTabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            wizard._suggestionsMode = tab.dataset.mode;
+            renderSuggestionsContent(wizard);
+        });
+    });
+
+    // Refresh button
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', async () => {
+            await loadSuggestions(wizard);
+        });
+    }
+
+    // Select all button
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', () => {
+            const suggestions = wizard._suggestionsMode === 'sensors'
+                ? wizard._sensorSuggestions
+                : wizard._actionSuggestions;
+
+            if (wizard._selectedSuggestions.size === suggestions.length) {
+                // Deselect all
+                wizard._selectedSuggestions.clear();
+            } else {
+                // Select all
+                suggestions.forEach((_, i) => wizard._selectedSuggestions.add(i));
+            }
+            renderSuggestionsContent(wizard);
+            updateSelectedCount(wizard);
+        });
+    }
+
+    // Add selected button
+    if (addSelectedBtn) {
+        addSelectedBtn.addEventListener('click', async () => {
+            await addSelectedSuggestions(wizard);
+        });
+    }
+
+    console.log('[FlowWizard] Suggestions tab setup complete');
+}
+
+/**
+ * Load suggestions from the API for current screen
+ */
+async function loadSuggestions(wizard) {
+    const suggestionsContent = document.getElementById('suggestionsContent');
+    if (!suggestionsContent) return;
+
+    if (!wizard.selectedDevice) {
+        suggestionsContent.innerHTML = '<div class="suggestions-empty"><p>No device selected</p></div>';
+        return;
+    }
+
+    suggestionsContent.innerHTML = '<div class="suggestions-loading"><div class="spinner"></div><p>Analyzing screen...</p></div>';
+
+    try {
+        // Load sensor suggestions
+        const sensorResponse = await fetch(`${getApiBase()}/suggestions/sensors`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: wizard.selectedDevice,
+                package_name: wizard.selectedApp?.package || null
+            })
+        });
+
+        if (sensorResponse.ok) {
+            const sensorData = await sensorResponse.json();
+            wizard._sensorSuggestions = sensorData.suggestions || [];
+            document.getElementById('sensorSuggestionsCount').textContent = wizard._sensorSuggestions.length;
+        }
+
+        // Load action suggestions
+        const actionResponse = await fetch(`${getApiBase()}/suggestions/actions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: wizard.selectedDevice,
+                package_name: wizard.selectedApp?.package || null
+            })
+        });
+
+        if (actionResponse.ok) {
+            const actionData = await actionResponse.json();
+            wizard._actionSuggestions = actionData.suggestions || [];
+            document.getElementById('actionSuggestionsCount').textContent = wizard._actionSuggestions.length;
+        }
+
+        // Update total count in tab badge
+        const totalCount = wizard._sensorSuggestions.length + wizard._actionSuggestions.length;
+        document.getElementById('suggestionsCount').textContent = totalCount;
+
+        // Clear selections and render
+        wizard._selectedSuggestions.clear();
+        renderSuggestionsContent(wizard);
+        updateSelectedCount(wizard);
+
+    } catch (error) {
+        console.error('[FlowWizard] Failed to load suggestions:', error);
+        suggestionsContent.innerHTML = `<div class="suggestions-empty"><p>Failed to load suggestions: ${error.message}</p></div>`;
+    }
+}
+
+/**
+ * Render the suggestions content based on current mode
+ */
+function renderSuggestionsContent(wizard) {
+    const suggestionsContent = document.getElementById('suggestionsContent');
+    if (!suggestionsContent) return;
+
+    const suggestions = wizard._suggestionsMode === 'sensors'
+        ? wizard._sensorSuggestions
+        : wizard._actionSuggestions;
+
+    if (suggestions.length === 0) {
+        suggestionsContent.innerHTML = `
+            <div class="suggestions-empty">
+                <p>No ${wizard._suggestionsMode} found on current screen</p>
+                <p class="hint">Try scrolling or navigating to a different screen</p>
+            </div>
+        `;
+        return;
+    }
+
+    const itemsHtml = suggestions.map((suggestion, index) => {
+        const isSelected = wizard._selectedSuggestions.has(index);
+        const icon = wizard._suggestionsMode === 'sensors'
+            ? (suggestion.icon || 'mdi:eye')
+            : (suggestion.icon || 'mdi:gesture-tap');
+
+        // Get the current value and element text for prominent display
+        const currentValue = suggestion.current_value || '';
+        const elementText = suggestion.element?.text || suggestion.text || '';
+        const displayValue = currentValue || elementText || '--';
+        const unit = suggestion.unit_of_measurement || '';
+        const deviceClass = suggestion.device_class || suggestion.pattern_type || '';
+        const confidence = suggestion.confidence ? Math.round(suggestion.confidence * 100) : 0;
+
+        // Icon emoji mapping for common types
+        const iconEmoji = {
+            'mdi:thermometer': '🌡️',
+            'mdi:water-percent': '💧',
+            'mdi:battery': '🔋',
+            'mdi:lightning-bolt': '⚡',
+            'mdi:current-ac': '🔌',
+            'mdi:flash': '💡',
+            'mdi:speedometer': '🚗',
+            'mdi:map-marker-distance': '📍',
+            'mdi:signal': '📶',
+            'mdi:toggle-switch': '🔘',
+            'mdi:gesture-tap': '👆',
+            'mdi:gesture-tap-button': '🔘',
+            'mdi:form-textbox': '📝',
+            'mdi:checkbox-marked': '☑️',
+            'mdi:timer': '⏱️',
+            'mdi:percent': '📊',
+            'mdi:clock': '🕐'
+        };
+        const displayIcon = iconEmoji[icon] || '📊';
+
+        return `
+            <div class="suggestion-item ${isSelected ? 'selected' : ''}" data-index="${index}">
+                <label class="suggestion-checkbox">
+                    <input type="checkbox" ${isSelected ? 'checked' : ''}>
+                </label>
+                <div class="suggestion-icon">${displayIcon}</div>
+                <div class="suggestion-details">
+                    <div class="suggestion-name">${suggestion.name || suggestion.suggested_name || 'Unnamed'}</div>
+                    <div class="suggestion-value-big">${displayValue}${unit ? ' ' + unit : ''}</div>
+                    <div class="suggestion-meta">
+                        <span class="suggestion-device-class">${deviceClass}</span>
+                        <span class="suggestion-confidence">${confidence}%</span>
+                    </div>
+                </div>
+                <div class="suggestion-buttons">
+                    <button class="btn-edit" data-index="${index}" title="Edit before adding">Edit</button>
+                    <button class="btn-quick-add" data-index="${index}" title="Add with defaults">+ Add</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    suggestionsContent.innerHTML = `<div class="suggestions-list">${itemsHtml}</div>`;
+
+    // Add click handlers for checkboxes (toggle selection)
+    suggestionsContent.querySelectorAll('.suggestion-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            // Don't toggle if clicking on buttons
+            if (e.target.closest('.suggestion-buttons')) return;
+
+            const index = parseInt(item.dataset.index);
+            if (wizard._selectedSuggestions.has(index)) {
+                wizard._selectedSuggestions.delete(index);
+                item.classList.remove('selected');
+                item.querySelector('input[type="checkbox"]').checked = false;
+            } else {
+                wizard._selectedSuggestions.add(index);
+                item.classList.add('selected');
+                item.querySelector('input[type="checkbox"]').checked = true;
+            }
+            updateSelectedCount(wizard);
+        });
+    });
+
+    // Add click handlers for Edit buttons
+    suggestionsContent.querySelectorAll('.btn-edit').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const index = parseInt(btn.dataset.index);
+            handleEditSuggestion(wizard, index);
+        });
+    });
+
+    // Add click handlers for Quick Add buttons
+    suggestionsContent.querySelectorAll('.btn-quick-add').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const index = parseInt(btn.dataset.index);
+            handleQuickAddSuggestion(wizard, index);
+        });
+    });
+}
+
+/**
+ * Handle Edit button click - opens edit dialog for the suggestion
+ */
+function handleEditSuggestion(wizard, index) {
+    const suggestions = wizard._suggestionsMode === 'sensors'
+        ? wizard._sensorSuggestions
+        : wizard._actionSuggestions;
+
+    const suggestion = suggestions[index];
+    if (!suggestion) return;
+
+    // Show edit dialog
+    showSuggestionEditDialog(wizard, suggestion, index);
+}
+
+/**
+ * Handle Quick Add button click - adds suggestion with defaults immediately
+ */
+function handleQuickAddSuggestion(wizard, index) {
+    const suggestions = wizard._suggestionsMode === 'sensors'
+        ? wizard._sensorSuggestions
+        : wizard._actionSuggestions;
+
+    const suggestion = suggestions[index];
+    if (!suggestion) return;
+
+    if (wizard._suggestionsMode === 'sensors') {
+        // Add sensor to flow with defaults
+        const sensorStep = {
+            step_type: 'capture_sensors',
+            sensors: [{
+                name: suggestion.name || suggestion.suggested_name || 'Sensor',
+                entity_id: suggestion.entity_id || `sensor.${(suggestion.name || 'unnamed').toLowerCase().replace(/\s+/g, '_')}`,
+                element: suggestion.element,
+                device_class: suggestion.device_class || 'none',
+                unit_of_measurement: suggestion.unit_of_measurement || null,
+                icon: suggestion.icon || 'mdi:eye'
+            }],
+            wait_before: 0,
+            wait_after: 0
+        };
+        wizard.recorder.addStep(sensorStep);
+        showToast(`Added sensor: ${suggestion.name || 'Sensor'}`, 'success');
+    } else {
+        // Add action to flow
+        if (suggestion.element?.bounds) {
+            const tapStep = {
+                step_type: 'tap',
+                x: Math.round(suggestion.element.bounds.x + suggestion.element.bounds.width / 2),
+                y: Math.round(suggestion.element.bounds.y + suggestion.element.bounds.height / 2),
+                description: suggestion.name || suggestion.suggested_name || 'Tap action'
+            };
+            wizard.recorder.addStep(tapStep);
+            showToast(`Added action: ${suggestion.name || 'Tap'}`, 'success');
+        }
+    }
+
+    // Update UI
+    wizard.updateFlowStepsUI();
+}
+
+/**
+ * Show edit dialog for a suggestion
+ */
+function showSuggestionEditDialog(wizard, suggestion, index) {
+    // Create dialog overlay
+    const dialogOverlay = document.createElement('div');
+    dialogOverlay.className = 'dialog-overlay suggestion-edit-dialog-overlay';
+    dialogOverlay.innerHTML = `
+        <div class="dialog suggestion-edit-dialog">
+            <div class="dialog-header">
+                <h3>Edit ${wizard._suggestionsMode === 'sensors' ? 'Sensor' : 'Action'}</h3>
+                <button class="dialog-close">&times;</button>
+            </div>
+            <div class="dialog-body">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="editSuggestionName" value="${suggestion.name || suggestion.suggested_name || ''}" placeholder="Enter name">
+                </div>
+                ${wizard._suggestionsMode === 'sensors' ? `
+                    <div class="form-group">
+                        <label>Device Class</label>
+                        <select id="editSuggestionDeviceClass">
+                            <option value="none" ${suggestion.device_class === 'none' ? 'selected' : ''}>None</option>
+                            <option value="battery" ${suggestion.device_class === 'battery' ? 'selected' : ''}>Battery</option>
+                            <option value="temperature" ${suggestion.device_class === 'temperature' ? 'selected' : ''}>Temperature</option>
+                            <option value="humidity" ${suggestion.device_class === 'humidity' ? 'selected' : ''}>Humidity</option>
+                            <option value="voltage" ${suggestion.device_class === 'voltage' ? 'selected' : ''}>Voltage</option>
+                            <option value="current" ${suggestion.device_class === 'current' ? 'selected' : ''}>Current</option>
+                            <option value="power" ${suggestion.device_class === 'power' ? 'selected' : ''}>Power</option>
+                            <option value="energy" ${suggestion.device_class === 'energy' ? 'selected' : ''}>Energy</option>
+                            <option value="speed" ${suggestion.device_class === 'speed' ? 'selected' : ''}>Speed</option>
+                            <option value="distance" ${suggestion.device_class === 'distance' ? 'selected' : ''}>Distance</option>
+                            <option value="signal_strength" ${suggestion.device_class === 'signal_strength' ? 'selected' : ''}>Signal Strength</option>
+                            <option value="pressure" ${suggestion.device_class === 'pressure' ? 'selected' : ''}>Pressure</option>
+                            <option value="illuminance" ${suggestion.device_class === 'illuminance' ? 'selected' : ''}>Illuminance</option>
+                            <option value="carbon_dioxide" ${suggestion.device_class === 'carbon_dioxide' ? 'selected' : ''}>CO2</option>
+                            <option value="aqi" ${suggestion.device_class === 'aqi' ? 'selected' : ''}>Air Quality</option>
+                            <option value="weight" ${suggestion.device_class === 'weight' ? 'selected' : ''}>Weight</option>
+                            <option value="volume" ${suggestion.device_class === 'volume' ? 'selected' : ''}>Volume</option>
+                            <option value="frequency" ${suggestion.device_class === 'frequency' ? 'selected' : ''}>Frequency</option>
+                            <option value="monetary" ${suggestion.device_class === 'monetary' ? 'selected' : ''}>Monetary</option>
+                            <option value="duration" ${suggestion.device_class === 'duration' ? 'selected' : ''}>Duration</option>
+                            <option value="timestamp" ${suggestion.device_class === 'timestamp' ? 'selected' : ''}>Timestamp</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Unit of Measurement</label>
+                        <input type="text" id="editSuggestionUnit" value="${suggestion.unit_of_measurement || ''}" placeholder="e.g., %, °C, km">
+                    </div>
+                ` : `
+                    <div class="form-group">
+                        <label>Action Type</label>
+                        <select id="editSuggestionActionType">
+                            <option value="tap" ${suggestion.action_type === 'tap' ? 'selected' : ''}>Tap</option>
+                            <option value="toggle" ${suggestion.action_type === 'toggle' ? 'selected' : ''}>Toggle</option>
+                            <option value="input_text" ${suggestion.action_type === 'input_text' ? 'selected' : ''}>Input Text</option>
+                            <option value="swipe" ${suggestion.action_type === 'swipe' ? 'selected' : ''}>Swipe</option>
+                        </select>
+                    </div>
+                `}
+                <div class="form-group">
+                    <label>Entity ID</label>
+                    <input type="text" id="editSuggestionEntityId" value="${suggestion.entity_id || ''}" placeholder="sensor.my_sensor">
+                </div>
+                <div class="suggestion-preview">
+                    <strong>Current Value:</strong> ${suggestion.current_value || suggestion.element?.text || 'N/A'}
+                </div>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn btn-secondary dialog-cancel">Cancel</button>
+                <button class="btn btn-primary dialog-save">Add to Flow</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(dialogOverlay);
+
+    // Close button handler
+    dialogOverlay.querySelector('.dialog-close').addEventListener('click', () => {
+        dialogOverlay.remove();
+    });
+
+    // Cancel button handler
+    dialogOverlay.querySelector('.dialog-cancel').addEventListener('click', () => {
+        dialogOverlay.remove();
+    });
+
+    // Save button handler
+    dialogOverlay.querySelector('.dialog-save').addEventListener('click', () => {
+        const name = document.getElementById('editSuggestionName').value.trim();
+        const entityId = document.getElementById('editSuggestionEntityId').value.trim();
+
+        if (wizard._suggestionsMode === 'sensors') {
+            const deviceClass = document.getElementById('editSuggestionDeviceClass').value;
+            const unit = document.getElementById('editSuggestionUnit').value.trim();
+
+            const sensorStep = {
+                step_type: 'capture_sensors',
+                sensors: [{
+                    name: name || 'Sensor',
+                    entity_id: entityId || `sensor.${name.toLowerCase().replace(/\s+/g, '_')}`,
+                    element: suggestion.element,
+                    device_class: deviceClass,
+                    unit_of_measurement: unit || null,
+                    icon: suggestion.icon || 'mdi:eye'
+                }],
+                wait_before: 0,
+                wait_after: 0
+            };
+            wizard.recorder.addStep(sensorStep);
+            showToast(`Added sensor: ${name}`, 'success');
+        } else {
+            const actionType = document.getElementById('editSuggestionActionType').value;
+
+            if (suggestion.element?.bounds) {
+                const tapStep = {
+                    step_type: actionType,
+                    x: Math.round(suggestion.element.bounds.x + suggestion.element.bounds.width / 2),
+                    y: Math.round(suggestion.element.bounds.y + suggestion.element.bounds.height / 2),
+                    description: name || 'Action'
+                };
+                wizard.recorder.addStep(tapStep);
+                showToast(`Added action: ${name}`, 'success');
+            }
+        }
+
+        wizard.updateFlowStepsUI();
+        dialogOverlay.remove();
+    });
+
+    // Click outside to close
+    dialogOverlay.addEventListener('click', (e) => {
+        if (e.target === dialogOverlay) {
+            dialogOverlay.remove();
+        }
+    });
+}
+
+/**
+ * Update the selected suggestions count
+ */
+function updateSelectedCount(wizard) {
+    const countEl = document.getElementById('selectedSuggestionsCount');
+    if (countEl) {
+        countEl.textContent = wizard._selectedSuggestions.size;
+    }
+}
+
+/**
+ * Add selected suggestions to the flow
+ */
+async function addSelectedSuggestions(wizard) {
+    if (wizard._selectedSuggestions.size === 0) {
+        showToast('No suggestions selected', 'warning');
+        return;
+    }
+
+    const suggestions = wizard._suggestionsMode === 'sensors'
+        ? wizard._sensorSuggestions
+        : wizard._actionSuggestions;
+
+    const selectedItems = Array.from(wizard._selectedSuggestions).map(i => suggestions[i]);
+
+    if (wizard._suggestionsMode === 'sensors') {
+        // Add sensors to flow
+        for (const sensor of selectedItems) {
+            const sensorStep = {
+                step_type: 'capture_sensors',
+                sensors: [{
+                    name: sensor.name || sensor.suggested_name,
+                    entity_id: sensor.entity_id || `sensor.${(sensor.name || sensor.suggested_name || 'unnamed').toLowerCase().replace(/\s+/g, '_')}`,
+                    element: sensor.element,
+                    device_class: sensor.device_class || 'none',
+                    unit_of_measurement: sensor.unit_of_measurement || null,
+                    icon: sensor.icon || 'mdi:eye'
+                }],
+                wait_before: 0,
+                wait_after: 0
+            };
+            wizard.recorder.addStep(sensorStep);
+        }
+        showToast(`Added ${selectedItems.length} sensor(s) to flow`, 'success');
+    } else {
+        // Add actions to flow
+        for (const action of selectedItems) {
+            if (action.element?.bounds) {
+                const tapStep = {
+                    step_type: 'tap',
+                    x: Math.round(action.element.bounds.x + action.element.bounds.width / 2),
+                    y: Math.round(action.element.bounds.y + action.element.bounds.height / 2),
+                    description: action.name || action.suggested_name || 'Tap action'
+                };
+                wizard.recorder.addStep(tapStep);
+            }
+        }
+        showToast(`Added ${selectedItems.length} action(s) to flow`, 'success');
+    }
+
+    // Update UI and clear selection
+    wizard.updateFlowStepsUI();
+    wizard._selectedSuggestions.clear();
+    renderSuggestionsContent(wizard);
+    updateSelectedCount(wizard);
+
+    // Switch to flow tab to show added items
+    switchToTab(wizard, 'flow');
 }
 
 /**
@@ -2004,7 +3082,14 @@ export async function handleElementClick(wizard, canvasX, canvasY) {
             break;
 
         case 'sensor_image':
-            await Dialogs.createImageSensor(wizard, clickedElement, deviceCoords);
+            // Create fallback element if none was detected at coordinates
+            const sensorElement = clickedElement || {
+                class: 'Unknown',
+                text: '',
+                bounds: { x: deviceCoords.x - 50, y: deviceCoords.y - 25, width: 100, height: 50 },
+                index: 0
+            };
+            await Dialogs.createImageSensor(wizard, sensorElement, deviceCoords);
             break;
 
         case 'action':
@@ -2083,13 +3168,23 @@ export async function executeTap(wizard, x, y, element = null) {
         wizard.recorder.addStep(step);
     }
 
+    // Clear stale elements immediately (video updates faster than elements API)
+    // This prevents old screen's elements from being shown on new screen
+    if (wizard.captureMode === 'streaming' && wizard.liveStream) {
+        wizard.liveStream.elements = [];
+        // Also clear recorder metadata (hover checks this)
+        if (wizard.recorder?.screenshotMetadata) {
+            wizard.recorder.screenshotMetadata.elements = [];
+        }
+    }
+
     // Capture new screenshot after tap
     if (wizard.recordMode === 'execute') {
         await wizard.recorder.wait(500); // Wait for UI to update
         await wizard.recorder.captureScreenshot();
     }
 
-    // Refresh elements in streaming mode
+    // Refresh elements in streaming mode (after delay for UI to settle)
     refreshAfterAction(wizard, 500);
 }
 
@@ -2837,6 +3932,8 @@ const Step3Module = {
     reconnectStream,
     startElementAutoRefresh,
     stopElementAutoRefresh,
+    startKeepAwake,
+    stopKeepAwake,
     updateStreamStatus,
     refreshElements,
     refreshAfterAction,
@@ -2900,7 +3997,9 @@ const Step3Module = {
     drawElementOverlaysScaled,
     drawTextLabel,
     // Flow steps listener
-    setupFlowStepsListener
+    setupFlowStepsListener,
+    // Suggestions tab
+    setupSuggestionsTab
 };
 
 // Global export for backward compatibility

@@ -30,7 +30,25 @@ class FlowRecorder {
         this.screenshotMetadata = null;
         this.apiBase = getApiBase();
 
+        // Navigation context from the wizard (set by FlowWizard)
+        this.currentScreenId = null;
+        this.navigationGraph = null;
+
         console.log(`[FlowRecorder] Initialized for ${deviceId} - ${appPackage} (mode: ${recordMode})`);
+    }
+
+    /**
+     * Set the navigation context from FlowWizard
+     * Called when navigation data is available or screen changes
+     * @param {string|null} screenId - Current screen ID from navigation graph
+     * @param {Object|null} graph - Navigation graph object
+     */
+    setNavigationContext(screenId, graph = null) {
+        this.currentScreenId = screenId;
+        if (graph !== null) {
+            this.navigationGraph = graph;
+        }
+        console.log(`[FlowRecorder] Navigation context updated: screenId=${screenId}`);
     }
 
     /**
@@ -234,38 +252,45 @@ class FlowRecorder {
     /**
      * Ensure device is unlocked before screenshot capture
      * Checks lock state and attempts automatic unlock if configured
+     * @param {Function} statusCallback - Optional callback to update status text
      */
-    async ensureDeviceUnlocked() {
+    async ensureDeviceUnlocked(statusCallback = null) {
+        const updateStatus = (msg) => {
+            console.log(`[FlowRecorder] ${msg}`);
+            if (statusCallback) statusCallback(msg);
+        };
+
         try {
-            // Check screen state
-            const screenResponse = await fetch(`${this.apiBase}/adb/screen-state/${encodeURIComponent(this.deviceId)}`);
-            if (!screenResponse.ok) {
-                console.warn('[FlowRecorder] Could not check screen state');
-                return; // Continue anyway
+            // Step 1: Check screen and lock state using new combined endpoint
+            updateStatus('Checking device state...');
+            const lockResponse = await fetch(`${this.apiBase}/adb/lock-status/${encodeURIComponent(this.deviceId)}`);
+
+            if (!lockResponse.ok) {
+                console.warn('[FlowRecorder] Could not check lock status');
+                return { success: true, status: 'unknown' }; // Continue anyway
             }
 
-            const screenState = await screenResponse.json();
-            console.log('[FlowRecorder] Screen state:', screenState);
+            const lockState = await lockResponse.json();
+            console.log('[FlowRecorder] Lock state:', lockState);
 
-            // If screen is off, wake it first
-            if (!screenState.screen_on) {
-                console.log('[FlowRecorder] Screen is off, waking device...');
+            // Step 2: If screen is off, wake it first
+            if (!lockState.screen_on) {
+                updateStatus('Waking screen...');
                 await fetch(`${this.apiBase}/adb/wake/${encodeURIComponent(this.deviceId)}`, { method: 'POST' });
                 await this.wait(500); // Wait for screen to turn on
             }
 
-            // Check if device is locked
-            const isLocked = screenState.keyguard_locked || !screenState.screen_on;
-
-            if (!isLocked) {
+            // Step 3: Check if device is locked
+            if (!lockState.is_locked) {
+                updateStatus('Device ready!');
                 console.log('[FlowRecorder] Device is already unlocked');
-                return; // Already unlocked
+                return { success: true, status: 'unlocked' };
             }
 
-            console.log('[FlowRecorder] Device is locked, attempting unlock...');
+            updateStatus('Device is locked, attempting unlock...');
             showToast('🔐 Unlocking device...', 'info', 3000);
 
-            // Try to get stored security config
+            // Step 4: Try to get stored security config
             const securityResponse = await fetch(`${this.apiBase}/device/${encodeURIComponent(this.deviceId)}/security`);
 
             if (securityResponse.ok) {
@@ -274,7 +299,7 @@ class FlowRecorder {
 
                 // If auto_unlock is configured and has passcode, unlock with it
                 if (securityConfig.config?.strategy === 'auto_unlock' && securityConfig.config?.has_passcode) {
-                    console.log('[FlowRecorder] Using stored passcode for unlock...');
+                    updateStatus('Using stored passcode...');
 
                     // Call backend unlock API (which retrieves and decrypts passcode)
                     const unlockResponse = await fetch(`${this.apiBase}/device/${encodeURIComponent(this.deviceId)}/auto-unlock`, {
@@ -284,17 +309,17 @@ class FlowRecorder {
                     if (unlockResponse.ok) {
                         const result = await unlockResponse.json();
                         if (result.success) {
-                            console.log('[FlowRecorder] Device unlocked successfully with passcode');
+                            updateStatus('Device unlocked!');
                             showToast('🔓 Device unlocked', 'success', 2000);
                             await this.wait(300); // Brief wait for unlock animation
-                            return;
+                            return { success: true, status: 'unlocked' };
                         }
                     }
                 }
             }
 
-            // Fallback: Try simple swipe-to-unlock
-            console.log('[FlowRecorder] Trying swipe-to-unlock...');
+            // Step 5: Fallback - Try simple swipe-to-unlock
+            updateStatus('Trying swipe unlock...');
             const swipeResponse = await fetch(`${this.apiBase}/adb/unlock/${encodeURIComponent(this.deviceId)}`, {
                 method: 'POST'
             });
@@ -302,20 +327,22 @@ class FlowRecorder {
             if (swipeResponse.ok) {
                 const result = await swipeResponse.json();
                 if (result.success) {
-                    console.log('[FlowRecorder] Device unlocked with swipe');
+                    updateStatus('Device unlocked!');
                     showToast('🔓 Device unlocked', 'success', 2000);
                     await this.wait(500);
-                    return;
+                    return { success: true, status: 'unlocked' };
                 }
             }
 
             // If we get here, unlock failed
+            updateStatus('Please unlock device manually');
             console.warn('[FlowRecorder] Automatic unlock failed');
             showToast('⚠️ Please unlock device manually to continue', 'warning', 4000);
+            return { success: false, status: 'locked', needsManualUnlock: true };
 
         } catch (error) {
             console.warn('[FlowRecorder] Error checking/unlocking device:', error);
-            // Don't throw - just continue and let screenshot fail if needed
+            return { success: true, status: 'error' }; // Continue anyway
         }
     }
 
@@ -1076,6 +1103,7 @@ class FlowRecorder {
     /**
      * Add a step to the flow
      * Automatically captures screen activity info for Phase 1 screen awareness
+     * Also includes navigation screen ID if available from the wizard
      */
     async addStep(step) {
         // Phase 1 Screen Awareness: Capture screen info before adding step
@@ -1092,6 +1120,13 @@ class FlowRecorder {
             } catch (e) {
                 console.warn('[FlowRecorder] Failed to capture screen info:', e);
             }
+        }
+
+        // Add navigation screen ID if available from wizard
+        // This links the step to the navigation graph for smarter flow execution
+        if (this.currentScreenId) {
+            step.expected_screen_id = this.currentScreenId;
+            console.log(`[FlowRecorder] Added navigation screen ID: ${this.currentScreenId}`);
         }
 
         this.steps.push(step);
@@ -1208,7 +1243,7 @@ class FlowRecorder {
      */
     async getCurrentScreen() {
         try {
-            const response = await fetch(`/api/screen/current/${encodeURIComponent(this.deviceId)}`);
+            const response = await fetch(`${this.apiBase}/adb/screen/current/${encodeURIComponent(this.deviceId)}`);
             if (!response.ok) {
                 console.warn('[FlowRecorder] Failed to get current screen info');
                 return null;

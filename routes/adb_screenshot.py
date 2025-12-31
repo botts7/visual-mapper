@@ -89,6 +89,18 @@ async def get_elements_only(device_id: str):
         elements = await deps.adb_bridge.get_ui_elements(device_id)
         logger.info(f"[API] Got {len(elements)} elements")
 
+        # Get current app/activity info for stale element detection
+        current_package = None
+        current_activity = None
+        try:
+            activity_info = await deps.adb_bridge.get_current_activity(device_id)
+            if activity_info:
+                current_package = activity_info.get('package')
+                current_activity = activity_info.get('activity')
+                logger.debug(f"[API] Current app: {current_package}/{current_activity}")
+        except Exception as e:
+            logger.debug(f"[API] Could not get current activity: {e}")
+
         # Infer device dimensions from element bounds
         # CRITICAL: When user manually switches apps during streaming, frontend needs
         # updated dimensions to correctly scale element overlays. We infer native device
@@ -117,6 +129,8 @@ async def get_elements_only(device_id: str):
             "count": len(elements),
             "device_width": device_width,
             "device_height": device_height,
+            "current_package": current_package,
+            "current_activity": current_activity,
             "timestamp": datetime.now().isoformat()
         }
     except ValueError as e:

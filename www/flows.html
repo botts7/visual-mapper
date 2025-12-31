@@ -48,6 +48,9 @@
                 <button class="btn btn-secondary" onclick="showBundledFlowsModal()">
                     App Flows
                 </button>
+                <button class="btn btn-secondary" onclick="showSmartFlowModal()">
+                    Smart Flow
+                </button>
                 <button class="btn btn-secondary" onclick="showImportModal()">
                     Import
                 </button>
@@ -352,6 +355,92 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeBundledFlowsModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Smart Flow Generator Modal -->
+    <div class="modal-overlay" id="smartFlowModal" style="display: none;">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h2>Smart Flow Generator</h2>
+                <button class="btn-close" onclick="closeSmartFlowModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-description">
+                    Generate a flow that automatically visits all known screens in an app and captures data.
+                </p>
+
+                <!-- Companion App Status -->
+                <div class="companion-status-panel" id="companionStatusPanel" style="display: none;">
+                    <div class="status-indicator" id="companionStatusIndicator">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Checking companion app...</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="smartFlowDevice">Device</label>
+                    <select id="smartFlowDevice" class="form-control" onchange="onSmartFlowDeviceChange()">
+                        <option value="">Select device...</option>
+                    </select>
+                </div>
+
+                <!-- Discovery Mode Selection -->
+                <div class="form-group" id="discoveryModeGroup" style="display: none;">
+                    <label>Discovery Mode</label>
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="discoveryMode" value="navigation" checked onchange="onDiscoveryModeChange()">
+                            <span class="radio-text">Use Navigation Data</span>
+                            <span class="radio-desc">Generate flow from previously learned navigation</span>
+                        </label>
+                        <label class="radio-label" id="liveDiscoveryOption" style="display: none;">
+                            <input type="radio" name="discoveryMode" value="live" onchange="onDiscoveryModeChange()">
+                            <span class="radio-text">Live Discovery (Android App)</span>
+                            <span class="radio-desc">Discover screens and elements in real-time via companion app</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Navigation Data Info Panel -->
+                <div class="nav-data-panel" id="navDataPanel" style="display: none;">
+                    <div class="nav-data-stats" id="navDataStats"></div>
+                </div>
+
+                <div class="form-group" id="appSelectGroup">
+                    <label for="smartFlowApp">App (with navigation data)</label>
+                    <select id="smartFlowApp" class="form-control" disabled>
+                        <option value="">Select device first...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Options</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="smartFlowScreenshots" checked>
+                            Capture screenshots at each screen
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="smartFlowSensors" checked>
+                            Capture sensors at each screen
+                        </label>
+                    </div>
+                </div>
+                <div class="smart-flow-preview" id="smartFlowPreview" style="display: none;">
+                    <h4>Generated Flow Preview</h4>
+                    <div class="preview-stats" id="smartFlowStats"></div>
+                    <div class="preview-steps" id="smartFlowSteps"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSmartFlowModal()">Cancel</button>
+                <button class="btn btn-primary" id="btnGenerateSmartFlow" onclick="generateSmartFlow()" disabled>
+                    Generate Flow
+                </button>
+                <button class="btn btn-success" id="btnSaveSmartFlow" onclick="saveSmartFlow()" style="display: none;">
+                    Save Flow
+                </button>
             </div>
         </div>
     </div>
@@ -2570,6 +2659,514 @@
         window.showBundledFlowsModal = showBundledFlowsModal;
         window.closeBundledFlowsModal = closeBundledFlowsModal;
         window.installBundledFlow = installBundledFlow;
+
+        // =============================================================
+        // SMART FLOW GENERATOR FUNCTIONS
+        // =============================================================
+
+        let generatedSmartFlow = null;
+        let companionAppInfo = null;
+
+        async function showSmartFlowModal() {
+            const modal = document.getElementById('smartFlowModal');
+            modal.style.display = 'flex';
+
+            // Reset state
+            generatedSmartFlow = null;
+            companionAppInfo = null;
+            document.getElementById('smartFlowPreview').style.display = 'none';
+            document.getElementById('btnSaveSmartFlow').style.display = 'none';
+            document.getElementById('btnGenerateSmartFlow').disabled = true;
+            document.getElementById('discoveryModeGroup').style.display = 'none';
+            document.getElementById('navDataPanel').style.display = 'none';
+            document.getElementById('companionStatusPanel').style.display = 'none';
+
+            // Load devices
+            const deviceSelect = document.getElementById('smartFlowDevice');
+            deviceSelect.innerHTML = '<option value="">Loading devices...</option>';
+
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/adb/devices`);
+                const data = await response.json();
+                const devices = data.devices || [];
+
+                deviceSelect.innerHTML = '<option value="">Select device...</option>';
+                // Filter for connected devices (state='device' means ready, connected=true is online)
+                devices.filter(d => d.state === 'device' && d.connected !== false).forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.id;
+                    option.textContent = device.model || device.id;
+                    deviceSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Failed to load devices:', error);
+                deviceSelect.innerHTML = '<option value="">Error loading devices</option>';
+            }
+        }
+
+        async function checkCompanionAppStatus(deviceId) {
+            // Convert ADB device ID to stable format for companion app lookup
+            // e.g., "192.168.86.2:46747" -> "192_168_86_2_46747" or similar variations
+            const statusPanel = document.getElementById('companionStatusPanel');
+            const statusIndicator = document.getElementById('companionStatusIndicator');
+            const liveDiscoveryOption = document.getElementById('liveDiscoveryOption');
+
+            statusPanel.style.display = 'block';
+            statusIndicator.innerHTML = `
+                <span class="status-dot checking"></span>
+                <span class="status-text">Checking for companion app...</span>
+            `;
+
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/devices`);
+                const data = await response.json();
+                const devices = data.devices || [];
+
+                // Try to find matching device (may be stored with different ID format)
+                const normalizedId = deviceId.replace(/[:.]/g, '_');
+                const matchingDevice = devices.find(d =>
+                    d.deviceId === normalizedId ||
+                    d.deviceId === deviceId ||
+                    d.deviceId.includes(normalizedId.split('_').slice(0, 4).join('_'))
+                );
+
+                if (matchingDevice) {
+                    companionAppInfo = matchingDevice;
+                    const hasAccessibility = matchingDevice.capabilities?.includes('accessibility');
+
+                    statusIndicator.innerHTML = `
+                        <span class="status-dot connected"></span>
+                        <span class="status-text">Companion app connected: ${matchingDevice.deviceName}</span>
+                        ${hasAccessibility ? '<span class="status-badge">Accessibility enabled</span>' : ''}
+                    `;
+
+                    // Show live discovery option if accessibility is available
+                    if (hasAccessibility) {
+                        liveDiscoveryOption.style.display = 'block';
+                    }
+                } else {
+                    companionAppInfo = null;
+                    statusIndicator.innerHTML = `
+                        <span class="status-dot disconnected"></span>
+                        <span class="status-text">Companion app not connected</span>
+                        <span class="status-hint">Install and run the Visual Mapper app on the device for live discovery</span>
+                    `;
+                    liveDiscoveryOption.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Failed to check companion app status:', error);
+                statusIndicator.innerHTML = `
+                    <span class="status-dot error"></span>
+                    <span class="status-text">Could not check companion app status</span>
+                `;
+            }
+        }
+
+        async function onSmartFlowDeviceChange() {
+            const deviceId = document.getElementById('smartFlowDevice').value;
+            const appSelect = document.getElementById('smartFlowApp');
+            const generateBtn = document.getElementById('btnGenerateSmartFlow');
+            const discoveryModeGroup = document.getElementById('discoveryModeGroup');
+            const navDataPanel = document.getElementById('navDataPanel');
+
+            if (!deviceId) {
+                appSelect.innerHTML = '<option value="">Select device first...</option>';
+                appSelect.disabled = true;
+                generateBtn.disabled = true;
+                discoveryModeGroup.style.display = 'none';
+                navDataPanel.style.display = 'none';
+                document.getElementById('companionStatusPanel').style.display = 'none';
+                return;
+            }
+
+            // Check companion app status in parallel with loading navigation data
+            checkCompanionAppStatus(deviceId);
+
+            appSelect.innerHTML = '<option value="">Loading apps with navigation data...</option>';
+            appSelect.disabled = true;
+            discoveryModeGroup.style.display = 'block';
+
+            try {
+                // Get list of apps with navigation data
+                const navResponse = await fetch(`${window.flowManager.apiBase}/navigation/`);
+                const navData = await navResponse.json();
+                const packages = navData.packages || [];
+
+                if (packages.length === 0) {
+                    appSelect.innerHTML = '<option value="">No apps with navigation data found</option>';
+                    navDataPanel.style.display = 'block';
+                    document.getElementById('navDataStats').innerHTML = `
+                        <div class="nav-no-data">
+                            <div class="nav-icon">📱</div>
+                            <div class="nav-message">No navigation data available</div>
+                            <div class="nav-hint">
+                                <strong>To get started:</strong>
+                                <ul>
+                                    <li>Record flows manually using the Flow Wizard - navigation is learned automatically</li>
+                                    <li>Or, use the Visual Mapper companion app with accessibility enabled for live discovery</li>
+                                </ul>
+                            </div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                appSelect.innerHTML = '<option value="">Select app...</option>';
+                appSelect.disabled = false;
+
+                // Add each app with navigation data
+                for (const pkg of packages) {
+                    const option = document.createElement('option');
+                    option.value = pkg;
+                    // Get app name from package
+                    const appName = pkg.split('.').pop().charAt(0).toUpperCase() + pkg.split('.').pop().slice(1);
+                    option.textContent = `${appName} (${pkg})`;
+                    appSelect.appendChild(option);
+                }
+
+                // Enable generate button when app is selected
+                appSelect.onchange = async () => {
+                    generateBtn.disabled = !appSelect.value;
+                    document.getElementById('smartFlowPreview').style.display = 'none';
+                    document.getElementById('btnSaveSmartFlow').style.display = 'none';
+
+                    // Show navigation stats for selected app
+                    if (appSelect.value) {
+                        await showNavDataStats(appSelect.value);
+                    } else {
+                        navDataPanel.style.display = 'none';
+                    }
+                };
+
+            } catch (error) {
+                console.error('Failed to load navigation data:', error);
+                appSelect.innerHTML = '<option value="">Error loading apps</option>';
+            }
+        }
+
+        async function showNavDataStats(packageName) {
+            const navDataPanel = document.getElementById('navDataPanel');
+            const navDataStats = document.getElementById('navDataStats');
+
+            navDataPanel.style.display = 'block';
+            navDataStats.innerHTML = '<div class="loading">Loading navigation stats...</div>';
+
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/navigation/${encodeURIComponent(packageName)}/stats`);
+
+                if (!response.ok) {
+                    navDataStats.innerHTML = '<div class="nav-no-data">No detailed stats available</div>';
+                    return;
+                }
+
+                const data = await response.json();
+                const stats = data.stats;
+
+                navDataStats.innerHTML = `
+                    <div class="nav-stats-grid">
+                        <div class="nav-stat">
+                            <span class="stat-value">${stats.screen_count || 0}</span>
+                            <span class="stat-label">Screens</span>
+                        </div>
+                        <div class="nav-stat">
+                            <span class="stat-value">${stats.transition_count || 0}</span>
+                            <span class="stat-label">Transitions</span>
+                        </div>
+                        <div class="nav-stat">
+                            <span class="stat-value">${stats.home_screen_id ? '✓' : '✗'}</span>
+                            <span class="stat-label">Home Screen</span>
+                        </div>
+                    </div>
+                    <div class="nav-hint">
+                        ${stats.screen_count > 0
+                            ? 'Navigation data is available. Click Generate Flow to create an automated flow.'
+                            : 'Limited navigation data. Record more flows to improve coverage.'}
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Failed to load navigation stats:', error);
+                navDataStats.innerHTML = '<div class="nav-no-data">Could not load stats</div>';
+            }
+        }
+
+        function onDiscoveryModeChange() {
+            const mode = document.querySelector('input[name="discoveryMode"]:checked')?.value;
+            const appSelectGroup = document.getElementById('appSelectGroup');
+            const generateBtn = document.getElementById('btnGenerateSmartFlow');
+            const deviceId = document.getElementById('smartFlowDevice').value;
+
+            if (mode === 'live') {
+                // Hide app selector for live mode (will discover from current app)
+                appSelectGroup.style.display = 'none';
+                document.getElementById('navDataPanel').style.display = 'none';
+                // Enable if device is selected
+                generateBtn.disabled = !deviceId;
+                generateBtn.textContent = 'Discover & Generate';
+            } else {
+                // Show app selector for navigation mode
+                appSelectGroup.style.display = 'block';
+                const appSelect = document.getElementById('smartFlowApp');
+                generateBtn.disabled = !appSelect.value;
+                generateBtn.textContent = 'Generate Flow';
+            }
+        }
+
+        async function generateSmartFlow() {
+            const deviceId = document.getElementById('smartFlowDevice').value;
+            const discoveryMode = document.querySelector('input[name="discoveryMode"]:checked')?.value || 'navigation';
+            const includeScreenshots = document.getElementById('smartFlowScreenshots').checked;
+            const includeSensors = document.getElementById('smartFlowSensors').checked;
+
+            if (!deviceId) {
+                showToast('Please select a device', 'warning');
+                return;
+            }
+
+            const generateBtn = document.getElementById('btnGenerateSmartFlow');
+            generateBtn.disabled = true;
+
+            try {
+                if (discoveryMode === 'live') {
+                    // Live discovery mode - request UI tree from companion app
+                    await generateSmartFlowLive(deviceId, includeScreenshots, includeSensors);
+                } else {
+                    // Navigation mode - use stored navigation graph
+                    await generateSmartFlowFromNavigation(deviceId, includeScreenshots, includeSensors);
+                }
+            } catch (error) {
+                console.error('Smart flow generation failed:', error);
+                showToast('Generation failed: ' + error.message, 'error');
+            } finally {
+                generateBtn.disabled = false;
+                generateBtn.textContent = discoveryMode === 'live' ? 'Discover & Generate' : 'Generate Flow';
+            }
+        }
+
+        async function generateSmartFlowLive(deviceId, includeScreenshots, includeSensors) {
+            const generateBtn = document.getElementById('btnGenerateSmartFlow');
+            generateBtn.textContent = 'Discovering elements...';
+
+            // First, get selectable elements from companion app
+            const response = await fetch(`${window.flowManager.apiBase}/companion/select-elements`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_id: deviceId,
+                    timeout: 15.0
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to get UI elements from companion app');
+            }
+
+            const uiData = await response.json();
+
+            if (!uiData.success) {
+                throw new Error(uiData.error || 'Failed to discover elements');
+            }
+
+            generateBtn.textContent = 'Generating flow...';
+
+            // Build flow steps from discovered elements
+            const flowSteps = [];
+            const categories = uiData.categories || {};
+
+            // Add navigation steps (buttons that navigate)
+            (categories.navigation || []).forEach(el => {
+                flowSteps.push({
+                    step_type: 'action',
+                    action_type: 'tap',
+                    target: {
+                        resource_id: el.resource_id,
+                        bounds: el.bounds
+                    },
+                    description: `Tap ${el.text || el.content_desc || el.resource_id || 'navigation element'}`
+                });
+            });
+
+            // Add button taps
+            (categories.buttons || []).forEach(el => {
+                flowSteps.push({
+                    step_type: 'action',
+                    action_type: 'tap',
+                    target: {
+                        resource_id: el.resource_id,
+                        bounds: el.bounds
+                    },
+                    description: `Tap ${el.text || el.content_desc || el.resource_id || 'button'}`
+                });
+            });
+
+            // Add text elements as potential sensors
+            if (includeSensors) {
+                (categories.text || []).forEach(el => {
+                    flowSteps.push({
+                        step_type: 'sensor',
+                        sensor_type: 'text',
+                        target: {
+                            resource_id: el.resource_id,
+                            bounds: el.bounds
+                        },
+                        description: `Read text from ${el.resource_id || 'element'}: "${el.text?.substring(0, 30) || ''}"...`
+                    });
+                });
+            }
+
+            // Add screenshot if requested
+            if (includeScreenshots) {
+                flowSteps.unshift({
+                    step_type: 'screenshot',
+                    description: `Capture screenshot of ${uiData.activity || 'current screen'}`
+                });
+            }
+
+            // Create the flow object
+            generatedSmartFlow = {
+                name: `Smart Flow - ${uiData.package || 'App'} (Live Discovery)`,
+                device_id: deviceId,
+                package_name: uiData.package,
+                trigger: 'manual',
+                steps: flowSteps,
+                metadata: {
+                    created_from: 'live_discovery',
+                    activity: uiData.activity,
+                    discovered_at: new Date().toISOString()
+                }
+            };
+
+            // Show preview
+            showSmartFlowPreview({
+                flow: generatedSmartFlow,
+                screens_covered: 1,
+                total_screens: 1,
+                sensors_found: (categories.text || []).length,
+                message: `Discovered ${uiData.element_count} elements from ${uiData.activity || 'current screen'}`
+            });
+        }
+
+        async function generateSmartFlowFromNavigation(deviceId, includeScreenshots, includeSensors) {
+            const packageName = document.getElementById('smartFlowApp').value;
+
+            if (!packageName) {
+                showToast('Please select an app', 'warning');
+                return;
+            }
+
+            const generateBtn = document.getElementById('btnGenerateSmartFlow');
+            generateBtn.textContent = 'Generating...';
+
+            const response = await fetch(`${window.flowManager.apiBase}/flows/generate-smart`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_id: deviceId,
+                    package_name: packageName,
+                    include_screenshots: includeScreenshots,
+                    capture_mode: includeSensors ? 'all_screens' : 'screenshots_only'
+                })
+            });
+
+            const result = await response.json();
+
+            if (!result.success) {
+                showToast(result.message || 'Generation failed', 'error');
+                return;
+            }
+
+            // Store generated flow
+            generatedSmartFlow = result.flow;
+            showSmartFlowPreview(result);
+        }
+
+        function showSmartFlowPreview(result) {
+            const previewDiv = document.getElementById('smartFlowPreview');
+            const statsDiv = document.getElementById('smartFlowStats');
+            const stepsDiv = document.getElementById('smartFlowSteps');
+
+            statsDiv.innerHTML = `
+                <div class="stat-item">
+                    <span class="stat-label">Screens Covered:</span>
+                    <span class="stat-value">${result.screens_covered}/${result.total_screens}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Total Steps:</span>
+                    <span class="stat-value">${result.flow.steps.length}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Sensors Found:</span>
+                    <span class="stat-value">${result.sensors_found}</span>
+                </div>
+            `;
+
+            // Show first 10 steps as preview
+            const steps = result.flow.steps.slice(0, 10);
+            stepsDiv.innerHTML = steps.map((step, i) => `
+                <div class="preview-step">
+                    <span class="step-num">${i + 1}</span>
+                    <span class="step-type">${step.step_type}</span>
+                    <span class="step-desc">${step.description || ''}</span>
+                </div>
+            `).join('');
+
+            if (result.flow.steps.length > 10) {
+                stepsDiv.innerHTML += `<div class="preview-step more">... and ${result.flow.steps.length - 10} more steps</div>`;
+            }
+
+            previewDiv.style.display = 'block';
+            document.getElementById('btnSaveSmartFlow').style.display = 'inline-block';
+            showToast(result.message, 'success');
+        }
+
+        async function saveSmartFlow() {
+            if (!generatedSmartFlow) {
+                showToast('No flow to save', 'warning');
+                return;
+            }
+
+            const saveBtn = document.getElementById('btnSaveSmartFlow');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/flows/generate-smart/save`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(generatedSmartFlow)
+                });
+
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.message || 'Save failed');
+                }
+
+                showToast(result.message, 'success');
+                closeSmartFlowModal();
+                await loadFlows();
+
+            } catch (error) {
+                console.error('Failed to save smart flow:', error);
+                showToast('Save failed: ' + error.message, 'error');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Flow';
+            }
+        }
+
+        function closeSmartFlowModal() {
+            document.getElementById('smartFlowModal').style.display = 'none';
+            generatedSmartFlow = null;
+        }
+
+        // Make smart flow functions globally available
+        window.showSmartFlowModal = showSmartFlowModal;
+        window.closeSmartFlowModal = closeSmartFlowModal;
+        window.onSmartFlowDeviceChange = onSmartFlowDeviceChange;
+        window.onDiscoveryModeChange = onDiscoveryModeChange;
+        window.generateSmartFlow = generateSmartFlow;
+        window.saveSmartFlow = saveSmartFlow;
 
         // Load flows on page load
         if (document.readyState === 'loading') {

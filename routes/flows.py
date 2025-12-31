@@ -891,6 +891,59 @@ async def resume_scheduler():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# =============================================================================
+# WIZARD ACTIVE STATE (prevents auto-sleep during flow editing)
+# =============================================================================
+
+@router.post("/wizard/active/{device_id}")
+async def set_wizard_active(device_id: str):
+    """
+    Mark a device as having an active wizard session.
+    Prevents auto-sleep after flow execution while wizard is open.
+    """
+    from server import wizard_active_devices
+
+    wizard_active_devices.add(device_id)
+    logger.info(f"[API] Wizard marked active for device {device_id}")
+    return {
+        "success": True,
+        "device_id": device_id,
+        "wizard_active": True,
+        "active_devices": list(wizard_active_devices)
+    }
+
+
+@router.delete("/wizard/active/{device_id}")
+async def set_wizard_inactive(device_id: str):
+    """
+    Mark a device as no longer having an active wizard session.
+    Re-enables auto-sleep after flow execution.
+    """
+    from server import wizard_active_devices
+
+    wizard_active_devices.discard(device_id)
+    logger.info(f"[API] Wizard marked inactive for device {device_id}")
+    return {
+        "success": True,
+        "device_id": device_id,
+        "wizard_active": False,
+        "active_devices": list(wizard_active_devices)
+    }
+
+
+@router.get("/wizard/active")
+async def get_wizard_active_devices():
+    """
+    Get list of devices with active wizard sessions.
+    """
+    from server import wizard_active_devices
+
+    return {
+        "success": True,
+        "active_devices": list(wizard_active_devices)
+    }
+
+
 @router.get("/scheduler/queue/{device_id}")
 async def get_scheduler_queue(device_id: str):
     """
@@ -1818,4 +1871,254 @@ async def install_bundled_flow(bundle_id: str, request_data: dict):
         raise
     except Exception as e:
         logger.error(f"[API] Failed to install bundled flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# SMART FLOW GENERATOR
+# =============================================================================
+
+@router.post("/flows/generate-smart")
+async def generate_smart_flow(request_data: dict):
+    """
+    Generate a smart flow that automatically visits all known screens
+    in an app's navigation graph and captures data from each screen.
+
+    Body:
+        device_id: Target device
+        package_name: App package to generate flow for
+        capture_mode: 'all_screens' | 'sensors_only' | 'custom'
+        include_screenshots: Whether to capture screenshots at each screen
+        sensor_ids: Optional list of specific sensor IDs to capture
+
+    Returns:
+        Generated flow ready for review and saving
+    """
+    deps = get_deps()
+    try:
+        device_id = request_data.get("device_id")
+        package_name = request_data.get("package_name")
+        capture_mode = request_data.get("capture_mode", "all_screens")
+        include_screenshots = request_data.get("include_screenshots", True)
+        sensor_ids = request_data.get("sensor_ids", [])
+
+        if not device_id or not package_name:
+            raise HTTPException(status_code=400, detail="device_id and package_name are required")
+
+        # Get navigation graph for this app
+        nav_manager = deps.navigation_manager
+        if not nav_manager:
+            raise HTTPException(status_code=503, detail="Navigation manager not initialized")
+
+        graph = nav_manager.get_graph(package_name)
+        if not graph or not graph.screens:
+            return {
+                "success": False,
+                "error": "no_navigation_data",
+                "message": f"No navigation data found for {package_name}. Record some flows first to learn the app's navigation."
+            }
+
+        # Get sensors for this device/app
+        sensors_for_app = []
+        if deps.sensor_manager:
+            all_sensors = deps.sensor_manager.get_sensors_for_device(device_id)
+            sensors_for_app = [s for s in all_sensors if s.get("source_app") == package_name]
+
+        # Build smart flow steps
+        steps = []
+        screens = list(graph.screens.values())
+
+        # Step 1: Launch the app
+        steps.append({
+            "step_type": "launch_app",
+            "package": package_name,
+            "description": f"Launch {package_name}",
+            "validate_state": True,
+            "recovery_action": "force_restart_app"
+        })
+
+        # Step 2: Wait for app to load
+        steps.append({
+            "step_type": "wait",
+            "duration": 3000,
+            "description": "Wait for app to fully load"
+        })
+
+        # Visit each screen using navigation graph
+        visited_screens = set()
+        current_screen = graph.home_screen_id
+
+        # Start from home screen if available
+        if current_screen and current_screen in graph.screens:
+            visited_screens.add(current_screen)
+            screen = graph.screens[current_screen]
+
+            # Capture at home screen
+            if include_screenshots:
+                steps.append({
+                    "step_type": "screenshot",
+                    "expected_screen_id": current_screen,
+                    "description": f"Capture home screen: {screen.display_name or screen.activity}"
+                })
+
+            # Capture sensors visible on this screen
+            screen_sensors = [s for s in sensors_for_app if s.get("expected_screen_id") == current_screen]
+            if screen_sensors:
+                steps.append({
+                    "step_type": "capture_sensors",
+                    "sensor_ids": [s.get("sensor_id") for s in screen_sensors],
+                    "expected_screen_id": current_screen,
+                    "description": f"Capture sensors on {screen.display_name or 'home screen'}"
+                })
+
+        # Find paths to other screens using navigation graph
+        for screen_id, screen in graph.screens.items():
+            if screen_id in visited_screens:
+                continue
+
+            # Try to find a path to this screen
+            if current_screen:
+                path = nav_manager.find_path(package_name, current_screen, screen_id)
+                if path and path.transitions:
+                    # Add navigation steps
+                    for transition in path.transitions:
+                        action = transition.action
+                        if action:
+                            if action.action_type == "tap":
+                                steps.append({
+                                    "step_type": "tap",
+                                    "x": action.x or 0,
+                                    "y": action.y or 0,
+                                    "description": action.description or f"Navigate to {screen.display_name or screen.activity}",
+                                    "expected_screen_id": transition.source_screen_id
+                                })
+                            elif action.action_type == "swipe":
+                                steps.append({
+                                    "step_type": "swipe",
+                                    "start_x": action.start_x or 0,
+                                    "start_y": action.start_y or 0,
+                                    "end_x": action.end_x or 0,
+                                    "end_y": action.end_y or 0,
+                                    "description": action.description or "Swipe"
+                                })
+                            elif action.action_type == "keycode":
+                                if action.keycode == "KEYCODE_BACK":
+                                    steps.append({
+                                        "step_type": "go_back",
+                                        "description": "Go back"
+                                    })
+
+                    # Wait for screen transition
+                    steps.append({
+                        "step_type": "wait",
+                        "duration": 1000,
+                        "description": f"Wait for {screen.display_name or screen.activity}"
+                    })
+
+                    # Update current screen
+                    current_screen = screen_id
+                    visited_screens.add(screen_id)
+
+                    # Capture at this screen
+                    if include_screenshots:
+                        steps.append({
+                            "step_type": "screenshot",
+                            "expected_screen_id": screen_id,
+                            "description": f"Capture screen: {screen.display_name or screen.activity}"
+                        })
+
+                    # Capture sensors on this screen
+                    screen_sensors = [s for s in sensors_for_app if s.get("expected_screen_id") == screen_id]
+                    if screen_sensors:
+                        steps.append({
+                            "step_type": "capture_sensors",
+                            "sensor_ids": [s.get("sensor_id") for s in screen_sensors],
+                            "expected_screen_id": screen_id,
+                            "description": f"Capture sensors on {screen.display_name or screen.activity}"
+                        })
+
+        # If we captured specific sensor IDs
+        if sensor_ids and capture_mode == "sensors_only":
+            steps = [s for s in steps if s.get("step_type") in ["launch_app", "wait", "capture_sensors"]]
+            # Only keep capture_sensors steps with our sensor IDs
+            steps = [s for s in steps if s.get("step_type") != "capture_sensors" or
+                     any(sid in sensor_ids for sid in s.get("sensor_ids", []))]
+
+        # Get stable device ID
+        stable_device_id = None
+        try:
+            stable_device_id = await deps.adb_bridge.get_device_serial(device_id)
+        except Exception:
+            pass
+
+        # Generate flow ID
+        import uuid
+        flow_id = f"smart_{uuid.uuid4().hex[:8]}"
+
+        # Build flow data
+        app_name = package_name.split(".")[-1].title()
+        flow_data = {
+            "flow_id": flow_id,
+            "device_id": device_id,
+            "stable_device_id": stable_device_id,
+            "name": f"Smart Flow: {app_name}",
+            "description": f"Auto-generated flow covering {len(visited_screens)} screens in {package_name}",
+            "app_package": package_name,
+            "steps": steps,
+            "enabled": False,  # Start disabled for review
+            "update_interval": 300,  # 5 minutes default
+            "auto_wake_before": True,
+            "auto_sleep_after": True
+        }
+
+        logger.info(f"[API] Generated smart flow with {len(steps)} steps for {package_name}")
+
+        return {
+            "success": True,
+            "flow": flow_data,
+            "screens_covered": len(visited_screens),
+            "total_screens": len(screens),
+            "sensors_found": len(sensors_for_app),
+            "message": f"Generated flow covering {len(visited_screens)}/{len(screens)} screens with {len(steps)} steps"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Smart flow generation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/flows/generate-smart/save")
+async def save_generated_smart_flow(flow_data: dict):
+    """
+    Save a generated smart flow after user review.
+
+    Body:
+        flow_data: The flow data from generate-smart endpoint (possibly modified by user)
+
+    Returns:
+        Saved flow
+    """
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+
+        from flow_models import SensorCollectionFlow
+
+        # Create flow from data
+        flow = SensorCollectionFlow(**flow_data)
+        deps.flow_manager.create_flow(flow)
+
+        logger.info(f"[API] Saved smart flow {flow.flow_id}")
+
+        return {
+            "success": True,
+            "flow": flow.dict(),
+            "message": f"Smart flow '{flow.name}' saved successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Failed to save smart flow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

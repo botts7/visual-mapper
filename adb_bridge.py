@@ -59,6 +59,11 @@ class ADBBridge:
         self._stream_active: Dict[str, bool] = {}  # Track active streams per device
         self._stream_frame_count: Dict[str, int] = {}  # Frame counter per device
 
+        # Unlock attempt tracking (prevent device lockout)
+        self._unlock_failures: Dict[str, dict] = {}  # {device_id: {"count": int, "last_attempt": float, "locked_out": bool}}
+        self._max_unlock_attempts: int = 2  # Max attempts before giving up (most devices lock after 5)
+        self._unlock_cooldown_seconds: int = 300  # 5 minute cooldown after failures
+
         # Stable device identifier cache (survives IP/port changes)
         self._device_serial_cache: Dict[str, str] = {}  # {device_id: serial_number}
 
@@ -1426,6 +1431,8 @@ class ADBBridge:
         """
         Attempt to unlock the screen (works for swipe-to-unlock, not PIN/pattern).
 
+        Uses wm dismiss-keyguard (Android 8+) for maximum reliability.
+
         Args:
             device_id: Device identifier
 
@@ -1438,62 +1445,334 @@ class ADBBridge:
 
         try:
             logger.info(f"[ADBBridge] Unlocking screen on {device_id}")
-            # Send menu key (often dismisses lock screen on swipe-to-unlock)
+
+            # Method 1: wm dismiss-keyguard (most reliable on Android 8+)
+            try:
+                await conn.shell("wm dismiss-keyguard")
+                await asyncio.sleep(0.3)
+                # Check if unlocked
+                if not await self.is_locked(device_id):
+                    logger.info(f"[ADBBridge] Screen unlocked via wm dismiss-keyguard")
+                    return True
+            except Exception as e:
+                logger.debug(f"[ADBBridge] wm dismiss-keyguard failed: {e}")
+
+            # Method 2: MENU key (often dismisses lock screen on swipe-to-unlock)
             await conn.shell("input keyevent 82")  # KEYCODE_MENU
             await asyncio.sleep(0.3)
-            # Also try swipe up (common unlock gesture)
-            await conn.shell("input swipe 540 1800 540 800 300")
+
+            # Method 3: Swipe up (fallback for older devices)
+            try:
+                wm_output = await conn.shell("wm size")
+                match = re.search(r'(\d+)x(\d+)', wm_output)
+                if match:
+                    width, height = int(match.group(1)), int(match.group(2))
+                else:
+                    width, height = 1080, 1920
+                center_x = width // 2
+                await conn.shell(f"input swipe {center_x} {int(height * 0.8)} {center_x} {int(height * 0.3)} 300")
+            except:
+                # Fallback with hardcoded coordinates
+                await conn.shell("input swipe 540 1800 540 800 300")
+
             return True
         except Exception as e:
             logger.error(f"[ADBBridge] Failed to unlock screen: {e}")
             return False
 
+    def get_unlock_status(self, device_id: str) -> dict:
+        """
+        Get unlock attempt status for a device.
+
+        Returns:
+            Dict with failure_count, in_cooldown, cooldown_remaining_seconds, locked_out
+        """
+        failure_info = self._unlock_failures.get(device_id, {"count": 0, "last_attempt": 0, "locked_out": False})
+
+        # Check if cooldown has expired
+        time_since_failure = time.time() - failure_info.get("last_attempt", 0)
+        in_cooldown = failure_info.get("count", 0) >= self._max_unlock_attempts and time_since_failure < self._unlock_cooldown_seconds
+        cooldown_remaining = max(0, self._unlock_cooldown_seconds - time_since_failure) if in_cooldown else 0
+
+        return {
+            "failure_count": failure_info.get("count", 0),
+            "in_cooldown": in_cooldown,
+            "cooldown_remaining_seconds": int(cooldown_remaining),
+            "locked_out": failure_info.get("locked_out", False),
+            "max_attempts": self._max_unlock_attempts
+        }
+
+    def reset_unlock_failures(self, device_id: str):
+        """Reset unlock failure count for a device (call after successful manual unlock)."""
+        if device_id in self._unlock_failures:
+            del self._unlock_failures[device_id]
+            logger.info(f"[ADBBridge] Reset unlock failures for {device_id}")
+
+    async def _get_pin_entry_count(self, device_id: str) -> int:
+        """
+        Get the number of PIN digits currently entered by checking UI elements.
+
+        Looks for PIN entry indicators like dots/bullets in the lock screen UI.
+
+        Returns:
+            Number of digits detected, or -1 if cannot determine
+        """
+        conn = self.devices.get(device_id)
+        if not conn:
+            return -1
+
+        try:
+            # Get UI hierarchy and look for PIN entry field
+            elements = await self.get_ui_elements(device_id)
+            if isinstance(elements, dict):
+                elements = elements.get('elements', [])
+
+            for elem in elements:
+                elem_class = elem.get('class', '')
+                text = elem.get('text', '')
+                content_desc = elem.get('content_desc', '')
+
+                # Look for PIN entry indicators
+                # Many lock screens use PasswordTextView or similar with dots
+                if 'Password' in elem_class or 'Pin' in elem_class or 'Keyguard' in elem_class:
+                    # Count dots or bullets in text (common PIN masking)
+                    if text:
+                        # Count bullet characters (•, *, etc.)
+                        dot_count = text.count('•') + text.count('●') + text.count('*') + text.count('○')
+                        if dot_count > 0:
+                            logger.debug(f"[ADBBridge] Found PIN indicator with {dot_count} dots in '{elem_class}'")
+                            return dot_count
+
+                # Also check for "X digits entered" type content descriptions
+                if content_desc:
+                    import re
+                    match = re.search(r'(\d+)\s*(digit|character|number)', content_desc.lower())
+                    if match:
+                        count = int(match.group(1))
+                        logger.debug(f"[ADBBridge] Found PIN count {count} in content_desc: '{content_desc}'")
+                        return count
+
+            # Fallback: Look for any element with multiple dots
+            for elem in elements:
+                text = elem.get('text', '')
+                if text and len(text) <= 10:  # PIN is usually 4-10 digits
+                    # Count any character that could be a masked digit
+                    masked_chars = sum(1 for c in text if c in '•●*○◉◎')
+                    if masked_chars >= 4:  # At least 4 masked chars = likely PIN field
+                        logger.debug(f"[ADBBridge] Found {masked_chars} masked characters in text")
+                        return masked_chars
+
+            logger.debug(f"[ADBBridge] Could not detect PIN entry count from UI")
+            return -1
+
+        except Exception as e:
+            logger.debug(f"[ADBBridge] Error getting PIN count: {e}")
+            return -1
+
+    async def _wait_for_pin_entry_screen(self, device_id: str, timeout: float = 3.0) -> bool:
+        """
+        Wait for PIN entry screen to be ready by checking for PIN-related UI elements.
+
+        Returns:
+            True if PIN entry screen detected, False if timeout
+        """
+        conn = self.devices.get(device_id)
+        if not conn:
+            return False
+
+        start_time = time.time()
+        while (time.time() - start_time) < timeout:
+            try:
+                # Check for PIN entry indicators in the focused window
+                result = await conn.shell("dumpsys window | grep -E 'mCurrentFocus|isKeyguardLocked'")
+
+                # Look for keyguard-related windows indicating PIN entry is ready
+                if "Keyguard" in result or "KeyguardBouncer" in result or "KeyguardSimPin" in result:
+                    logger.debug(f"[ADBBridge] PIN entry screen detected")
+                    return True
+
+                # Also check if there's a focused input field
+                if "StatusBar" not in result and "Launcher" not in result:
+                    # Not on home screen or status bar - likely PIN entry
+                    logger.debug(f"[ADBBridge] Focused window suggests PIN entry ready")
+                    return True
+
+            except Exception as e:
+                logger.debug(f"[ADBBridge] Error checking PIN screen: {e}")
+
+            await asyncio.sleep(0.3)
+
+        logger.warning(f"[ADBBridge] Timeout waiting for PIN entry screen")
+        return False
+
     async def unlock_device(self, device_id: str, passcode: str) -> bool:
         """
-        Unlock device with passcode/PIN.
+        Unlock device with passcode/PIN using universal Android methods.
 
-        This method performs the following steps:
-        1. Wake the screen
-        2. Swipe up to dismiss lock screen
-        3. Enter the passcode
-        4. Press Enter to confirm
+        Features:
+        - Lockout protection: Max 2 attempts to prevent device lockout
+        - Cooldown period: 5 minutes after max failures
+        - PIN screen detection: Waits for PIN entry to be ready
+        - Detailed logging for debugging
 
         Args:
             device_id: Device identifier
             passcode: Numeric passcode or PIN
 
         Returns:
-            True if unlock sequence completed successfully, False otherwise
+            True if unlock successful, False otherwise
 
         Note:
-            This works for numeric PINs. Pattern locks are not supported via ADB.
-            The success return value only indicates that commands were sent successfully,
-            not that the device is actually unlocked (passcode could be wrong).
+            Check get_unlock_status() if unlock fails to see if device is in cooldown.
         """
         conn = self.devices.get(device_id)
         if not conn:
             logger.warning(f"[ADBBridge] Cannot unlock - device {device_id} not in devices dict")
             return False
 
+        # Check cooldown status
+        status = self.get_unlock_status(device_id)
+        if status["in_cooldown"]:
+            logger.warning(f"[ADBBridge] Device {device_id} is in unlock cooldown ({status['cooldown_remaining_seconds']}s remaining). "
+                          f"Manual unlock required to prevent lockout.")
+            return False
+
+        if status["locked_out"]:
+            logger.error(f"[ADBBridge] Device {device_id} marked as locked out. Manual intervention required.")
+            return False
+
         try:
-            logger.info(f"[ADBBridge] Unlocking device {device_id}")
+            logger.info(f"[ADBBridge] Unlocking device {device_id} (attempt {status['failure_count'] + 1}/{self._max_unlock_attempts})")
 
-            # Step 1: Wake screen first (needs separate call to ensure screen is on)
-            await self.wake_screen(device_id)
+            # Step 1: Wake screen
+            logger.info(f"[ADBBridge] Step 1: Waking screen...")
+            await conn.shell("input keyevent 224")  # KEYCODE_WAKEUP
+            await asyncio.sleep(0.5)
 
-            # Step 2-4: Run unlock sequence as single batched command (much faster over WiFi)
-            # Combines: swipe up, enter passcode, press enter - with inline sleeps
-            unlock_cmd = (
-                f"input swipe 540 1800 540 800 300 && "  # Swipe up
-                f"sleep 0.3 && "  # Wait for PIN pad
-                f"input text {passcode} && "  # Enter passcode
-                f"sleep 0.2 && "  # Wait for input
-                f"input keyevent 66"  # Press Enter
-            )
-            await conn.shell(unlock_cmd)
-            await asyncio.sleep(0.3)  # Brief wait for unlock to complete
+            # Check if already unlocked (screen was just off)
+            if not await self.is_locked(device_id):
+                logger.info(f"[ADBBridge] Device already unlocked (screen was just off)")
+                self.reset_unlock_failures(device_id)
+                return True
 
-            logger.info(f"[ADBBridge] Unlock sequence completed for {device_id}")
+            # Step 2: Dismiss keyguard to reveal PIN entry
+            logger.info(f"[ADBBridge] Step 2: Dismissing keyguard...")
+            await conn.shell("input keyevent 82")   # KEYCODE_MENU
+            await asyncio.sleep(0.3)
+
+            try:
+                await conn.shell("wm dismiss-keyguard")
+            except Exception as e:
+                logger.debug(f"[ADBBridge] wm dismiss-keyguard failed: {e}")
+                # Fallback: swipe up
+                try:
+                    wm_output = await conn.shell("wm size")
+                    match = re.search(r'(\d+)x(\d+)', wm_output)
+                    if match:
+                        width, height = int(match.group(1)), int(match.group(2))
+                    else:
+                        width, height = 1080, 1920
+                    center_x = width // 2
+                    await conn.shell(f"input swipe {center_x} {int(height * 0.8)} {center_x} {int(height * 0.3)} 300")
+                except:
+                    pass
+
+            await asyncio.sleep(0.5)
+
+            # Step 3: Check if unlock happened without PIN (swipe-only lock)
+            if not await self.is_locked(device_id):
+                logger.info(f"[ADBBridge] Device unlocked (swipe-only lock)")
+                self.reset_unlock_failures(device_id)
+                return True
+
+            # Step 4: Wait for PIN entry screen to be ready
+            logger.info(f"[ADBBridge] Step 3: Waiting for PIN entry screen...")
+            pin_ready = await self._wait_for_pin_entry_screen(device_id, timeout=2.0)
+            if not pin_ready:
+                logger.warning(f"[ADBBridge] PIN entry screen not detected - trying anyway")
+
+            # Extra wait to ensure PIN field is focused
+            await asyncio.sleep(0.3)
+
+            # Step 5: Clear any existing PIN input first
+            logger.info(f"[ADBBridge] Step 4: Clearing any existing PIN input...")
+            for _ in range(10):  # Clear up to 10 digits
+                await conn.shell("input keyevent 67")  # KEYCODE_DEL
+                await asyncio.sleep(0.03)
+            await asyncio.sleep(0.2)
+
+            # Step 6: Enter PIN using key events (more discrete than input text)
+            # Key codes: 0-9 map to KEYCODE_0 (7) through KEYCODE_9 (16)
+            expected_digits = len(passcode)
+            max_retries = 2
+
+            for attempt in range(max_retries):
+                logger.info(f"[ADBBridge] Step 5: Entering PIN ({expected_digits} digits, attempt {attempt + 1}/{max_retries})...")
+
+                # Enter each digit
+                entered_count = 0
+                for digit in passcode:
+                    if digit.isdigit():
+                        keycode = 7 + int(digit)  # KEYCODE_0=7, KEYCODE_1=8, etc.
+                        await conn.shell(f"input keyevent {keycode}")
+                        entered_count += 1
+                        await asyncio.sleep(0.12)  # Slightly longer delay for reliability
+
+                await asyncio.sleep(0.3)
+
+                # Check PIN entry count by looking at UI
+                try:
+                    actual_count = await self._get_pin_entry_count(device_id)
+                    logger.info(f"[ADBBridge] PIN entry check: expected {expected_digits}, detected {actual_count}")
+
+                    if actual_count == expected_digits:
+                        # Correct count, proceed to confirm
+                        break
+                    elif actual_count > expected_digits:
+                        # Too many digits - clear and retry
+                        logger.warning(f"[ADBBridge] Too many digits entered ({actual_count}), clearing and retrying...")
+                        for _ in range(actual_count + 2):
+                            await conn.shell("input keyevent 67")  # KEYCODE_DEL
+                            await asyncio.sleep(0.03)
+                        await asyncio.sleep(0.2)
+                        continue
+                    else:
+                        # Too few or couldn't detect - try anyway
+                        logger.warning(f"[ADBBridge] Fewer digits detected ({actual_count}), proceeding anyway...")
+                        break
+                except Exception as e:
+                    logger.debug(f"[ADBBridge] Could not verify PIN count: {e}, proceeding anyway")
+                    break
+
+            await asyncio.sleep(0.2)
+
+            # Step 7: Confirm PIN
+            logger.info(f"[ADBBridge] Step 6: Confirming PIN...")
+            await conn.shell("input keyevent 66")  # KEYCODE_ENTER
+            await asyncio.sleep(1.0)  # Wait for unlock animation
+
+            # Step 7: Verify unlock
+            still_locked = await self.is_locked(device_id)
+            if still_locked:
+                # Record failure
+                failure_info = self._unlock_failures.get(device_id, {"count": 0, "last_attempt": 0, "locked_out": False})
+                failure_info["count"] = failure_info.get("count", 0) + 1
+                failure_info["last_attempt"] = time.time()
+                self._unlock_failures[device_id] = failure_info
+
+                remaining = self._max_unlock_attempts - failure_info["count"]
+                if remaining <= 0:
+                    logger.error(f"[ADBBridge] UNLOCK FAILED for {device_id} - Max attempts reached! "
+                                f"Entering {self._unlock_cooldown_seconds}s cooldown to prevent device lockout. "
+                                f"Please unlock device manually and call reset_unlock_failures().")
+                else:
+                    logger.warning(f"[ADBBridge] Unlock failed for {device_id} - {remaining} attempts remaining before cooldown")
+
+                return False
+
+            # Success - reset failure count
+            logger.info(f"[ADBBridge] Device {device_id} unlocked successfully")
+            self.reset_unlock_failures(device_id)
             return True
 
         except Exception as e:

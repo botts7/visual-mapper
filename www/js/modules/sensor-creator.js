@@ -479,18 +479,27 @@ class SensorCreator {
      * @private
      */
     _populateForm(element, elementIndex) {
+        // Handle null/undefined element
+        if (!element) {
+            console.warn('[SensorCreator] No element provided to _populateForm');
+            element = { class: 'Unknown', text: '' };
+        }
+
         // Element info
         const elementInfo = document.getElementById('selectedElementInfo');
-        elementInfo.textContent = `Index: ${elementIndex} | Class: ${element.class} | Text: "${element.text || '(empty)'}"`;
+        const elementClass = element.class || element['class'] || 'Unknown';
+        const elementText = element.text || '';
+        elementInfo.textContent = `Index: ${elementIndex} | Class: ${elementClass} | Text: "${elementText || '(empty)'}"`;
 
         // Auto-populate sensor name from element text
         const sensorName = document.getElementById('sensorName');
-        if (element.text && element.text.trim()) {
+        if (elementText && elementText.trim()) {
             // Clean text for sensor name
-            const cleanName = element.text.trim().substring(0, 50).replace(/[^a-zA-Z0-9\s]/g, '');
+            const cleanName = elementText.trim().substring(0, 50).replace(/[^a-zA-Z0-9\s]/g, '');
             sensorName.value = cleanName || 'Sensor';
         } else {
-            sensorName.value = element.class.split('.').pop() + ' Sensor';
+            const classShortName = elementClass.split('.').pop() || 'Element';
+            sensorName.value = classShortName + ' Sensor';
         }
 
         // Update preview
