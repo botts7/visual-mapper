@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.12">
-    <meta name="version" content="0.0.12" data-build="2025-12-28">
+    <meta name="viewport" content="0.0.13">
+    <meta name="version" content="0.0.13" data-build="2026-01-01">
     <title>Sensors - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.12">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.13">
 </head>
 <body>
     <nav>
@@ -91,6 +91,33 @@
         let sensorsInFlows = new Set(); // sensor_ids that are referenced in flows
         let stableIdsWithFlows = new Set(); // stable_device_ids that have at least one flow
         let allFlows = []; // all flows across all devices
+
+        // Extract app package from sensor (from target_app or element_resource_id)
+        function extractAppFromSensor(sensor) {
+            // First try target_app
+            if (sensor.target_app) {
+                return sensor.target_app;
+            }
+            // Fallback: extract from element_resource_id (format: "com.package.name:id/element_id")
+            if (sensor.source?.element_resource_id) {
+                const resourceId = sensor.source.element_resource_id;
+                if (resourceId.includes(':')) {
+                    return resourceId.split(':')[0];
+                }
+            }
+            return null;
+        }
+
+        // Get friendly app name from package
+        function getAppDisplayName(appPackage) {
+            if (!appPackage) return null;
+            const parts = appPackage.split('.');
+            if (parts.length >= 2) {
+                // Return last meaningful part, capitalized
+                return parts[parts.length - 1].charAt(0).toUpperCase() + parts[parts.length - 1].slice(1);
+            }
+            return parts[parts.length - 1];
+        }
 
         // Load all sensors and flows
         async function loadSensors() {
@@ -223,27 +250,40 @@
                 return;
             }
 
-            // Group by device
-            const groupedByDevice = new Map();
+            // Group by device + app combination
+            const groupedByDeviceApp = new Map();
             for (const sensor of filteredSensors) {
-                if (!groupedByDevice.has(sensor.device_id)) {
-                    groupedByDevice.set(sensor.device_id, []);
+                const appPackage = extractAppFromSensor(sensor);
+                const groupKey = `${sensor.device_id}|${appPackage || 'unknown'}`;
+                if (!groupedByDeviceApp.has(groupKey)) {
+                    groupedByDeviceApp.set(groupKey, {
+                        deviceId: sensor.device_id,
+                        appPackage: appPackage,
+                        sensors: []
+                    });
                 }
-                groupedByDevice.get(sensor.device_id).push(sensor);
+                groupedByDeviceApp.get(groupKey).sensors.push(sensor);
             }
 
             // Render grouped sensors
             let html = '';
-            for (const [deviceId, sensors] of groupedByDevice.entries()) {
+            for (const [groupKey, group] of groupedByDeviceApp.entries()) {
+                const device = deviceInfo.get(group.deviceId);
+                const deviceModel = device?.model || group.deviceId;
+                const appName = getAppDisplayName(group.appPackage);
+                const appLabel = appName ? `<span style="background: #673AB7; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px;">${appName}</span>` : '';
+
                 html += `
                     <div class="card" style="margin-bottom: 15px;">
-                        <h3 style="margin-bottom: 10px; color: var(--primary-color);">
-                            Device: ${deviceId}
+                        <h3 style="margin-bottom: 10px; color: var(--primary-color); display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
+                            <span>${deviceModel}</span>
+                            ${appLabel}
                             <span style="font-size: 14px; font-weight: normal; color: var(--text-secondary);">
-                                (${sensors.length} sensor${sensors.length !== 1 ? 's' : ''})
+                                (${group.sensors.length} sensor${group.sensors.length !== 1 ? 's' : ''})
                             </span>
                         </h3>
-                        ${sensors.map(sensor => renderSensorCard(sensor)).join('')}
+                        ${group.appPackage ? `<p style="margin: -5px 0 10px 0; font-size: 12px; color: var(--text-secondary);">${group.appPackage}</p>` : ''}
+                        ${group.sensors.map(sensor => renderSensorCard(sensor)).join('')}
                     </div>
                 `;
             }
@@ -276,6 +316,10 @@
             const hasDeviceFlow = sensor.stable_device_id && stableIdsWithFlows.has(sensor.stable_device_id);
             const isOrphaned = !isInFlow && !hasDeviceFlow;
 
+            // Extract app info for display
+            const appPackage = extractAppFromSensor(sensor);
+            const appName = getAppDisplayName(appPackage);
+
             const enabledBadge = sensor.enabled
                 ? '<span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Enabled</span>'
                 : '<span style="background: #757575; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">Disabled</span>';
@@ -297,6 +341,11 @@
             const deviceClassBadge = sensor.device_class && sensor.device_class !== 'none'
                 ? `<span style="background: #673AB7; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">${sensor.device_class}</span>`
                 : '';
+
+            // App badge - shows which app this sensor is tied to
+            const appBadge = appName
+                ? `<span style="background: #009688; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;" title="${appPackage}">${appName}</span>`
+                : '<span style="background: #9E9E9E; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">No App</span>';
 
             const currentValue = sensor.current_value
                 ? `${sensor.current_value}${sensor.unit_of_measurement || ''}`
@@ -345,6 +394,7 @@
                                 ${flowBadge}
                                 ${typeBadge}
                                 ${deviceClassBadge}
+                                ${appBadge}
                             </div>
                             <p style="margin: 5px 0; font-size: 13px; color: var(--text-secondary);">
                                 <strong>ID:</strong> ${sensor.sensor_id}<br>

@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.12">
-    <meta name="version" content="0.0.12" data-build="2025-12-29">
+    <meta name="viewport" content="0.0.13">
+    <meta name="version" content="0.0.13" data-build="2026-01-01">
     <title>Flow Management - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.12">
-    <link rel="stylesheet" href="css/flows.css?v=0.0.12">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.13">
+    <link rel="stylesheet" href="css/flows.css?v=0.0.13">
 </head>
 <body>
     <nav>
@@ -523,7 +523,7 @@
         </div>
     </div>
 
-    <script src="js/init.js?v=0.0.12"></script>
+    <script src="js/init.js?v=0.0.13"></script>
     <script type="module">
         import FlowManager from './js/modules/flow-manager.js?v=0.0.6.1';
 
@@ -1248,7 +1248,8 @@
             const executionTime = result.execution_time_ms ?? 0;
             const capturedSensors = result.captured_sensors || {};
 
-            // Build step-by-step breakdown
+            // Build step-by-step breakdown with values
+            const stepResults = result.step_results || [];
             let stepsHtml = '';
             if (flow && flow.steps && flow.steps.length > 0) {
                 stepsHtml = `
@@ -1259,11 +1260,39 @@
                                 let statusIcon = '';
                                 let statusClass = '';
                                 let errorDetail = '';
+                                let stepDetails = '';
+
+                                // Find step result for this index
+                                const stepResult = stepResults.find(sr => sr.step_index === index);
 
                                 if (index < executedSteps) {
                                     // Step was executed successfully
                                     statusIcon = '✅';
                                     statusClass = 'step-success';
+
+                                    // Add details for capture_sensors steps
+                                    if (stepResult && stepResult.details && stepResult.details.sensors) {
+                                        const sensors = stepResult.details.sensors;
+                                        const sensorCount = Object.keys(sensors).length;
+                                        if (sensorCount > 0) {
+                                            stepDetails = `<div class="step-details" style="margin-top: 8px; padding: 8px; background: var(--preview-background); border-radius: 4px; font-size: 0.9em;">
+                                                <strong>Captured ${sensorCount} sensor${sensorCount !== 1 ? 's' : ''}:</strong>
+                                                <ul style="margin: 4px 0 0 0; padding-left: 20px;">
+                                                    ${Object.entries(sensors).map(([id, info]) =>
+                                                        `<li><strong>${escapeHtml(info.name || id)}:</strong> <span style="color: var(--primary-color);">${escapeHtml(String(info.value ?? '--'))}</span></li>`
+                                                    ).join('')}
+                                                </ul>
+                                            </div>`;
+                                        }
+                                    }
+
+                                    // Add details for execute_action steps
+                                    if (stepResult && stepResult.details && stepResult.details.action_id) {
+                                        stepDetails = `<div class="step-details" style="margin-top: 8px; padding: 8px; background: var(--preview-background); border-radius: 4px; font-size: 0.9em;">
+                                            <strong>Action:</strong> ${escapeHtml(stepResult.details.action_id)}
+                                            <span style="color: #4CAF50; margin-left: 8px;">${escapeHtml(stepResult.details.action_result || 'executed')}</span>
+                                        </div>`;
+                                    }
                                 } else if (result.failed_step !== null && result.failed_step !== undefined && index === result.failed_step) {
                                     // Step failed
                                     statusIcon = '❌';
@@ -1285,6 +1314,7 @@
                                             <span class="step-type">(${escapeHtml(step.step_type)})</span>
                                         </span>
                                         ${errorDetail}
+                                        ${stepDetails}
                                     </li>
                                 `;
                             }).join('')}

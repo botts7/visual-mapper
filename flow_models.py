@@ -238,6 +238,18 @@ class SensorCollectionFlow(BaseModel):
     )
 
 
+class StepResult(BaseModel):
+    """Result of executing a single step"""
+    step_index: int
+    step_type: str
+    description: Optional[str] = None
+    success: bool
+    error_message: Optional[str] = None
+    # For capture_sensors: {sensor_id: {name: str, value: any}}
+    # For execute_action: {action_id: str, action_name: str, result: str}
+    details: Dict[str, Any] = {}
+
+
 class FlowExecutionResult(BaseModel):
     """Result of executing a flow"""
     flow_id: str
@@ -246,6 +258,7 @@ class FlowExecutionResult(BaseModel):
     failed_step: Optional[int] = None
     error_message: Optional[str] = None
     captured_sensors: Dict[str, Any] = {}  # sensor_id -> value
+    step_results: List[StepResult] = []  # Per-step results with values
     execution_time_ms: int
     timestamp: datetime = Field(default_factory=datetime.now)
 
@@ -254,7 +267,7 @@ class FlowList(BaseModel):
     """List of flows for a device"""
     device_id: str
     flows: List[SensorCollectionFlow] = []
-    version: str = "0.0.12"
+    version: str = "0.0.13"
     last_modified: datetime = Field(default_factory=datetime.now)
 
 

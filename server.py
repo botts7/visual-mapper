@@ -65,7 +65,7 @@ from navigation_mqtt_handler import NavigationMqttHandler
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration, device_security, device_registration, navigation, companion
+from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration, device_security, device_registration, navigation, companion, services
 
 # Configure logging
 logging.basicConfig(
@@ -159,7 +159,7 @@ logging.getLogger().addHandler(ws_log_handler)
 # Create FastAPI app
 app = FastAPI(
     title="Visual Mapper API",
-    version="0.0.12",
+    version="0.0.13",
     description="Android Device Monitoring & Automation for Home Assistant"
 )
 
@@ -342,7 +342,7 @@ async def startup_event():
     """Initialize MQTT connection on startup"""
     global mqtt_manager, sensor_updater, flow_manager, flow_executor, flow_scheduler, performance_monitor, screenshot_stitcher, app_icon_extractor, playstore_icon_scraper, device_icon_scraper, icon_background_fetcher, app_name_background_fetcher, stream_manager, adb_maintenance, shell_pool, connection_monitor
 
-    logger.info("[Server] Starting Visual Mapper v0.0.7")
+    logger.info("[Server] Starting Visual Mapper v0.0.12")
     logger.info(f"[Server] MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
 
     # Initialize MQTT Manager
@@ -453,10 +453,49 @@ async def startup_event():
         )
         logger.info("[Server] ✅ Connection Monitor initialized")
 
+        # Subscribe to device announcements (MQTT-based device discovery)
+        async def on_device_announced(announcement: dict):
+            """Handle device announcement from Android companion app"""
+            try:
+                ip = announcement.get('ip')
+                adb_port = announcement.get('adb_port')
+                model = announcement.get('model', 'Unknown')
+                already_paired = announcement.get('already_paired', True)
+
+                logger.info(f"[Server] 📱 Device announced: {model} at {ip}:{adb_port} (paired={already_paired})")
+
+                # Store announcement for API access
+                if not hasattr(mqtt_manager, '_announced_devices'):
+                    mqtt_manager._announced_devices = {}
+                mqtt_manager._announced_devices[f"{ip}:{adb_port}"] = announcement
+
+                # Auto-connect if already paired
+                if already_paired and ip and adb_port:
+                    # Check if not already connected
+                    device_id = f"{ip}:{adb_port}"
+                    existing_devices = await adb_bridge.get_connected_devices()
+                    if not any(d.get('id') == device_id for d in existing_devices):
+                        logger.info(f"[Server] 🔗 Auto-connecting to announced device: {device_id}")
+                        try:
+                            await adb_bridge.connect_device(ip, adb_port)
+                            logger.info(f"[Server] ✅ Auto-connected to {device_id}")
+                        except Exception as e:
+                            logger.warning(f"[Server] Failed to auto-connect to {device_id}: {e}")
+
+            except Exception as e:
+                logger.error(f"[Server] Error handling device announcement: {e}")
+
+        await mqtt_manager.subscribe_device_announcements(on_device_announced)
+        logger.info("[Server] ✅ Subscribed to device announcements (MQTT discovery)")
+
         # Register callback to publish MQTT discovery when devices are discovered
-        async def on_device_discovered(device_id: str):
+        async def on_device_discovered(device_id: str, model: str = None):
             """Callback triggered when ADB bridge auto-imports a device"""
             try:
+                # Set device model info in MQTT manager for friendly names
+                if model and mqtt_manager:
+                    mqtt_manager.set_device_info(device_id, model=model)
+                    logger.info(f"[Server] Set device model for {device_id}: {model}")
                 # Check for device IP/port changes and auto-migrate
                 try:
                     stable_device_id = await adb_bridge.get_device_serial(device_id)
@@ -776,6 +815,8 @@ app.include_router(navigation.router)
 logger.info("[Server] Registered route module: navigation (11 endpoints: graph CRUD + screens + transitions + pathfinding + learning)")
 app.include_router(companion.router)
 logger.info("[Server] Registered route module: companion (5 endpoints: ui-tree + status + devices + discover-screens + select-elements)")
+app.include_router(services.router)
+logger.info("[Server] Registered route module: services (6 endpoints: status + mqtt + ml start/stop/restart)")
 
 # ============================================================================
 # All API endpoints have been migrated to routes/ modules

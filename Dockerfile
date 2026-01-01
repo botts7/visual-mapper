@@ -1,45 +1,50 @@
-FROM python:3.11-alpine
+FROM python:3.11-slim
 
 # Set version
-ENV VERSION=0.0.12
+ENV VERSION=0.0.13
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apk add --no-cache \
-    nginx \
-    supervisor \
-    android-tools \
-    && rm -rf /var/cache/apk/*
+# Install system dependencies (including build tools for psutil)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    android-tools-adb \
+    wget \
+    gcc \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup -g 1000 visualmapper && \
-    adduser -D -u 1000 -G visualmapper visualmapper
+RUN groupadd -g 1000 visualmapper && \
+    useradd -u 1000 -g visualmapper -m visualmapper
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy nginx configuration
-COPY nginx.conf /etc/nginx/nginx.conf
-
 # Copy application files
-COPY server.py adb_bridge.py ./
+COPY *.py ./
+COPY routes ./routes
+COPY utils ./utils
+COPY ss_modules ./ss_modules
 COPY www ./www
 
-# Set ownership to non-root user
-RUN chown -R visualmapper:visualmapper /app /var/log/nginx /var/lib/nginx /run/nginx
+# Create data directory
+RUN mkdir -p /app/data && chown -R visualmapper:visualmapper /app
+
+# Environment variables
+ENV MQTT_BROKER=localhost
+ENV MQTT_PORT=1883
 
 # Switch to non-root user
 USER visualmapper
 
 # Expose ports
-EXPOSE 3000 8099 8100
+EXPOSE 8080 8099 8100
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
 
 # Start services
 CMD ["python", "server.py"]

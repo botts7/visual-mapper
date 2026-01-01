@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.12">
-    <meta name="version" content="0.0.12" data-build="2025-12-28">
+    <meta name="viewport" content="0.0.13">
+    <meta name="version" content="0.0.13" data-build="2026-01-01">
     <title>Action Management - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.12">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.13">
     <style>
         /* Action-specific styles */
         .action-card {
@@ -374,6 +374,31 @@
         let stableIdsWithFlows = new Set(); // stable_device_ids that have at least one flow
         let allFlows = []; // all flows across all devices
 
+        // Extract app package from action (only available for launch_app type or from context)
+        function extractAppFromAction(actionDef) {
+            const action = actionDef.action;
+            // launch_app actions have package_name
+            if (action.action_type === 'launch_app' && action.package_name) {
+                return action.package_name;
+            }
+            // Check for source_app field if it exists
+            if (actionDef.source_app) {
+                return actionDef.source_app;
+            }
+            return null;
+        }
+
+        // Get friendly app name from package
+        function getAppDisplayName(appPackage) {
+            if (!appPackage) return null;
+            const parts = appPackage.split('.');
+            if (parts.length >= 2) {
+                // Return last meaningful part, capitalized
+                return parts[parts.length - 1].charAt(0).toUpperCase() + parts[parts.length - 1].slice(1);
+            }
+            return parts[parts.length - 1];
+        }
+
         // Load all actions from all devices
         async function loadActions() {
             try {
@@ -560,6 +585,10 @@
             const lastTriggered = formatRelativeTime(actionDef.last_executed);
             const execCount = actionDef.execution_count || 0;
 
+            // Extract app info if available
+            const appPackage = extractAppFromAction(actionDef);
+            const appName = getAppDisplayName(appPackage);
+
             const isInFlow = actionsInFlows.has(actionDef.id);
             const isOrphaned = !isInFlow;
 
@@ -567,6 +596,11 @@
             const flowBadge = isInFlow
                 ? '<span style="background: #2196F3; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px;">In Flow</span>'
                 : '<span style="background: #FF9800; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px;">Standalone</span>';
+
+            // App badge - shows which app this action targets (mainly for launch_app type)
+            const appBadge = appName
+                ? `<span style="background: #009688; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px;" title="${appPackage}">${appName}</span>`
+                : '';
 
             let details = '';
             if (action.action_type === 'tap') {
@@ -605,6 +639,7 @@
                             <strong>${action.name}</strong>
                             ${typeBadge}
                             ${flowBadge}
+                            ${appBadge}
                         </div>
                         <div class="action-card-footer">
                             <button class="btn-execute btn btn-secondary" data-id="${actionDef.id}" data-device="${actionDef.device_id}">▶ Execute</button>
@@ -617,7 +652,7 @@
                     ${tags ? `<div style="margin: 8px 0;">${tags}</div>` : ''}
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding: 10px; background: var(--preview-background); border-radius: 6px;">
                         <div class="action-stats" style="margin: 0;">
-                            <strong>${deviceLabel}</strong> | ${execCount} execution${execCount !== 1 ? 's' : ''}
+                            <strong>${deviceLabel}</strong>${appName ? ` <span style="color: var(--text-secondary);">></span> <span style="color: #009688;">${appName}</span>` : ''} | ${execCount} execution${execCount !== 1 ? 's' : ''}
                         </div>
                         <div style="text-align: right;">
                             <span style="font-size: 0.8em; color: var(--text-secondary);">Last Triggered</span><br>

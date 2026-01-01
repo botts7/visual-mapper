@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="0.0.13">
+    <meta name="version" content="0.0.13" data-build="2026-01-02">
+    <title>Services - Visual Mapper</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.13">
+    <style>
+        .service-card {
+            background: var(--card-background);
+            border: 1px solid var(--border-color);
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .service-info {
+            flex: 1;
+        }
+        .service-name {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .service-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+        .service-status.running {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4CAF50;
+        }
+        .service-status.stopped {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+        }
+        .service-status.checking {
+            background: rgba(255, 193, 7, 0.2);
+            color: #FFC107;
+        }
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        .status-indicator.running {
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+        .status-indicator.stopped {
+            background: #f44336;
+        }
+        .status-indicator.checking {
+            background: #FFC107;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .service-details {
+            color: var(--text-secondary);
+            font-size: 0.85em;
+            margin-top: 5px;
+        }
+        .service-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .service-actions button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-start {
+            background: #4CAF50;
+            color: white;
+        }
+        .btn-start:hover {
+            background: #45a049;
+        }
+        .btn-stop {
+            background: #f44336;
+            color: white;
+        }
+        .btn-stop:hover {
+            background: #d32f2f;
+        }
+        .btn-restart {
+            background: #2196F3;
+            color: white;
+        }
+        .btn-restart:hover {
+            background: #1976D2;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .refresh-btn {
+            background: var(--primary-color);
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+        .docker-info {
+            background: rgba(33, 150, 243, 0.1);
+            border: 1px solid rgba(33, 150, 243, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .docker-info h3 {
+            margin: 0 0 10px 0;
+            color: #2196F3;
+        }
+        .docker-info code {
+            background: var(--card-background);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <ul>
+            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
+            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
+            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
+            <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
+            <li class="nav-priority-med"><a href="flows.html">Flows</a></li>
+            <li class="nav-priority-med"><a href="performance.html">Performance</a></li>
+            <li class="nav-priority-med"><a href="services.html" class="active">Services</a></li>
+            <li class="nav-priority-low"><a href="diagnostic.html">Diagnostics</a></li>
+            <li class="version">v0.0.12</li>
+            <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
+            <li id="themeToggleContainer"></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <h1>Backend Services</h1>
+            <p>Monitor and control Visual Mapper backend services</p>
+        </div>
+
+        <div class="docker-info">
+            <h3>Docker Deployment</h3>
+            <p>Run all services with a single command:</p>
+            <p><code>docker-compose up -d</code></p>
+            <p>Stop all services: <code>docker-compose down</code></p>
+        </div>
+
+        <button class="refresh-btn" onclick="refreshStatus()">Refresh Status</button>
+
+        <div id="services-container">
+            <!-- MQTT Broker -->
+            <div class="service-card" id="mqtt-service">
+                <div class="service-info">
+                    <div class="service-name">MQTT Broker</div>
+                    <div class="service-status checking" id="mqtt-status">
+                        <span class="status-indicator checking"></span>
+                        <span>Checking...</span>
+                    </div>
+                    <div class="service-details" id="mqtt-details">Message bus for Android and server communication</div>
+                </div>
+                <div class="service-actions">
+                    <span style="color: var(--text-secondary); font-size: 0.9em;">External service</span>
+                </div>
+            </div>
+
+            <!-- Main Server -->
+            <div class="service-card" id="server-service">
+                <div class="service-info">
+                    <div class="service-name">Main Server</div>
+                    <div class="service-status running" id="server-status">
+                        <span class="status-indicator running"></span>
+                        <span>Running</span>
+                    </div>
+                    <div class="service-details" id="server-details">FastAPI backend - you're viewing this page from it!</div>
+                </div>
+                <div class="service-actions">
+                    <span style="color: var(--text-secondary); font-size: 0.9em;">Always running</span>
+                </div>
+            </div>
+
+            <!-- ML Training Server -->
+            <div class="service-card" id="ml-service">
+                <div class="service-info">
+                    <div class="service-name">ML Training Server</div>
+                    <div class="service-status checking" id="ml-status">
+                        <span class="status-indicator checking"></span>
+                        <span>Checking...</span>
+                    </div>
+                    <div class="service-details" id="ml-details">Q-Learning model training with NPU/GPU acceleration</div>
+                </div>
+                <div class="service-actions">
+                    <button class="btn-start" id="ml-start" onclick="startMl()">Start</button>
+                    <button class="btn-stop" id="ml-stop" onclick="stopMl()">Stop</button>
+                    <button class="btn-restart" id="ml-restart" onclick="restartMl()">Restart</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        async function refreshStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/services/status`);
+                const data = await response.json();
+
+                updateServiceCard('mqtt', data.mqtt);
+                updateServiceCard('server', data.server);
+                updateServiceCard('ml', data.ml_training);
+            } catch (error) {
+                console.error('Failed to fetch service status:', error);
+            }
+        }
+
+        function updateServiceCard(serviceId, status) {
+            const statusEl = document.getElementById(`${serviceId}-status`);
+            const detailsEl = document.getElementById(`${serviceId}-details`);
+            const indicatorClass = status.running ? 'running' : 'stopped';
+            const statusText = status.running ? 'Running' : 'Stopped';
+
+            statusEl.className = `service-status ${indicatorClass}`;
+            statusEl.innerHTML = `
+                <span class="status-indicator ${indicatorClass}"></span>
+                <span>${statusText}</span>
+            `;
+
+            if (status.details) {
+                detailsEl.textContent = status.details;
+            }
+
+            // Update button states for ML service
+            if (serviceId === 'ml') {
+                document.getElementById('ml-start').disabled = status.running;
+                document.getElementById('ml-stop').disabled = !status.running;
+                document.getElementById('ml-restart').disabled = !status.running;
+            }
+        }
+
+        async function startMl() {
+            try {
+                const btn = document.getElementById('ml-start');
+                btn.disabled = true;
+                btn.textContent = 'Starting...';
+
+                const response = await fetch(`${API_BASE}/api/services/ml/start`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                await refreshStatus();
+                btn.textContent = 'Start';
+            } catch (error) {
+                console.error('Failed to start ML service:', error);
+                alert('Failed to start ML service: ' + error.message);
+            }
+        }
+
+        async function stopMl() {
+            try {
+                const btn = document.getElementById('ml-stop');
+                btn.disabled = true;
+                btn.textContent = 'Stopping...';
+
+                const response = await fetch(`${API_BASE}/api/services/ml/stop`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                await refreshStatus();
+                btn.textContent = 'Stop';
+            } catch (error) {
+                console.error('Failed to stop ML service:', error);
+                alert('Failed to stop ML service: ' + error.message);
+            }
+        }
+
+        async function restartMl() {
+            try {
+                const btn = document.getElementById('ml-restart');
+                btn.disabled = true;
+                btn.textContent = 'Restarting...';
+
+                const response = await fetch(`${API_BASE}/api/services/ml/restart`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                await refreshStatus();
+                btn.textContent = 'Restart';
+            } catch (error) {
+                console.error('Failed to restart ML service:', error);
+                alert('Failed to restart ML service: ' + error.message);
+            }
+        }
+
+        // Initial load
+        refreshStatus();
+
+        // Auto-refresh every 10 seconds
+        setInterval(refreshStatus, 10000);
+    </script>
+</body>
+</html>
