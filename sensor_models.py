@@ -184,7 +184,7 @@ class SensorList(BaseModel):
     """List of sensors for a device"""
     device_id: str
     sensors: List[SensorDefinition] = []
-    version: str = "0.0.15"
+    version: str = "0.0.16"
     last_modified: datetime = Field(default_factory=datetime.now)
 
 
