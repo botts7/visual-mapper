@@ -1,6 +1,8 @@
 /**
  * Flow Wizard Step 1 - Device Selection
- * Visual Mapper v0.0.5
+ * Visual Mapper v0.0.6
+ *
+ * v0.0.6: Pause sensor updates when device is selected
  */
 
 // Helper to get API base
@@ -64,11 +66,16 @@ export async function loadStep(wizard) {
 
         // Handle device selection
         deviceList.querySelectorAll('.device-card[data-device]').forEach(card => {
-            card.addEventListener('click', () => {
+            card.addEventListener('click', async () => {
                 deviceList.querySelectorAll('.device-card').forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
                 wizard.selectedDevice = card.dataset.device;
                 console.log('[Step1] Device selected:', wizard.selectedDevice);
+
+                // Pause sensor updates for this device to reduce ADB contention
+                if (wizard.pauseSensorUpdates) {
+                    await wizard.pauseSensorUpdates(wizard.selectedDevice);
+                }
             });
         });
 

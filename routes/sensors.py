@@ -367,3 +367,113 @@ async def migrate_sensor_stable_ids():
     except Exception as e:
         logger.error(f"[API] Sensor migration failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# SENSOR UPDATE CONTROL (PAUSE/RESUME)
+# =============================================================================
+
+@router.post("/sensors/pause/{device_id}")
+async def pause_sensor_updates(device_id: str):
+    """
+    Pause sensor updates for a device (loop keeps running but skips update cycles).
+    Used during wizard editing and live streaming to avoid ADB contention.
+
+    The sensor update loop continues running but skips capture cycles,
+    allowing quick resume without restarting the entire loop.
+    """
+    deps = get_deps()
+    try:
+        if not deps.sensor_updater:
+            raise HTTPException(status_code=503, detail="SensorUpdater not initialized")
+
+        success = deps.sensor_updater.pause_device_updates(device_id)
+        if success:
+            logger.info(f"[API] Paused sensor updates for {device_id}")
+            return {
+                "success": True,
+                "device_id": device_id,
+                "paused": True,
+                "message": f"Sensor updates paused for {device_id}"
+            }
+        else:
+            return {
+                "success": False,
+                "device_id": device_id,
+                "paused": False,
+                "message": f"No sensor update loop running for {device_id}"
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to pause sensor updates for {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sensors/resume/{device_id}")
+async def resume_sensor_updates(device_id: str):
+    """
+    Resume sensor updates for a device after pause.
+    Call this when exiting wizard or stopping live streaming.
+    """
+    deps = get_deps()
+    try:
+        if not deps.sensor_updater:
+            raise HTTPException(status_code=503, detail="SensorUpdater not initialized")
+
+        success = deps.sensor_updater.resume_device_updates(device_id)
+        if success:
+            logger.info(f"[API] Resumed sensor updates for {device_id}")
+            return {
+                "success": True,
+                "device_id": device_id,
+                "paused": False,
+                "message": f"Sensor updates resumed for {device_id}"
+            }
+        else:
+            return {
+                "success": False,
+                "device_id": device_id,
+                "message": f"Device {device_id} was not paused"
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to resume sensor updates for {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sensors/status/{device_id}")
+async def get_sensor_update_status(device_id: str):
+    """Get the status of sensor updates for a device (running, paused, stopped)"""
+    deps = get_deps()
+    try:
+        if not deps.sensor_updater:
+            return {
+                "success": True,
+                "device_id": device_id,
+                "running": False,
+                "paused": False,
+                "status": "disabled"
+            }
+
+        is_running = deps.sensor_updater.is_running(device_id)
+        is_paused = deps.sensor_updater.is_paused(device_id)
+
+        if not is_running:
+            status = "stopped"
+        elif is_paused:
+            status = "paused"
+        else:
+            status = "running"
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            "running": is_running,
+            "paused": is_paused,
+            "status": status
+        }
+    except Exception as e:
+        logger.error(f"[API] Failed to get sensor update status for {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

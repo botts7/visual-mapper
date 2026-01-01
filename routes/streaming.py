@@ -23,35 +23,41 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["streaming"])
 
 # Quality presets: max_height, jpeg_quality, target_fps
+# Note: frame_delay is the MINIMUM time between frames (target = 1/fps)
+# Lower values = faster streaming but more CPU usage
 QUALITY_PRESETS = {
-    'high': {'max_height': None, 'jpeg_quality': 85, 'target_fps': 5, 'frame_delay': 0.2},
-    'medium': {'max_height': 720, 'jpeg_quality': 75, 'target_fps': 10, 'frame_delay': 0.1},
-    'low': {'max_height': 480, 'jpeg_quality': 65, 'target_fps': 15, 'frame_delay': 0.066},
-    'fast': {'max_height': 360, 'jpeg_quality': 55, 'target_fps': 20, 'frame_delay': 0.05},
+    'high': {'max_height': None, 'jpeg_quality': 85, 'target_fps': 5, 'frame_delay': 0.15},
+    'medium': {'max_height': 720, 'jpeg_quality': 75, 'target_fps': 12, 'frame_delay': 0.08},
+    'low': {'max_height': 480, 'jpeg_quality': 65, 'target_fps': 18, 'frame_delay': 0.05},
+    'fast': {'max_height': 360, 'jpeg_quality': 55, 'target_fps': 25, 'frame_delay': 0.04},
+    'ultrafast': {'max_height': 240, 'jpeg_quality': 45, 'target_fps': 30, 'frame_delay': 0.03},
 }
 
+# Frame capture timeout - skip slow frames quickly to maintain responsiveness
+FRAME_CAPTURE_TIMEOUT = 3.0  # 3s max per frame for WiFi ADB
+FRAME_SKIP_DELAY = 0.1  # Wait time after skipping a frame (was 0.5s)
+
 def resize_image_for_quality(img_bytes: bytes, quality: str) -> bytes:
-    """Resize image based on quality preset. Returns JPEG bytes."""
+    """Resize image based on quality preset. Returns JPEG bytes.
+
+    Raises exception on failure - caller should skip frame rather than send full-res.
+    """
     preset = QUALITY_PRESETS.get(quality, QUALITY_PRESETS['medium'])
 
-    try:
-        img = Image.open(io.BytesIO(img_bytes))
+    img = Image.open(io.BytesIO(img_bytes))
 
-        # Resize if needed
-        if preset['max_height'] and img.height > preset['max_height']:
-            ratio = preset['max_height'] / img.height
-            new_width = int(img.width * ratio)
-            img = img.resize((new_width, preset['max_height']), Image.Resampling.LANCZOS)
+    # Resize if needed
+    if preset['max_height'] and img.height > preset['max_height']:
+        ratio = preset['max_height'] / img.height
+        new_width = int(img.width * ratio)
+        img = img.resize((new_width, preset['max_height']), Image.Resampling.LANCZOS)
 
-        # Convert to JPEG
-        output = io.BytesIO()
-        if img.mode == 'RGBA':
-            img = img.convert('RGB')
-        img.save(output, format='JPEG', quality=preset['jpeg_quality'], optimize=True)
-        return output.getvalue()
-    except Exception as e:
-        logger.warning(f"[Quality] Resize failed: {e}, returning original")
-        return img_bytes
+    # Convert to JPEG
+    output = io.BytesIO()
+    if img.mode == 'RGBA':
+        img = img.convert('RGB')
+    img.save(output, format='JPEG', quality=preset['jpeg_quality'], optimize=True)
+    return output.getvalue()
 
 
 # =============================================================================
@@ -135,16 +141,16 @@ async def stream_device(websocket: WebSocket, device_id: str):
             capture_start = time.time()
 
             try:
-                # Capture screenshot with per-frame timeout (3 seconds max)
-                # This prevents a single slow capture from blocking the stream
+                # Capture screenshot with short timeout for responsiveness
+                # Skip slow frames quickly to maintain stream fluidity
                 try:
                     screenshot_bytes = await asyncio.wait_for(
-                        deps.adb_bridge.capture_screenshot(device_id),
-                        timeout=3.0  # 3 second max per frame
+                        deps.adb_bridge.capture_screenshot(device_id, force_refresh=True),
+                        timeout=FRAME_CAPTURE_TIMEOUT
                     )
                 except asyncio.TimeoutError:
-                    logger.warning(f"[WS-Stream] Frame {frame_number}: Capture timeout (>3s), skipping")
-                    await asyncio.sleep(0.5)
+                    logger.warning(f"[WS-Stream] Frame {frame_number}: Capture timeout (>{FRAME_CAPTURE_TIMEOUT}s), skipping")
+                    await asyncio.sleep(FRAME_SKIP_DELAY)
                     continue
 
                 capture_time = (time.time() - capture_start) * 1000  # ms
@@ -152,14 +158,17 @@ async def stream_device(websocket: WebSocket, device_id: str):
                 # Skip if invalid/empty screenshot
                 if len(screenshot_bytes) < 1000:
                     logger.warning(f"[WS-Stream] Frame {frame_number}: Screenshot too small ({len(screenshot_bytes)} bytes), skipping")
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(FRAME_SKIP_DELAY)
                     continue
 
-                # Resize based on quality (also converts to JPEG)
-                if quality != 'high':
+                # Resize and convert to JPEG based on quality preset
+                # Always convert to JPEG even for 'high' - PNG is 4-5x larger
+                try:
                     processed_bytes = resize_image_for_quality(screenshot_bytes, quality)
-                else:
-                    processed_bytes = screenshot_bytes
+                except Exception as convert_error:
+                    logger.warning(f"[WS-Stream] Frame {frame_number}: JPEG conversion failed: {convert_error}, skipping")
+                    await asyncio.sleep(FRAME_SKIP_DELAY)
+                    continue
 
                 # Debug: Log periodically
                 if frame_number <= 3 or frame_number % 100 == 0:
@@ -181,9 +190,10 @@ async def stream_device(websocket: WebSocket, device_id: str):
                     "frame_number": frame_number
                 })
 
-                # Sleep based on quality preset
-                sleep_time = max(0.03, preset['frame_delay'] - (time.time() - capture_start))
-                await asyncio.sleep(sleep_time)
+                # Sleep based on quality preset (adaptive - skip sleep if already behind)
+                elapsed = time.time() - capture_start
+                if elapsed < preset['frame_delay']:
+                    await asyncio.sleep(preset['frame_delay'] - elapsed)
 
             except Exception as capture_error:
                 logger.warning(f"[WS-Stream] Capture error: {capture_error}")
@@ -267,16 +277,16 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
             capture_start = time.time()
 
             try:
-                # Capture screenshot with per-frame timeout (3 seconds max)
-                # This prevents a single slow capture from blocking the stream
+                # Capture screenshot with short timeout for responsiveness
+                # Skip slow frames quickly to maintain stream fluidity
                 try:
                     screenshot_bytes = await asyncio.wait_for(
-                        deps.adb_bridge.capture_screenshot(device_id),
-                        timeout=3.0  # 3 second max per frame
+                        deps.adb_bridge.capture_screenshot(device_id, force_refresh=True),
+                        timeout=FRAME_CAPTURE_TIMEOUT
                     )
                 except asyncio.TimeoutError:
-                    logger.warning(f"[WS-MJPEG] Frame {frame_number}: Capture timeout (>3s), skipping")
-                    await asyncio.sleep(0.5)
+                    logger.warning(f"[WS-MJPEG] Frame {frame_number}: Capture timeout (>{FRAME_CAPTURE_TIMEOUT}s), skipping")
+                    await asyncio.sleep(FRAME_SKIP_DELAY)
                     continue
 
                 capture_time = int((time.time() - capture_start) * 1000)  # ms as int
@@ -284,15 +294,21 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
                 # Skip if invalid/empty screenshot
                 if len(screenshot_bytes) < 1000:
                     logger.warning(f"[WS-MJPEG] Frame {frame_number}: Screenshot too small ({len(screenshot_bytes)} bytes), skipping")
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(FRAME_SKIP_DELAY)
                     continue
 
                 # Resize and convert to JPEG based on quality preset
                 try:
                     jpeg_bytes = resize_image_for_quality(screenshot_bytes, quality)
+                    # Verify resize worked - if result is larger than input, skip frame
+                    if len(jpeg_bytes) > len(screenshot_bytes) * 0.9:
+                        logger.warning(f"[WS-MJPEG] Frame {frame_number}: Resize may have failed (output larger than input), skipping")
+                        await asyncio.sleep(FRAME_SKIP_DELAY)
+                        continue
                 except Exception as convert_error:
-                    logger.warning(f"[WS-MJPEG] JPEG conversion failed: {convert_error}, sending PNG")
-                    jpeg_bytes = screenshot_bytes  # Fallback to PNG
+                    logger.warning(f"[WS-MJPEG] Frame {frame_number}: JPEG conversion failed: {convert_error}, skipping")
+                    await asyncio.sleep(FRAME_SKIP_DELAY)
+                    continue
 
                 # Create binary frame with header
                 # Header: 4 bytes frame_number + 4 bytes capture_time
@@ -306,9 +322,10 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
                 if frame_number <= 3 or frame_number % 60 == 0:
                     logger.info(f"[WS-MJPEG] Frame {frame_number}: {len(jpeg_bytes)} bytes JPEG, {capture_time}ms capture, quality={quality}")
 
-                # Use frame delay from quality preset
-                sleep_time = max(0.05, preset['frame_delay'] - (time.time() - capture_start))
-                await asyncio.sleep(sleep_time)
+                # Sleep based on quality preset (adaptive - skip sleep if already behind)
+                elapsed = time.time() - capture_start
+                if elapsed < preset['frame_delay']:
+                    await asyncio.sleep(preset['frame_delay'] - elapsed)
 
             except Exception as capture_error:
                 logger.warning(f"[WS-MJPEG] Capture error: {capture_error}")

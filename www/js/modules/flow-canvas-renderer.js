@@ -1,12 +1,13 @@
 /**
  * Flow Canvas Renderer Module
- * Visual Mapper v0.0.9
+ * Visual Mapper v0.0.10
  *
  * Handles screenshot rendering, element overlays, and canvas scaling
  * v0.0.6: Clickable elements on top, divider filtering
  * v0.0.7: Enhanced filtering - hide empty elements, more container types
  * v0.0.8: Fixed canvasToDevice coordinate conversion (1:1 mapping)
  * v0.0.9: Smart container filtering - keep clickable containers (icon buttons)
+ * v0.0.10: containerClasses Set for O(1) lookup
  */
 
 export class FlowCanvasRenderer {
@@ -42,7 +43,8 @@ export class FlowCanvasRenderer {
         };
 
         // Container/layout classes to filter out (not useful for sensors or taps)
-        this.containerClasses = [
+        // Use Set for O(1) lookup instead of Array.includes() O(n)
+        this.containerClasses = new Set([
             // Core Android containers
             'android.view.View',
             'android.view.ViewGroup',
@@ -71,7 +73,7 @@ export class FlowCanvasRenderer {
             // Other non-interactive elements
             'android.widget.Space',
             'android.view.ViewStub'
-        ];
+        ]);
 
         // Setup gesture listeners
         this.setupGestureListeners();
@@ -355,7 +357,7 @@ export class FlowCanvasRenderer {
             // Filter out container/layout elements (not useful for interaction)
             // BUT keep clickable containers (they're usually buttons) or containers with resource IDs
             if (this.overlayFilters.hideContainers && el.class) {
-                const isContainer = this.containerClasses.includes(el.class);
+                const isContainer = this.containerClasses.has(el.class);
                 const isUsefulContainer = el.clickable || (el.resource_id && el.resource_id.trim());
                 if (isContainer && !isUsefulContainer) return false;
             }
@@ -446,7 +448,7 @@ export class FlowCanvasRenderer {
             // Filter out container/layout elements (not useful for interaction)
             // BUT keep clickable containers (they're usually buttons) or containers with resource IDs
             if (this.overlayFilters.hideContainers && el.class) {
-                const isContainer = this.containerClasses.includes(el.class);
+                const isContainer = this.containerClasses.has(el.class);
                 const isUsefulContainer = el.clickable || (el.resource_id && el.resource_id.trim());
                 if (isContainer && !isUsefulContainer) return false;
             }

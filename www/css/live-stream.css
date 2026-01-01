@@ -1,6 +1,6 @@
 /**
  * Live Stream CSS
- * Version: 0.0.8 - Touch feedback + hover preview + gesture recording + quick actions
+ * Version: 0.0.9 - FPS performance hints + connection type indicators
  */
 
 /* Controls */
@@ -1218,5 +1218,86 @@
 
     .tree-btn-highlight:hover {
         background: #2a4a70;
+    }
+}
+
+/* ==========================================================================
+   FPS Performance Hints & Connection Type Indicators
+   ========================================================================== */
+
+.fps-hint {
+    padding: 8px 12px;
+    margin-top: 10px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.fps-hint.hint-good {
+    background: rgba(76, 175, 80, 0.1);
+    border: 1px solid #4caf50;
+    color: #4caf50;
+}
+
+.fps-hint.hint-warning {
+    background: rgba(255, 152, 0, 0.1);
+    border: 1px solid #ff9800;
+    color: #ff9800;
+}
+
+.fps-hint.hint-slow {
+    background: rgba(244, 67, 54, 0.1);
+    border: 1px solid #f44336;
+    color: #f44336;
+}
+
+/* Connection type badges */
+.connection-usb {
+    color: #4caf50;
+    font-weight: 600;
+}
+
+.connection-wifi {
+    color: #ff9800;
+    font-weight: 600;
+}
+
+/* Backend indicators */
+.backend-adbutils {
+    color: #4caf50;
+}
+
+.backend-subprocess {
+    color: #9e9e9e;
+}
+
+/* FPS color coding */
+.fps-good {
+    color: #4caf50;
+}
+
+.fps-ok {
+    color: #8bc34a;
+}
+
+.fps-warning {
+    color: #ff9800;
+}
+
+.fps-slow {
+    color: #f44336;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .fps-hint.hint-good {
+        background: rgba(76, 175, 80, 0.2);
+    }
+
+    .fps-hint.hint-warning {
+        background: rgba(255, 152, 0, 0.2);
+    }
+
+    .fps-hint.hint-slow {
+        background: rgba(244, 67, 54, 0.2);
     }
 }

@@ -127,6 +127,18 @@ except ImportError:
     DML_AVAILABLE = False
     print("PyTorch not available - using simple Q-table training only")
 
+# Try to import ONNX Runtime for NPU acceleration
+ONNX_AVAILABLE = False
+ONNX_DML_AVAILABLE = False
+try:
+    import onnxruntime as ort
+    ONNX_AVAILABLE = True
+    if "DmlExecutionProvider" in ort.get_available_providers():
+        ONNX_DML_AVAILABLE = True
+        print("ONNX Runtime with DirectML available for NPU acceleration")
+except ImportError:
+    pass
+
 # Try to import numpy
 try:
     import numpy as np
@@ -144,6 +156,7 @@ MQTT_TOPIC_LOGS = "visualmapper/exploration/logs"
 MQTT_TOPIC_QTABLE = "visualmapper/exploration/qtable"
 MQTT_TOPIC_STATUS = "visualmapper/exploration/status"
 MQTT_TOPIC_COMMAND = "visualmapper/exploration/command"
+MQTT_TOPIC_MODEL = "visualmapper/exploration/model"  # TFLite model updates
 
 # Q-learning hyperparameters (auto-tuned based on experience)
 class HyperParams:
@@ -654,6 +667,461 @@ class QTableTrainer:
         self.executor.shutdown(wait=False)
 
 
+# === ONNX Runtime Neural Network Trainer with DirectML/NPU ===
+
+if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
+
+    class ONNXQNetworkTrainer:
+        """
+        Neural network Q-learning trainer using ONNX Runtime with DirectML.
+        Uses NPU for inference acceleration on Windows ARM devices.
+        Training is done with numpy, inference with ONNX Runtime on NPU.
+        """
+
+        def __init__(self, state_dim: int = 64, hidden_dim: int = 128, learning_rate: float = 0.001):
+            self.state_dim = state_dim
+            self.hidden_dim = hidden_dim
+            self.learning_rate = learning_rate
+
+            # Initialize weights with Xavier initialization
+            self.W1 = np.random.randn(state_dim, hidden_dim).astype(np.float32) * np.sqrt(2.0 / state_dim)
+            self.b1 = np.zeros((1, hidden_dim), dtype=np.float32)
+            self.W2 = np.random.randn(hidden_dim, hidden_dim).astype(np.float32) * np.sqrt(2.0 / hidden_dim)
+            self.b2 = np.zeros((1, hidden_dim), dtype=np.float32)
+            self.W3 = np.random.randn(hidden_dim, 1).astype(np.float32) * np.sqrt(2.0 / hidden_dim)
+            self.b3 = np.zeros((1, 1), dtype=np.float32)
+
+            # State hashing for fixed-size input
+            self.state_encoder: Dict[str, int] = {}
+            self.next_state_id = 0
+
+            # Q-table backup for states we haven't encoded
+            self.q_table: Dict[str, float] = {}
+            self.visit_counts: Dict[str, int] = {}
+
+            # Training data
+            self.replay_buffer = PrioritizedReplayBuffer(REPLAY_BUFFER_SIZE)
+            self.stats = TrainingStats()
+            self.lock = Lock()
+            self.devices_seen: set = set()
+
+            # ONNX session (created on first inference)
+            self.ort_session = None
+            self.session_needs_rebuild = True
+
+            # Background training
+            self.executor = ThreadPoolExecutor(max_workers=NUM_WORKERS)
+            self.training_queue = queue.Queue(maxsize=1000)
+            self.stop_event = Event()
+            self.training_thread = Thread(target=self._training_loop, daemon=True)
+            self.training_thread.start()
+
+            # Stats
+            self.npu_inferences = 0
+            self.cpu_updates = 0
+            self.stats.hardware_acceleration = "DirectML (NPU)"
+
+            logger.info(f"ONNXQNetworkTrainer initialized with DirectML/NPU support")
+            logger.info(f"  State dim: {state_dim}, Hidden dim: {hidden_dim}")
+
+        def _encode_state(self, screen_hash: str, action_key: str) -> np.ndarray:
+            """Encode state-action pair as fixed-size vector"""
+            key = f"{screen_hash}|{action_key}"
+
+            # Get or create state ID
+            if key not in self.state_encoder:
+                self.state_encoder[key] = self.next_state_id
+                self.next_state_id += 1
+
+            state_id = self.state_encoder[key]
+
+            # Create embedding vector (hash-based encoding)
+            state_vec = np.zeros(self.state_dim, dtype=np.float32)
+
+            # Use hash to create deterministic but distributed encoding
+            hash_val = hash(key)
+            for i in range(self.state_dim):
+                # Create pseudo-random values from hash
+                state_vec[i] = np.sin(hash_val * (i + 1) * 0.1) * 0.5 + 0.5
+
+            # Add position encoding based on state ID
+            for i in range(min(16, self.state_dim)):
+                state_vec[i] += np.sin(state_id / (10000 ** (i / 16))) * 0.1
+
+            return state_vec.reshape(1, -1)
+
+        def _relu(self, x: np.ndarray) -> np.ndarray:
+            """ReLU activation"""
+            return np.maximum(0, x)
+
+        def _forward_numpy(self, state: np.ndarray) -> float:
+            """Forward pass using numpy (CPU)"""
+            h1 = self._relu(state @ self.W1 + self.b1)
+            h2 = self._relu(h1 @ self.W2 + self.b2)
+            out = h2 @ self.W3 + self.b3
+            return float(out[0, 0])
+
+        def _build_onnx_model(self) -> bytes:
+            """Build ONNX model from current weights"""
+            from onnx import helper, TensorProto, numpy_helper
+
+            # Input
+            X = helper.make_tensor_value_info('input', TensorProto.FLOAT, [1, self.state_dim])
+            Y = helper.make_tensor_value_info('output', TensorProto.FLOAT, [1, 1])
+
+            # Weights as initializers
+            W1_init = numpy_helper.from_array(self.W1, name='W1')
+            b1_init = numpy_helper.from_array(self.b1.flatten(), name='b1')
+            W2_init = numpy_helper.from_array(self.W2, name='W2')
+            b2_init = numpy_helper.from_array(self.b2.flatten(), name='b2')
+            W3_init = numpy_helper.from_array(self.W3, name='W3')
+            b3_init = numpy_helper.from_array(self.b3.flatten(), name='b3')
+
+            # Nodes
+            nodes = [
+                helper.make_node('MatMul', ['input', 'W1'], ['mm1']),
+                helper.make_node('Add', ['mm1', 'b1'], ['h1_pre']),
+                helper.make_node('Relu', ['h1_pre'], ['h1']),
+                helper.make_node('MatMul', ['h1', 'W2'], ['mm2']),
+                helper.make_node('Add', ['mm2', 'b2'], ['h2_pre']),
+                helper.make_node('Relu', ['h2_pre'], ['h2']),
+                helper.make_node('MatMul', ['h2', 'W3'], ['mm3']),
+                helper.make_node('Add', ['mm3', 'b3'], ['output']),
+            ]
+
+            graph = helper.make_graph(
+                nodes,
+                'QNetwork',
+                [X],
+                [Y],
+                [W1_init, b1_init, W2_init, b2_init, W3_init, b3_init]
+            )
+
+            model = helper.make_model(graph, opset_imports=[helper.make_opsetid('', 13)])
+            return model.SerializeToString()
+
+        def _get_ort_session(self):
+            """Get or create ONNX Runtime session with DirectML"""
+            if self.ort_session is None or self.session_needs_rebuild:
+                try:
+                    model_bytes = self._build_onnx_model()
+                    sess_options = ort.SessionOptions()
+                    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+                    # Use DirectML (NPU) as primary provider
+                    self.ort_session = ort.InferenceSession(
+                        model_bytes,
+                        sess_options,
+                        providers=['DmlExecutionProvider', 'CPUExecutionProvider']
+                    )
+                    self.session_needs_rebuild = False
+                    logger.debug("ONNX session created with DirectML provider")
+                except Exception as e:
+                    logger.error(f"Failed to create ONNX session: {e}")
+                    return None
+            return self.ort_session
+
+        def _forward_onnx(self, state: np.ndarray) -> float:
+            """Forward pass using ONNX Runtime (NPU)"""
+            session = self._get_ort_session()
+            if session is None:
+                return self._forward_numpy(state)
+
+            try:
+                output = session.run(None, {'input': state})[0]
+                self.npu_inferences += 1
+                return float(output[0, 0])
+            except Exception as e:
+                logger.debug(f"ONNX inference failed, falling back to numpy: {e}")
+                return self._forward_numpy(state)
+
+        def predict(self, screen_hash: str, action_key: str) -> float:
+            """Predict Q-value for state-action pair"""
+            key = f"{screen_hash}|{action_key}"
+
+            # Use Q-table for frequently updated values
+            if key in self.q_table and self.visit_counts.get(key, 0) > 5:
+                return self.q_table[key]
+
+            # Use neural network for generalization
+            state = self._encode_state(screen_hash, action_key)
+            q_val = self._forward_onnx(state)
+
+            # Blend with Q-table if available
+            if key in self.q_table:
+                blend = min(self.visit_counts.get(key, 0) / 10, 0.8)
+                q_val = blend * self.q_table[key] + (1 - blend) * q_val
+
+            return q_val
+
+        def _backward(self, state: np.ndarray, target: float):
+            """Backward pass to update weights (gradient descent)"""
+            # Forward pass with cache
+            h1_pre = state @ self.W1 + self.b1
+            h1 = self._relu(h1_pre)
+            h2_pre = h1 @ self.W2 + self.b2
+            h2 = self._relu(h2_pre)
+            output = h2 @ self.W3 + self.b3
+
+            # Loss gradient (MSE)
+            d_output = 2 * (output - target)
+
+            # Backprop through layer 3
+            d_W3 = h2.T @ d_output
+            d_b3 = d_output.sum(axis=0, keepdims=True)
+            d_h2 = d_output @ self.W3.T
+
+            # Backprop through ReLU
+            d_h2_pre = d_h2 * (h2_pre > 0)
+
+            # Backprop through layer 2
+            d_W2 = h1.T @ d_h2_pre
+            d_b2 = d_h2_pre.sum(axis=0, keepdims=True)
+            d_h1 = d_h2_pre @ self.W2.T
+
+            # Backprop through ReLU
+            d_h1_pre = d_h1 * (h1_pre > 0)
+
+            # Backprop through layer 1
+            d_W1 = state.T @ d_h1_pre
+            d_b1 = d_h1_pre.sum(axis=0, keepdims=True)
+
+            # Gradient clipping
+            max_grad = 1.0
+            d_W1 = np.clip(d_W1, -max_grad, max_grad)
+            d_W2 = np.clip(d_W2, -max_grad, max_grad)
+            d_W3 = np.clip(d_W3, -max_grad, max_grad)
+
+            # Update weights
+            self.W1 -= self.learning_rate * d_W1
+            self.b1 -= self.learning_rate * d_b1
+            self.W2 -= self.learning_rate * d_W2
+            self.b2 -= self.learning_rate * d_b2
+            self.W3 -= self.learning_rate * d_W3
+            self.b3 -= self.learning_rate * d_b3
+
+            # Mark session for rebuild
+            self.session_needs_rebuild = True
+            self.cpu_updates += 1
+
+        def _training_loop(self):
+            """Background training loop"""
+            batch_count = 0
+            while not self.stop_event.is_set():
+                try:
+                    entries = []
+                    try:
+                        while len(entries) < BATCH_SIZE:
+                            entry = self.training_queue.get(timeout=0.1)
+                            entries.append(entry)
+                    except queue.Empty:
+                        pass
+
+                    if entries:
+                        for entry in entries:
+                            self._process_entry(entry)
+                        batch_count += 1
+
+                        # Periodic batch training from replay buffer
+                        if batch_count % 5 == 0 and len(self.replay_buffer) >= BATCH_SIZE:
+                            self.train_batch()
+
+                except Exception as e:
+                    logger.error(f"Training loop error: {e}")
+                    time.sleep(0.5)
+
+        def _process_entry(self, entry: ExplorationLogEntry):
+            """Process a single experience"""
+            key = f"{entry.screen_hash}|{entry.action_key}"
+
+            with self.lock:
+                # Add to replay buffer (td_error approximated by reward magnitude)
+                self.replay_buffer.add(entry, abs(entry.reward) + 0.1)
+
+                # Update Q-table for immediate feedback
+                current_q = self.q_table.get(key, 0.0)
+                next_max_q = self._get_max_q(entry.next_screen_hash) if entry.next_screen_hash else 0
+                target = entry.reward + HYPERPARAMS.gamma * next_max_q
+
+                # Q-learning update
+                new_q = current_q + HYPERPARAMS.alpha * (target - current_q)
+                self.q_table[key] = new_q
+                self.visit_counts[key] = self.visit_counts.get(key, 0) + 1
+
+                # Train neural network
+                state = self._encode_state(entry.screen_hash, entry.action_key)
+                self._backward(state, target)
+
+                self.stats.total_experiences += 1
+                self.stats.total_updates += 1
+                self.devices_seen.add(entry.device_id)
+                self.stats.devices_seen = len(self.devices_seen)
+
+        def _get_max_q(self, screen_hash: str) -> float:
+            """Get max Q-value for a screen"""
+            max_q = 0.0
+            prefix = f"{screen_hash}|"
+            for key, value in self.q_table.items():
+                if key.startswith(prefix):
+                    max_q = max(max_q, value)
+            return max_q
+
+        def add_experience(self, entry: ExplorationLogEntry):
+            """Add experience for training"""
+            try:
+                self.training_queue.put_nowait(entry)
+            except queue.Full:
+                logger.warning("Training queue full, dropping experience")
+
+        def train_batch(self):
+            """Train on a batch from replay buffer using NPU for forward pass"""
+            if len(self.replay_buffer) < BATCH_SIZE:
+                return
+
+            with self.lock:
+                batch, indices, weights = self.replay_buffer.sample(BATCH_SIZE)
+                td_errors = []
+
+                for i, entry in enumerate(batch):
+                    state = self._encode_state(entry.screen_hash, entry.action_key)
+
+                    # Use NPU for forward pass to get current Q-value
+                    current_q = self._forward_onnx(state)
+
+                    # Get max Q for next state
+                    next_max_q = self._get_max_q(entry.next_screen_hash) if entry.next_screen_hash else 0
+                    target = entry.reward + HYPERPARAMS.gamma * next_max_q
+
+                    # Calculate TD error for priority update
+                    td_error = abs(target - current_q)
+                    td_errors.append(td_error)
+
+                    # Weighted backward pass (CPU - gradients)
+                    self._backward(state, target * weights[i])
+
+                # Update priorities in replay buffer
+                self.replay_buffer.update_priorities(indices, td_errors)
+                self.stats.total_updates += BATCH_SIZE
+
+        def get_stats(self) -> TrainingStats:
+            """Get training statistics"""
+            with self.lock:
+                return TrainingStats(
+                    total_experiences=self.stats.total_experiences,
+                    total_updates=self.stats.total_updates,
+                    q_table_size=len(self.q_table),
+                    average_reward=0.0,
+                    average_td_error=0.0,
+                    last_update=datetime.now().isoformat(),
+                    devices_seen=len(self.devices_seen),
+                    training_rate=0.0,
+                    hardware_acceleration=f"DirectML (NPU) - {self.npu_inferences} inferences",
+                    memory_usage_mb=0.0
+                )
+
+        def get_q_table(self) -> Dict[str, float]:
+            """Get Q-table for publishing"""
+            with self.lock:
+                return dict(self.q_table)
+
+        def save(self, path: str):
+            """Save model and Q-table"""
+            with self.lock:
+                data = {
+                    "q_table": self.q_table,
+                    "visit_counts": self.visit_counts,
+                    "state_encoder": self.state_encoder,
+                    "W1": self.W1.tolist(),
+                    "b1": self.b1.tolist(),
+                    "W2": self.W2.tolist(),
+                    "b2": self.b2.tolist(),
+                    "W3": self.W3.tolist(),
+                    "b3": self.b3.tolist(),
+                    "stats": {
+                        "total_experiences": self.stats.total_experiences,
+                        "total_updates": self.stats.total_updates,
+                        "q_table_size": len(self.q_table),
+                        "npu_inferences": self.npu_inferences,
+                        "cpu_updates": self.cpu_updates,
+                    }
+                }
+                with open(path, 'w') as f:
+                    json.dump(data, f, indent=2)
+                logger.info(f"Saved ONNX trainer to {path} ({len(self.q_table)} Q-entries, {self.npu_inferences} NPU inferences)")
+
+        def load(self, path: str):
+            """Load model and Q-table"""
+            try:
+                with open(path, 'r') as f:
+                    data = json.load(f)
+
+                with self.lock:
+                    self.q_table = data.get("q_table", {})
+                    self.visit_counts = data.get("visit_counts", {})
+                    self.state_encoder = data.get("state_encoder", {})
+                    self.next_state_id = len(self.state_encoder)
+
+                    # Load weights if available
+                    if "W1" in data:
+                        self.W1 = np.array(data["W1"], dtype=np.float32)
+                        self.b1 = np.array(data["b1"], dtype=np.float32)
+                        self.W2 = np.array(data["W2"], dtype=np.float32)
+                        self.b2 = np.array(data["b2"], dtype=np.float32)
+                        self.W3 = np.array(data["W3"], dtype=np.float32)
+                        self.b3 = np.array(data["b3"], dtype=np.float32)
+                        self.session_needs_rebuild = True
+
+                    # Load stats
+                    if "stats" in data:
+                        self.stats.total_experiences = data["stats"].get("total_experiences", 0)
+                        self.stats.total_updates = data["stats"].get("total_updates", 0)
+                        self.npu_inferences = data["stats"].get("npu_inferences", 0)
+                        self.cpu_updates = data["stats"].get("cpu_updates", 0)
+
+                logger.info(f"Loaded ONNX trainer from {path} ({len(self.q_table)} Q-entries)")
+            except FileNotFoundError:
+                logger.warning(f"ONNX trainer file not found: {path}")
+            except Exception as e:
+                logger.error(f"Failed to load ONNX trainer: {e}")
+
+        def reset(self):
+            """Reset all learned data"""
+            with self.lock:
+                self.q_table.clear()
+                self.visit_counts.clear()
+                self.state_encoder.clear()
+                self.next_state_id = 0
+
+                # Reinitialize weights
+                self.W1 = np.random.randn(self.state_dim, self.hidden_dim).astype(np.float32) * np.sqrt(2.0 / self.state_dim)
+                self.b1 = np.zeros((1, self.hidden_dim), dtype=np.float32)
+                self.W2 = np.random.randn(self.hidden_dim, self.hidden_dim).astype(np.float32) * np.sqrt(2.0 / self.hidden_dim)
+                self.b2 = np.zeros((1, self.hidden_dim), dtype=np.float32)
+                self.W3 = np.random.randn(self.hidden_dim, 1).astype(np.float32) * np.sqrt(2.0 / self.hidden_dim)
+                self.b3 = np.zeros((1, 1), dtype=np.float32)
+
+                self.session_needs_rebuild = True
+                self.stats = TrainingStats()
+                self.stats.hardware_acceleration = "DirectML (NPU)"
+                self.npu_inferences = 0
+                self.cpu_updates = 0
+
+                logger.info("ONNX trainer reset")
+
+        def export_for_android(self) -> str:
+            """Export Q-table and model info for Android"""
+            with self.lock:
+                return json.dumps({
+                    "q_table": self.q_table,
+                    "model_type": "onnx_dml"
+                })
+
+        def stop(self):
+            """Stop background training"""
+            self.stop_event.set()
+            self.executor.shutdown(wait=False)
+
+
 # === Neural Network Trainer with DirectML/NPU Support ===
 
 if TORCH_AVAILABLE:
@@ -974,6 +1442,103 @@ if TORCH_AVAILABLE:
             with self.lock:
                 return json.dumps(self.q_table)
 
+        def export_tflite(self, output_path: str = "q_network.tflite") -> Optional[bytes]:
+            """
+            Export the Q-network as a TensorFlow Lite model for Android inference.
+
+            Returns the model bytes if successful, None otherwise.
+
+            Process:
+            1. Export PyTorch model to ONNX
+            2. Convert ONNX to TensorFlow (via onnx-tf)
+            3. Convert TensorFlow to TFLite with quantization
+            """
+            try:
+                import tempfile
+                import base64
+
+                logger.info("Exporting model to TFLite format...")
+
+                # Step 1: Export to ONNX
+                onnx_path = tempfile.mktemp(suffix=".onnx")
+                dummy_input = torch.randn(1, self.state_dim + self.action_dim, device=self.device)
+
+                # Move model to CPU for ONNX export
+                model_cpu = DuelingQNetwork(self.state_dim, self.action_dim).cpu()
+                model_cpu.load_state_dict(self.q_network.state_dict())
+                model_cpu.eval()
+
+                torch.onnx.export(
+                    model_cpu,
+                    dummy_input.cpu(),
+                    onnx_path,
+                    input_names=['features'],
+                    output_names=['q_value'],
+                    dynamic_axes={'features': {0: 'batch_size'}, 'q_value': {0: 'batch_size'}},
+                    opset_version=12
+                )
+                logger.info(f"Exported ONNX model to {onnx_path}")
+
+                # Step 2: Try to convert via onnx-tf
+                try:
+                    import onnx
+                    from onnx_tf.backend import prepare
+                    import tensorflow as tf
+
+                    onnx_model = onnx.load(onnx_path)
+                    tf_rep = prepare(onnx_model)
+
+                    # Save TensorFlow model
+                    tf_path = tempfile.mkdtemp()
+                    tf_rep.export_graph(tf_path)
+                    logger.info(f"Converted to TensorFlow at {tf_path}")
+
+                    # Step 3: Convert to TFLite with quantization
+                    converter = tf.lite.TFLiteConverter.from_saved_model(tf_path)
+                    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+                    converter.target_spec.supported_types = [tf.float16]  # Float16 quantization
+
+                    tflite_model = converter.convert()
+
+                    # Save to file
+                    with open(output_path, 'wb') as f:
+                        f.write(tflite_model)
+
+                    logger.info(f"Exported TFLite model: {output_path} ({len(tflite_model)} bytes)")
+
+                    # Cleanup temp files
+                    os.remove(onnx_path)
+                    import shutil
+                    shutil.rmtree(tf_path, ignore_errors=True)
+
+                    return tflite_model
+
+                except ImportError as e:
+                    logger.warning(f"onnx-tf not available, falling back to ONNX only: {e}")
+                    logger.warning("Install: pip install onnx onnx-tf tensorflow")
+
+                    # Return ONNX as fallback (Android can use onnxruntime)
+                    with open(onnx_path, 'rb') as f:
+                        onnx_bytes = f.read()
+                    os.remove(onnx_path)
+                    return onnx_bytes
+
+            except Exception as e:
+                logger.error(f"Failed to export TFLite model: {e}", exc_info=True)
+                return None
+
+        def get_model_bytes_for_mqtt(self) -> Optional[Tuple[bytes, str]]:
+            """
+            Get model bytes ready for MQTT publishing.
+
+            Returns (model_bytes, version) or None if export fails.
+            """
+            model_bytes = self.export_tflite()
+            if model_bytes:
+                version = f"v{self.stats.total_updates}_{int(time.time())}"
+                return model_bytes, version
+            return None
+
         def stop(self):
             """Cleanup"""
             pass
@@ -990,10 +1555,16 @@ class MLTrainingServer:
         self.client = mqtt.Client(client_id=f"ml_training_server_{int(time.time())}")
         self.running = False
 
-        # Use DQN if available and requested
+        # Choose best available trainer:
+        # 1. DQN (PyTorch) if available and requested
+        # 2. ONNX with DirectML/NPU if available (best for Windows ARM)
+        # 3. Enhanced Q-table trainer (fallback)
         if use_dqn and TORCH_AVAILABLE:
             self.trainer = DQNTrainer()
             logger.info(f"Using DQN trainer with {self.trainer.hw_accel}")
+        elif ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
+            self.trainer = ONNXQNetworkTrainer()
+            logger.info("Using ONNX trainer with DirectML/NPU acceleration")
         else:
             self.trainer = QTableTrainer()
             logger.info("Using enhanced Q-table trainer")
@@ -1122,6 +1693,13 @@ class MLTrainingServer:
                 self.trainer.train_batch(BATCH_SIZE * 4)
                 self._publish_status("trained")
 
+            elif command == "export_tflite":
+                # Export and publish TFLite model
+                if self._publish_tflite_model():
+                    self._publish_status("model_exported")
+                else:
+                    self._publish_status("model_export_failed")
+
             else:
                 logger.warning(f"Unknown command: {command}")
 
@@ -1140,6 +1718,36 @@ class MLTrainingServer:
         payload = json.dumps(export_data)
         self.client.publish(MQTT_TOPIC_QTABLE, payload)
         logger.info(f"Published Q-table ({len(q_table)} entries)")
+
+    def _publish_tflite_model(self):
+        """Publish TFLite model to Android devices via MQTT"""
+        import base64
+
+        if not hasattr(self.trainer, 'get_model_bytes_for_mqtt'):
+            logger.warning("TFLite export not available (QTableTrainer doesn't support it)")
+            return False
+
+        result = self.trainer.get_model_bytes_for_mqtt()
+        if result is None:
+            logger.error("Failed to export TFLite model")
+            return False
+
+        model_bytes, version = result
+
+        # Encode model as base64 for JSON transport
+        model_base64 = base64.b64encode(model_bytes).decode('utf-8')
+
+        payload = json.dumps({
+            "type": "model_update",
+            "model": model_base64,
+            "version": version,
+            "size_bytes": len(model_bytes),
+            "timestamp": time.time()
+        })
+
+        self.client.publish(MQTT_TOPIC_MODEL, payload)
+        logger.info(f"Published TFLite model: version={version}, size={len(model_bytes)} bytes")
+        return True
 
     def _publish_status(self, status: str):
         """Publish status message"""

@@ -1,11 +1,12 @@
 /**
  * Flow Interactions Module
- * Visual Mapper v0.0.12
+ * Visual Mapper v0.0.13
  *
  * Handles user interactions, dialogs, and sensor creation
  * v0.0.10: Added element info preview and warnings in sensor dialog
  * v0.0.11: Added container filtering to findElementAtCoordinates
  * v0.0.12: Fixed hyphenated property names (resource-id, content-desc)
+ * v0.0.13: containerClasses Set for O(1) lookup
  */
 
 import { showToast } from './toast.js?v=0.0.5';
@@ -726,8 +727,9 @@ export class FlowInteractions {
 
     /**
      * Container classes to filter out
+     * Use Set for O(1) lookup instead of Array.includes() O(n)
      */
-    static containerClasses = [
+    static containerClasses = new Set([
         'android.view.View',
         'android.view.ViewGroup',
         'android.widget.FrameLayout',
@@ -753,7 +755,7 @@ export class FlowInteractions {
         'androidx.swiperefreshlayout.widget.SwipeRefreshLayout',
         'android.widget.Space',
         'android.view.ViewStub'
-    ];
+    ]);
 
     /**
      * Find element at specific coordinates with container filtering
@@ -791,7 +793,7 @@ export class FlowInteractions {
             const hasText = el.text && el.text.trim();
             const hasContentDesc = el.content_desc && el.content_desc.trim();
             const hasResourceId = el.resource_id && el.resource_id.trim();
-            const isContainer = el.class && FlowInteractions.containerClasses.includes(el.class);
+            const isContainer = el.class && FlowInteractions.containerClasses.has(el.class);
 
             // Skip containers if filter is on (BUT keep clickable containers - they're usually buttons)
             if (hideContainers && isContainer) {

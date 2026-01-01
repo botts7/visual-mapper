@@ -1,6 +1,6 @@
 /**
  * Visual Mapper - Live Stream Module
- * Version: 0.0.18 (Auto-clear cached elements when screenshot dimensions change - fixes manual app switching)
+ * Version: 0.0.30 (Pause scheduler & sensor updates during streaming to reduce ADB contention)
  *
  * WebSocket-based live screenshot streaming with UI element overlays.
  * Supports two modes:
@@ -9,9 +9,10 @@
  *
  * Quality settings:
  * - high: Native resolution (~5 FPS)
- * - medium: 720p (~10 FPS)
- * - low: 480p (~15 FPS)
- * - fast: 360p (~20 FPS)
+ * - medium: 720p (~12 FPS)
+ * - low: 480p (~18 FPS)
+ * - fast: 360p (~25 FPS)
+ * - ultrafast: 240p (~30 FPS) - Optimized for WiFi
  *
  * Features:
  * - Auto-reconnect with exponential backoff
@@ -19,6 +20,7 @@
  * - Container element filtering
  * - Backend benchmark support via stream_manager
  * - Enhanced quality indicators
+ * - FPS performance hints (Phase 3)
  */
 
 class LiveStream {
@@ -83,9 +85,38 @@ class LiveStream {
         this.showTextLabels = true;
         this.hideContainers = true;
         this.hideEmptyElements = true;
+        this.hideSmall = true;           // Hide tiny elements (< 20px)
+        this.hideDividers = true;        // Hide horizontal line dividers
+        this.showClickable = true;       // Show clickable elements
+        this.showNonClickable = false;   // Show non-clickable elements
+
+        // Element staleness tracking - hide elements when screen content has changed significantly
+        this.elementsTimestamp = 0;      // When elements were last fetched
+        this.autoHideStaleElements = false; // DISABLED by default - too sensitive to compression artifacts
+        this._lastFrameHash = 0;         // Simple hash of last frame for change detection
+        this._screenChanged = false;     // True if screen content changed since last element refresh
+        this._significantChangeThreshold = 3; // Require 3 consecutive different frames to trigger
+
+        // Memory management: track current blob URL to prevent leaks
+        this._currentBlobUrl = null;
+
+        // Frame dropping: skip stale frames when rendering can't keep up
+        this._isProcessingFrame = false;
+        this._pendingFrame = null;  // Latest frame waiting to be processed
+        this._droppedFrameCount = 0;
+
+        // Pause state tracking for scheduler and sensors
+        this._schedulerPaused = false;
+        this._sensorsPaused = false;
+        this._pausedDeviceId = null;
+
+        // User-configurable pause options (set from dialog before start)
+        this._pauseSchedulerOnStart = true;  // Default: pause scheduler
+        this._pauseSensorsOnStart = true;    // Default: pause sensors
 
         // Container classes to filter out (reduce visual clutter)
-        this.containerClasses = [
+        // Use Set for O(1) lookup instead of Array.includes() O(n)
+        this.containerClasses = new Set([
             // Core Android containers
             'android.view.View',
             'android.view.ViewGroup',
@@ -114,7 +145,7 @@ class LiveStream {
             // Other non-interactive elements
             'android.widget.Space',
             'android.view.ViewStub'
-        ];
+        ]);
 
         console.log('[LiveStream] Initialized (WebSocket + MJPEG + Auto-reconnect + Container filtering)');
     }
@@ -166,16 +197,20 @@ class LiveStream {
      * @param {string} mode - 'websocket' (base64) or 'mjpeg' (binary)
      * @param {string} quality - 'high', 'medium', 'low', 'fast'
      */
-    start(deviceId, mode = 'websocket', quality = 'medium') {
+    async start(deviceId, mode = 'websocket', quality = 'medium') {
         if (this.isStreaming) {
             console.warn('[LiveStream] Already streaming, stopping first');
-            this.stop();
+            await this.stop();
         }
 
         this._manualStop = false;
         this.deviceId = deviceId;
         this.streamMode = mode;
         this.streamQuality = quality;
+
+        // Pause scheduler and sensor updates to reduce ADB contention
+        await this.pauseForStreaming(deviceId);
+
         this._connect();
     }
 
@@ -343,9 +378,40 @@ class LiveStream {
 
     /**
      * Handle binary MJPEG frame
+     * Implements frame dropping for slow connections - skips stale frames when rendering can't keep up
      * @param {ArrayBuffer} buffer - Binary frame data
      */
     async _handleMjpegFrame(buffer) {
+        // Guard: Ignore frames if streaming was stopped (prevents race condition on quality switch)
+        if (!this.isStreaming) {
+            return;
+        }
+
+        // Frame dropping: if still processing previous frame, queue this one and skip
+        if (this._isProcessingFrame) {
+            this._pendingFrame = buffer;  // Keep only the latest frame
+            this._droppedFrameCount++;
+            return;
+        }
+
+        // Process this frame
+        await this._processFrame(buffer);
+
+        // Check if a newer frame arrived while processing
+        while (this._pendingFrame && this.isStreaming) {
+            const nextFrame = this._pendingFrame;
+            this._pendingFrame = null;
+            await this._processFrame(nextFrame);
+        }
+    }
+
+    /**
+     * Process a single MJPEG frame
+     * @param {ArrayBuffer} buffer - Binary frame data
+     */
+    async _processFrame(buffer) {
+        this._isProcessingFrame = true;
+
         const now = performance.now();
 
         // Parse header (8 bytes: 4 frame_number + 4 capture_time)
@@ -374,17 +440,24 @@ class LiveStream {
 
         // Create blob URL and load image
         try {
+            // Clean up previous blob URL to prevent memory leak
+            if (this._currentBlobUrl) {
+                URL.revokeObjectURL(this._currentBlobUrl);
+                this._currentBlobUrl = null;
+            }
+
             const blob = new Blob([jpegData], { type: 'image/jpeg' });
             const blobUrl = URL.createObjectURL(blob);
+            this._currentBlobUrl = blobUrl; // Track for cleanup
 
             const img = new Image();
             await new Promise((resolve, reject) => {
                 img.onload = () => {
-                    URL.revokeObjectURL(blobUrl); // Clean up
+                    // Don't revoke here - let next frame or stop() handle it
+                    // This prevents race conditions if streaming stops mid-load
                     resolve();
                 };
                 img.onerror = () => {
-                    URL.revokeObjectURL(blobUrl);
                     reject(new Error('Failed to load JPEG image'));
                 };
                 img.src = blobUrl;
@@ -407,25 +480,131 @@ class LiveStream {
 
         } catch (error) {
             console.error('[LiveStream] Failed to render MJPEG frame:', error);
+        } finally {
+            this._isProcessingFrame = false;
         }
     }
 
     /**
      * Stop streaming
+     * Removes event handlers before closing to prevent stale frame processing during quality switch
      */
-    stop() {
+    async stop() {
         console.log('[LiveStream] Stopping stream');
         this._manualStop = true;
+        this.isStreaming = false;  // Set immediately to reject any pending frames
         this._cancelReconnect();
         this.reconnectAttempts = 0;
 
         if (this.websocket) {
+            // Remove event handlers BEFORE closing to prevent stale frame processing
+            this.websocket.onmessage = null;
+            this.websocket.onerror = null;
+            this.websocket.onclose = null;
             this.websocket.close();
             this.websocket = null;
         }
-        this.isStreaming = false;
+
+        // Clean up blob URL to prevent memory leak
+        if (this._currentBlobUrl) {
+            URL.revokeObjectURL(this._currentBlobUrl);
+            this._currentBlobUrl = null;
+        }
+
+        // Clean up frame dropping state
+        this._isProcessingFrame = false;
+        this._pendingFrame = null;
+        if (this._droppedFrameCount > 0) {
+            console.log(`[LiveStream] Dropped ${this._droppedFrameCount} frames during session (slow connection)`);
+        }
+        this._droppedFrameCount = 0;
+
+        // Release image reference
+        if (this.currentImage) {
+            this.currentImage.src = '';  // Release image data
+            this.currentImage = null;
+        }
+
         this.deviceId = null;
         this._setConnectionState('disconnected');
+
+        // Resume scheduler and sensor updates
+        await this.resumeAfterStreaming();
+    }
+
+    /**
+     * Pause scheduler and sensor updates to reduce ADB contention during streaming
+     * @param {string} deviceId - Device identifier
+     */
+    async pauseForStreaming(deviceId) {
+        const apiBase = window.API_BASE || '/api';
+
+        // Pause flow scheduler (if enabled)
+        if (this._pauseSchedulerOnStart) {
+            try {
+                const response = await fetch(`${apiBase}/scheduler/pause`, { method: 'POST' });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        console.log('[LiveStream] Paused flow scheduler for streaming');
+                        this._schedulerPaused = true;
+                    }
+                }
+            } catch (e) {
+                console.warn('[LiveStream] Could not pause scheduler:', e);
+            }
+        } else {
+            console.log('[LiveStream] Scheduler pause disabled by user');
+        }
+
+        // Pause sensor updates for this device (if enabled)
+        if (this._pauseSensorsOnStart && deviceId) {
+            try {
+                const response = await fetch(`${apiBase}/sensors/pause/${encodeURIComponent(deviceId)}`, { method: 'POST' });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.paused) {
+                        console.log(`[LiveStream] Paused sensor updates for ${deviceId}`);
+                        this._sensorsPaused = true;
+                        this._pausedDeviceId = deviceId;
+                    }
+                }
+            } catch (e) {
+                console.warn('[LiveStream] Could not pause sensor updates:', e);
+            }
+        } else if (!this._pauseSensorsOnStart) {
+            console.log('[LiveStream] Sensor pause disabled by user');
+        }
+    }
+
+    /**
+     * Resume scheduler and sensor updates after streaming stops
+     */
+    async resumeAfterStreaming() {
+        const apiBase = window.API_BASE || '/api';
+
+        // Resume sensor updates first
+        if (this._sensorsPaused && this._pausedDeviceId) {
+            try {
+                await fetch(`${apiBase}/sensors/resume/${encodeURIComponent(this._pausedDeviceId)}`, { method: 'POST' });
+                console.log(`[LiveStream] Resumed sensor updates for ${this._pausedDeviceId}`);
+                this._sensorsPaused = false;
+                this._pausedDeviceId = null;
+            } catch (e) {
+                console.warn('[LiveStream] Could not resume sensor updates:', e);
+            }
+        }
+
+        // Resume flow scheduler
+        if (this._schedulerPaused) {
+            try {
+                await fetch(`${apiBase}/scheduler/resume`, { method: 'POST' });
+                console.log('[LiveStream] Resumed flow scheduler after streaming');
+                this._schedulerPaused = false;
+            } catch (e) {
+                console.warn('[LiveStream] Could not resume scheduler:', e);
+            }
+        }
     }
 
     /**
@@ -452,6 +631,11 @@ class LiveStream {
      * @param {Object} data - Frame data
      */
     async _handleFrame(data) {
+        // Guard: Ignore frames if streaming was stopped (prevents race condition on quality switch)
+        if (!this.isStreaming) {
+            return;
+        }
+
         if (data.type === 'error') {
             console.warn('[LiveStream] Server error:', data.message);
             return;
@@ -534,9 +718,9 @@ class LiveStream {
                     console.log(`[LiveStream] Screenshot dimensions changed: ${this.currentImage.naturalWidth}x${this.currentImage.naturalHeight} → ${img.naturalWidth}x${img.naturalHeight}`);
                     console.log(`[LiveStream] App switch detected - clearing ${this.elements.length} cached elements`);
                     this.elements = [];
-                    // Update device dimensions to match new screenshot
-                    this.deviceWidth = img.naturalWidth;
-                    this.deviceHeight = img.naturalHeight;
+                    // NOTE: Do NOT update deviceWidth/deviceHeight here!
+                    // Stream resolution (img dimensions) != device native resolution
+                    // Device dimensions should only come from elements API
                 }
             }
 
@@ -570,15 +754,32 @@ class LiveStream {
             this.canvas.height = img.height;
         }
 
+        // Detect if screen content has changed (for stale element detection)
+        // Skip this expensive operation if autoHideStaleElements is disabled
+        // Saves 5-10ms per frame by avoiding canvas creation + getImageData()
+        if (this.autoHideStaleElements) {
+            this._detectScreenChange(img);
+        }
+
         // Clear canvas to remove old overlays
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
         // Draw screenshot
         this.ctx.drawImage(img, 0, 0);
 
-        // Draw overlays
+        // Draw overlays (skip if screen has changed since elements were fetched)
         if (this.showOverlays && elements.length > 0) {
-            this._drawElements(elements);
+            // Check if screen has changed since elements were fetched
+            const elementsStale = this.autoHideStaleElements && this.areElementsStale();
+
+            if (!elementsStale) {
+                this._drawElements(elements);
+            } else {
+                // Draw subtle indicator that elements are stale
+                this.ctx.fillStyle = 'rgba(255, 200, 0, 0.8)';
+                this.ctx.font = '12px monospace';
+                this.ctx.fillText('Screen changed - click Refresh Elements', 10, 20);
+            }
         }
     }
 
@@ -595,9 +796,28 @@ class LiveStream {
         elements.forEach(el => {
             if (!el.bounds) return;
 
+            // Filter based on clickable state
+            if (el.clickable && !this.showClickable) return;
+            if (!el.clickable && !this.showNonClickable) return;
+
             // Filter out container elements if hideContainers is enabled
-            if (this.hideContainers && el.class && this.containerClasses.includes(el.class)) {
+            if (this.hideContainers && el.class && this.containerClasses.has(el.class)) {
                 return;
+            }
+
+            // Filter out small elements (< 20px in either dimension)
+            if (this.hideSmall) {
+                if (el.bounds.width < 20 || el.bounds.height < 20) {
+                    return;
+                }
+            }
+
+            // Filter out dividers (full-width horizontal lines)
+            if (this.hideDividers) {
+                // A divider is typically: height <= 5px AND width >= 90% of device width
+                if (el.bounds.height <= 5 && el.bounds.width >= this.deviceWidth * 0.9) {
+                    return;
+                }
             }
 
             // Filter out empty elements (no text or content-desc)
@@ -648,6 +868,38 @@ class LiveStream {
     }
 
     /**
+     * Set small element filtering
+     * @param {boolean} hide - Whether to hide small elements (< 20px)
+     */
+    setHideSmall(hide) {
+        this.hideSmall = hide;
+    }
+
+    /**
+     * Set divider filtering
+     * @param {boolean} hide - Whether to hide horizontal line dividers
+     */
+    setHideDividers(hide) {
+        this.hideDividers = hide;
+    }
+
+    /**
+     * Set clickable element visibility
+     * @param {boolean} show - Whether to show clickable elements
+     */
+    setShowClickable(show) {
+        this.showClickable = show;
+    }
+
+    /**
+     * Set non-clickable element visibility
+     * @param {boolean} show - Whether to show non-clickable elements
+     */
+    setShowNonClickable(show) {
+        this.showNonClickable = show;
+    }
+
+    /**
      * Set device dimensions for proper coordinate scaling
      * Call this when device dimensions are known (e.g., from elements API)
      * @param {number} width - Device width in pixels
@@ -657,33 +909,120 @@ class LiveStream {
         if (width > 0 && height > 0) {
             this.deviceWidth = width;
             this.deviceHeight = height;
+            this.elementsTimestamp = Date.now(); // Track when elements were refreshed
+            this.resetScreenChangeTracking(); // Reset change detection
             console.log(`[LiveStream] Device dimensions updated: ${width}x${height}`);
         }
     }
 
     /**
+     * Check if elements are stale (screen has changed since elements were fetched)
+     * @returns {boolean} True if elements are stale
+     */
+    areElementsStale() {
+        // No elements fetched yet
+        if (this.elementsTimestamp === 0) return true;
+        // Screen content has changed since elements were fetched
+        return this._screenChanged;
+    }
+
+    /**
+     * Enable/disable auto-hiding of stale elements when screen changes
+     * @param {boolean} enable - Whether to auto-hide stale elements
+     */
+    setAutoHideStaleElements(enable) {
+        this.autoHideStaleElements = enable;
+        console.log(`[LiveStream] Auto-hide stale elements: ${enable}`);
+    }
+
+    /**
+     * Compute a simple hash of image data for change detection
+     * Samples pixels at regular intervals for performance
+     * @param {ImageData} imageData - Canvas image data
+     * @returns {number} Simple hash value
+     */
+    _computeFrameHash(imageData) {
+        const data = imageData.data;
+        let hash = 0;
+        // Sample every 1000th pixel for performance (covers ~1000 samples on a 1M pixel image)
+        const step = Math.max(1, Math.floor(data.length / 4000)) * 4;
+        for (let i = 0; i < data.length; i += step) {
+            hash = ((hash << 5) - hash + data[i]) | 0;
+        }
+        return hash;
+    }
+
+    /**
+     * Detect if screen content has changed significantly
+     * @param {Image} img - New frame image
+     */
+    _detectScreenChange(img) {
+        try {
+            // Create temporary canvas to sample pixels
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = Math.min(img.width, 100); // Sample at low res for speed
+            tempCanvas.height = Math.min(img.height, 100);
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
+
+            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            const newHash = this._computeFrameHash(imageData);
+
+            // Compare with previous frame
+            if (this._lastFrameHash !== 0 && newHash !== this._lastFrameHash) {
+                this._screenChanged = true;
+                this._stableFrameCount = 0;
+            } else {
+                this._stableFrameCount++;
+            }
+
+            this._lastFrameHash = newHash;
+            this._framesSinceElements++;
+        } catch (e) {
+            // Ignore errors in change detection
+        }
+    }
+
+    /**
+     * Reset screen change tracking (call when elements are refreshed)
+     */
+    resetScreenChangeTracking() {
+        this._screenChanged = false;
+        this._framesSinceElements = 0;
+        this._stableFrameCount = 0;
+        console.log('[LiveStream] Screen change tracking reset');
+    }
+
+    /**
      * Draw text label
+     * Scales font size based on canvas width to look appropriate at all resolutions
      * @param {string} text - Label text
      * @param {number} x - X position
      * @param {number} y - Y position
      * @param {number} w - Width
      */
     _drawTextLabel(text, x, y, w) {
-        const labelHeight = 18;
-        const maxChars = Math.floor(w / 7);
+        // Scale font based on canvas width (reference: 720px = 11px font)
+        // This ensures text is readable but not oversized at low resolutions
+        const scaleFactor = Math.max(0.6, Math.min(1.5, this.canvas.width / 720));
+        const fontSize = Math.round(11 * scaleFactor);
+        const labelHeight = Math.round(18 * scaleFactor);
+        const charWidth = Math.round(7 * scaleFactor);
+
+        const maxChars = Math.floor(w / charWidth);
         const displayText = text.length > maxChars
             ? text.substring(0, maxChars - 2) + '..'
             : text;
 
         // Background
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-        this.ctx.fillRect(x, y - labelHeight, Math.min(w, displayText.length * 7 + 4), labelHeight);
+        this.ctx.fillRect(x, y - labelHeight, Math.min(w, displayText.length * charWidth + 4), labelHeight);
 
         // Text
         this.ctx.fillStyle = '#ffffff';
-        this.ctx.font = '11px monospace';
+        this.ctx.font = `${fontSize}px monospace`;
         this.ctx.textBaseline = 'top';
-        this.ctx.fillText(displayText, x + 2, y - labelHeight + 3);
+        this.ctx.fillText(displayText, x + 2, y - labelHeight + Math.round(3 * scaleFactor));
     }
 
     /**
@@ -738,7 +1077,7 @@ class LiveStream {
             // Check element properties
             const hasText = el.text && el.text.trim();
             const hasContentDesc = el.content_desc && el.content_desc.trim();
-            const isContainer = el.class && this.containerClasses.includes(el.class);
+            const isContainer = el.class && this.containerClasses.has(el.class);
 
             // Always skip containers if filter is on
             if (this.hideContainers && isContainer) {

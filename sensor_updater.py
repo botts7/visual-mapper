@@ -41,6 +41,7 @@ class SensorUpdater:
         # Track running update tasks per device
         self._update_tasks: Dict[str, asyncio.Task] = {}
         self._running_devices: Set[str] = set()
+        self._paused_devices: Set[str] = set()  # NEW: Devices with paused sensor updates
 
         logger.info("[SensorUpdater] Initialized")
 
@@ -116,6 +117,37 @@ class SensorUpdater:
         """Get set of devices with running update loops"""
         return self._running_devices.copy()
 
+    def pause_device_updates(self, device_id: str) -> bool:
+        """
+        Pause sensor updates for a device (loop keeps running but skips cycles)
+        Used during wizard editing and live streaming to avoid ADB contention
+        """
+        if device_id not in self._running_devices:
+            logger.warning(f"[SensorUpdater] Cannot pause - no update loop running for {device_id}")
+            return False
+
+        self._paused_devices.add(device_id)
+        logger.info(f"[SensorUpdater] Paused sensor updates for {device_id}")
+        return True
+
+    def resume_device_updates(self, device_id: str) -> bool:
+        """Resume sensor updates for a device"""
+        if device_id not in self._paused_devices:
+            logger.debug(f"[SensorUpdater] Device {device_id} was not paused")
+            return False
+
+        self._paused_devices.discard(device_id)
+        logger.info(f"[SensorUpdater] Resumed sensor updates for {device_id}")
+        return True
+
+    def is_paused(self, device_id: str) -> bool:
+        """Check if sensor updates are paused for device"""
+        return device_id in self._paused_devices
+
+    def get_paused_devices(self) -> Set[str]:
+        """Get set of devices with paused sensor updates"""
+        return self._paused_devices.copy()
+
     async def _device_update_loop(self, device_id: str):
         """
         Main update loop for a device
@@ -125,6 +157,11 @@ class SensorUpdater:
 
         while True:
             try:
+                # Check if updates are paused (during wizard editing or streaming)
+                if device_id in self._paused_devices:
+                    await asyncio.sleep(1)  # Check again in 1 second
+                    continue
+
                 # Load enabled sensors for this device
                 sensors = self.sensor_manager.get_all_sensors(device_id)
                 enabled_sensors = [s for s in sensors if s.enabled]

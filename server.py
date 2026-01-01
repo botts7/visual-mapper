@@ -244,6 +244,7 @@ app_name_background_fetcher: Optional['AppNameBackgroundFetcher'] = None
 stream_manager: Optional['StreamManager'] = None
 adb_maintenance: Optional['ADBMaintenance'] = None
 shell_pool: Optional['PersistentShellPool'] = None
+connection_monitor: Optional['ConnectionMonitor'] = None
 
 # MQTT Configuration (loaded from environment or config)
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")

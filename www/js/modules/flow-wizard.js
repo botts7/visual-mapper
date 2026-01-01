@@ -1,12 +1,13 @@
 /**
  * Flow Wizard Module
- * Visual Mapper v0.0.9
+ * Visual Mapper v0.0.10
  *
  * Interactive wizard for creating flows with recording mode
  * Refactored: Steps 1,2,4,5 use separate modules
  * v0.0.7: New toolbar UI, localStorage preferences, simplified layout
  * v0.0.8: Tabbed panel, loading overlay, fixed ripple offset
  * v0.0.9: Pass overlay filters to findElementAtCoordinates for container filtering
+ * v0.0.10: Pause sensor updates during wizard to prevent ADB contention
  */
 
 import { showToast } from './toast.js?v=0.0.5';
@@ -14,15 +15,15 @@ import FlowRecorder from './flow-recorder.js?v=0.0.9';
 import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.9';
 import FlowInteractions from './flow-interactions.js?v=0.0.15';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
-import LiveStream from './live-stream.js?v=0.0.18';
+import LiveStream from './live-stream.js?v=0.0.26';
 import ElementTree from './element-tree.js?v=0.0.5';
 import APIClient from './api-client.js?v=0.0.4';
 import SensorCreator from './sensor-creator.js?v=0.0.9';
 
 // Step modules
-import * as Step1 from './flow-wizard-step1.js?v=0.0.5';
+import * as Step1 from './flow-wizard-step1.js?v=0.0.6';
 import * as Step2 from './flow-wizard-step2.js?v=0.0.5';
-import * as Step3 from './flow-wizard-step3.js?v=0.0.16';
+import * as Step3 from './flow-wizard-step3.js?v=0.0.20';
 import * as Step4 from './flow-wizard-step4.js?v=0.0.5';
 import * as Step5 from './flow-wizard-step5.js?v=0.0.6';
 
@@ -148,10 +149,11 @@ class FlowWizard {
     }
 
     /**
-     * Pause the flow scheduler while editing flows
+     * Pause the flow scheduler and sensor updates while editing flows
      * This prevents ADB contention and improves streaming performance
      */
     async pauseSchedulerForEditing() {
+        // Pause flow scheduler
         try {
             const response = await this.apiClient.post('/scheduler/pause');
             if (response.success) {
@@ -165,9 +167,46 @@ class FlowWizard {
     }
 
     /**
-     * Resume the flow scheduler after editing
+     * Pause sensor updates for the selected device
+     * Call this when device is selected to reduce ADB contention
+     */
+    async pauseSensorUpdates(deviceId) {
+        if (!deviceId) return;
+        try {
+            const response = await this.apiClient.post(`/sensors/pause/${encodeURIComponent(deviceId)}`);
+            if (response.success && response.paused) {
+                console.log(`[FlowWizard] Paused sensor updates for ${deviceId}`);
+                this._sensorsPaused = true;
+                this._pausedDeviceId = deviceId;
+            }
+        } catch (e) {
+            console.warn('[FlowWizard] Could not pause sensor updates:', e);
+        }
+    }
+
+    /**
+     * Resume sensor updates for the paused device
+     */
+    async resumeSensorUpdates() {
+        if (!this._sensorsPaused || !this._pausedDeviceId) return;
+        try {
+            await this.apiClient.post(`/sensors/resume/${encodeURIComponent(this._pausedDeviceId)}`);
+            console.log(`[FlowWizard] Resumed sensor updates for ${this._pausedDeviceId}`);
+            this._sensorsPaused = false;
+            this._pausedDeviceId = null;
+        } catch (e) {
+            console.warn('[FlowWizard] Could not resume sensor updates:', e);
+        }
+    }
+
+    /**
+     * Resume the flow scheduler and sensor updates after editing
      */
     async resumeSchedulerAfterEditing() {
+        // Resume sensor updates first
+        await this.resumeSensorUpdates();
+
+        // Resume flow scheduler
         if (!this.schedulerWasPaused) return;
 
         try {

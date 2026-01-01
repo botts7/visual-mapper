@@ -1,7 +1,12 @@
 /**
  * Flow Wizard Step 3 Module - Recording Mode
- * Visual Mapper v0.0.14
+ * Visual Mapper v0.0.21
  *
+ * v0.0.21: Remove scrcpy option entirely - MJPEG/WebSocket modes work with overlays
+ * v0.0.20: Remove broken scrcpy integration, add ws-scrcpy launch button for view-only
+ * v0.0.17: Fix empty element filter to keep all clickable elements (inherited from parent)
+ * v0.0.16: Scale label text with canvas width for low resolution streams
+ * v0.0.15: Fix hover highlight misalignment (use separate X/Y scaling) and clear highlight on actions
  * v0.0.14: Backend now returns device dimensions in elements API, frontend updates dimensions on refresh
  * v0.0.13: Auto-update app name header when refreshing elements (detects manual app switches)
  * v0.0.12: Force canvas redraw when refreshing elements to clear old overlays
@@ -21,7 +26,7 @@ import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.9';
 import FlowInteractions from './flow-interactions.js?v=0.0.15';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
 import FlowRecorder from './flow-recorder.js?v=0.0.9';
-import LiveStream from './live-stream.js?v=0.0.18';
+import LiveStream from './live-stream.js?v=0.0.26';
 import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.6';
 
 // Helper to get API base (from global set by init.js)
@@ -703,14 +708,18 @@ export function setupOverlayFilters(wizard) {
 
             // Only refresh display in polling mode WITH valid screenshot data
             if (wizard.captureMode === 'streaming') {
-                // Streaming mode: just update LiveStream overlay settings
+                // Streaming mode: update all LiveStream overlay settings
                 if (wizard.liveStream) {
                     wizard.liveStream.setOverlaysVisible(
                         wizard.overlayFilters.showClickable || wizard.overlayFilters.showNonClickable
                     );
+                    wizard.liveStream.setShowClickable(wizard.overlayFilters.showClickable);
+                    wizard.liveStream.setShowNonClickable(wizard.overlayFilters.showNonClickable);
                     wizard.liveStream.setTextLabelsVisible(wizard.overlayFilters.showTextLabels);
                     wizard.liveStream.setHideContainers(wizard.overlayFilters.hideContainers);
                     wizard.liveStream.setHideEmptyElements(wizard.overlayFilters.hideEmptyElements);
+                    wizard.liveStream.setHideSmall(wizard.overlayFilters.hideSmall);
+                    wizard.liveStream.setHideDividers(wizard.overlayFilters.hideDividers);
                 }
             } else if (wizard.recorder?.currentScreenshot) {
                 // Polling mode: only redraw if we have valid screenshot data
@@ -773,7 +782,7 @@ export function setupCaptureMode(wizard) {
             wizard.streamMode = e.target.value;
             localStorage.setItem('flowWizard.streamMode', e.target.value);
             // If streaming, restart with new mode
-            if (wizard.captureMode === 'streaming' && wizard.liveStream?.isActive()) {
+            if (wizard.captureMode === 'streaming' && wizard.liveStream?.isStreaming) {
                 startStreaming(wizard);
             }
         });
@@ -788,7 +797,7 @@ export function setupCaptureMode(wizard) {
             wizard.streamQuality = e.target.value;
             localStorage.setItem('flowWizard.streamQuality', e.target.value);
             // If streaming, restart with new quality
-            if (wizard.captureMode === 'streaming' && wizard.liveStream?.isActive()) {
+            if (wizard.captureMode === 'streaming' && wizard.liveStream?.isStreaming) {
                 startStreaming(wizard);
             }
         });
@@ -1224,14 +1233,18 @@ export async function startStreaming(wizard) {
             }
         };
 
-        // Apply current overlay settings
+        // Apply current overlay settings (all filters)
         wizard.liveStream.setOverlaysVisible(wizard.overlayFilters.showClickable || wizard.overlayFilters.showNonClickable);
+        wizard.liveStream.setShowClickable(wizard.overlayFilters.showClickable);
+        wizard.liveStream.setShowNonClickable(wizard.overlayFilters.showNonClickable);
         wizard.liveStream.setTextLabelsVisible(wizard.overlayFilters.showTextLabels);
         wizard.liveStream.setHideContainers(wizard.overlayFilters.hideContainers);
         wizard.liveStream.setHideEmptyElements(wizard.overlayFilters.hideEmptyElements);
+        wizard.liveStream.setHideSmall(wizard.overlayFilters.hideSmall);
+        wizard.liveStream.setHideDividers(wizard.overlayFilters.hideDividers);
     }
 
-    // Start streaming with selected mode (mjpeg or websocket)
+    // Start streaming with MJPEG or WebSocket mode
     wizard.liveStream.start(wizard.selectedDevice, wizard.streamMode, wizard.streamQuality);
     updateStreamStatus(wizard, 'connecting', 'Connecting...');
 }
@@ -1246,9 +1259,11 @@ export function stopStreaming(wizard) {
     // Stop keep-awake
     stopKeepAwake(wizard);
 
+    // Stop LiveStream if active
     if (wizard.liveStream) {
         wizard.liveStream.stop();
     }
+
     updateStreamStatus(wizard, '', '');
 }
 
@@ -1395,18 +1410,14 @@ export async function refreshElements(wizard) {
                 const from = packageChanged ? wizard.currentElementsPackage : wizard.currentElementsActivity;
                 const to = packageChanged ? currentPackage : currentActivity;
                 console.log(`[FlowWizard] ${changeType} changed: ${from} → ${to}, clearing stale elements`);
-                // Clear ALL element sources so hover/overlay don't use old data
-                if (wizard.liveStream) {
-                    wizard.liveStream.elements = [];
-                    // Force immediate redraw without old overlays
-                    if (wizard.liveStream.currentImage) {
-                        wizard.liveStream.ctx.clearRect(0, 0, wizard.liveStream.canvas.width, wizard.liveStream.canvas.height);
-                        wizard.liveStream.ctx.drawImage(wizard.liveStream.currentImage, 0, 0);
-                    }
-                }
-                // Also clear recorder metadata (hover checks this first!)
-                if (wizard.recorder?.screenshotMetadata) {
-                    wizard.recorder.screenshotMetadata.elements = [];
+
+                // Clear ALL element sources and hover state (unified helper)
+                clearAllElementsAndHover(wizard);
+
+                // Force immediate redraw without old overlays
+                if (wizard.liveStream?.currentImage) {
+                    wizard.liveStream.ctx.clearRect(0, 0, wizard.liveStream.canvas.width, wizard.liveStream.canvas.height);
+                    wizard.liveStream.ctx.drawImage(wizard.liveStream.currentImage, 0, 0);
                 }
             }
             // Track current package and activity for next comparison
@@ -1516,11 +1527,20 @@ export async function refreshElements(wizard) {
  * Used in streaming mode to update element overlays after tap/swipe
  */
 export async function refreshAfterAction(wizard, delayMs = 500) {
-    if (wizard.captureMode !== 'streaming') return;
+    // IMPORTANT: Clear all elements and hover immediately when action occurs
+    // This prevents stale elements/highlight from previous screen showing on new screen
+    clearAllElementsAndHover(wizard);
 
     setTimeout(async () => {
         try {
-            await refreshElements(wizard);
+            if (wizard.captureMode === 'streaming') {
+                // Streaming mode: fetch elements via fast API
+                await refreshElements(wizard);
+            } else {
+                // Polling mode: capture screenshot which includes elements
+                await wizard.recorder?.captureScreenshot();
+                wizard.updateScreenshotDisplay?.();
+            }
         } catch (e) {
             console.warn('[FlowWizard] Auto-refresh after action failed:', e);
         }
@@ -1564,6 +1584,8 @@ export function handleCanvasHover(wizard, e, hoverTooltip, container) {
 
     if (elements.length === 0) {
         hideHoverTooltip(wizard, hoverTooltip);
+        clearHoverHighlight(wizard);
+        wizard.hoveredElement = null;
         return;
     }
 
@@ -1582,13 +1604,14 @@ export function handleCanvasHover(wizard, e, hoverTooltip, container) {
     }
 
     // Container classes to filter out (same as FlowInteractions)
-    const containerClasses = [
+    // Use Set for O(1) lookup instead of Array.includes() O(n)
+    const containerClasses = new Set([
         'android.view.View', 'android.view.ViewGroup', 'android.widget.FrameLayout',
         'android.widget.LinearLayout', 'android.widget.RelativeLayout',
         'android.widget.ScrollView', 'android.widget.HorizontalScrollView',
         'androidx.constraintlayout.widget.ConstraintLayout',
         'androidx.recyclerview.widget.RecyclerView', 'androidx.cardview.widget.CardView'
-    ];
+    ]);
 
     // Find elements at hover position (filter containers)
     let elementsAtPoint = [];
@@ -1597,17 +1620,17 @@ export function handleCanvasHover(wizard, e, hoverTooltip, container) {
         if (!el.bounds) continue;
 
         // Skip containers if filter is enabled (BUT keep clickable containers - they're usually buttons)
-        if (wizard.overlayFilters?.hideContainers && el.class && containerClasses.includes(el.class)) {
+        if (wizard.overlayFilters?.hideContainers && el.class && containerClasses.has(el.class)) {
             const isUsefulContainer = el.clickable || (el.resource_id && el.resource_id.trim());
             if (!isUsefulContainer) continue;
         }
 
         // Skip empty elements if filter is enabled
+        // Keep clickable elements (includes inherited clickable from parent)
         if (wizard.overlayFilters?.hideEmptyElements) {
             const hasText = el.text && el.text.trim();
             const hasContentDesc = el.content_desc && el.content_desc.trim();
-            const hasResourceId = el.resource_id && el.resource_id.trim();
-            if (!hasText && !hasContentDesc && !(el.clickable && hasResourceId)) {
+            if (!hasText && !hasContentDesc && !el.clickable) {
                 continue;
             }
         }
@@ -1768,27 +1791,55 @@ export function highlightHoveredElement(wizard, element) {
     // Calculate position relative to canvas
     const canvasRect = wizard.canvas.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
+
+    // CRITICAL: For scroll containers, the highlight must be positioned relative to scroll position
+    // canvasRect is viewport position (affected by scroll), but absolute positioning is relative to container
+    // So we need the canvas offset WITHIN the scrollable content, not the viewport offset
     const offsetX = canvasRect.left - containerRect.left + container.scrollLeft;
     const offsetY = canvasRect.top - containerRect.top + container.scrollTop;
 
     // Get CSS scale (canvas bitmap size to display size)
-    const cssScale = canvasRect.width / wizard.canvas.width;
+    const cssScaleX = canvasRect.width / wizard.canvas.width;
+    const cssScaleY = canvasRect.height / wizard.canvas.height;
+
+    // DEBUG: Always log scaling info to diagnose misalignment
+    console.log('[HoverHighlight] Scaling:', {
+        mode: wizard.captureMode,
+        canvasBitmap: `${wizard.canvas.width}x${wizard.canvas.height}`,
+        canvasCSS: `${canvasRect.width.toFixed(0)}x${canvasRect.height.toFixed(0)}`,
+        cssScale: `${cssScaleX.toFixed(3)}x${cssScaleY.toFixed(3)}`,
+        offset: `${offsetX.toFixed(0)}x${offsetY.toFixed(0)}`,
+        scroll: `${container.scrollLeft}x${container.scrollTop}`,
+        canvasPos: `(${canvasRect.left.toFixed(0)},${canvasRect.top.toFixed(0)})`,
+        containerPos: `(${containerRect.left.toFixed(0)},${containerRect.top.toFixed(0)})`
+    });
 
     // In streaming mode, element bounds are in device coords, canvas may be at lower res
     // We need to scale: device coords → canvas coords → CSS display coords
-    let deviceToCanvasScale = 1;
+    // IMPORTANT: Use separate X and Y scales to handle aspect ratio differences
+    let deviceToCanvasScaleX = 1;
+    let deviceToCanvasScaleY = 1;
     if (wizard.captureMode === 'streaming' && wizard.liveStream) {
-        // Scale from device resolution to canvas resolution
-        deviceToCanvasScale = wizard.canvas.width / wizard.liveStream.deviceWidth;
+        // Scale from device resolution to canvas resolution (separate X/Y for aspect ratio)
+        deviceToCanvasScaleX = wizard.canvas.width / wizard.liveStream.deviceWidth;
+        deviceToCanvasScaleY = wizard.canvas.height / wizard.liveStream.deviceHeight;
     }
 
     const b = element.bounds;
     // First scale from device to canvas, then from canvas to CSS display
-    const totalScale = deviceToCanvasScale * cssScale;
-    const x = b.x * totalScale + offsetX;
-    const y = b.y * totalScale + offsetY;
-    const w = b.width * totalScale;
-    const h = b.height * totalScale;
+    const totalScaleX = deviceToCanvasScaleX * cssScaleX;
+    const totalScaleY = deviceToCanvasScaleY * cssScaleY;
+    const x = b.x * totalScaleX + offsetX;
+    const y = b.y * totalScaleY + offsetY;
+    const w = b.width * totalScaleX;
+    const h = b.height * totalScaleY;
+
+    // DEBUG: Log element positioning
+    console.log('[HoverHighlight] Element:', {
+        bounds: `(${b.x},${b.y}) ${b.width}x${b.height}`,
+        scaled: `(${x.toFixed(0)},${y.toFixed(0)}) ${w.toFixed(0)}x${h.toFixed(0)}`,
+        text: element.text?.substring(0, 30) || element.class
+    });
 
     highlight.style.cssText = `
         position: absolute;
@@ -1813,6 +1864,28 @@ export function clearHoverHighlight(wizard) {
     if (highlight) {
         highlight.remove();
     }
+}
+
+/**
+ * Clear all elements and hover state across all modes
+ * Call this when an action is performed that changes the screen
+ */
+export function clearAllElementsAndHover(wizard) {
+    // Clear hover state
+    clearHoverHighlight(wizard);
+    wizard.hoveredElement = null;
+
+    // Clear recorder metadata (used in polling mode)
+    if (wizard.recorder?.screenshotMetadata) {
+        wizard.recorder.screenshotMetadata.elements = [];
+    }
+
+    // Clear liveStream elements (used in streaming mode)
+    if (wizard.liveStream) {
+        wizard.liveStream.elements = [];
+    }
+
+    console.log('[FlowWizard] Cleared all elements and hover state');
 }
 
 // ==========================================
@@ -1971,20 +2044,10 @@ export async function executeSwipeGesture(wizard, startCanvasX, startCanvasY, en
             showToast('Swipe executed (not recorded)', 'info', 1500);
         }
 
-        // Clear stale elements immediately (video updates faster than elements API)
-        if (wizard.captureMode === 'streaming' && wizard.liveStream) {
-            wizard.liveStream.elements = [];
-        }
-
         // Refresh elements after swipe (give device time to settle)
+        // This clears stale elements immediately, then refreshes after delay
+        // Handles both streaming (refreshElements) and polling (captureScreenshot) modes
         refreshAfterAction(wizard, 800);
-
-        // Update screenshot in polling mode
-        if (wizard.captureMode === 'polling') {
-            await wizard.recorder.wait(400);
-            await wizard.recorder.captureScreenshot();
-            wizard.updateScreenshotDisplay();
-        }
 
     } catch (error) {
         console.error('[FlowWizard] Swipe failed:', error);
@@ -2218,13 +2281,8 @@ export function handleTreeTap(wizard, element) {
         description: `Tap "${element.text || element.class}"`
     });
 
-    // Clear stale elements immediately (video updates faster than elements API)
-    if (wizard.captureMode === 'streaming' && wizard.liveStream) {
-        wizard.liveStream.elements = [];
-        if (wizard.recorder?.screenshotMetadata) {
-            wizard.recorder.screenshotMetadata.elements = [];
-        }
-    }
+    // Clear stale elements and hover highlight immediately (video updates faster than elements API)
+    clearAllElementsAndHover(wizard);
 
     showToast('Tap recorded from tree', 'success', 1500);
     refreshAfterAction(wizard, 500);
@@ -3168,15 +3226,9 @@ export async function executeTap(wizard, x, y, element = null) {
         wizard.recorder.addStep(step);
     }
 
-    // Clear stale elements immediately (video updates faster than elements API)
-    // This prevents old screen's elements from being shown on new screen
-    if (wizard.captureMode === 'streaming' && wizard.liveStream) {
-        wizard.liveStream.elements = [];
-        // Also clear recorder metadata (hover checks this)
-        if (wizard.recorder?.screenshotMetadata) {
-            wizard.recorder.screenshotMetadata.elements = [];
-        }
-    }
+    // Clear stale elements and hover highlight immediately
+    // This prevents old screen's elements/highlight from being shown on new screen
+    clearAllElementsAndHover(wizard);
 
     // Capture new screenshot after tap
     if (wizard.recordMode === 'execute') {
@@ -3841,13 +3893,18 @@ export function drawElementOverlaysScaled(wizard, scale) {
 
 /**
  * Draw text label for UI element on canvas
+ * Scales font size based on canvas width to look appropriate at all resolutions
  */
 export function drawTextLabel(wizard, text, x, y, w, isClickable) {
-    const labelHeight = 20;
-    const padding = 2;
+    // Scale font based on canvas width (reference: 720px = 12px font)
+    const scaleFactor = Math.max(0.6, Math.min(1.5, wizard.canvas.width / 720));
+    const fontSize = Math.round(12 * scaleFactor);
+    const labelHeight = Math.round(20 * scaleFactor);
+    const charWidth = Math.round(7 * scaleFactor);
+    const padding = Math.round(2 * scaleFactor);
 
     // Truncate long text
-    const maxChars = Math.floor(w / 7); // Approximate chars that fit
+    const maxChars = Math.floor(w / charWidth); // Approximate chars that fit
     const displayText = text.length > maxChars
         ? text.substring(0, maxChars - 3) + '...'
         : text;
@@ -3858,7 +3915,7 @@ export function drawTextLabel(wizard, text, x, y, w, isClickable) {
 
     // Draw text
     wizard.ctx.fillStyle = '#ffffff';
-    wizard.ctx.font = '12px monospace';
+    wizard.ctx.font = `${fontSize}px monospace`;
     wizard.ctx.textBaseline = 'top';
     wizard.ctx.fillText(displayText, x + padding, y + padding);
 }
@@ -3944,6 +4001,7 @@ const Step3Module = {
     hideHoverTooltip,
     highlightHoveredElement,
     clearHoverHighlight,
+    clearAllElementsAndHover,
     onGestureStart,
     onGestureEnd,
     executeSwipeGesture,
