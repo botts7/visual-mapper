@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="0.0.5">
-    <meta name="version" content="0.0.5" data-build="2025-12-29">
+    <meta name="version" content="0.0.5" data-build="2026-01-01">
     <title>Live Stream - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -22,14 +22,17 @@
             <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
             <li class="nav-priority-low"><a href="live-stream.html" class="active">Live Stream</a></li>
             <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
-            <li class="version">v0.0.8</li>
+            <li class="version">v0.0.9</li>
         </ul>
     </nav>
 
     <div class="container">
         <div class="card">
-            <h1>Live Stream POC</h1>
-            <p>Real-time screenshot streaming via WebSocket (~5 FPS)</p>
+            <h1>Live Stream</h1>
+            <p>Real-time screen streaming with element overlays for creating sensors and actions.</p>
+            <p style="font-size: 0.9em; color: #666;">
+                Use lower quality settings for higher FPS (up to 25+ FPS at 360p/240p)
+            </p>
         </div>
 
         <div class="card">
@@ -48,7 +51,6 @@
                     <select id="streamMode">
                         <option value="mjpeg" selected>MJPEG Binary (Recommended)</option>
                         <option value="websocket">WebSocket Base64</option>
-                        <option value="scrcpy">scrcpy (High FPS - 30-60fps)</option>
                     </select>
                 </div>
 
@@ -56,9 +58,10 @@
                     <label for="streamQuality">Quality:</label>
                     <select id="streamQuality">
                         <option value="high">High (Native) ~5 FPS</option>
-                        <option value="medium" selected>Medium (720p) ~10 FPS</option>
-                        <option value="low">Low (480p) ~15 FPS</option>
-                        <option value="fast">Fast (360p) ~20 FPS</option>
+                        <option value="medium" selected>Medium (720p) ~12 FPS</option>
+                        <option value="low">Low (480p) ~18 FPS</option>
+                        <option value="fast">Fast (360p) ~25 FPS</option>
+                        <option value="ultrafast">Ultra-Fast (240p) ~30 FPS - WiFi</option>
                     </select>
                 </div>
 
@@ -140,6 +143,14 @@
                     <label>
                         <input type="checkbox" id="filterEmpty" checked>
                         Hide Empty
+                    </label>
+                </div>
+            </div>
+            <div class="controls-row">
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="autoHideStale">
+                        Auto-hide when screen changes (experimental)
                     </label>
                 </div>
             </div>
@@ -252,6 +263,18 @@
                     <span class="metric-label">Mode:</span>
                     <span id="streamModeValue" class="metric-value">--</span>
                 </div>
+                <div class="metric">
+                    <span class="metric-label">Connection:</span>
+                    <span id="connectionTypeValue" class="metric-value">--</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Backend:</span>
+                    <span id="captureBackendValue" class="metric-value">--</span>
+                </div>
+            </div>
+            <!-- FPS Performance Hint -->
+            <div id="fpsHint" class="fps-hint" style="display: none;">
+                <span id="fpsHintText"></span>
             </div>
         </div>
 
@@ -377,9 +400,45 @@
         </div>
     </div>
 
+    <!-- Pause Options Dialog -->
+    <div id="pauseOptionsDialog" class="modal-overlay" style="display: none;">
+        <div class="modal-content" style="max-width: 450px;">
+            <h3 style="margin-top: 0;">⚡ Streaming Performance</h3>
+            <p style="color: #666; margin-bottom: 20px;">
+                Pausing background tasks improves streaming performance by reducing ADB contention.
+            </p>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="pauseSchedulerCheck" checked>
+                    <span><strong>Pause Flow Scheduler</strong><br><small style="color: #888;">Stop automated flows during streaming</small></span>
+                </label>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="pauseSensorsCheck" checked>
+                    <span><strong>Pause Sensor Updates</strong><br><small style="color: #888;">Stop sensor polling during streaming</small></span>
+                </label>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="rememberPauseChoice">
+                    <span>Remember my choice</span>
+                </label>
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="pauseDialogCancel" class="btn btn-secondary">Cancel</button>
+                <button id="pauseDialogStart" class="btn btn-primary">Start Streaming</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
-        import LiveStream from './js/modules/live-stream.js?v=0.0.15';
-        import ActionManager from './js/modules/action-manager.js?v=0.0.6';
+        import LiveStream from './js/modules/live-stream.js?v=0.0.30';
+        import ActionManager from './js/modules/action-manager.js?v=0.0.7';
 
         // API helper
         function getApiBase() {
@@ -462,7 +521,8 @@
         const filterEmpty = document.getElementById('filterEmpty');
 
         // Container classes to filter out (matches live-stream.js)
-        const containerClasses = [
+        // Use Set for O(1) exact match lookup
+        const containerClasses = new Set([
             'android.view.View', 'android.view.ViewGroup',
             'android.widget.FrameLayout', 'android.widget.LinearLayout',
             'android.widget.RelativeLayout', 'android.widget.ScrollView',
@@ -470,7 +530,7 @@
             'androidx.recyclerview.widget.RecyclerView',
             'androidx.coordinatorlayout.widget.CoordinatorLayout',
             'androidx.core.widget.NestedScrollView'
-        ];
+        ]);
 
         // Divider classes to filter out
         const dividerClasses = [
@@ -499,6 +559,13 @@
         const captureValue = document.getElementById('captureValue');
         const frameValue = document.getElementById('frameValue');
         const elementsValue = document.getElementById('elementsValue');
+        const connectionTypeValue = document.getElementById('connectionTypeValue');
+        const captureBackendValue = document.getElementById('captureBackendValue');
+        const fpsHint = document.getElementById('fpsHint');
+        const fpsHintText = document.getElementById('fpsHintText');
+
+        // Device info cache (connection type per device)
+        let deviceInfoCache = {};
 
         // Initialize LiveStream
         const liveStream = new LiveStream(canvas);
@@ -531,11 +598,54 @@
         };
 
         liveStream.onMetricsUpdate = (metrics) => {
+            // Update basic metrics
             fpsValue.textContent = metrics.fps;
             latencyValue.textContent = metrics.latency + ' ms';
             captureValue.textContent = metrics.captureTime + ' ms';
             frameValue.textContent = metrics.frameCount;
             bandwidthValue.textContent = metrics.bandwidth + ' KB/s';
+
+            // Color-code FPS based on performance
+            fpsValue.className = 'metric-value';
+            if (metrics.fps >= 15) {
+                fpsValue.classList.add('fps-good');
+            } else if (metrics.fps >= 10) {
+                fpsValue.classList.add('fps-ok');
+            } else if (metrics.fps >= 5) {
+                fpsValue.classList.add('fps-warning');
+            } else if (metrics.fps > 0) {
+                fpsValue.classList.add('fps-slow');
+            }
+
+            // Show FPS performance hint after 20 frames to allow stabilization
+            if (metrics.frameCount > 20) {
+                const deviceId = deviceSelect.value;
+                const deviceInfo = deviceInfoCache[deviceId] || {};
+                const isWifi = deviceInfo.connection_type === 'wifi';
+                const quality = streamQualitySelect.value;
+
+                if (metrics.fps < 3) {
+                    fpsHint.style.display = 'block';
+                    fpsHint.className = 'fps-hint hint-slow';
+                    if (isWifi && quality !== 'ultrafast') {
+                        fpsHintText.textContent = 'Very slow FPS. Try "Ultra-Fast" quality for WiFi connections, or use USB for better performance.';
+                    } else if (isWifi) {
+                        fpsHintText.textContent = 'Very slow FPS on WiFi. Consider connecting via USB for faster streaming.';
+                    } else {
+                        fpsHintText.textContent = 'Very slow FPS. Check device connection and try a lower quality preset.';
+                    }
+                } else if (metrics.fps < 8 && isWifi && quality !== 'ultrafast' && quality !== 'fast') {
+                    fpsHint.style.display = 'block';
+                    fpsHint.className = 'fps-hint hint-warning';
+                    fpsHintText.textContent = 'WiFi connection detected. Try "Fast" or "Ultra-Fast" quality for better FPS.';
+                } else if (metrics.fps >= 15) {
+                    fpsHint.style.display = 'block';
+                    fpsHint.className = 'fps-hint hint-good';
+                    fpsHintText.textContent = 'Excellent streaming performance!';
+                } else {
+                    fpsHint.style.display = 'none';
+                }
+            }
         };
 
         liveStream.onFrame = (data) => {
@@ -580,12 +690,22 @@
                 const data = await apiGet('/adb/devices');
                 deviceSelect.innerHTML = '<option value="">-- Select Device --</option>';
 
+                // Clear device info cache
+                deviceInfoCache = {};
+
                 let selectionStillValid = false;
                 data.devices.forEach(device => {
                     const option = document.createElement('option');
                     option.value = device.id;
-                    option.textContent = `${device.id} (${device.model || 'Unknown'})`;
+                    const connType = device.connection_type === 'wifi' ? 'WiFi' : 'USB';
+                    option.textContent = `${device.id} (${device.model || 'Unknown'}) [${connType}]`;
                     deviceSelect.appendChild(option);
+
+                    // Cache device info including connection type
+                    deviceInfoCache[device.id] = {
+                        model: device.model,
+                        connection_type: device.connection_type || 'unknown'
+                    };
 
                     // Check if previous selection is still valid
                     if (device.id === previousSelection) {
@@ -606,6 +726,78 @@
             }
         }
 
+        // Pause options dialog elements
+        const pauseOptionsDialog = document.getElementById('pauseOptionsDialog');
+        const pauseSchedulerCheck = document.getElementById('pauseSchedulerCheck');
+        const pauseSensorsCheck = document.getElementById('pauseSensorsCheck');
+        const rememberPauseChoice = document.getElementById('rememberPauseChoice');
+        const pauseDialogCancel = document.getElementById('pauseDialogCancel');
+        const pauseDialogStart = document.getElementById('pauseDialogStart');
+
+        // Load saved pause preferences
+        const savedPausePrefs = JSON.parse(localStorage.getItem('liveStreamPausePrefs') || 'null');
+        if (savedPausePrefs) {
+            pauseSchedulerCheck.checked = savedPausePrefs.pauseScheduler;
+            pauseSensorsCheck.checked = savedPausePrefs.pauseSensors;
+            rememberPauseChoice.checked = true;
+        }
+
+        // Pending stream config (set when dialog opens)
+        let pendingStreamConfig = null;
+
+        // Start the stream with current pause settings
+        async function startStreamWithPauseOptions() {
+            if (!pendingStreamConfig) return;
+
+            const { deviceId, mode, quality, qualityLabel } = pendingStreamConfig;
+
+            // Save preferences if "Remember" is checked
+            if (rememberPauseChoice.checked) {
+                localStorage.setItem('liveStreamPausePrefs', JSON.stringify({
+                    pauseScheduler: pauseSchedulerCheck.checked,
+                    pauseSensors: pauseSensorsCheck.checked
+                }));
+            } else {
+                localStorage.removeItem('liveStreamPausePrefs');
+            }
+
+            // Configure LiveStream pause behavior
+            liveStream._pauseSchedulerOnStart = pauseSchedulerCheck.checked;
+            liveStream._pauseSensorsOnStart = pauseSensorsCheck.checked;
+
+            // Close dialog
+            pauseOptionsDialog.style.display = 'none';
+
+            // MJPEG or WebSocket mode (with element overlays)
+            streamModeValue.textContent = `${mode === 'mjpeg' ? 'MJPEG' : 'Base64'} - ${qualityLabel}`;
+
+            // Display connection type and backend info
+            const deviceInfo = deviceInfoCache[deviceId] || {};
+            const connType = deviceInfo.connection_type || 'unknown';
+            if (connType === 'wifi') {
+                connectionTypeValue.textContent = 'WiFi';
+                connectionTypeValue.className = 'metric-value connection-wifi';
+            } else if (connType === 'usb') {
+                connectionTypeValue.textContent = 'USB';
+                connectionTypeValue.className = 'metric-value connection-usb';
+            } else {
+                connectionTypeValue.textContent = connType;
+                connectionTypeValue.className = 'metric-value';
+            }
+
+            // Backend info (auto-selected based on availability)
+            captureBackendValue.textContent = 'auto';
+            captureBackendValue.className = 'metric-value';
+
+            // Reset FPS hint
+            fpsHint.style.display = 'none';
+
+            // Start streaming (pause options are applied inside liveStream.start())
+            await liveStream.start(deviceId, mode, quality);
+
+            pendingStreamConfig = null;
+        }
+
         // Event handlers
         startBtn.addEventListener('click', async () => {
             const deviceId = deviceSelect.value;
@@ -617,98 +809,37 @@
             const quality = streamQualitySelect.value;
             const qualityLabel = streamQualitySelect.options[streamQualitySelect.selectedIndex].text;
 
-            if (mode === 'scrcpy') {
-                // Handle scrcpy streaming
-                streamModeValue.textContent = 'scrcpy - High FPS';
+            // Store pending config
+            pendingStreamConfig = { deviceId, mode, quality, qualityLabel };
 
-                // Get the canvas element
-                const streamCanvas = document.getElementById('streamCanvas');
-                if (!streamCanvas) {
-                    alert('Stream canvas not found');
-                    return;
-                }
-
-                // Try to dynamically import scrcpy client
-                try {
-                    const { default: ScrcpyClient } = await import('./js/modules/scrcpy-client.js?v=0.0.5');
-                    const scrcpyClient = new ScrcpyClient(streamCanvas);
-
-                    // Set up callbacks
-                    scrcpyClient.onConnect = () => {
-                        console.log('[scrcpy] Connected');
-                        statusValue.textContent = 'Connected (scrcpy)';
-                        statusValue.className = 'metric-value status-connected';
-                        noStream.style.display = 'none';
-                    };
-
-                    scrcpyClient.onFrame = () => {
-                        fpsValue.textContent = scrcpyClient.fps || '--';
-                    };
-
-                    scrcpyClient.onError = (error) => {
-                        console.error('[scrcpy] Error:', error);
-
-                        // Reset UI on error
-                        startBtn.disabled = false;
-                        stopBtn.disabled = true;
-                        noStream.style.display = 'flex';
-                        statusValue.textContent = 'Error';
-                        statusValue.className = 'metric-value status-error';
-                        streamModeValue.textContent = '--';
-
-                        // Clean up
-                        if (window._scrcpyClient) {
-                            window._scrcpyClient.stop();
-                            window._scrcpyClient = null;
-                        }
-
-                        // Show user-friendly error
-                        console.warn('[scrcpy] ws-scrcpy server not available. Use MJPEG mode instead.');
-                        alert('scrcpy connection failed.\n\nMake sure ws-scrcpy is running on port 8000, or use MJPEG mode instead.\n\nError: ' + error.message);
-                    };
-
-                    scrcpyClient.onDisconnect = () => {
-                        console.log('[scrcpy] Disconnected');
-                        startBtn.disabled = false;
-                        stopBtn.disabled = true;
-                        noStream.style.display = 'flex';
-                        statusValue.textContent = 'Disconnected';
-                        statusValue.className = 'metric-value status-disconnected';
-                        streamModeValue.textContent = '--';
-                        window._scrcpyClient = null;
-                    };
-
-                    scrcpyClient.start(deviceId, 'ws://localhost:8000');
-
-                    // Store reference for stop button
-                    window._scrcpyClient = scrcpyClient;
-
-                    startBtn.disabled = true;
-                    stopBtn.disabled = false;
-                } catch (e) {
-                    console.error('[scrcpy] Failed to start:', e);
-                    // Reset UI
-                    startBtn.disabled = false;
-                    stopBtn.disabled = true;
-                    streamModeValue.textContent = '--';
-                    alert('Failed to start scrcpy stream.\n\nMake sure ws-scrcpy is running on port 8000, or use MJPEG mode instead.\n\nError: ' + e.message);
-                }
+            // If "Remember" was checked and we have saved prefs, skip dialog
+            if (savedPausePrefs && rememberPauseChoice.checked) {
+                await startStreamWithPauseOptions();
             } else {
-                // Regular MJPEG or WebSocket mode
-                streamModeValue.textContent = `${mode === 'mjpeg' ? 'MJPEG' : 'Base64'} - ${qualityLabel}`;
-                liveStream.start(deviceId, mode, quality);
+                // Show pause options dialog
+                pauseOptionsDialog.style.display = 'flex';
+            }
+        });
+
+        pauseDialogCancel.addEventListener('click', () => {
+            pauseOptionsDialog.style.display = 'none';
+            pendingStreamConfig = null;
+        });
+
+        pauseDialogStart.addEventListener('click', async () => {
+            await startStreamWithPauseOptions();
+        });
+
+        // Close dialog on overlay click
+        pauseOptionsDialog.addEventListener('click', (e) => {
+            if (e.target === pauseOptionsDialog) {
+                pauseOptionsDialog.style.display = 'none';
+                pendingStreamConfig = null;
             }
         });
 
         stopBtn.addEventListener('click', () => {
             console.log('[UI] Stop button clicked');
-
-            // Stop scrcpy if active
-            if (window._scrcpyClient) {
-                window._scrcpyClient.stop();
-                window._scrcpyClient = null;
-                console.log('[UI] Stopped scrcpy client');
-            }
 
             // Stop live stream
             liveStream.stop();
@@ -721,6 +852,12 @@
             statusValue.className = 'metric-value status-disconnected';
             streamModeValue.textContent = '--';
             bandwidthValue.textContent = '0 KB/s';
+            connectionTypeValue.textContent = '--';
+            connectionTypeValue.className = 'metric-value';
+            captureBackendValue.textContent = '--';
+            captureBackendValue.className = 'metric-value';
+            fpsHint.style.display = 'none';
+            fpsValue.className = 'metric-value';
 
             // Stop auto-refresh
             stopAutoRefresh();
@@ -760,7 +897,7 @@
 
                 // Filter containers (layout elements)
                 if (filterContainers.checked && el.class) {
-                    if (containerClasses.some(c => el.class.includes(c))) {
+                    if (containerClasses.has(el.class)) {
                         // Keep if it has text or is clickable (might be a button styled as View)
                         const hasText = el.text && el.text.trim();
                         const hasContentDesc = el.content_desc && el.content_desc.trim();
@@ -788,9 +925,9 @@
                 if (filterEmpty.checked) {
                     const hasText = el.text && el.text.trim();
                     const hasContentDesc = el.content_desc && el.content_desc.trim();
-                    const hasResourceId = el.resource_id && el.resource_id.trim();
-                    // Keep if: has text OR has content-desc OR is clickable with resource-id
-                    if (!hasText && !hasContentDesc && !(el.clickable && hasResourceId)) {
+                    // Keep if: has text OR has content-desc OR is clickable (includes inherited clickable)
+                    // This ensures nav buttons with clickable parents are shown
+                    if (!hasText && !hasContentDesc && !el.clickable) {
                         return false;
                     }
                 }
@@ -868,13 +1005,23 @@
             // Highlight the selected element on canvas
             if (liveStream.currentImage) {
                 liveStream._renderFrame(liveStream.currentImage, filteredElements);
-                // Draw highlight around selected
+                // Draw highlight around selected (scale from device to canvas coords)
                 const ctx = liveStream.ctx;
                 const b = element.bounds;
                 if (b) {
+                    // Calculate scale factors: device -> canvas
+                    const scaleX = canvas.width / liveStream.deviceWidth;
+                    const scaleY = canvas.height / liveStream.deviceHeight;
+
+                    // Scale bounds from device to canvas coordinates
+                    const x = Math.floor(b.x * scaleX);
+                    const y = Math.floor(b.y * scaleY);
+                    const width = Math.floor(b.width * scaleX);
+                    const height = Math.floor(b.height * scaleY);
+
                     ctx.strokeStyle = '#ff00ff';
                     ctx.lineWidth = 4;
-                    ctx.strokeRect(b.x, b.y, b.width, b.height);
+                    ctx.strokeRect(x, y, width, height);
                 }
             }
         }
@@ -1041,6 +1188,12 @@
         filterEmpty.addEventListener('change', applyFilters);
         createActionBtn.addEventListener('click', showCreateActionDialog);
         clearSelectionBtn.addEventListener('click', clearSelection);
+
+        // Auto-hide stale elements handler
+        const autoHideStaleCheckbox = document.getElementById('autoHideStale');
+        autoHideStaleCheckbox.addEventListener('change', (e) => {
+            liveStream.setAutoHideStaleElements(e.target.checked);
+        });
 
         // Auto-refresh event handlers
         autoRefreshElements.addEventListener('change', (e) => {
@@ -1359,11 +1512,25 @@
         const hoverTooltip = document.getElementById('hoverTooltip');
         let hoveredElement = null;
         let lastHoverCoords = { x: 0, y: 0 };
+        let lastHoverTime = 0;
+        const HOVER_THROTTLE_MS = 50; // Max 20 hover updates per second (was 60+)
 
         /**
          * Handle mouse move for element hover preview
+         * Throttled to reduce canvas re-renders during rapid mouse movement
          */
         function handleCanvasHover(e) {
+            // Throttle hover processing to reduce canvas re-renders
+            const now = performance.now();
+            if (now - lastHoverTime < HOVER_THROTTLE_MS) {
+                // Still update tooltip position for smooth tracking
+                if (hoveredElement) {
+                    updateTooltipPosition(e);
+                }
+                return;
+            }
+            lastHoverTime = now;
+
             if (!liveStream.isActive() || filteredElements.length === 0) {
                 hideHoverTooltip();
                 return;
@@ -1372,14 +1539,26 @@
             const coords = getCanvasCoords(e);
             lastHoverCoords = coords;
 
-            // Find ALL elements at hover position
+            // Convert canvas coords to device coords for element comparison
+            // Elements are in device space (native resolution), not canvas space
+            let deviceX, deviceY;
+            try {
+                const deviceCoords = liveStream.canvasToDevice(coords.canvasX, coords.canvasY);
+                deviceX = deviceCoords.x;
+                deviceY = deviceCoords.y;
+            } catch (err) {
+                deviceX = coords.canvasX;
+                deviceY = coords.canvasY;
+            }
+
+            // Find ALL elements at hover position (using device coords)
             let elementsAtPoint = [];
             for (let i = filteredElements.length - 1; i >= 0; i--) {
                 const el = filteredElements[i];
                 if (!el.bounds) continue;
                 const b = el.bounds;
-                if (coords.x >= b.x && coords.x <= b.x + b.width &&
-                    coords.y >= b.y && coords.y <= b.y + b.height) {
+                if (deviceX >= b.x && deviceX <= b.x + b.width &&
+                    deviceY >= b.y && deviceY <= b.y + b.height) {
                     elementsAtPoint.push(el);
                 }
             }
@@ -1487,6 +1666,7 @@
 
         /**
          * Highlight hovered element on canvas
+         * Scales element bounds from device coords to canvas coords
          */
         function highlightHoveredElement(element) {
             if (!liveStream.currentImage) return;
@@ -1498,18 +1678,28 @@
             const ctx = liveStream.ctx;
             const b = element.bounds;
             if (b) {
+                // Calculate scale factors: device -> canvas
+                const scaleX = canvas.width / liveStream.deviceWidth;
+                const scaleY = canvas.height / liveStream.deviceHeight;
+
+                // Scale bounds from device to canvas coordinates
+                const x = Math.floor(b.x * scaleX);
+                const y = Math.floor(b.y * scaleY);
+                const width = Math.floor(b.width * scaleX);
+                const height = Math.floor(b.height * scaleY);
+
                 // Cyan dashed border for hover
                 ctx.strokeStyle = '#00ffff';
                 ctx.lineWidth = 3;
                 ctx.setLineDash([8, 4]);
-                ctx.strokeRect(b.x, b.y, b.width, b.height);
+                ctx.strokeRect(x, y, width, height);
                 ctx.setLineDash([]); // Reset
 
                 // Semi-transparent fill
                 ctx.fillStyle = element.clickable
                     ? 'rgba(0, 255, 255, 0.15)'
                     : 'rgba(255, 255, 0, 0.1)';
-                ctx.fillRect(b.x, b.y, b.width, b.height);
+                ctx.fillRect(x, y, width, height);
             }
         }
 

@@ -121,8 +121,9 @@
                 );
 
                 // Load ALL flows (not filtered by device) to match by stable_device_id
+                // Note: API returns direct array, not {flows: [...]}
                 const flowsPromise = apiClient.get('/flows')
-                    .then(response => response.flows || [])
+                    .then(response => Array.isArray(response) ? response : (response.flows || []))
                     .catch(error => {
                         console.error('[Sensors] Failed to load flows:', error);
                         return [];

@@ -583,9 +583,10 @@
                 const devicesResponse = await apiClient.get('/adb/devices');
                 const devices = devicesResponse.devices || [];
 
+                // Note: API returns direct array, not {flows: [...]}
                 const flowPromises = devices.map(device =>
                     apiClient.get(`/flows?device_id=${device.id}`)
-                        .then(response => response.flows || [])
+                        .then(response => Array.isArray(response) ? response : (response.flows || []))
                         .catch(() => [])
                 );
 
