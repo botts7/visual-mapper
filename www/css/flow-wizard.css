@@ -510,8 +510,14 @@ img.app-icon {
     transition: background 0.15s;
 }
 
-.quick-select:hover {
+.quick-select:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.3);
+}
+
+.quick-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(0, 0, 0, 0.2);
 }
 
 .quick-select option {
@@ -1044,7 +1050,7 @@ img.app-icon {
     z-index: 10;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.2s ease;
+    /* Removed transition to prevent flicker during rapid show/hide */
 }
 
 .screenshot-loading-overlay.visible {

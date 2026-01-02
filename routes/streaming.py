@@ -116,25 +116,19 @@ async def stream_device(websocket: WebSocket, device_id: str):
     logger.info(f"[WS-Stream] Client connected for device: {device_id}, quality: {quality} (target {preset['target_fps']} FPS)")
 
     frame_number = 0
+    device_width, device_height = 1080, 1920  # Defaults
 
     try:
-        # Capture initial screenshot to get native device dimensions
-        try:
-            init_screenshot = await deps.adb_bridge.capture_screenshot(device_id)
-            if len(init_screenshot) > 1000:
-                init_img = Image.open(io.BytesIO(init_screenshot))
-                device_width, device_height = init_img.size
-                # Send config with native device dimensions
-                await websocket.send_json({
-                    "type": "config",
-                    "width": device_width,
-                    "height": device_height,
-                    "quality": quality,
-                    "target_fps": preset['target_fps']
-                })
-                logger.info(f"[WS-Stream] Device dimensions: {device_width}x{device_height}")
-        except Exception as init_err:
-            logger.warning(f"[WS-Stream] Failed to get device dimensions: {init_err}")
+        # Send config IMMEDIATELY with default dimensions (don't wait for slow capture)
+        # This prevents client timeout on slow WiFi connections
+        await websocket.send_json({
+            "type": "config",
+            "width": device_width,
+            "height": device_height,
+            "quality": quality,
+            "target_fps": preset['target_fps']
+        })
+        logger.info(f"[WS-Stream] Sent initial config with default dimensions: {device_width}x{device_height}")
 
         while True:
             frame_number += 1
@@ -248,20 +242,11 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
     logger.info(f"[WS-MJPEG] Client connected for device: {device_id}, quality: {quality} (target {preset['target_fps']} FPS)")
 
     frame_number = 0
+    device_width, device_height = 1080, 1920  # Defaults
 
     try:
-        # Capture initial screenshot to get native device dimensions
-        device_width, device_height = 1080, 1920  # Defaults
-        try:
-            init_screenshot = await deps.adb_bridge.capture_screenshot(device_id)
-            if len(init_screenshot) > 1000:
-                init_img = Image.open(io.BytesIO(init_screenshot))
-                device_width, device_height = init_img.size
-                logger.info(f"[WS-MJPEG] Device dimensions: {device_width}x{device_height}")
-        except Exception as init_err:
-            logger.warning(f"[WS-MJPEG] Failed to get device dimensions: {init_err}")
-
-        # Send initial config as JSON with device dimensions
+        # Send config IMMEDIATELY with default dimensions (don't wait for slow capture)
+        # This prevents client timeout on slow WiFi connections
         await websocket.send_json({
             "type": "config",
             "format": "mjpeg",
@@ -271,6 +256,7 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
             "target_fps": preset['target_fps'],
             "message": "MJPEG binary streaming ready. Subsequent frames are binary."
         })
+        logger.info(f"[WS-MJPEG] Sent initial config with default dimensions: {device_width}x{device_height}")
 
         while True:
             frame_number += 1

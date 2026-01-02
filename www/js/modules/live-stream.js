@@ -1,6 +1,6 @@
 /**
  * Visual Mapper - Live Stream Module
- * Version: 0.0.30 (Pause scheduler & sensor updates during streaming to reduce ADB contention)
+ * Version: 0.0.34 (fix squashed orientation - update deviceWidth/Height from actual frame)
  *
  * WebSocket-based live screenshot streaming with UI element overlays.
  * Supports two modes:
@@ -96,6 +96,11 @@ class LiveStream {
         this._lastFrameHash = 0;         // Simple hash of last frame for change detection
         this._screenChanged = false;     // True if screen content changed since last element refresh
         this._significantChangeThreshold = 3; // Require 3 consecutive different frames to trigger
+
+        // OPTIMIZATION: Cache filtered elements to avoid re-filtering every frame
+        this._filteredElements = [];
+        this._lastElementsRef = null;    // Track when elements array changes
+        this._filterSettingsHash = '';   // Track when filter settings change
 
         // Memory management: track current blob URL to prevent leaks
         this._currentBlobUrl = null;
@@ -752,6 +757,21 @@ class LiveStream {
         if (this.canvas.width !== img.width || this.canvas.height !== img.height) {
             this.canvas.width = img.width;
             this.canvas.height = img.height;
+
+            // FIX: Update deviceWidth/deviceHeight from actual frame dimensions
+            // The config message may have sent default 1080x1920, but actual device
+            // could be in landscape mode (1920x1080) or different resolution
+            // Use frame dimensions as device dimensions for correct overlay scaling
+            const imgAspect = img.width / img.height;
+            const deviceAspect = this.deviceWidth / this.deviceHeight;
+            const aspectMismatch = Math.abs(imgAspect - deviceAspect) > 0.1;
+
+            if (aspectMismatch || (this.deviceWidth === 1080 && this.deviceHeight === 1920)) {
+                // Aspect ratio mismatch or still using defaults - update from frame
+                this.deviceWidth = img.width;
+                this.deviceHeight = img.height;
+                console.log(`[LiveStream] Updated device dimensions from frame: ${img.width}x${img.height}`);
+            }
         }
 
         // Detect if screen content has changed (for stale element detection)
@@ -784,53 +804,81 @@ class LiveStream {
     }
 
     /**
+     * Get current filter settings as a hash for cache invalidation
+     */
+    _getFilterSettingsHash() {
+        return `${this.showClickable}-${this.showNonClickable}-${this.hideContainers}-${this.hideSmall}-${this.hideDividers}-${this.hideEmptyElements}-${this.deviceWidth}`;
+    }
+
+    /**
+     * Get filtered elements (cached for performance)
+     * Only re-filters when elements array or filter settings change
+     */
+    _getFilteredElements(elements) {
+        const currentHash = this._getFilterSettingsHash();
+
+        // Return cached if elements and settings haven't changed
+        if (elements === this._lastElementsRef && currentHash === this._filterSettingsHash) {
+            return this._filteredElements;
+        }
+
+        // Re-filter elements
+        this._filteredElements = elements.filter(el => {
+            if (!el.bounds) return false;
+
+            // Filter based on clickable state
+            if (el.clickable && !this.showClickable) return false;
+            if (!el.clickable && !this.showNonClickable) return false;
+
+            // Filter out container elements
+            if (this.hideContainers && el.class && this.containerClasses.has(el.class)) {
+                return false;
+            }
+
+            // Filter out small elements (< 20px)
+            if (this.hideSmall && (el.bounds.width < 20 || el.bounds.height < 20)) {
+                return false;
+            }
+
+            // Filter out dividers (full-width horizontal lines)
+            if (this.hideDividers && el.bounds.height <= 5 && el.bounds.width >= this.deviceWidth * 0.9) {
+                return false;
+            }
+
+            // Filter out empty elements
+            if (this.hideEmptyElements) {
+                const hasText = el.text && el.text.trim();
+                const hasContentDesc = el.content_desc && el.content_desc.trim();
+                if (!el.clickable && !hasText && !hasContentDesc) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
+        // Update cache references
+        this._lastElementsRef = elements;
+        this._filterSettingsHash = currentHash;
+
+        return this._filteredElements;
+    }
+
+    /**
      * Draw UI element overlays
      * Scales element coordinates from device resolution to canvas resolution
      * @param {Array} elements - UI elements
      */
     _drawElements(elements) {
+        // OPTIMIZATION: Use cached filtered elements
+        const filteredElements = this._getFilteredElements(elements);
+
         // Calculate scale factor: stream may be at lower resolution than device
         const scaleX = this.canvas.width / this.deviceWidth;
         const scaleY = this.canvas.height / this.deviceHeight;
 
-        elements.forEach(el => {
-            if (!el.bounds) return;
-
-            // Filter based on clickable state
-            if (el.clickable && !this.showClickable) return;
-            if (!el.clickable && !this.showNonClickable) return;
-
-            // Filter out container elements if hideContainers is enabled
-            if (this.hideContainers && el.class && this.containerClasses.has(el.class)) {
-                return;
-            }
-
-            // Filter out small elements (< 20px in either dimension)
-            if (this.hideSmall) {
-                if (el.bounds.width < 20 || el.bounds.height < 20) {
-                    return;
-                }
-            }
-
-            // Filter out dividers (full-width horizontal lines)
-            if (this.hideDividers) {
-                // A divider is typically: height <= 5px AND width >= 90% of device width
-                if (el.bounds.height <= 5 && el.bounds.width >= this.deviceWidth * 0.9) {
-                    return;
-                }
-            }
-
-            // Filter out empty elements (no text or content-desc)
-            // IMPORTANT: Always show clickable elements (they're interactive buttons/icons)
-            if (this.hideEmptyElements) {
-                const hasText = el.text && el.text.trim();
-                const hasContentDesc = el.content_desc && el.content_desc.trim();
-                // Skip only if: not clickable AND no text AND no content-desc
-                if (!el.clickable && !hasText && !hasContentDesc) {
-                    return;
-                }
-            }
-
+        // Draw all filtered elements (no per-element filtering needed)
+        for (const el of filteredElements) {
             // Scale coordinates from device to canvas resolution
             const x = Math.floor(el.bounds.x * scaleX);
             const y = Math.floor(el.bounds.y * scaleY);
@@ -846,7 +894,7 @@ class LiveStream {
             if (this.showTextLabels && el.text && el.text.trim()) {
                 this._drawTextLabel(el.text, x, y, width);
             }
-        });
+        }
     }
 
     /**
@@ -996,52 +1044,79 @@ class LiveStream {
     /**
      * Draw text label
      * Scales font size based on canvas width to look appropriate at all resolutions
+     * Uses cached font settings when canvas size hasn't changed
      * @param {string} text - Label text
      * @param {number} x - X position
      * @param {number} y - Y position
      * @param {number} w - Width
      */
     _drawTextLabel(text, x, y, w) {
-        // Scale font based on canvas width (reference: 720px = 11px font)
-        // This ensures text is readable but not oversized at low resolutions
-        const scaleFactor = Math.max(0.6, Math.min(1.5, this.canvas.width / 720));
-        const fontSize = Math.round(11 * scaleFactor);
-        const labelHeight = Math.round(18 * scaleFactor);
-        const charWidth = Math.round(7 * scaleFactor);
+        // Cache font settings based on canvas width (avoid recalculating per label)
+        if (this._cachedFontCanvasWidth !== this.canvas.width) {
+            const scaleFactor = Math.max(0.6, Math.min(1.5, this.canvas.width / 720));
+            this._cachedFontSize = Math.round(11 * scaleFactor);
+            this._cachedLabelHeight = Math.round(18 * scaleFactor);
+            this._cachedCharWidth = Math.round(7 * scaleFactor);
+            this._cachedLabelOffset = Math.round(3 * scaleFactor);
+            this._cachedFontString = `${this._cachedFontSize}px monospace`;
+            this._cachedFontCanvasWidth = this.canvas.width;
+        }
 
-        const maxChars = Math.floor(w / charWidth);
+        const maxChars = Math.floor(w / this._cachedCharWidth);
         const displayText = text.length > maxChars
             ? text.substring(0, maxChars - 2) + '..'
             : text;
 
         // Background
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-        this.ctx.fillRect(x, y - labelHeight, Math.min(w, displayText.length * charWidth + 4), labelHeight);
+        this.ctx.fillRect(x, y - this._cachedLabelHeight, Math.min(w, displayText.length * this._cachedCharWidth + 4), this._cachedLabelHeight);
 
         // Text
         this.ctx.fillStyle = '#ffffff';
-        this.ctx.font = `${fontSize}px monospace`;
+        this.ctx.font = this._cachedFontString;
         this.ctx.textBaseline = 'top';
-        this.ctx.fillText(displayText, x + 2, y - labelHeight + Math.round(3 * scaleFactor));
+        this.ctx.fillText(displayText, x + 2, y - this._cachedLabelHeight + this._cachedLabelOffset);
+    }
+
+    /**
+     * Update cached scale factors for coordinate conversion
+     * Called when canvas or device dimensions change
+     */
+    _updateScaleFactors() {
+        if (this.canvas.width > 0 && this.canvas.height > 0 &&
+            this.deviceWidth > 0 && this.deviceHeight > 0) {
+            this._cachedScaleX = this.deviceWidth / this.canvas.width;
+            this._cachedScaleY = this.deviceHeight / this.canvas.height;
+            this._cachedScaleCanvasWidth = this.canvas.width;
+            this._cachedScaleCanvasHeight = this.canvas.height;
+            this._cachedScaleDeviceWidth = this.deviceWidth;
+            this._cachedScaleDeviceHeight = this.deviceHeight;
+        }
     }
 
     /**
      * Convert canvas coordinates to device coordinates
      * Accounts for stream quality scaling (canvas may be at lower resolution than device)
+     * Uses cached scale factors for performance
      * @param {number} canvasX - Canvas X
      * @param {number} canvasY - Canvas Y
      * @returns {Object} Device coordinates {x, y}
      */
     canvasToDevice(canvasX, canvasY) {
         if (!this.currentImage) {
-            throw new Error('No frame loaded');
+            // Return null instead of throwing - caller should check
+            return null;
         }
-        // Scale from canvas resolution to device resolution
-        const scaleX = this.deviceWidth / this.canvas.width;
-        const scaleY = this.deviceHeight / this.canvas.height;
+        // Update cache if dimensions changed
+        if (this._cachedScaleCanvasWidth !== this.canvas.width ||
+            this._cachedScaleCanvasHeight !== this.canvas.height ||
+            this._cachedScaleDeviceWidth !== this.deviceWidth ||
+            this._cachedScaleDeviceHeight !== this.deviceHeight) {
+            this._updateScaleFactors();
+        }
         return {
-            x: Math.round(canvasX * scaleX),
-            y: Math.round(canvasY * scaleY)
+            x: Math.round(canvasX * this._cachedScaleX),
+            y: Math.round(canvasY * this._cachedScaleY)
         };
     }
 

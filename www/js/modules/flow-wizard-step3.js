@@ -1,7 +1,13 @@
 /**
  * Flow Wizard Step 3 Module - Recording Mode
- * Visual Mapper v0.0.21
+ * Visual Mapper v0.0.27
  *
+ * v0.0.27: Fix flicker - batch canvas ops, add refreshElements guard, remove duplicate calls
+ * v0.0.26: Simplify loading overlay - show once at start, remove from onConnect entirely
+ * v0.0.25: Fix loading overlay flicker - only show on initial connect, not reconnects
+ * v0.0.24: Always create fresh LiveStream - fixes stale canvas reference bug
+ * v0.0.23: Fix streaming issues - applyZoom on first frame (not onConnect), add 10s loading timeout
+ * v0.0.22: FPS optimization - remove per-frame zoom, debounce element refresh, defer UI updates
  * v0.0.21: Remove scrcpy option entirely - MJPEG/WebSocket modes work with overlays
  * v0.0.20: Remove broken scrcpy integration, add ws-scrcpy launch button for view-only
  * v0.0.17: Fix empty element filter to keep all clickable elements (inherited from parent)
@@ -22,11 +28,11 @@
  */
 
 import { showToast } from './toast.js?v=0.0.5';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.9';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.11';
 import FlowInteractions from './flow-interactions.js?v=0.0.15';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
 import FlowRecorder from './flow-recorder.js?v=0.0.9';
-import LiveStream from './live-stream.js?v=0.0.26';
+import LiveStream from './live-stream.js?v=0.0.32';
 import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.6';
 
 // Helper to get API base (from global set by init.js)
@@ -1096,6 +1102,16 @@ export async function startStreaming(wizard) {
         return;
     }
 
+    // Reset stream session flags
+    wizard._streamLoadingHidden = false;
+    wizard._streamConnectedOnce = false;
+
+    // Clear any existing loading timeout
+    if (wizard._streamLoadingTimeout) {
+        clearTimeout(wizard._streamLoadingTimeout);
+        wizard._streamLoadingTimeout = null;
+    }
+
     // Show device preparation dialog
     const prepared = await prepareDeviceForStreaming(wizard);
     if (!prepared) {
@@ -1111,11 +1127,18 @@ export async function startStreaming(wizard) {
         img.onload = () => {
             wizard.canvas.width = img.width;
             wizard.canvas.height = img.height;
+            console.log(`[FlowWizard] Preloaded image dimensions: ${img.width}x${img.height}`);
             const ctx = wizard.canvas.getContext('2d');
             ctx.drawImage(img, 0, 0);
             wizard.hideLoadingOverlay();
+            // Defer applyZoom until after browser layout settles
+            // Use double requestAnimationFrame for more reliable timing
             if (wizard.canvasRenderer) {
-                wizard.canvasRenderer.applyZoom();
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        wizard.canvasRenderer.applyZoom();
+                    });
+                });
             }
         };
         img.src = 'data:image/jpeg;base64,' + wizard._preloadedImage;
@@ -1133,116 +1156,160 @@ export async function startStreaming(wizard) {
         wizard._preloadedImage = null;
         wizard._preloadedElements = null;
     } else {
-        wizard.showLoadingOverlay('Starting stream...');
+        wizard.showLoadingOverlay('Connecting...');
+
+        // Set timeout to hide loading overlay if no frames arrive within 10s
+        wizard._streamLoadingTimeout = setTimeout(() => {
+            if (!wizard._streamLoadingHidden) {
+                wizard.hideLoadingOverlay();
+                wizard._streamLoadingHidden = true;
+                showToast('No frames received - check device connection', 'warning', 5000);
+                console.warn('[FlowWizard] Stream timeout - no frames received after 10s');
+            }
+        }, 10000);
     }
 
-    // Pre-fetch elements while stream is connecting (faster startup)
-    refreshElements(wizard).catch(e => console.warn('[FlowWizard] Pre-fetch elements failed:', e));
+    // NOTE: Removed duplicate refreshElements call here - onConnect already calls it
+    // This prevents race conditions and duplicate API calls
 
     // Stop any existing stream
     stopStreaming(wizard);
 
-    // Initialize LiveStream if needed
-    if (!wizard.liveStream) {
-        wizard.liveStream = new LiveStream(wizard.canvas);
-
-        // Handle each frame - hide loading and reapply zoom
-        wizard.liveStream.onFrame = (data) => {
-            wizard.hideLoadingOverlay();
-            // Reapply zoom after each frame to ensure CSS sizing persists
-            // This is needed because LiveStream updates canvas bitmap dimensions
-            if (wizard.canvasRenderer) {
-                wizard.canvasRenderer.applyZoom();
-            }
-        };
-
-        // Wire up callbacks
-        wizard.liveStream.onConnect = () => {
-            updateStreamStatus(wizard, 'connected', 'Live');
-            wizard.showLoadingOverlay('Loading stream...');
-            showToast('Streaming started', 'success', 2000);
-            // Fetch elements (may already be loaded from pre-fetch)
-            refreshElements(wizard);
-            // Start periodic element refresh (every 3 seconds)
-            startElementAutoRefresh(wizard);
-            // Start keep-awake to prevent screen timeout while working
-            startKeepAwake(wizard);
-        };
-
-        wizard.liveStream.onDisconnect = () => {
-            updateStreamStatus(wizard, 'disconnected', 'Offline');
-            showToast('Device disconnected', 'warning', 3000);
-        };
-
-        wizard.liveStream.onConnectionStateChange = (state, attempts) => {
-            switch (state) {
-                case 'connecting':
-                    updateStreamStatus(wizard, 'connecting', 'Connecting...');
-                    break;
-                case 'reconnecting':
-                    updateStreamStatus(wizard, 'reconnecting', `Retry ${attempts}...`);
-                    if (attempts === 1) {
-                        showToast('Connection lost, reconnecting...', 'warning', 3000);
-                    }
-                    break;
-                case 'connected':
-                    updateStreamStatus(wizard, 'connected', 'Live');
-                    break;
-                case 'disconnected':
-                    updateStreamStatus(wizard, 'disconnected', 'Offline');
-                    if (attempts >= 10) {
-                        showToast('Device connection failed after 10 attempts', 'error', 5000);
-                    }
-                    break;
-            }
-        };
-
-        wizard.liveStream.onError = (error) => {
-            console.error('[FlowWizard] Stream error:', error);
-            showToast(`Stream error: ${error.message || 'Connection failed'}`, 'error', 3000);
-        };
-
-        // Show FPS and capture time in status (updates every few frames)
-        wizard.liveStream.onMetricsUpdate = (metrics) => {
-            if (wizard.captureMode === 'streaming' && wizard.liveStream?.connectionState === 'connected') {
-                // Determine connection quality based on capture time
-                const captureTime = metrics.captureTime || 0;
-                let quality = 'connected'; // CSS class
-                let statusText = `${metrics.fps} FPS`;
-
-                if (captureTime > 0) {
-                    statusText = `${metrics.fps} FPS (${captureTime}ms)`;
-
-                    // Quality indicator based on capture time
-                    if (captureTime > 1000) {
-                        quality = 'slow'; // > 1 second = very slow
-                    } else if (captureTime > 500) {
-                        quality = 'ok'; // 500ms-1s = acceptable but slow
-                    } else {
-                        quality = 'good'; // < 500ms = good
-                    }
-                }
-
-                updateStreamStatus(wizard, quality, statusText);
-
-                // Warn user once if connection is very slow (only on first slow frame detection)
-                if (captureTime > 2000 && !wizard._slowConnectionWarned) {
-                    wizard._slowConnectionWarned = true;
-                    showToast('Slow connection - try USB for better performance', 'warning', 5000);
-                }
-            }
-        };
-
-        // Apply current overlay settings (all filters)
-        wizard.liveStream.setOverlaysVisible(wizard.overlayFilters.showClickable || wizard.overlayFilters.showNonClickable);
-        wizard.liveStream.setShowClickable(wizard.overlayFilters.showClickable);
-        wizard.liveStream.setShowNonClickable(wizard.overlayFilters.showNonClickable);
-        wizard.liveStream.setTextLabelsVisible(wizard.overlayFilters.showTextLabels);
-        wizard.liveStream.setHideContainers(wizard.overlayFilters.hideContainers);
-        wizard.liveStream.setHideEmptyElements(wizard.overlayFilters.hideEmptyElements);
-        wizard.liveStream.setHideSmall(wizard.overlayFilters.hideSmall);
-        wizard.liveStream.setHideDividers(wizard.overlayFilters.hideDividers);
+    // Always create a fresh LiveStream to ensure it's bound to current canvas
+    // Previous bug: reusing old LiveStream that was bound to stale canvas element
+    if (wizard.liveStream) {
+        wizard.liveStream = null;
     }
+    wizard.liveStream = new LiveStream(wizard.canvas);
+    console.log('[FlowWizard] Created new LiveStream for canvas:', wizard.canvas);
+
+    // Handle each frame - hide loading overlay and apply zoom (once per stream)
+    // FIX: Call applyZoom() on first frame when canvas dimensions are correct
+    wizard.liveStream.onFrame = (data) => {
+        // Only process these once per stream session
+        if (!wizard._streamLoadingHidden) {
+            wizard.hideLoadingOverlay();
+            wizard._streamLoadingHidden = true;
+
+            // Clear any loading timeout since we got a frame
+            if (wizard._streamLoadingTimeout) {
+                clearTimeout(wizard._streamLoadingTimeout);
+                wizard._streamLoadingTimeout = null;
+            }
+
+            // CRITICAL: Apply zoom after browser has finished layout
+            // Use double requestAnimationFrame to ensure canvas dimensions are fully updated
+            if (wizard.canvasRenderer) {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        wizard.canvasRenderer.applyZoom();
+                    });
+                });
+            }
+        }
+    };
+
+    // Wire up callbacks
+    wizard.liveStream.onConnect = () => {
+        updateStreamStatus(wizard, 'connected', 'Live');
+
+        // Don't show loading overlay here - it's already shown at startStreaming()
+        // Only show toast on first connect
+        if (!wizard._streamConnectedOnce) {
+            wizard._streamConnectedOnce = true;
+            showToast('Streaming started', 'success', 2000);
+        }
+
+        // Fetch elements and start auto-refresh
+        refreshElements(wizard);
+        startElementAutoRefresh(wizard);
+        startKeepAwake(wizard);
+    };
+
+    // Setup ResizeObserver to apply zoom when canvas dimensions change (debounced)
+    if (!wizard._canvasResizeObserver && wizard.canvas) {
+        let resizeTimeout = null;
+        wizard._canvasResizeObserver = new ResizeObserver(() => {
+            if (wizard.canvasRenderer && wizard.captureMode === 'streaming') {
+                // Debounce: only apply zoom after resize stops for 100ms
+                if (resizeTimeout) clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
+                    wizard.canvasRenderer.applyZoom();
+                }, 100);
+            }
+        });
+        wizard._canvasResizeObserver.observe(wizard.canvas);
+    }
+
+    wizard.liveStream.onDisconnect = () => {
+        updateStreamStatus(wizard, 'disconnected', 'Offline');
+        showToast('Device disconnected', 'warning', 3000);
+    };
+
+    wizard.liveStream.onConnectionStateChange = (state, attempts) => {
+        switch (state) {
+            case 'connecting':
+                updateStreamStatus(wizard, 'connecting', 'Connecting...');
+                break;
+            case 'reconnecting':
+                updateStreamStatus(wizard, 'reconnecting', `Retry ${attempts}...`);
+                if (attempts === 1) {
+                    showToast('Connection lost, reconnecting...', 'warning', 3000);
+                }
+                break;
+            case 'connected':
+                updateStreamStatus(wizard, 'connected', 'Live');
+                break;
+            case 'disconnected':
+                updateStreamStatus(wizard, 'disconnected', 'Offline');
+                if (attempts >= 10) {
+                    showToast('Device connection failed after 10 attempts', 'error', 5000);
+                }
+                break;
+        }
+    };
+
+    wizard.liveStream.onError = (error) => {
+        console.error('[FlowWizard] Stream error:', error);
+        showToast(`Stream error: ${error.message || 'Connection failed'}`, 'error', 3000);
+    };
+
+    // Show FPS and capture time in status
+    wizard.liveStream.onMetricsUpdate = (metrics) => {
+        if (wizard.captureMode === 'streaming' && wizard.liveStream?.connectionState === 'connected') {
+            const captureTime = metrics.captureTime || 0;
+            let quality = 'connected';
+            let statusText = `${metrics.fps} FPS`;
+
+            if (captureTime > 0) {
+                statusText = `${metrics.fps} FPS (${captureTime}ms)`;
+                if (captureTime > 1000) {
+                    quality = 'slow';
+                } else if (captureTime > 500) {
+                    quality = 'ok';
+                } else {
+                    quality = 'good';
+                }
+            }
+
+            updateStreamStatus(wizard, quality, statusText);
+
+            if (captureTime > 2000 && !wizard._slowConnectionWarned) {
+                wizard._slowConnectionWarned = true;
+                showToast('Slow connection - try USB for better performance', 'warning', 5000);
+            }
+        }
+    };
+
+    // Apply current overlay settings
+    wizard.liveStream.setOverlaysVisible(wizard.overlayFilters.showClickable || wizard.overlayFilters.showNonClickable);
+    wizard.liveStream.setShowClickable(wizard.overlayFilters.showClickable);
+    wizard.liveStream.setShowNonClickable(wizard.overlayFilters.showNonClickable);
+    wizard.liveStream.setTextLabelsVisible(wizard.overlayFilters.showTextLabels);
+    wizard.liveStream.setHideContainers(wizard.overlayFilters.hideContainers);
+    wizard.liveStream.setHideEmptyElements(wizard.overlayFilters.hideEmptyElements);
+    wizard.liveStream.setHideSmall(wizard.overlayFilters.hideSmall);
+    wizard.liveStream.setHideDividers(wizard.overlayFilters.hideDividers);
 
     // Start streaming with MJPEG or WebSocket mode
     wizard.liveStream.start(wizard.selectedDevice, wizard.streamMode, wizard.streamQuality);
@@ -1258,6 +1325,12 @@ export function stopStreaming(wizard) {
 
     // Stop keep-awake
     stopKeepAwake(wizard);
+
+    // Clear loading timeout
+    if (wizard._streamLoadingTimeout) {
+        clearTimeout(wizard._streamLoadingTimeout);
+        wizard._streamLoadingTimeout = null;
+    }
 
     // Stop LiveStream if active
     if (wizard.liveStream) {
@@ -1302,9 +1375,29 @@ export function startElementAutoRefresh(wizard) {
     const intervalSelect = document.getElementById('elementRefreshInterval');
     const intervalMs = intervalSelect ? parseInt(intervalSelect.value) : 3000;
 
+    // Track last frame time for debouncing
+    wizard._lastFrameTime = performance.now();
+
+    // Wrap original onFrame to track frame times
+    const originalOnFrame = wizard.liveStream?.onFrame;
+    if (wizard.liveStream) {
+        wizard.liveStream.onFrame = (data) => {
+            wizard._lastFrameTime = performance.now();
+            if (originalOnFrame) originalOnFrame(data);
+        };
+    }
+
     // Start refresh with configured interval
     wizard.elementRefreshIntervalTimer = setInterval(() => {
         if (wizard.captureMode === 'streaming' && wizard.liveStream?.connectionState === 'connected') {
+            // OPTIMIZATION: Skip refresh if a frame arrived within last 200ms
+            // This prevents refresh from competing with active streaming
+            const timeSinceFrame = performance.now() - (wizard._lastFrameTime || 0);
+            if (timeSinceFrame < 200) {
+                console.log(`[FlowWizard] Skipping element refresh - frame arrived ${Math.round(timeSinceFrame)}ms ago`);
+                return;
+            }
+
             // Log with timestamp so user can verify actual interval
             const now = new Date().toLocaleTimeString();
             console.log(`[FlowWizard] Timer tick at ${now} - refreshing elements...`);
@@ -1312,7 +1405,7 @@ export function startElementAutoRefresh(wizard) {
         }
     }, intervalMs);
 
-    console.log(`[FlowWizard] Element auto-refresh started (${intervalMs / 1000}s interval)`);
+    console.log(`[FlowWizard] Element auto-refresh started (${intervalMs / 1000}s interval, debounced)`);
 }
 
 /**
@@ -1383,6 +1476,13 @@ export function updateStreamStatus(wizard, className, text) {
  */
 export async function refreshElements(wizard) {
     if (!wizard.selectedDevice) return;
+
+    // Guard against concurrent refreshElements calls (prevents race conditions)
+    if (wizard._refreshingElements) {
+        console.log('[FlowWizard] refreshElements already in progress, skipping');
+        return;
+    }
+    wizard._refreshingElements = true;
 
     try {
         let elements = [];
@@ -1473,29 +1573,31 @@ export async function refreshElements(wizard) {
             }
         }
 
-        // Update LiveStream elements for overlay
+        // Update LiveStream elements for overlay (batched - single redraw)
         if (wizard.liveStream) {
-            // Clear old elements and force canvas redraw
-            wizard.liveStream.elements = [];  // Clear first to trigger re-render
-
-            // Force canvas clear and redraw with new elements
-            if (wizard.liveStream.currentImage) {
-                wizard.liveStream.ctx.clearRect(0, 0, wizard.liveStream.canvas.width, wizard.liveStream.canvas.height);
-                wizard.liveStream.ctx.drawImage(wizard.liveStream.currentImage, 0, 0);
-            }
-
-            // Now set new elements
+            // Set new elements and redraw in one operation (no intermediate states)
             wizard.liveStream.elements = elements;
 
-            // Redraw with new elements
+            // Single atomic redraw with new elements
             if (wizard.liveStream.currentImage) {
                 wizard.liveStream._renderFrame(wizard.liveStream.currentImage, elements);
             }
         }
 
-        // Update element tree
-        wizard.updateElementTree(elements);
-        wizard.updateElementCount(elements.length);
+        // Update element tree (deferred to avoid blocking frame rendering)
+        // Use requestIdleCallback if available, otherwise requestAnimationFrame
+        const updateUI = () => {
+            wizard.updateElementTree(elements);
+            wizard.updateElementCount(elements.length);
+        };
+
+        if (wizard.captureMode === 'streaming' && 'requestIdleCallback' in window) {
+            // Defer DOM updates until browser is idle (won't block frame rendering)
+            requestIdleCallback(updateUI, { timeout: 500 });
+        } else {
+            // Immediate update for polling mode
+            updateUI();
+        }
 
         // Update app info header (in case user manually switched apps)
         try {
@@ -1519,6 +1621,8 @@ export async function refreshElements(wizard) {
         console.log(`[FlowWizard] Elements refreshed: ${elements.length} elements`);
     } catch (error) {
         console.warn('[FlowWizard] Failed to refresh elements:', error);
+    } finally {
+        wizard._refreshingElements = false;
     }
 }
 
@@ -1601,6 +1705,12 @@ export function handleCanvasHover(wizard, e, hoverTooltip, container) {
         deviceCoords = wizard.liveStream.canvasToDevice(canvasX, canvasY);
     } else {
         deviceCoords = wizard.canvasRenderer.canvasToDevice(canvasX, canvasY);
+    }
+
+    // Skip if no frame loaded yet (deviceCoords will be null)
+    if (!deviceCoords) {
+        hoverTooltip.style.display = 'none';
+        return;
     }
 
     // Container classes to filter out (same as FlowInteractions)

@@ -1,0 +1,79 @@
+version: '3.8'
+
+# Visual Mapper Backend Services
+# Run: docker-compose up -d
+# Stop: docker-compose down
+
+services:
+  # MQTT Broker - Message bus for Android ↔ Server communication
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: visualmapper-mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"    # MQTT
+      - "9001:9001"    # WebSocket
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Main Server - FastAPI backend for Visual Mapper
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: visualmapper-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    environment:
+      - MQTT_BROKER=mqtt
+      - MQTT_PORT=1883
+      - ML_SERVER_ENABLED=true
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config                     # Navigation graphs and app config
+      - ./www:/app/www:ro
+      - ./data/adb:/home/visualmapper/.android  # ADB keys (persisted for pairing)
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ML Training Server - Q-Learning model training with NPU/GPU acceleration
+  ml-training:
+    build:
+      context: .
+      dockerfile: Dockerfile.ml
+    container_name: visualmapper-ml
+    restart: unless-stopped
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    environment:
+      - MQTT_BROKER=mqtt
+      - MQTT_PORT=1883
+      - USE_NPU=true
+    volumes:
+      - ./data:/app/data
+    # No port exposed - communicates via MQTT only
+
+# Named volumes for persistence
+volumes:
+  mqtt-data:
+  app-data:
+
+# Network for internal communication
+networks:
+  default:
+    name: visualmapper-network
