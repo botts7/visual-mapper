@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.27">
-    <meta name="version" content="0.0.27" data-build="2026-01-01">
+    <meta name="viewport" content="0.0.28">
+    <meta name="version" content="0.0.28" data-build="2026-01-01">
     <title>Action Management - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.27">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.28">
     <style>
         /* Action-specific styles */
         .action-card {
@@ -290,6 +290,23 @@
                 <button id="exportBtn">Export</button>
             </div>
 
+            <!-- Disconnected device alert -->
+            <div id="disconnectedAlert" style="display: none; background: #ff980020; border: 1px solid #FF9800; border-radius: 6px; padding: 15px; margin-bottom: 15px;">
+                <div style="display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;">
+                    <span style="font-size: 24px;">⚠️</span>
+                    <div style="flex: 1;">
+                        <strong style="color: #FF9800;">Device Disconnected</strong>
+                        <p style="margin: 5px 0 0 0; color: var(--text-secondary); font-size: 14px;">
+                            Actions are shown from the database, but cannot be tested. Connect the device via ADB to execute actions.
+                        </p>
+                        <div id="disconnectedDevicesList" style="margin-top: 10px;"></div>
+                    </div>
+                    <a href="devices.html" class="btn" style="background: #FF9800; color: white; padding: 8px 16px; white-space: nowrap;">
+                        Manage Devices
+                    </a>
+                </div>
+            </div>
+
             <div id="actionsContainer">
                 <p class="status warning">Loading actions...</p>
             </div>
@@ -373,6 +390,118 @@
         let actionsInFlows = new Set(); // action_ids that are referenced in flows
         let stableIdsWithFlows = new Set(); // stable_device_ids that have at least one flow
         let allFlows = []; // all flows across all devices
+        const connectedDeviceIds = new Set(); // Track connected device IDs
+        let deviceIdentityMap = {}; // For reconnection info
+
+        // Check if a device is connected
+        function isDeviceConnected(deviceId) {
+            return connectedDeviceIds.has(deviceId);
+        }
+
+        // Load device identity info for reconnection
+        async function loadDeviceIdentities() {
+            try {
+                const response = await apiClient.get('/adb/known-devices');
+                const devices = response.devices || [];
+                deviceIdentityMap = {};
+                devices.forEach(device => {
+                    deviceIdentityMap[device.stable_device_id] = device;
+                });
+            } catch (error) {
+                console.warn('[Actions] Could not load device identities:', error);
+            }
+        }
+
+        // Reconnect a device
+        window.reconnectDevice = async function(connectionId) {
+            const ipMatch = connectionId.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d+)$/);
+            if (!ipMatch) {
+                alert('Cannot auto-reconnect. Please go to Devices page to connect manually.');
+                return;
+            }
+
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+
+            try {
+                await apiClient.post('/adb/connect', { host: ipMatch[1], port: parseInt(ipMatch[2]) });
+                btn.textContent = 'Connected!';
+                btn.style.background = '#4CAF50';
+                // Reload actions after successful reconnection
+                setTimeout(() => loadActions(), 500);
+            } catch (error) {
+                btn.textContent = 'Failed';
+                btn.style.background = '#f44336';
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                    btn.style.background = '';
+                }, 2000);
+            }
+        };
+
+        // Check if any devices are disconnected
+        function hasDisconnectedDevices() {
+            for (const [deviceId, device] of deviceInfo.entries()) {
+                if (device.connected === false) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Update disconnected alert visibility
+        function updateDisconnectedAlert() {
+            const alert = document.getElementById('disconnectedAlert');
+            const disconnectedList = document.getElementById('disconnectedDevicesList');
+            const deviceFilter = document.getElementById('deviceFilter').value;
+
+            // Get disconnected devices
+            const disconnectedDevices = [];
+            if (deviceFilter) {
+                // Viewing specific device
+                const device = deviceInfo.get(deviceFilter);
+                if (device?.connected === false) {
+                    disconnectedDevices.push({ id: deviceFilter, ...device });
+                }
+            } else {
+                // Viewing all devices
+                for (const [deviceId, device] of deviceInfo.entries()) {
+                    if (device.connected === false) {
+                        disconnectedDevices.push({ id: deviceId, ...device });
+                    }
+                }
+            }
+
+            if (disconnectedDevices.length === 0) {
+                alert.style.display = 'none';
+                return;
+            }
+
+            alert.style.display = 'block';
+
+            // Build list of disconnected devices with reconnect buttons
+            let html = '';
+            for (const device of disconnectedDevices) {
+                const identityInfo = deviceIdentityMap[device.id] || {};
+                const lastConnection = identityInfo.current_connection || null;
+                const hasReconnectable = lastConnection && /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/.test(lastConnection);
+
+                html += `
+                    <div style="display: inline-flex; align-items: center; gap: 8px; margin: 4px 8px 4px 0; padding: 4px 8px; background: var(--background-color); border-radius: 4px;">
+                        <span style="font-size: 13px;"><strong>${device.model || device.id}</strong></span>
+                        ${hasReconnectable ? `
+                            <button onclick="window.reconnectDevice('${lastConnection}')" class="btn btn-sm" style="padding: 2px 8px; font-size: 11px; background: #4CAF50;">
+                                Reconnect
+                            </button>
+                        ` : ''}
+                    </div>
+                `;
+            }
+            disconnectedList.innerHTML = html;
+        }
 
         // Extract app package from action (only available for launch_app type or from context)
         function extractAppFromAction(actionDef) {
@@ -406,9 +535,13 @@
                 const devicesResponse = await apiClient.get('/adb/devices');
                 const devices = devicesResponse.devices || [];
 
-                // Store device info for later use
+                // Store device info and track connected IDs
                 deviceInfo.clear();
-                devices.forEach(dev => deviceInfo.set(dev.id, dev));
+                connectedDeviceIds.clear();
+                devices.forEach(dev => {
+                    deviceInfo.set(dev.id, dev);
+                    connectedDeviceIds.add(dev.id);
+                });
 
                 // Load actions per device AND all flows in parallel
                 allActions = [];
@@ -417,7 +550,15 @@
                 stableIdsWithFlows.clear();
                 allFlows = [];
 
-                // Create parallel API call promises for actions (per device)
+                // ALWAYS fetch all actions (works even when devices disconnected)
+                const allActionsPromise = apiClient.get('/actions')
+                    .then(response => Array.isArray(response) ? response : (response.actions || []))
+                    .catch(error => {
+                        console.error('[Actions] Failed to load all actions:', error);
+                        return [];
+                    });
+
+                // Also fetch per-device if devices are connected
                 const actionPromises = devices.map(device =>
                     apiClient.get(`/actions/${device.id}`)
                         .then(response => ({device, data: response.actions || []}))
@@ -437,20 +578,34 @@
                     });
 
                 // Wait for all API calls
-                const [actionResults, flowsData] = await Promise.all([
+                const [allActionsData, actionResults, flowsData] = await Promise.all([
+                    allActionsPromise,
                     Promise.all(actionPromises),
                     flowsPromise
                 ]);
 
-                // Process action results
-                actionResults.forEach(({device, data}) => {
-                    if (data.length > 0) {
-                        deviceActions.set(device.id, data);
-                        // Add device_id to each action for filtering
-                        data.forEach(action => action.device_id = device.id);
-                        allActions.push(...data);
+                // Use all actions as the base (works even when device disconnected)
+                allActions = allActionsData;
+
+                // Group actions by device_id
+                for (const action of allActions) {
+                    const deviceId = action.device_id;
+                    if (deviceId) {
+                        if (!deviceActions.has(deviceId)) {
+                            deviceActions.set(deviceId, []);
+                        }
+                        deviceActions.get(deviceId).push(action);
+
+                        // Add device info from action if device not in connected list
+                        if (!deviceInfo.has(deviceId)) {
+                            deviceInfo.set(deviceId, {
+                                id: deviceId,
+                                model: deviceId,
+                                connected: false
+                            });
+                        }
                     }
-                });
+                }
 
                 // Process flows - extract action_ids AND stable_device_ids
                 allFlows = flowsData;
@@ -471,6 +626,7 @@
 
                 updateDeviceFilter();
                 renderActions();
+                updateDisconnectedAlert();
 
             } catch (error) {
                 console.error('[Actions] Failed to load actions:', error);
@@ -484,8 +640,16 @@
             const deviceFilter = document.getElementById('deviceFilter');
             const currentValue = deviceFilter.value;
 
-            // Keep "All Devices" option
-            deviceFilter.innerHTML = '<option value="">All Devices</option>';
+            // Count connected/disconnected devices
+            const connectedCount = Array.from(deviceInfo.values()).filter(d => d.connected !== false).length;
+            const disconnectedCount = Array.from(deviceInfo.values()).filter(d => d.connected === false).length;
+
+            // Keep "All Devices" option with connection stats
+            let allDevicesLabel = 'All Devices';
+            if (disconnectedCount > 0) {
+                allDevicesLabel = `All Devices (${connectedCount} online, ${disconnectedCount} offline)`;
+            }
+            deviceFilter.innerHTML = `<option value="">${allDevicesLabel}</option>`;
 
             // Add option for each device that has actions
             for (const [deviceId, actions] of deviceActions.entries()) {
@@ -495,8 +659,10 @@
                 // Get device info for model name
                 const device = deviceInfo.get(deviceId);
                 const model = device?.model || deviceId;
+                const isConnected = device?.connected !== false;
+                const statusIcon = isConnected ? '🟢' : '🔴';
 
-                option.textContent = `${model} (${actions.length} action${actions.length !== 1 ? 's' : ''})`;
+                option.textContent = `${statusIcon} ${model} (${actions.length} action${actions.length !== 1 ? 's' : ''})`;
                 deviceFilter.appendChild(option);
             }
 
@@ -504,6 +670,9 @@
             if (currentValue && Array.from(deviceFilter.options).some(opt => opt.value === currentValue)) {
                 deviceFilter.value = currentValue;
             }
+
+            // Update alert visibility
+            updateDisconnectedAlert();
         }
 
         // Filter and render actions
@@ -1013,7 +1182,7 @@
         document.getElementById('exportBtn').addEventListener('click', exportActions);
 
         // Initial load
-        loadActions();
+        loadDeviceIdentities().then(() => loadActions());
     </script>
 </body>
 </html>

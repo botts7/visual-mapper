@@ -1,0 +1,176 @@
+"""
+Settings routes for Visual Mapper
+Handles user preferences and saved device persistence
+"""
+
+import json
+import os
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
+
+router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+# Settings file path
+SETTINGS_FILE = "data/settings.json"
+SAVED_DEVICES_FILE = "data/saved_devices.json"
+
+
+def ensure_data_dir():
+    """Ensure data directory exists"""
+    os.makedirs("data", exist_ok=True)
+
+
+def load_settings() -> dict:
+    """Load settings from file"""
+    ensure_data_dir()
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[Settings] Failed to load settings: {e}")
+    return {}
+
+
+def save_settings(settings: dict):
+    """Save settings to file"""
+    ensure_data_dir()
+    try:
+        with open(SETTINGS_FILE, 'w') as f:
+            json.dump(settings, f, indent=2)
+    except Exception as e:
+        print(f"[Settings] Failed to save settings: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save settings: {e}")
+
+
+def load_saved_devices() -> list:
+    """Load saved devices from file"""
+    ensure_data_dir()
+    try:
+        if os.path.exists(SAVED_DEVICES_FILE):
+            with open(SAVED_DEVICES_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[Settings] Failed to load saved devices: {e}")
+    return []
+
+
+def save_saved_devices(devices: list):
+    """Save devices to file"""
+    ensure_data_dir()
+    try:
+        with open(SAVED_DEVICES_FILE, 'w') as f:
+            json.dump(devices, f, indent=2)
+    except Exception as e:
+        print(f"[Settings] Failed to save devices: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save devices: {e}")
+
+
+# === Pydantic Models ===
+
+class AutoReconnectSetting(BaseModel):
+    enabled: bool
+
+
+class SavedDevice(BaseModel):
+    ip: str
+    port: int
+    name: Optional[str] = None
+    lastConnected: Optional[str] = None
+    deviceId: Optional[str] = None
+
+
+class SavedDevicesList(BaseModel):
+    devices: List[SavedDevice]
+
+
+# === Routes ===
+
+@router.get("")
+async def get_all_settings():
+    """Get all settings"""
+    return load_settings()
+
+
+@router.get("/auto-reconnect")
+async def get_auto_reconnect():
+    """Get auto-reconnect preference"""
+    settings = load_settings()
+    return {"enabled": settings.get("auto_reconnect", False)}
+
+
+@router.post("/auto-reconnect")
+async def set_auto_reconnect(setting: AutoReconnectSetting):
+    """Set auto-reconnect preference"""
+    settings = load_settings()
+    settings["auto_reconnect"] = setting.enabled
+    save_settings(settings)
+    return {"success": True, "enabled": setting.enabled}
+
+
+@router.get("/saved-devices")
+async def get_saved_devices():
+    """Get all saved devices"""
+    devices = load_saved_devices()
+    return {"devices": devices}
+
+
+@router.post("/saved-devices")
+async def save_all_devices(data: SavedDevicesList):
+    """Save all devices (replaces existing)"""
+    devices = [d.dict() for d in data.devices]
+    save_saved_devices(devices)
+    return {"success": True, "count": len(devices)}
+
+
+@router.post("/saved-devices/add")
+async def add_saved_device(device: SavedDevice):
+    """Add a single saved device"""
+    devices = load_saved_devices()
+
+    # Check if device already exists
+    existing = next((d for d in devices if d['ip'] == device.ip and d['port'] == device.port), None)
+
+    if existing:
+        # Update existing
+        existing['name'] = device.name or existing.get('name')
+        existing['lastConnected'] = device.lastConnected or datetime.now().isoformat()
+    else:
+        # Add new
+        device_dict = device.dict()
+        device_dict['lastConnected'] = device_dict.get('lastConnected') or datetime.now().isoformat()
+        device_dict['deviceId'] = f"{device.ip}:{device.port}"
+        devices.append(device_dict)
+
+    save_saved_devices(devices)
+    return {"success": True, "device": device.dict()}
+
+
+@router.delete("/saved-devices/{ip}/{port}")
+async def remove_saved_device(ip: str, port: int):
+    """Remove a saved device"""
+    devices = load_saved_devices()
+    original_count = len(devices)
+    devices = [d for d in devices if not (d['ip'] == ip and d['port'] == port)]
+
+    if len(devices) == original_count:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    save_saved_devices(devices)
+    return {"success": True, "message": f"Device {ip}:{port} removed"}
+
+
+@router.put("/saved-devices/{ip}/{port}/name")
+async def update_device_name(ip: str, port: int, name: str):
+    """Update a saved device's name"""
+    devices = load_saved_devices()
+    device = next((d for d in devices if d['ip'] == ip and d['port'] == port), None)
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    device['name'] = name
+    save_saved_devices(devices)
+    return {"success": True, "name": name}

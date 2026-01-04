@@ -46,6 +46,40 @@ services:
       - ./config:/app/config                     # Navigation graphs and app config
       - ./www:/app/www:ro
       - ./data/adb:/home/visualmapper/.android  # ADB keys (persisted for pairing)
+      # Hot-reload Python code (dev mode)
+      - ./server.py:/app/server.py:ro
+      - ./routes:/app/routes:ro
+      - ./services:/app/services:ro
+      - ./utils:/app/utils:ro
+      # Core modules
+      - ./adb_bridge.py:/app/adb_bridge.py:ro
+      - ./sensor_manager.py:/app/sensor_manager.py:ro
+      - ./sensor_models.py:/app/sensor_models.py:ro
+      - ./text_extractor.py:/app/text_extractor.py:ro
+      - ./mqtt_manager.py:/app/mqtt_manager.py:ro
+      - ./sensor_updater.py:/app/sensor_updater.py:ro
+      - ./ha_device_classes.py:/app/ha_device_classes.py:ro
+      # Flow system
+      - ./flow_manager.py:/app/flow_manager.py:ro
+      - ./flow_executor.py:/app/flow_executor.py:ro
+      - ./flow_scheduler.py:/app/flow_scheduler.py:ro
+      - ./flow_execution_history.py:/app/flow_execution_history.py:ro
+      - ./performance_monitor.py:/app/performance_monitor.py:ro
+      # Screenshot & icons
+      - ./screenshot_stitcher.py:/app/screenshot_stitcher.py:ro
+      - ./app_icon_extractor.py:/app/app_icon_extractor.py:ro
+      - ./playstore_icon_scraper.py:/app/playstore_icon_scraper.py:ro
+      - ./device_icon_scraper.py:/app/device_icon_scraper.py:ro
+      - ./icon_background_fetcher.py:/app/icon_background_fetcher.py:ro
+      - ./app_name_background_fetcher.py:/app/app_name_background_fetcher.py:ro
+      - ./app_label_extractor.py:/app/app_label_extractor.py:ro
+      # Streaming & helpers
+      - ./stream_manager.py:/app/stream_manager.py:ro
+      - ./adb_helpers.py:/app/adb_helpers.py:ro
+      - ./navigation_manager.py:/app/navigation_manager.py:ro
+      - ./navigation_mqtt_handler.py:/app/navigation_mqtt_handler.py:ro
+      # Screenshot stitching modules
+      - ./ss_modules:/app/ss_modules:ro
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
       interval: 30s

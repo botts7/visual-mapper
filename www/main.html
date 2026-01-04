@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.27">
-    <meta name="version" content="0.0.27" data-build="2025-12-28">
+    <meta name="viewport" content="0.0.28">
+    <meta name="version" content="0.0.28" data-build="2025-12-28">
     <title>Dashboard - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.27">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.28">
     <style>
         /* Dashboard-specific styles */
         .stats-grid {
@@ -252,6 +252,23 @@
             </div>
         </div>
 
+        <!-- Disconnected Device Alert -->
+        <div id="disconnectedAlert" style="display: none; background: #ff980020; border: 1px solid #FF9800; border-radius: 6px; padding: 15px; margin-bottom: 15px;">
+            <div style="display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;">
+                <span style="font-size: 24px;">⚠️</span>
+                <div style="flex: 1;">
+                    <strong style="color: #FF9800;">Devices Disconnected</strong>
+                    <p style="margin: 5px 0 0 0; color: var(--text-secondary); font-size: 14px;" id="disconnectedMessage">
+                        Some devices are offline. Sensors and flows for these devices will not update.
+                    </p>
+                    <div id="disconnectedDevicesList" style="margin-top: 10px;"></div>
+                </div>
+                <a href="devices.html" class="btn" style="background: #FF9800; color: white; padding: 8px 16px; white-space: nowrap;">
+                    Manage Devices
+                </a>
+            </div>
+        </div>
+
         <!-- Stats Cards -->
         <div class="stats-grid">
             <div class="stat-card success">
@@ -372,6 +389,119 @@
             return `${diffDay}d ago`;
         }
 
+        // Track connected device IDs
+        const connectedDeviceIds = new Set();
+        let disconnectedDeviceCount = 0;
+        let deviceIdentityMap = {}; // For reconnection info
+
+        // Load device identity info for reconnection
+        async function loadDeviceIdentities() {
+            try {
+                const response = await apiClient.get('/adb/known-devices');
+                const devices = response.devices || [];
+                deviceIdentityMap = {};
+                devices.forEach(device => {
+                    deviceIdentityMap[device.stable_device_id] = device;
+                });
+            } catch (error) {
+                console.warn('[Dashboard] Could not load device identities:', error);
+            }
+        }
+
+        // Reconnect a device
+        window.reconnectDevice = async function(connectionId) {
+            const ipMatch = connectionId.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d+)$/);
+            if (!ipMatch) {
+                alert('Cannot auto-reconnect. Please go to Devices page to connect manually.');
+                return;
+            }
+
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+
+            try {
+                await apiClient.post('/adb/connect', { host: ipMatch[1], port: parseInt(ipMatch[2]) });
+                btn.textContent = 'Connected!';
+                btn.style.background = '#4CAF50';
+                // Reload dashboard after successful reconnection
+                setTimeout(() => location.reload(), 500);
+            } catch (error) {
+                btn.textContent = 'Failed';
+                btn.style.background = '#f44336';
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                    btn.style.background = '';
+                }, 2000);
+            }
+        };
+
+        // Check for disconnected devices (devices with saved data but not connected)
+        async function checkDisconnectedDevices() {
+            try {
+                // Get all sensors and flows to find device IDs with saved data
+                const [sensorsData, flowsData] = await Promise.all([
+                    apiClient.get('/sensors').catch(() => []),
+                    apiClient.get('/flows').catch(() => [])
+                ]);
+
+                const sensors = Array.isArray(sensorsData) ? sensorsData : [];
+                const flows = Array.isArray(flowsData) ? flowsData : [];
+
+                // Collect unique device IDs from saved data
+                const savedDeviceIds = new Set();
+                sensors.forEach(s => s.device_id && savedDeviceIds.add(s.device_id));
+                flows.forEach(f => f.device_id && savedDeviceIds.add(f.device_id));
+
+                // Find disconnected devices
+                const disconnectedDevices = [];
+                for (const deviceId of savedDeviceIds) {
+                    if (!connectedDeviceIds.has(deviceId)) {
+                        disconnectedDevices.push(deviceId);
+                    }
+                }
+                disconnectedDeviceCount = disconnectedDevices.length;
+
+                // Update alert visibility
+                const alert = document.getElementById('disconnectedAlert');
+                const message = document.getElementById('disconnectedMessage');
+                const disconnectedList = document.getElementById('disconnectedDevicesList');
+
+                if (disconnectedDeviceCount > 0) {
+                    alert.style.display = 'block';
+                    message.textContent = `${disconnectedDeviceCount} device(s) with saved sensors/flows are offline. Connect them to resume data collection.`;
+
+                    // Build list of disconnected devices with reconnect buttons
+                    let html = '';
+                    for (const deviceId of disconnectedDevices) {
+                        const identityInfo = deviceIdentityMap[deviceId] || {};
+                        const lastConnection = identityInfo.current_connection || null;
+                        const model = identityInfo.model || deviceId;
+                        const hasReconnectable = lastConnection && /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/.test(lastConnection);
+
+                        html += `
+                            <div style="display: inline-flex; align-items: center; gap: 8px; margin: 4px 8px 4px 0; padding: 4px 8px; background: var(--background-color); border-radius: 4px;">
+                                <span style="font-size: 13px;"><strong>${model}</strong></span>
+                                ${hasReconnectable ? `
+                                    <button onclick="window.reconnectDevice('${lastConnection}')" class="btn btn-sm" style="padding: 2px 8px; font-size: 11px; background: #4CAF50;">
+                                        Reconnect
+                                    </button>
+                                ` : ''}
+                            </div>
+                        `;
+                    }
+                    disconnectedList.innerHTML = html;
+                } else {
+                    alert.style.display = 'none';
+                }
+
+            } catch (error) {
+                console.warn('[Dashboard] Could not check disconnected devices:', error);
+            }
+        }
+
         // Check backend health and MQTT status
         async function checkStatus() {
             try {
@@ -410,6 +540,10 @@
             try {
                 const response = await apiClient.get('/adb/devices');
                 const devices = response.devices || [];
+
+                // Track connected device IDs
+                connectedDeviceIds.clear();
+                devices.forEach(d => connectedDeviceIds.add(d.id));
 
                 document.getElementById('deviceCount').textContent = devices.length;
 
@@ -644,8 +778,11 @@
                 loadDevices(),
                 loadSensors(),
                 loadActions(),
-                loadFlows()
+                loadFlows(),
+                loadDeviceIdentities()
             ]);
+            // Check for disconnected devices after loading connected ones and identities
+            await checkDisconnectedDevices();
             document.getElementById('lastRefresh').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         }
 

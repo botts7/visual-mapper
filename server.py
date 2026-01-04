@@ -65,7 +65,7 @@ from navigation_mqtt_handler import NavigationMqttHandler
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration, device_security, device_registration, navigation, companion, services, deduplication
+from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration, device_security, device_registration, navigation, companion, services, deduplication, settings
 
 # Configure logging
 logging.basicConfig(
@@ -159,7 +159,7 @@ logging.getLogger().addHandler(ws_log_handler)
 # Create FastAPI app
 app = FastAPI(
     title="Visual Mapper API",
-    version="0.0.27",
+    version="0.0.28",
     description="Android Device Monitoring & Automation for Home Assistant"
 )
 
@@ -865,6 +865,8 @@ app.include_router(services.router)
 logger.info("[Server] Registered route module: services (6 endpoints: status + mqtt + ml start/stop/restart)")
 app.include_router(deduplication.router)
 logger.info("[Server] Registered route module: deduplication (5 endpoints: sensor/action/flow similarity + optimize)")
+app.include_router(settings.router)
+logger.info("[Server] Registered route module: settings (8 endpoints: preferences + saved devices CRUD)")
 
 # ============================================================================
 # All API endpoints have been migrated to routes/ modules
