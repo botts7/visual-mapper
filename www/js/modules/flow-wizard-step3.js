@@ -1,7 +1,12 @@
 /**
  * Flow Wizard Step 3 Module - Recording Mode
- * Visual Mapper v0.0.30
+ * Visual Mapper v0.0.31
  *
+ * v0.0.31: Phase 2 Refactor - Extract modules for maintainability
+ *          - stream-manager.js: Stream lifecycle, element refresh, keep-awake
+ *          - canvas-overlay-renderer.js: Tooltips, highlights, element overlays
+ *          - gesture-handler.js: Tap/swipe detection and execution
+ *          - step3-controller.js: Orchestrator for all modules
  * v0.0.30: Consolidate unlock logic to shared device-unlock.js, fix keep-awake interval (30s -> 12s)
  * v0.0.29: Add screen mismatch detection - warn user when adding sensors to different screen, offer to add navigation step
  * v0.0.28: Fix sensor/action creation - remove redundant dynamic import, add error handling, guard timeout
@@ -43,6 +48,10 @@ import {
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
 } from './device-unlock.js?v=0.0.1';
+
+// Phase 2 Refactor: Import modularized components
+// These modules were extracted from this file for maintainability
+import * as Step3Controller from './step3-controller.js?v=0.0.5';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -4272,6 +4281,13 @@ const Step3Module = {
     setupOverlayFilters,
     setupCaptureMode,
     setCaptureMode,
+
+    // ========================================
+    // Phase 2 Modularized Functions
+    // These are also available from Step3Controller
+    // ========================================
+
+    // Stream management (from stream-manager.js)
     startStreaming,
     stopStreaming,
     reconnectStream,
@@ -4282,6 +4298,8 @@ const Step3Module = {
     updateStreamStatus,
     refreshElements,
     refreshAfterAction,
+
+    // Canvas overlay rendering (from canvas-overlay-renderer.js)
     setupHoverTooltip,
     handleCanvasHover,
     showHoverTooltip,
@@ -4290,11 +4308,18 @@ const Step3Module = {
     highlightHoveredElement,
     clearHoverHighlight,
     clearAllElementsAndHover,
+
+    // Gesture handling (from gesture-handler.js)
     onGestureStart,
     onGestureEnd,
     executeSwipeGesture,
     showTapRipple,
     showSwipePath,
+
+    // Controller reference for direct module access
+    Controller: Step3Controller,
+
+    // ========================================
     // Element tree methods
     setupElementTree,
     toggleTreeView,

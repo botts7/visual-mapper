@@ -1,6 +1,8 @@
 """
 Connection Monitor - Runtime Device Health & Auto-Recovery
 Monitors connected devices and automatically recovers from disconnections
+
+Phase 2 Enhancement: Added command queue replay on device reconnection
 """
 
 import asyncio
@@ -10,6 +12,21 @@ from typing import Dict, Set, Optional, Callable
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+
+# Command queue import (lazy to avoid circular imports)
+_command_queue = None
+
+def _get_command_queue():
+    """Lazy load command queue to avoid circular imports"""
+    global _command_queue
+    if _command_queue is None:
+        try:
+            from services.command_queue import get_command_queue
+            _command_queue = get_command_queue()
+        except ImportError:
+            logger.warning("[ConnectionMonitor] CommandQueue not available")
+            _command_queue = False  # Mark as unavailable
+    return _command_queue if _command_queue else None
 
 
 class ConnectionMonitor:
@@ -56,6 +73,78 @@ class ConnectionMonitor:
     def register_disconnect_callback(self, callback: Callable):
         """Register callback for device disconnections"""
         self._on_device_disconnected.append(callback)
+
+    async def _replay_queued_commands(self, device_id: str):
+        """
+        Phase 2: Replay any queued commands for a device that just came online.
+
+        Commands are queued when the device is offline and replayed on reconnection.
+        """
+        queue = _get_command_queue()
+        if not queue:
+            return
+
+        try:
+            commands = await queue.get_pending_commands(device_id)
+            if not commands:
+                logger.debug(f"[ConnectionMonitor] No queued commands for {device_id}")
+                return
+
+            logger.info(f"[ConnectionMonitor] Replaying {len(commands)} queued commands for {device_id}")
+
+            for cmd in commands:
+                try:
+                    await queue.mark_processing(cmd.command_id)
+
+                    # Execute command based on type
+                    success = await self._execute_queued_command(device_id, cmd)
+
+                    if success:
+                        await queue.mark_completed(cmd.command_id)
+                        logger.info(f"[ConnectionMonitor] Replayed command {cmd.command_id} successfully")
+                    else:
+                        await queue.mark_failed(cmd.command_id, "Execution failed")
+                        logger.warning(f"[ConnectionMonitor] Failed to replay command {cmd.command_id}")
+
+                except Exception as e:
+                    await queue.mark_failed(cmd.command_id, str(e))
+                    logger.error(f"[ConnectionMonitor] Error replaying command {cmd.command_id}: {e}")
+
+        except Exception as e:
+            logger.error(f"[ConnectionMonitor] Error getting queued commands for {device_id}: {e}")
+
+    async def _execute_queued_command(self, device_id: str, cmd) -> bool:
+        """Execute a queued command on the device"""
+        try:
+            command_type = cmd.command_type
+            payload = cmd.payload
+
+            # Route command to appropriate handler
+            if command_type == "execute_flow" and self.mqtt_manager:
+                # Send flow execution request via MQTT
+                topic = f"visual_mapper/{device_id}/commands/execute_flow"
+                await self.mqtt_manager.publish(topic, payload)
+                return True
+
+            elif command_type == "sync_sensors" and self.mqtt_manager:
+                # Send sensor sync request via MQTT
+                topic = f"visual_mapper/{device_id}/commands/sync_sensors"
+                await self.mqtt_manager.publish(topic, payload)
+                return True
+
+            elif command_type == "update_config" and self.mqtt_manager:
+                # Send config update via MQTT
+                topic = f"visual_mapper/{device_id}/commands/config"
+                await self.mqtt_manager.publish(topic, payload)
+                return True
+
+            else:
+                logger.warning(f"[ConnectionMonitor] Unknown command type: {command_type}")
+                return False
+
+        except Exception as e:
+            logger.error(f"[ConnectionMonitor] Error executing command: {e}")
+            return False
 
     async def start(self):
         """Start connection monitoring"""
@@ -204,6 +293,9 @@ class ConnectionMonitor:
                         await callback(device_id)
                     except Exception as e:
                         logger.error(f"[ConnectionMonitor] Reconnect callback failed: {e}")
+
+                # Phase 2: Replay any queued commands
+                await self._replay_queued_commands(device_id)
             else:
                 status["state"] = "online"
 
@@ -272,6 +364,9 @@ class ConnectionMonitor:
                     await callback(device_id)
                 except Exception as e:
                     logger.error(f"[ConnectionMonitor] Reconnect callback failed: {e}")
+
+            # Phase 2: Replay any queued commands
+            await self._replay_queued_commands(device_id)
         else:
             # Exponential backoff
             status["retry_delay"] = min(status["retry_delay"] * 2, self.max_retry_delay)
