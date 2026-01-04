@@ -37,23 +37,20 @@ services:
       - MQTT_BROKER=mqtt
       - MQTT_PORT=1883
     volumes:
-      # Persistent data only - no source code mounts
-      - app-data:/app/data
-      - app-config:/app/config
-      - adb-keys:/home/visualmapper/.android
+      # Persistent data - bind mounts to host directories
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./data/adb:/home/visualmapper/.android
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-# Named volumes for persistence
+# Named volumes for MQTT persistence only
 volumes:
   mqtt-data:
   mqtt-log:
-  app-data:
-  app-config:
-  adb-keys:
 
 # Network for internal communication
 networks:
