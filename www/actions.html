@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.33">
-    <meta name="version" content="0.0.33" data-build="2026-01-01">
+    <meta name="viewport" content="0.0.34">
+    <meta name="version" content="0.0.34" data-build="2026-01-01">
     <title>Action Management - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.33">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.34">
     <style>
         /* Action-specific styles */
         .action-card {
@@ -248,29 +248,9 @@
     </style>
 </head>
 <body>
-    <nav>
-        <ul>
-            <!-- High priority - always visible -->
-            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
-            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
-            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
-
-            <!-- Medium priority - hidden on mobile -->
-            <li class="nav-priority-med"><a href="actions.html" class="active">Actions</a></li>
-            <li class="nav-priority-med"><a href="flows.html">Flows</a></li>
-            <li class="nav-priority-med"><a href="performance.html">Performance</a></li>
-            <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
-
-            <!-- Low priority - hidden on tablet -->
-            <li class="nav-priority-med"><a href="navigation-learn.html">Learn Nav</a></li>
-            <li class="nav-priority-low"><a href="live-stream.html">Live Stream</a></li>
-            <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
-
-            <li class="version">v0.0.6</li>
-            <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
-            <li id="themeToggleContainer"></li>
-        </ul>
-    </nav>
+    <!-- Navbar injected by js/components/navbar.js -->
+    <nav></nav>
+    <script type="module" src="js/init.js?v=0.0.34"></script>
 
     <div class="container">
         <div class="card">

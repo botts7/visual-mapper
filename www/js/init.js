@@ -9,7 +9,7 @@
  * - Global initialization
  */
 
-const APP_VERSION = '0.0.33';
+const APP_VERSION = '0.0.34';
 
 // API Base Detection (for Home Assistant ingress)
 function getApiBase() {
@@ -60,11 +60,11 @@ function checkOnboarding() {
     return false; // Not redirecting
 }
 
-// Modules to load (Phase 0: none yet, this is the framework)
+// Modules to load
 const MODULES = [
-    // Phase 1 will add: 'modules/api-client.js',
-    // Phase 1 will add: 'modules/screenshot-capture.js',
-    // etc.
+    'components/navbar.js',  // Shared navigation bar
+    // Future: 'modules/api-client.js',
+    // Future: 'modules/screenshot-capture.js',
 ];
 
 /**
@@ -82,11 +82,16 @@ async function initApp() {
 
     const startTime = performance.now();
 
-    // Load all modules (when we have them)
+    // Load all modules
     for (const modulePath of MODULES) {
         try {
-            await import(`./${modulePath}?v=${APP_VERSION}`);
+            const module = await import(`./${modulePath}?v=${APP_VERSION}`);
             console.log(`[Init] ✅ Loaded ${modulePath}`);
+
+            // Initialize navbar if it was loaded
+            if (modulePath.includes('navbar') && module.default) {
+                module.default.inject();
+            }
         } catch (error) {
             console.error(`[Init] ❌ Failed to load ${modulePath}:`, error);
         }
