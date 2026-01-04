@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 # Set version
-ENV VERSION=0.0.28
+ENV VERSION=0.0.29
 
 # Set working directory
 WORKDIR /app
@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY *.py ./
 COPY routes ./routes
+COPY services ./services
 COPY utils ./utils
 COPY ss_modules ./ss_modules
 COPY www ./www
