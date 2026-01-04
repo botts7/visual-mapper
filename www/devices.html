@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.30">
-    <meta name="version" content="0.0.30" data-build="2025-12-28">
+    <meta name="viewport" content="0.0.31">
+    <meta name="version" content="0.0.31" data-build="2025-12-28">
     <title>Devices - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.30">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.31">
 </head>
 <body>
     <nav>
@@ -2043,9 +2043,19 @@
                 });
 
                 // Filter out connected devices - only show offline ones with data
-                const offlineDevices = Object.entries(deviceData).filter(([deviceId]) =>
-                    !connectedDevices.includes(deviceId)
-                );
+                // Need to check both: stable device ID and current_connection from identity map
+                const offlineDevices = Object.entries(deviceData).filter(([deviceId]) => {
+                    // Check if stable device ID is directly connected
+                    if (connectedDevices.includes(deviceId)) return false;
+
+                    // Check if device's current_connection is in connected devices
+                    const identityInfo = deviceIdentityMap[deviceId];
+                    if (identityInfo && identityInfo.current_connection) {
+                        if (connectedDevices.includes(identityInfo.current_connection)) return false;
+                    }
+
+                    return true; // Device is offline
+                });
 
                 if (offlineDevices.length === 0) {
                     knownDevicesCard.style.display = 'none';

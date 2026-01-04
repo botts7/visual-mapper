@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.30">
-    <meta name="version" content="0.0.30" data-build="2026-01-01">
+    <meta name="viewport" content="0.0.31">
+    <meta name="version" content="0.0.31" data-build="2026-01-01">
     <title>Sensors - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.30">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.31">
 </head>
 <body>
     <nav>
@@ -203,13 +203,29 @@
                 }
 
                 // Also add device info from sensors if device not in connected list
+                // Need to check if stable device ID maps to a connected device via identity map
                 for (const sensor of allSensors) {
                     if (!deviceInfo.has(sensor.device_id)) {
-                        // Create minimal device info from sensor
+                        // Check if this stable device ID has a current_connection that's connected
+                        const identityInfo = deviceIdentityMap[sensor.device_id];
+                        let isConnected = false;
+                        let model = sensor.device_id;
+
+                        if (identityInfo) {
+                            // Check if current_connection is in connected devices
+                            if (identityInfo.current_connection && deviceInfo.has(identityInfo.current_connection)) {
+                                isConnected = true;
+                                model = identityInfo.model || model;
+                            } else {
+                                model = identityInfo.model || model;
+                            }
+                        }
+
+                        // Create device info entry
                         deviceInfo.set(sensor.device_id, {
                             id: sensor.device_id,
-                            model: sensor.device_id, // Will show device ID if model unknown
-                            connected: false
+                            model: model,
+                            connected: isConnected
                         });
                     }
                 }

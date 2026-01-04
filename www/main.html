@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.30">
-    <meta name="version" content="0.0.30" data-build="2025-12-28">
+    <meta name="viewport" content="0.0.31">
+    <meta name="version" content="0.0.31" data-build="2025-12-28">
     <title>Dashboard - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.30">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.31">
     <style>
         /* Dashboard-specific styles */
         .stats-grid {
@@ -456,11 +456,20 @@
                 flows.forEach(f => f.device_id && savedDeviceIds.add(f.device_id));
 
                 // Find disconnected devices
+                // Check both: direct ID match AND via identity map (stable ID -> current_connection)
                 const disconnectedDevices = [];
                 for (const deviceId of savedDeviceIds) {
-                    if (!connectedDeviceIds.has(deviceId)) {
-                        disconnectedDevices.push(deviceId);
+                    // Direct match
+                    if (connectedDeviceIds.has(deviceId)) continue;
+
+                    // Check via identity map
+                    const identityInfo = deviceIdentityMap[deviceId];
+                    if (identityInfo && identityInfo.current_connection) {
+                        if (connectedDeviceIds.has(identityInfo.current_connection)) continue;
                     }
+
+                    // Device is disconnected
+                    disconnectedDevices.push(deviceId);
                 }
                 disconnectedDeviceCount = disconnectedDevices.length;
 
