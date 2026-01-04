@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.31">
-    <meta name="version" content="0.0.31" data-build="2025-12-28">
+    <meta name="viewport" content="0.0.32">
+    <meta name="version" content="0.0.32" data-build="2025-12-28">
     <title>Devices - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.31">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.32">
 </head>
 <body>
     <nav>
@@ -686,11 +686,95 @@
             updateSavedDevicesList();
         }
 
-        function updateSavedDevicesList() {
+        // Per-device auto-reconnect settings
+        const DEVICE_AUTO_RECONNECT_KEY = 'visual_mapper_device_auto_reconnect';
+
+        function getDeviceAutoReconnectSettings() {
+            try {
+                const saved = localStorage.getItem(DEVICE_AUTO_RECONNECT_KEY);
+                return saved ? JSON.parse(saved) : {};
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function setDeviceAutoReconnect(stableDeviceId, enabled) {
+            const settings = getDeviceAutoReconnectSettings();
+            settings[stableDeviceId] = enabled;
+            try {
+                localStorage.setItem(DEVICE_AUTO_RECONNECT_KEY, JSON.stringify(settings));
+                // Also save to backend
+                apiClient.post('/api/settings/saved-devices/add', {
+                    ip: '', port: 0, deviceId: stableDeviceId, autoReconnect: enabled
+                }).catch(() => {});
+            } catch (e) {
+                console.error('[Devices] Failed to save device auto-reconnect:', e);
+            }
+        }
+
+        function isDeviceAutoReconnectEnabled(stableDeviceId) {
+            const settings = getDeviceAutoReconnectSettings();
+            return settings[stableDeviceId] === true;
+        }
+
+        async function updateSavedDevicesList() {
             const savedList = document.getElementById('savedDevicesList');
             const noDevicesMsg = document.getElementById('noSavedDevices');
-            const devices = getSavedDevices();
             const connectedDevices = deviceManager.getDevices().map(d => d.id);
+
+            // Fetch known devices from identity API
+            let knownDevices = [];
+            try {
+                const response = await apiClient.get('/adb/known-devices');
+                knownDevices = response.devices || [];
+            } catch (e) {
+                console.warn('[Devices] Could not load known devices:', e);
+            }
+
+            // Also merge with localStorage saved devices
+            const localSavedDevices = getSavedDevices();
+
+            // Build combined list - known devices take priority
+            const deviceMap = new Map();
+
+            // Add known devices from API
+            knownDevices.forEach(device => {
+                deviceMap.set(device.stable_device_id, {
+                    stableId: device.stable_device_id,
+                    connectionId: device.current_connection,
+                    model: device.model,
+                    manufacturer: device.manufacturer,
+                    lastSeen: device.last_seen,
+                    source: 'identity'
+                });
+            });
+
+            // Add/merge localStorage devices
+            localSavedDevices.forEach(device => {
+                const connectionId = `${device.ip}:${device.port}`;
+                // Check if already in map by connectionId
+                let found = false;
+                for (const [id, d] of deviceMap) {
+                    if (d.connectionId === connectionId) {
+                        d.name = device.name; // Merge name from localStorage
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    deviceMap.set(connectionId, {
+                        stableId: connectionId,
+                        connectionId: connectionId,
+                        model: device.name || connectionId,
+                        lastSeen: device.lastConnected,
+                        source: 'local',
+                        ip: device.ip,
+                        port: device.port
+                    });
+                }
+            });
+
+            const devices = Array.from(deviceMap.values());
 
             if (devices.length === 0) {
                 savedList.innerHTML = '';
@@ -701,33 +785,43 @@
             noDevicesMsg.style.display = 'none';
 
             const html = devices.map(device => {
-                const deviceId = `${device.ip}:${device.port}`;
-                const isConnected = connectedDevices.includes(deviceId);
-                const lastConnected = device.lastConnected ? new Date(device.lastConnected).toLocaleDateString() : 'Never';
+                const isConnected = connectedDevices.includes(device.connectionId);
+                const lastSeen = device.lastSeen ? new Date(device.lastSeen).toLocaleDateString() : 'Unknown';
                 const statusBadge = isConnected
                     ? '<span style="background: #4CAF50; color: white; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;">● Online</span>'
                     : '<span style="background: #f44336; color: white; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;">● Offline</span>';
+
+                const hasReconnectable = device.connectionId && /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/.test(device.connectionId);
+                const autoReconnectEnabled = isDeviceAutoReconnectEnabled(device.stableId);
+                const toggleId = `auto-reconnect-${device.stableId.replace(/[^a-zA-Z0-9]/g, '-')}`;
 
                 return `
                     <div style="padding: 12px; border: 1px solid ${isConnected ? '#4CAF50' : 'var(--border-color)'}; margin-bottom: 8px; border-radius: 8px; background: var(--card-background); ${isConnected ? 'border-left: 3px solid #4CAF50;' : 'border-left: 3px solid #f44336;'}">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px;">
                             <div style="flex: 1; min-width: 200px;">
                                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
-                                    <strong style="color: var(--text-color);" id="device-name-${device.ip.replace(/\./g, '-')}-${device.port}">${device.name || deviceId}</strong>
+                                    <strong style="color: var(--text-color);">${device.model || device.stableId}</strong>
                                     ${statusBadge}
-                                    <button onclick="window.editDeviceName('${device.ip}', ${device.port})" class="btn btn-sm" style="padding: 2px 8px; font-size: 11px; background: transparent; border: 1px solid var(--border-color);" title="Edit name">✏️</button>
                                 </div>
-                                <div style="font-size: 12px; color: var(--text-secondary);">
-                                    <code style="background: var(--background-color); padding: 2px 6px; border-radius: 3px;">${deviceId}</code>
-                                    <span style="margin-left: 10px;">Last seen: ${lastConnected}</span>
+                                <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                                    <code style="background: var(--background-color); padding: 2px 6px; border-radius: 3px;">${device.stableId}</code>
+                                    ${device.connectionId && device.connectionId !== device.stableId ? `<span style="margin-left: 8px;">IP: <code style="background: var(--background-color); padding: 2px 6px; border-radius: 3px;">${device.connectionId}</code></span>` : ''}
+                                    <span style="margin-left: 8px;">Last seen: ${lastSeen}</span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer;">
+                                        <input type="checkbox" id="${toggleId}" ${autoReconnectEnabled ? 'checked' : ''} onchange="window.toggleDeviceAutoReconnect('${device.stableId}', this.checked)" style="width: 16px; height: 16px; cursor: pointer;">
+                                        Auto-reconnect
+                                    </label>
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                                ${!isConnected
-                                    ? `<button onclick="window.reconnectSavedDevice('${device.ip}', ${device.port})" class="btn btn-primary btn-sm" style="white-space: nowrap;">🔌 Reconnect</button>`
-                                    : `<button onclick="window.disconnectDevice('${deviceId}')" class="btn btn-secondary btn-sm" style="white-space: nowrap;">⏏️ Disconnect</button>`
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                                ${!isConnected && hasReconnectable
+                                    ? `<button onclick="window.reconnectKnownDevice('${device.connectionId}')" class="btn btn-primary btn-sm" style="white-space: nowrap;">🔌 Reconnect</button>`
+                                    : isConnected
+                                    ? `<button onclick="window.disconnectDevice('${device.connectionId}')" class="btn btn-secondary btn-sm" style="white-space: nowrap;">⏏️ Disconnect</button>`
+                                    : `<span style="font-size: 11px; color: var(--text-secondary);">Pair to reconnect</span>`
                                 }
-                                <button onclick="window.forgetSavedDeviceHandler('${device.ip}', ${device.port})" class="btn btn-sm" style="background: #dc3545; color: white; white-space: nowrap;">🗑️ Remove</button>
                             </div>
                         </div>
                     </div>
@@ -736,6 +830,16 @@
 
             savedList.innerHTML = html;
         }
+
+        // Handler for per-device auto-reconnect toggle
+        window.toggleDeviceAutoReconnect = (stableDeviceId, enabled) => {
+            setDeviceAutoReconnect(stableDeviceId, enabled);
+            const status = document.getElementById('connectionStatus');
+            status.textContent = enabled
+                ? `✓ Auto-reconnect enabled for this device`
+                : `Auto-reconnect disabled for this device`;
+            status.className = 'status ' + (enabled ? 'success' : '');
+        };
 
         // Global handlers for saved devices
         window.reconnectSavedDevice = async (ip, port) => {
