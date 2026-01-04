@@ -21,6 +21,7 @@ from utils.adb_manager import ADBManager
 from utils.base_connection import BaseADBConnection
 from playstore_icon_scraper import PlayStoreIconScraper
 from adb_helpers import PersistentADBShell
+from services.device_identity import get_device_identity_resolver
 
 # Optional: adbutils for faster screenshot capture (persistent connections)
 try:
@@ -91,6 +92,44 @@ class ADBBridge:
         self.playstore_scraper = PlayStoreIconScraper()
 
         logger.info("[ADBBridge] Initialized (Phase 2 - hybrid connection strategy)")
+
+    async def _resolve_device_connection(self, device_id: str) -> tuple:
+        """
+        Resolve a device ID (connection ID or stable ID) to its connection.
+        Will trigger device discovery if no devices are currently connected.
+        """
+        # If no devices connected, try to discover them first
+        if not self.devices:
+            logger.info(f"[ADBBridge] No devices connected, discovering devices for {device_id}")
+            await self.discover_devices()
+
+        # First try direct lookup (connection ID)
+        conn = self.devices.get(device_id)
+        logger.debug(f"[ADBBridge] _resolve: devices={list(self.devices.keys())}, looking for {device_id}, direct={conn is not None}")
+        if conn:
+            return conn, device_id
+
+        # Try to resolve stable ID to connection ID
+        try:
+            from services.device_identity import get_device_identity_resolver
+            resolver = get_device_identity_resolver()
+
+            current_conn_id = resolver.get_connection_id(device_id)
+            if current_conn_id and current_conn_id in self.devices:
+                logger.debug(f"[ADBBridge] Resolved {device_id} -> {current_conn_id} via identity resolver")
+                return self.devices[current_conn_id], current_conn_id
+
+            stable_id = resolver.resolve_any_id(device_id)
+            if stable_id != device_id:
+                current_conn_id = resolver.get_connection_id(stable_id)
+                if current_conn_id and current_conn_id in self.devices:
+                    logger.debug(f"[ADBBridge] Resolved {device_id} -> {current_conn_id} via stable ID {stable_id}")
+                    return self.devices[current_conn_id], current_conn_id
+        except Exception as e:
+            logger.debug(f"[ADBBridge] Device identity resolution failed: {e}")
+
+        return None, None
+
 
     def register_device_discovered_callback(self, callback):
         """
@@ -171,7 +210,7 @@ class ADBBridge:
         if not force_refresh and device_id in self._device_serial_cache:
             return self._device_serial_cache[device_id]
 
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn or not conn.available:
             # Return sanitized device_id as fallback
             logger.warning(f"[ADBBridge] Device {device_id} not available, using device_id as identifier")
@@ -179,19 +218,51 @@ class ADBBridge:
 
         serial = None
 
-        # Method 1: Try adb get-serialno
+        # Method 1: Try hardware serial (ro.serialno) - MOST STABLE
+        # This survives factory resets and is burned into hardware
         try:
             result = await asyncio.wait_for(
-                conn.execute_command("get-serialno"),
+                conn.shell("getprop ro.serialno"),
                 timeout=3.0
             )
-            if result and result.strip() and result.strip() != "unknown":
+            if result and result.strip() and result.strip() not in ("unknown", "null", ""):
                 serial = result.strip()
-                logger.debug(f"[ADBBridge] Got serial via get-serialno: {serial}")
+                logger.debug(f"[ADBBridge] Got serial via ro.serialno (hardware): {serial}")
         except Exception as e:
-            logger.debug(f"[ADBBridge] get-serialno failed: {e}")
+            logger.debug(f"[ADBBridge] ro.serialno failed: {e}")
 
-        # Method 2: Try Android ID (most reliable for Android 8+)
+        # Method 2: Try ro.boot.serialno (alternative hardware serial location)
+        if not serial:
+            try:
+                result = await asyncio.wait_for(
+                    conn.shell("getprop ro.boot.serialno"),
+                    timeout=3.0
+                )
+                if result and result.strip() and result.strip() not in ("unknown", "null", ""):
+                    serial = result.strip()
+                    logger.debug(f"[ADBBridge] Got serial via ro.boot.serialno: {serial}")
+            except Exception as e:
+                logger.debug(f"[ADBBridge] ro.boot.serialno failed: {e}")
+
+        # Method 3: Try adb get-serialno (skip if it looks like IP:port)
+        if not serial:
+            try:
+                result = await asyncio.wait_for(
+                    conn.execute_command("get-serialno"),
+                    timeout=3.0
+                )
+                if result and result.strip() and result.strip() != "unknown":
+                    candidate = result.strip()
+                    # Skip if it's an IP:port (not a real hardware serial)
+                    if not re.match(r'^\d+\.\d+\.\d+\.\d+:\d+$', candidate):
+                        serial = candidate
+                        logger.debug(f"[ADBBridge] Got serial via get-serialno: {serial}")
+                    else:
+                        logger.debug(f"[ADBBridge] get-serialno returned IP:port, skipping: {candidate}")
+            except Exception as e:
+                logger.debug(f"[ADBBridge] get-serialno failed: {e}")
+
+        # Method 4: Try Android ID (less stable - can change on factory reset)
         # Hash it for privacy - still unique but not reversible
         if not serial:
             try:
@@ -203,11 +274,11 @@ class ADBBridge:
                     import hashlib
                     # Hash the android_id for privacy
                     serial = hashlib.sha256(result.strip().encode()).hexdigest()[:16]
-                    logger.debug(f"[ADBBridge] Got serial via android_id hash: {serial}")
+                    logger.debug(f"[ADBBridge] Got serial via android_id hash (less stable): {serial}")
             except Exception as e:
                 logger.debug(f"[ADBBridge] android_id failed: {e}")
 
-        # Method 3: Try build fingerprint
+        # Method 5: Try build fingerprint
         if not serial:
             try:
                 result = await asyncio.wait_for(
@@ -222,7 +293,7 @@ class ADBBridge:
             except Exception as e:
                 logger.debug(f"[ADBBridge] fingerprint failed: {e}")
 
-        # Method 4: Fallback - hash of model + manufacturer
+        # Method 6: Fallback - hash of model + manufacturer (not unique per device)
         if not serial:
             try:
                 model = await asyncio.wait_for(
@@ -360,6 +431,9 @@ class ADBBridge:
         This method is isolated from capture_screenshot to prevent streaming
         from blocking single screenshot captures. Uses a separate lock.
 
+        Uses adbutils when available (30-50% faster due to persistent connection),
+        falls back to subprocess if adbutils fails or isn't available.
+
         Args:
             device_id: Device identifier
             timeout: Max capture time (5s default for WiFi reliability, was 2s)
@@ -376,17 +450,30 @@ class ADBBridge:
             start_time = time.time()
 
             try:
-                import subprocess
+                result = b""
 
-                def _run_screencap():
-                    result = subprocess.run(
-                        ["adb", "-s", device_id, "exec-out", "screencap", "-p"],
-                        capture_output=True,
-                        timeout=timeout
-                    )
-                    return result.stdout if result.returncode == 0 else b""
+                # Try adbutils first (faster - persistent connection, no subprocess spawn)
+                if ADBUTILS_AVAILABLE and self._adbutils_client:
+                    try:
+                        result = await self._capture_screenshot_adbutils(device_id, timeout)
+                    except Exception as e:
+                        logger.debug(f"[ADBBridge] Stream adbutils failed: {e}, trying subprocess")
+                        result = b""
 
-                result = await asyncio.to_thread(_run_screencap)
+                # Fall back to subprocess if adbutils failed or returned too little data
+                if not result or len(result) < 1000:
+                    import subprocess
+
+                    def _run_screencap():
+                        proc_result = subprocess.run(
+                            ["adb", "-s", device_id, "exec-out", "screencap", "-p"],
+                            capture_output=True,
+                            timeout=timeout
+                        )
+                        return proc_result.stdout if proc_result.returncode == 0 else b""
+
+                    result = await asyncio.to_thread(_run_screencap)
+
                 elapsed = (time.time() - start_time) * 1000
 
                 if result and len(result) > 1000:
@@ -537,10 +624,28 @@ class ADBBridge:
             # Attempt connection
             if await conn.connect():
                 self.devices[device_id] = conn
-                logger.info(f"[ADBBridge] ✅ Connected to {device_id}")
+                logger.info(f"[ADBBridge] Connected to {device_id}")
+
+                # Register device with identity resolver for stable ID mapping
+                try:
+                    stable_id = await self.get_device_serial(device_id)
+                    model = await asyncio.wait_for(conn.shell("getprop ro.product.model"), timeout=3.0)
+                    manufacturer = await asyncio.wait_for(conn.shell("getprop ro.product.manufacturer"), timeout=3.0)
+
+                    resolver = get_device_identity_resolver()
+                    resolver.register_device(
+                        connection_id=device_id,
+                        stable_device_id=stable_id,
+                        device_model=model.strip() if model else None,
+                        device_manufacturer=manufacturer.strip() if manufacturer else None
+                    )
+                    logger.info(f"[ADBBridge] Registered device identity: {device_id} -> {stable_id}")
+                except Exception as e:
+                    logger.warning(f"[ADBBridge] Failed to register device identity: {e}")
+
                 return device_id
             else:
-                logger.error(f"[ADBBridge] ❌ Failed to connect to {device_id}")
+                logger.error(f"[ADBBridge] Failed to connect to {device_id}")
                 raise ConnectionError(f"Failed to connect to {device_id}")
 
         except Exception as e:
@@ -895,9 +1000,13 @@ class ADBBridge:
                             conn._connected = True
                             self.devices[device_id] = conn
 
-                            # Trigger device discovered callbacks
+                            # Trigger device discovered callbacks with model info
                             for callback in self._device_discovered_callbacks:
                                 try:
+                                    # Pass model as optional second argument
+                                    await callback(device_id, model)
+                                except TypeError:
+                                    # Fallback for callbacks that don't accept model
                                     await callback(device_id)
                                 except Exception as e:
                                     logger.error(f"[ADBBridge] Device discovered callback failed: {e}")
@@ -1074,19 +1183,19 @@ class ADBBridge:
         """
         if format not in ("png", "raw"):
             raise ValueError(f"Invalid format: {format}. Must be 'png' or 'raw'.")
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
         # Check cache first (unless force_refresh)
-        cache_key = f"{device_id}_{format}"
+        cache_key = f"{resolved_id}_{format}"
         if not force_refresh:
             cached = self._get_cached_screenshot(cache_key)
             if cached is not None:
                 return cached
 
         # Use per-device lock to allow concurrent captures on different devices
-        async with self._get_device_lock(device_id):
+        async with self._get_device_lock(resolved_id):
             start_time = time.time()
             result = b""
             used_backend = "unknown"
@@ -1094,7 +1203,7 @@ class ADBBridge:
             # Determine backend to use
             if backend == "auto":
                 # Check if we have a preferred backend for this device
-                preferred = self._preferred_backend.get(device_id)
+                preferred = self._preferred_backend.get(resolved_id)
                 if preferred:
                     backend = preferred
                 elif ADBUTILS_AVAILABLE and self._adbutils_client:
@@ -1102,10 +1211,10 @@ class ADBBridge:
                 else:
                     backend = "subprocess"
 
-            # Try adbutils first (faster)
+            # Try adbutils first (faster) - use resolved_id (connection ID) for adbutils
             if backend == "adbutils" and ADBUTILS_AVAILABLE:
                 try:
-                    result = await self._capture_screenshot_adbutils(device_id, timeout)
+                    result = await self._capture_screenshot_adbutils(resolved_id, timeout)
                     used_backend = "adbutils"
                     if len(result) < 1000:
                         # adbutils failed, fall back to subprocess
@@ -1118,7 +1227,7 @@ class ADBBridge:
             # Fall back to subprocess if adbutils failed or wasn't used
             if len(result) < 1000:
                 try:
-                    result = await self._capture_screenshot_subprocess(device_id, timeout, format)
+                    result = await self._capture_screenshot_subprocess(resolved_id, timeout, format)
                     used_backend = "subprocess"
                 except Exception as e:
                     logger.warning(f"[ADBBridge] subprocess capture failed: {e}")
@@ -1128,7 +1237,7 @@ class ADBBridge:
 
             # Update preferred backend based on success
             if len(result) > 1000:
-                self._preferred_backend[device_id] = used_backend
+                self._preferred_backend[resolved_id] = used_backend
                 logger.debug(f"[ADBBridge] Screenshot ({used_backend}): {len(result)} bytes in {elapsed:.0f}ms")
                 self._set_cached_screenshot(cache_key, result)
                 return result
@@ -1174,13 +1283,13 @@ class ADBBridge:
         Raises:
             ValueError: If device not connected
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
         # Check cache first (unless force_refresh)
         if not force_refresh:
-            cached = self._get_cached_ui_elements(device_id)
+            cached = self._get_cached_ui_elements(resolved_id)
             if cached is not None:
                 return cached
 
@@ -1337,12 +1446,12 @@ class ADBBridge:
         Returns:
             Raw XML string from uiautomator
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
         # Use per-device lock to allow concurrent hierarchy extraction on different devices
-        async with self._get_device_lock(device_id):
+        async with self._get_device_lock(resolved_id):
             try:
                 # Clean up old dump file first
                 await conn.shell("rm -f /sdcard/window_dump.xml")
@@ -1377,15 +1486,15 @@ class ADBBridge:
             x: X coordinate
             y: Y coordinate
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
-        logger.debug(f"[ADBBridge] Tap at ({x}, {y}) on {device_id}")
+        logger.debug(f"[ADBBridge] Tap at ({x}, {y}) on {resolved_id}")
         await conn.shell(f"input tap {x} {y}")
 
         # Invalidate UI cache - screen state has changed
-        self.clear_ui_cache(device_id)
+        self.clear_ui_cache(resolved_id)
 
     async def swipe(self, device_id: str, x1: int, y1: int,
                     x2: int, y2: int, duration: int = 300) -> None:
@@ -1398,16 +1507,16 @@ class ADBBridge:
             x2, y2: End coordinates
             duration: Swipe duration in ms (default: 300)
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
-        logger.debug(f"[ADBBridge] Swipe ({x1},{y1}) -> ({x2},{y2}) on {device_id}")
+        logger.debug(f"[ADBBridge] Swipe ({x1},{y1}) -> ({x2},{y2}) on {resolved_id}")
         # Use subprocess for swipe - adb-shell library has issues with input commands
         import subprocess
         await asyncio.to_thread(
             subprocess.run,
-            ['adb', '-s', device_id, 'shell', 'input', 'touchscreen', 'swipe',
+            ['adb', '-s', resolved_id, 'shell', 'input', 'touchscreen', 'swipe',
              str(x1), str(y1), str(x2), str(y2), str(duration)],
             capture_output=True, timeout=10
         )
@@ -1423,14 +1532,14 @@ class ADBBridge:
             device_id: Device identifier
             text: Text to type (spaces will be escaped)
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
         # Escape spaces with %s
         escaped_text = text.replace(' ', '%s')
 
-        logger.debug(f"[ADBBridge] Type text on {device_id}")
+        logger.debug(f"[ADBBridge] Type text on {resolved_id}")
         await conn.shell(f"input text {escaped_text}")
 
     async def keyevent(self, device_id: str, keycode: str) -> None:
@@ -1450,11 +1559,11 @@ class ADBBridge:
             KEYCODE_VOLUME_DOWN (25) - Volume down
             KEYCODE_MENU (82) - Menu button
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
-        logger.debug(f"[ADBBridge] Key event {keycode} on {device_id}")
+        logger.debug(f"[ADBBridge] Key event {keycode} on {resolved_id}")
         await conn.shell(f"input keyevent {keycode}")
 
     # ========== Screen Power Control (Headless Mode) ==========
@@ -1469,9 +1578,9 @@ class ADBBridge:
         Returns:
             True if screen is on, False if off/locked or device not connected
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
-            logger.debug(f"[ADBBridge] Device {device_id} not in devices dict for is_screen_on check")
+            logger.debug(f"[ADBBridge] Device {device_id} not found for is_screen_on check")
             return False  # Don't raise - return False so wake logic can try to proceed
 
         try:
@@ -1509,9 +1618,9 @@ class ADBBridge:
         Returns:
             True if wake command sent successfully, False if device not connected or command failed
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
-            logger.warning(f"[ADBBridge] Cannot wake screen - device {device_id} not in devices dict")
+            logger.warning(f"[ADBBridge] Cannot wake screen - device {device_id} not found")
             return False  # Don't raise - just return False
 
         try:
@@ -1528,8 +1637,24 @@ class ADBBridge:
                     await conn.shell("input keyevent 4")  # KEYCODE_BACK
                     await asyncio.sleep(0.2)
                     # Method 2: Force-stop common screensaver packages
-                    await conn.shell("am force-stop com.android.dreams.basic")
-                    await conn.shell("am force-stop com.google.android.deskclock")
+                    screensaver_packages = [
+                        "com.android.dreams.basic",
+                        "com.google.android.deskclock",
+                        "com.neilturner.aerialviews",  # Aerial Views screensaver
+                        "com.amazon.bueller.photos",    # Amazon Fire TV screensaver
+                        "com.android.systemui.Screensaver",
+                    ]
+                    for pkg in screensaver_packages:
+                        try:
+                            await conn.shell(f"am force-stop {pkg}")
+                        except:
+                            pass
+                    await asyncio.sleep(0.3)
+                    # Method 3: Use service call to stop dream
+                    try:
+                        await conn.shell("service call dreams 5")  # stopDream
+                    except:
+                        pass
                     await asyncio.sleep(0.2)
             except Exception as e:
                 logger.debug(f"[ADBBridge] Screensaver dismiss attempt: {e}")
@@ -1545,6 +1670,10 @@ class ADBBridge:
                 await conn.shell("input keyevent 26")  # KEYCODE_POWER
                 await asyncio.sleep(0.3)
 
+            # NOTE: Swipe-to-unlock is handled by unlock_device(), not here
+            # wake_screen just wakes the screen; the unlock flow handles the lock screen
+
+            logger.info(f"[ADBBridge] Screen woke successfully")
             return True
         except Exception as e:
             logger.error(f"[ADBBridge] Failed to wake screen: {e}")
@@ -1560,9 +1689,9 @@ class ADBBridge:
         Returns:
             True if sleep command sent successfully, False if device not connected or command failed
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
-            logger.warning(f"[ADBBridge] Cannot sleep screen - device {device_id} not in devices dict")
+            logger.warning(f"[ADBBridge] Cannot sleep screen - device {device_id} not found")
             return False  # Don't raise - just return False
 
         try:
@@ -1615,12 +1744,12 @@ class ADBBridge:
         Returns:
             True if unlock command sent successfully
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
         try:
-            logger.info(f"[ADBBridge] Unlocking screen on {device_id}")
+            logger.info(f"[ADBBridge] Unlocking screen on {resolved_id}")
 
             # Method 1: wm dismiss-keyguard (most reliable on Android 8+)
             try:
@@ -1792,9 +1921,9 @@ class ADBBridge:
         Returns:
             True if unlock successful, False otherwise
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
-            logger.warning(f"[ADBBridge] Cannot unlock - device {device_id} not in devices dict")
+            logger.warning(f"[ADBBridge] Cannot unlock - device {device_id} not found")
             return False
 
         # Check cooldown status
@@ -1820,20 +1949,55 @@ class ADBBridge:
                 self.reset_unlock_failures(device_id)
                 return True
 
-            # Step 2: Swipe up to reveal PIN entry
+            # Step 2: Swipe up to reveal PIN entry (with retry for aggressive screen timeout)
             logger.info(f"[ADBBridge] Swiping to reveal PIN entry...")
+
+            # Get screen dimensions once
             try:
                 wm_output = await conn.shell("wm size")
                 match = re.search(r'(\d+)x(\d+)', wm_output)
                 if match:
                     width, height = int(match.group(1)), int(match.group(2))
                 else:
-                    width, height = 1080, 1920
-                center_x = width // 2
-                await conn.shell(f"input swipe {center_x} {int(height * 0.8)} {center_x} {int(height * 0.3)} 300")
+                    width, height = 1920, 1200  # Default for Samsung tablet landscape
             except:
-                await conn.shell("input swipe 540 1600 540 400 300")
-            await asyncio.sleep(0.5)
+                width, height = 1920, 1200
+
+            logger.debug(f"[ADBBridge] Screen dimensions: {width}x{height}")
+
+            # Try swipe up to 3 times (screen may timeout quickly on lock screen)
+            for swipe_attempt in range(3):
+                # Keep screen awake before each swipe
+                await conn.shell("input keyevent 224")  # WAKEUP
+                await asyncio.sleep(0.1)
+
+                # Use touchscreen swipe which works better on Samsung lock screen
+                # Swipe from bottom-center to top-center
+                center_x = width // 2
+                start_y = int(height * 0.85)  # Near bottom
+                end_y = int(height * 0.15)    # Near top
+
+                logger.debug(f"[ADBBridge] Swipe attempt {swipe_attempt + 1}: ({center_x}, {start_y}) -> ({center_x}, {end_y})")
+
+                try:
+                    # Try touchscreen swipe first (more reliable on lock screens)
+                    await conn.shell(f"input touchscreen swipe {center_x} {start_y} {center_x} {end_y} 200")
+                except:
+                    # Fallback to regular swipe
+                    await conn.shell(f"input swipe {center_x} {start_y} {center_x} {end_y} 200")
+
+                await asyncio.sleep(0.4)
+
+                # Check if PIN entry appeared (lock screen bouncer)
+                try:
+                    result = await conn.shell("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'")
+                    if "Bouncer" in result or "KeyguardBouncer" in result or "keyguard" in result.lower():
+                        logger.info(f"[ADBBridge] PIN entry screen detected after swipe")
+                        break
+                except:
+                    pass
+
+            await asyncio.sleep(0.3)
 
             # Step 3: Enter PIN using input text (simple and reliable)
             logger.info(f"[ADBBridge] Entering PIN...")
@@ -1879,7 +2043,7 @@ class ADBBridge:
         Returns:
             True if device is locked, False if unlocked
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             logger.warning(f"[ADBBridge] Device {device_id} not connected for lock check")
             return False  # Can't check - assume unlocked
@@ -1936,12 +2100,13 @@ class ADBBridge:
                 "input keyevent KEYCODE_HOME"
             ])
         """
-        if not self.devices.get(device_id):
+        conn, resolved_id = await self._resolve_device_connection(device_id)
+        if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
-        logger.debug(f"[ADBBridge] Executing batch of {len(commands)} commands on {device_id}")
+        logger.debug(f"[ADBBridge] Executing batch of {len(commands)} commands on {resolved_id}")
 
-        async with PersistentADBShell(device_id) as shell:
+        async with PersistentADBShell(resolved_id) as shell:
             results = await shell.execute_batch(commands)
 
         return results
@@ -1961,7 +2126,7 @@ class ADBBridge:
         Raises:
             ValueError: If device not connected
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
@@ -2047,12 +2212,12 @@ class ADBBridge:
         Raises:
             ValueError: If device not connected
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
         try:
-            logger.debug(f"[ADBBridge] Listing installed apps for {device_id}")
+            logger.debug(f"[ADBBridge] Listing installed apps for {resolved_id}")
 
             # Get ALL packages (system + third-party)
             # Frontend can filter if needed - PARITY PRINCIPLE
@@ -2263,6 +2428,57 @@ class ADBBridge:
         # Fallback: use last segment
         return segments[-1].title() if segments else package.title()
 
+    async def dismiss_screensaver(self, device_id: str) -> bool:
+        """
+        Forcefully dismiss any active screensaver/daydream.
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            True if screensaver was dismissed or not active
+        """
+        conn, resolved_id = await self._resolve_device_connection(device_id)
+        if not conn:
+            return False
+
+        try:
+            # Check if dreaming
+            power_state = await conn.shell("dumpsys power | grep -E 'mWakefulness|Dreaming'")
+            if "Dreaming" in power_state or "mWakefulness=Dreaming" in power_state:
+                logger.info(f"[ADBBridge] Dismissing active screensaver on {device_id}")
+
+                # Method 1: Stop dream service
+                try:
+                    await conn.shell("service call dreams 5")  # stopDream
+                except:
+                    pass
+
+                # Method 2: Force-stop known screensaver packages
+                screensaver_packages = [
+                    "com.neilturner.aerialviews",
+                    "com.android.dreams.basic",
+                    "com.google.android.deskclock",
+                    "com.amazon.bueller.photos",
+                ]
+                for pkg in screensaver_packages:
+                    try:
+                        await conn.shell(f"am force-stop {pkg}")
+                    except:
+                        pass
+
+                # Method 3: Send BACK and HOME to dismiss overlays
+                await conn.shell("input keyevent 4")  # BACK
+                await asyncio.sleep(0.2)
+                await conn.shell("input keyevent 3")  # HOME
+                await asyncio.sleep(0.3)
+
+                return True
+            return True
+        except Exception as e:
+            logger.debug(f"[ADBBridge] Error dismissing screensaver: {e}")
+            return False
+
     async def launch_app(self, device_id: str, package_name: str) -> bool:
         """
         Launch an app by package name.
@@ -2277,21 +2493,78 @@ class ADBBridge:
         Raises:
             ValueError: If device not connected
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
         try:
+            # Dismiss any active screensaver first
+            await self.dismiss_screensaver(device_id)
+
+            # Aggressively clear any UI overlays before launching app
+            # Samsung tablets often have persistent notification shade issues
+            await self._ensure_clean_ui_state(device_id, conn, resolved_id)
+
             logger.info(f"[ADBBridge] Launching app {package_name} on {device_id}")
 
             # Use monkey to launch app (works without knowing activity name)
             await conn.shell(f"monkey -p {package_name} -c android.intent.category.LAUNCHER 1")
+
+            # Wait for app to launch
+            await asyncio.sleep(0.5)
 
             return True
 
         except Exception as e:
             logger.error(f"[ADBBridge] Failed to launch app {package_name}: {e}")
             return False
+
+    async def _ensure_clean_ui_state(self, device_id: str, conn, resolved_id: str, max_attempts: int = 5) -> bool:
+        """
+        Ensure the device UI is in a clean state (no notification shade, no dialogs).
+        Uses BACK key presses (confirmed to work on Samsung tablets).
+
+        Args:
+            device_id: Device identifier
+            conn: ADB connection
+            resolved_id: Resolved device ID for subprocess commands
+            max_attempts: Maximum number of attempts to clear UI
+
+        Returns:
+            True if clean state achieved
+        """
+        import subprocess
+
+        for attempt in range(max_attempts):
+            try:
+                # Check current foreground
+                current = await self.get_current_activity(device_id)
+
+                # If we're on launcher or a regular app, we're good
+                if current and "NotificationShade" not in current and "StatusBar" not in current:
+                    if attempt > 0:
+                        logger.info(f"[ADBBridge] Clean UI state achieved after {attempt + 1} attempts")
+                    return True
+
+                logger.debug(f"[ADBBridge] UI overlay detected ({current}), clearing with BACK... (attempt {attempt + 1})")
+
+                # Press BACK to dismiss notification shade (user confirmed this works)
+                await conn.shell("input keyevent 4")  # BACK
+                await asyncio.sleep(0.5)  # Give time for UI to update
+
+            except Exception as e:
+                logger.debug(f"[ADBBridge] Error clearing UI state: {e}")
+
+        # Final check
+        try:
+            current = await self.get_current_activity(device_id)
+            if current and "NotificationShade" not in current:
+                return True
+            logger.warning(f"[ADBBridge] Could not clear UI overlay after {max_attempts} attempts: {current}")
+        except:
+            pass
+
+        return False
 
     async def stop_app(self, device_id: str, package_name: str) -> bool:
         """
@@ -2307,7 +2580,7 @@ class ADBBridge:
         Raises:
             ValueError: If device not connected
         """
-        conn = self.devices.get(device_id)
+        conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 

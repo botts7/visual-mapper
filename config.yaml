@@ -2,7 +2,7 @@
 # https://developers.home-assistant.io/docs/add-ons/configuration
 
 name: Visual Mapper
-version: 0.0.20
+version: 0.0.21
 slug: visual_mapper
 description: Android device control and sensor creation for Home Assistant via ADB
 url: https://github.com/yourusername/visual-mapper
@@ -27,18 +27,18 @@ host_network: true
 
 # Ports
 ports:
-  3000/tcp: 3000
+  8080/tcp: 8080
 
 ports_description:
-  3000/tcp: Web UI (HTTP)
+  8080/tcp: Web UI (HTTP)
 
 # WebUI configuration
-webui: http://[HOST]:[PORT:3000]
+webui: http://[HOST]:[PORT:8080]
 panel_icon: mdi:android
 panel_title: Visual Mapper
 panel_admin: false
 ingress: true
-ingress_port: 3000
+ingress_port: 8080
 
 # Add-on options
 options:

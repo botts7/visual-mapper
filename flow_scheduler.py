@@ -555,6 +555,15 @@ class FlowScheduler:
                     logger.info(f"[FlowScheduler] Executing flow {queued.flow.flow_id} (priority={queued.priority}, reason={queued.reason}, method={getattr(queued.flow, 'execution_method', 'server')})")
 
                     try:
+                        # ============================================
+                        # AUTO-UNLOCK: Before flow execution
+                        # ============================================
+                        unlocked = await self._auto_unlock_if_needed(device_id)
+                        if not unlocked:
+                            logger.error(f"[FlowScheduler] Flow {queued.flow.flow_id} skipped - device locked")
+                            queue.task_done()
+                            continue
+
                         # 4. Execute flow via execution router (handles server/android/auto routing)
                         result = await self.execution_router.execute_flow(queued.flow, device_lock=lock)
 
@@ -567,8 +576,19 @@ class FlowScheduler:
                             fallback = getattr(result, 'used_fallback', False)
                             fallback_msg = " (fallback)" if fallback else ""
                             logger.debug(f"[FlowScheduler] Flow {queued.flow.flow_id} completed successfully via {method}{fallback_msg}")
+
+                            # ============================================
+                            # AUTO-LOCK: After successful flow execution
+                            # ============================================
+                            if self.should_lock_device(device_id):
+                                try:
+                                    await self.flow_executor.adb_bridge.sleep_screen(device_id)
+                                    logger.info(f"[FlowScheduler] Locked device {device_id} (no flow scheduled soon)")
+                                except Exception as lock_error:
+                                    logger.warning(f"[FlowScheduler] Failed to lock device: {lock_error}")
                         else:
                             logger.warning(f"[FlowScheduler] Flow {queued.flow.flow_id} failed: {result.error_message}")
+                            # Don't lock on failure - user may need to intervene
 
                     except Exception as e:
                         logger.error(f"[FlowScheduler] Flow execution error: {e}", exc_info=True)
@@ -814,3 +834,173 @@ class FlowScheduler:
     def is_running(self) -> bool:
         """Check if scheduler is running"""
         return self._running
+
+    # ============================================================================
+    # Smart Lock Management (AUTO_UNLOCK strategy)
+    # ============================================================================
+
+    async def _auto_unlock_if_needed(self, device_id: str) -> bool:
+        """
+        Unlock device if AUTO_UNLOCK strategy is configured.
+
+        Returns True if device is ready (unlocked or no unlock needed).
+        Returns False if device is locked and couldn't be unlocked.
+        """
+        from utils.device_security import LockStrategy
+
+        # Check if device has AUTO_UNLOCK configured
+        security_config = self.flow_executor.security_manager.get_lock_config(device_id)
+        if not security_config:
+            # No security config - assume device is unlocked/no-lock
+            return True
+
+        if security_config.get('strategy') != LockStrategy.AUTO_UNLOCK.value:
+            # Not AUTO_UNLOCK - we don't manage this device's lock
+            # Check if locked - if so, we can't proceed
+            is_locked = await self.flow_executor.adb_bridge.is_locked(device_id)
+            if is_locked:
+                logger.warning(f"[FlowScheduler] Device {device_id} is locked but not configured for AUTO_UNLOCK")
+                return False
+            return True
+
+        # AUTO_UNLOCK configured - we manage this device
+        is_locked = await self.flow_executor.adb_bridge.is_locked(device_id)
+        if not is_locked:
+            logger.debug(f"[FlowScheduler] Device {device_id} already unlocked")
+            return True
+
+        logger.info(f"[FlowScheduler] Device {device_id} is locked - attempting auto-unlock")
+
+        # Check unlock cooldown first (prevents device lockout)
+        unlock_status = self.flow_executor.adb_bridge.get_unlock_status(device_id)
+        if unlock_status.get("in_cooldown"):
+            cooldown_remaining = unlock_status.get("cooldown_remaining_seconds", 0)
+            logger.error(f"[FlowScheduler] Unlock in cooldown ({cooldown_remaining}s remaining)")
+            return False
+
+        # Step 1: Try swipe-to-unlock first
+        try:
+            await self.flow_executor.adb_bridge.unlock_screen(device_id)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.debug(f"[FlowScheduler] Swipe unlock attempt: {e}")
+
+        # Check if unlocked after swipe
+        is_locked = await self.flow_executor.adb_bridge.is_locked(device_id)
+        if not is_locked:
+            logger.info(f"[FlowScheduler] Device unlocked via swipe")
+            return True
+
+        # Step 2: Try PIN/passcode
+        passcode = self.flow_executor.security_manager.get_passcode(device_id)
+        if passcode:
+            try:
+                unlock_success = await self.flow_executor.adb_bridge.unlock_device(device_id, passcode)
+                if unlock_success:
+                    logger.info(f"[FlowScheduler] Device unlocked with passcode")
+                    return True
+            except Exception as e:
+                logger.error(f"[FlowScheduler] Passcode unlock error: {e}")
+
+        # Final check
+        is_locked = await self.flow_executor.adb_bridge.is_locked(device_id)
+        if is_locked:
+            logger.error(f"[FlowScheduler] Failed to unlock device {device_id}")
+            return False
+
+        return True
+
+    def get_time_until_next_flow(self, device_id: str) -> Optional[float]:
+        """
+        Calculate seconds until next flow execution for a device.
+
+        Checks:
+        1. Queue depth (if queue has pending flows, return 0)
+        2. Periodic flow timings
+
+        Returns:
+            Seconds until next flow, or None if no enabled flows
+        """
+        # If queue has pending flows, next execution is imminent
+        if self._queue_depths.get(device_id, 0) > 0:
+            return 0.0
+
+        # Get all enabled flows for this device
+        flows = self.flow_manager.get_enabled_flows(device_id)
+        if not flows:
+            return None
+
+        # Calculate time until next execution for each flow
+        now = datetime.now()
+        min_time = float('inf')
+
+        for flow in flows:
+            # Get last execution time
+            last_exec = flow.last_executed
+            if not last_exec:
+                # Never executed - will run soon
+                return 0.0
+
+            # Calculate next execution time
+            next_exec_time = last_exec.timestamp() + flow.update_interval_seconds
+            time_until = next_exec_time - now.timestamp()
+
+            if time_until < min_time:
+                min_time = time_until
+
+        return min_time if min_time != float('inf') else None
+
+    def should_lock_device(self, device_id: str, grace_period_seconds: int = 300) -> bool:
+        """
+        Check if device should be locked after flow execution.
+
+        Returns True if ALL conditions met:
+        - Device has AUTO_UNLOCK strategy configured (system manages lock/unlock)
+        - No flow scheduled within grace period
+        - Wizard is not active on device
+
+        Args:
+            device_id: Device to check
+            grace_period_seconds: Don't lock if flow due within this time (default 5 min)
+
+        Returns:
+            True if device should be locked
+        """
+        # Check if device has AUTO_UNLOCK configured
+        # Only devices with AUTO_UNLOCK should be auto-locked by the system
+        from utils.device_security import LockStrategy
+
+        security_config = self.flow_executor.security_manager.get_lock_config(device_id)
+        if not security_config:
+            logger.debug(f"[FlowScheduler] No security config for {device_id} - skip lock")
+            return False
+
+        if security_config.get('strategy') != LockStrategy.AUTO_UNLOCK.value:
+            logger.debug(f"[FlowScheduler] Device {device_id} strategy is {security_config.get('strategy')} - skip lock")
+            return False
+
+        # Check if wizard is active (skip lock if user is working)
+        try:
+            from server import wizard_active_devices
+            if device_id in wizard_active_devices:
+                logger.debug(f"[FlowScheduler] Skipping lock - wizard active on {device_id}")
+                return False
+        except ImportError:
+            pass
+
+        # Check time until next flow
+        time_until_next = self.get_time_until_next_flow(device_id)
+
+        if time_until_next is None:
+            # No enabled flows - lock the device
+            logger.debug(f"[FlowScheduler] No enabled flows for {device_id} - will lock")
+            return True
+
+        if time_until_next <= grace_period_seconds:
+            # Flow coming soon - don't lock
+            logger.debug(f"[FlowScheduler] Next flow in {time_until_next:.0f}s (< {grace_period_seconds}s grace) - skip lock")
+            return False
+
+        # No flow soon - lock the device
+        logger.debug(f"[FlowScheduler] Next flow in {time_until_next:.0f}s (> {grace_period_seconds}s grace) - will lock")
+        return True

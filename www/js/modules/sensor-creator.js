@@ -13,6 +13,7 @@ class SensorCreator {
         this.currentElement = null;
         this.currentElementIndex = null;
         this.currentDeviceId = null;
+        this.currentDeviceStableId = null; // Stable device ID for data storage
         this.editMode = false;
         this.editingSensor = null;
         this.deviceClasses = null; // Will be loaded from API
@@ -83,14 +84,17 @@ class SensorCreator {
 
     /**
      * Show sensor creation dialog
-     * @param {string} deviceId - Device ID
+     * @param {string} deviceId - Device ID (connection or stable)
      * @param {Object} element - Selected UI element
      * @param {number} elementIndex - Element index in hierarchy
+     * @param {Object} options - Optional settings
+     * @param {string} options.stableDeviceId - Stable device ID for data storage
      */
-    show(deviceId, element, elementIndex) {
+    show(deviceId, element, elementIndex, options = {}) {
         this.editMode = false;
         this.editingSensor = null;
         this.currentDeviceId = deviceId;
+        this.currentDeviceStableId = options.stableDeviceId || deviceId;
         this.currentElement = element;
         this.currentElementIndex = elementIndex;
 
@@ -838,9 +842,28 @@ class SensorCreator {
     async _handleSubmit(event) {
         event.preventDefault();
 
+        // Validate required data is present
+        if (!this.currentDeviceId) {
+            alert('Error: No device selected');
+            return;
+        }
+        if (this.currentElementIndex === undefined || this.currentElementIndex === null) {
+            alert('Error: No element selected. Please select an element from the screen first.');
+            return;
+        }
+        if (!this.currentElement) {
+            alert('Error: Element data missing. Please re-select an element.');
+            return;
+        }
+        if (!this.pipelineSteps || this.pipelineSteps.length === 0) {
+            alert('Error: No extraction rule configured');
+            return;
+        }
+
         const sensorData = {
             sensor_id: this.editMode ? this.editingSensor.sensor_id : "", // Use existing ID in edit mode
-            device_id: this.currentDeviceId,
+            device_id: this.currentDeviceStableId || this.currentDeviceId, // Use stable ID for storage
+            stable_device_id: this.currentDeviceStableId || this.currentDeviceId,
             friendly_name: document.getElementById('sensorName').value,
             sensor_type: document.getElementById('sensorType').value,
             device_class: document.getElementById('deviceClass').value,
@@ -859,6 +882,9 @@ class SensorCreator {
             enabled: this.editMode ? this.editingSensor.enabled : true
         };
 
+        // Log sensor data for debugging
+        console.log('[SensorCreator] Submitting sensor data:', JSON.stringify(sensorData, null, 2));
+
         try {
             let response;
             if (this.editMode) {
@@ -867,6 +893,26 @@ class SensorCreator {
                 console.log('[SensorCreator] Sensor updated:', response);
                 alert(`Sensor "${sensorData.friendly_name}" updated successfully!`);
             } else {
+                // Check for similar sensors before creating (deduplication)
+                const dupCheck = await this._checkForDuplicates(sensorData);
+                if (dupCheck.hasSimilar) {
+                    const useExisting = await this._showDuplicateWarning(dupCheck);
+                    if (useExisting) {
+                        // User chose to use existing sensor
+                        console.log('[SensorCreator] Using existing sensor:', dupCheck.bestMatch.entity_id);
+                        response = { sensor_id: dupCheck.bestMatch.entity_id, ...dupCheck.bestMatch.details };
+                        alert(`Using existing sensor "${dupCheck.bestMatch.entity_name}" instead of creating duplicate.`);
+
+                        // Fire callback with existing sensor
+                        if (this.onSensorCreated) {
+                            this.onSensorCreated(response, sensorData);
+                        }
+                        this.hide();
+                        return;
+                    }
+                    // else: User chose to create anyway, continue below
+                }
+
                 // Create new sensor
                 response = await this.apiClient.post('/sensors', sensorData);
                 console.log('[SensorCreator] Sensor created:', response);
@@ -924,6 +970,104 @@ class SensorCreator {
         }
 
         return rule;
+    }
+
+    /**
+     * Check for duplicate sensors before creating
+     * @private
+     */
+    async _checkForDuplicates(sensorData) {
+        try {
+            const response = await this.apiClient.post('/dedup/sensors/check', {
+                device_id: sensorData.device_id,
+                sensor: {
+                    resource_id: sensorData.resource_id,
+                    bounds: sensorData.bounds,
+                    screen_activity: sensorData.screen_activity,
+                    name: sensorData.friendly_name,
+                    extraction_method: sensorData.extraction_rule?.method
+                }
+            });
+
+            return {
+                hasSimilar: response.has_similar,
+                matches: response.matches || [],
+                bestMatch: response.best_match,
+                recommendation: response.recommendation
+            };
+        } catch (error) {
+            console.warn('[SensorCreator] Duplicate check failed, proceeding with creation:', error);
+            return { hasSimilar: false, matches: [] };
+        }
+    }
+
+    /**
+     * Show duplicate warning dialog and return user choice
+     * @private
+     * @returns {Promise<boolean>} true = use existing, false = create anyway
+     */
+    async _showDuplicateWarning(dupCheck) {
+        return new Promise((resolve) => {
+            const match = dupCheck.bestMatch;
+            const score = Math.round((match.similarity_score || 0) * 100);
+            const reasons = (match.match_reasons || []).join(', ').replace(/_/g, ' ');
+
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;';
+
+            modal.innerHTML = `
+                <div style="background:white;border-radius:12px;padding:24px;max-width:450px;margin:20px;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                    <h3 style="margin:0 0 16px 0;color:#ff9800;">
+                        ⚠️ Similar Sensor Found
+                    </h3>
+                    <div style="background:#fff3e0;padding:12px;border-radius:8px;margin-bottom:16px;">
+                        <strong style="color:#e65100;">${match.entity_name}</strong>
+                        <div style="font-size:0.9em;color:#666;margin-top:4px;">
+                            ${score}% match • ${reasons}
+                        </div>
+                        ${match.details?.existing_value ? `
+                            <div style="font-size:0.85em;color:#888;margin-top:4px;">
+                                Current value: <strong>${match.details.existing_value}</strong>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <p style="margin:0 0 20px 0;color:#555;">
+                        ${dupCheck.recommendation === 'use_existing'
+                            ? 'This appears to be the same sensor. Using the existing one is recommended.'
+                            : 'A similar sensor exists. You may want to use it instead of creating a duplicate.'}
+                    </p>
+                    <div style="display:flex;gap:12px;justify-content:flex-end;">
+                        <button id="dupCreateAnyway" style="padding:10px 20px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer;">
+                            Create Anyway
+                        </button>
+                        <button id="dupUseExisting" style="padding:10px 20px;border:none;background:#4CAF50;color:white;border-radius:6px;cursor:pointer;font-weight:500;">
+                            Use Existing
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            modal.querySelector('#dupUseExisting').onclick = () => {
+                document.body.removeChild(modal);
+                resolve(true);
+            };
+
+            modal.querySelector('#dupCreateAnyway').onclick = () => {
+                document.body.removeChild(modal);
+                resolve(false);
+            };
+
+            // Close on backdrop click
+            modal.onclick = (e) => {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                    resolve(false);
+                }
+            };
+        });
     }
 }
 

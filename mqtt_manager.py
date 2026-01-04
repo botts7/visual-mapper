@@ -59,6 +59,11 @@ class MQTTManager:
         # Maps device_id -> {model: str, friendly_name: str, app_name: str}
         self._device_info: Dict[str, Dict[str, str]] = {}
 
+        # Device capabilities cache (populated from device announcements)
+        # Maps device_id -> list of capability strings
+        # Standard capabilities: CAP_OVERLAY_V2, CAP_CLIENT_OCR, CAP_INTENT_PREVIEW
+        self._device_capabilities: Dict[str, list] = {}
+
         logger.info(f"[MQTTManager] Initialized with broker={broker}:{port} (Platform: {'Windows' if IS_WINDOWS else 'Linux'})")
 
     def set_device_info(self, device_id: str, model: str = None, friendly_name: str = None, app_name: str = None):
@@ -112,6 +117,53 @@ class MQTTManager:
             return f"{name} - {app}"
         else:
             return name
+
+    def set_device_capabilities(self, device_id: str, capabilities: list) -> None:
+        """
+        Store device capabilities from announcement or status message.
+
+        Args:
+            device_id: Device identifier (e.g., "192.168.86.2:46747" or "SM_X205")
+            capabilities: List of capability strings (e.g., ["CAP_OVERLAY_V2", "CAP_CLIENT_OCR"])
+        """
+        self._device_capabilities[device_id] = capabilities or []
+        logger.info(f"[MQTTManager] Set capabilities for {device_id}: {capabilities}")
+
+    def has_capability(self, device_id: str, capability: str) -> bool:
+        """
+        Check if a device has a specific capability.
+
+        This is used by flow_executor and other components to determine
+        execution strategy (e.g., use client-side OCR if CAP_CLIENT_OCR available).
+
+        Standard capabilities:
+        - CAP_OVERLAY_V2: Enhanced overlay with visual feedback
+        - CAP_CLIENT_OCR: Device can perform OCR locally
+        - CAP_INTENT_PREVIEW: Device can preview intents before execution
+        - CAP_GESTURE_INJECTION: Device supports direct gesture injection
+        - CAP_ACCESSIBILITY_V2: Enhanced accessibility service features
+
+        Args:
+            device_id: Device identifier
+            capability: Capability name to check (e.g., "CAP_CLIENT_OCR")
+
+        Returns:
+            True if device has the capability, False otherwise
+        """
+        caps = self._device_capabilities.get(device_id, [])
+        return capability in caps
+
+    def get_device_capabilities(self, device_id: str) -> list:
+        """
+        Get all capabilities for a device.
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            List of capability strings, empty list if device not found
+        """
+        return self._device_capabilities.get(device_id, [])
 
     async def connect(self) -> bool:
         """Connect to MQTT broker"""
@@ -258,20 +310,55 @@ class MQTTManager:
         sanitized_stable_id = self._sanitize_device_id(stable_id)
         sanitized_device = self._sanitize_device_id(sensor.device_id)
 
+        # Extract app name from target_app or element_resource_id
+        # Priority: target_app > element_resource_id (contains package:id/name)
+        app_package = None
+        app_name = None
+        app_identifier = None  # Sanitized app name for device identifier
+
+        # First try target_app
+        if hasattr(sensor, 'target_app') and sensor.target_app:
+            app_package = sensor.target_app
+
+        # Fallback: extract from element_resource_id (format: "com.package.name:id/element_id")
+        if not app_package and hasattr(sensor, 'source') and sensor.source:
+            resource_id = getattr(sensor.source, 'element_resource_id', None)
+            if resource_id and ':' in resource_id:
+                app_package = resource_id.split(':')[0]  # Get package before ":"
+
+        if app_package:
+            # Extract friendly app name from package (e.g., "com.byd.autolink" -> "BYD")
+            parts = app_package.split('.')
+            if len(parts) >= 2:
+                # Use second-to-last part if available (usually the company name)
+                app_name = parts[-2].upper() if len(parts) >= 2 else parts[-1].upper()
+            else:
+                app_name = parts[-1].upper()
+            # Create sanitized app identifier for device grouping
+            app_identifier = self._sanitize_device_id(app_package)
+
+        # Create device identifier: include app to create separate devices per device+app combo
+        if app_identifier:
+            device_identifier = f"visual_mapper_{sanitized_stable_id}_{app_identifier}"
+        else:
+            device_identifier = f"visual_mapper_{sanitized_stable_id}_default"
+
+        logger.info(f"[MQTTManager] Discovery device identifier: {device_identifier} (app: {app_name or 'none'}, package: {app_package or 'none'})")
+
         payload = {
             "name": sensor.friendly_name,
-            # Use stable ID for unique_id so HA doesn't create duplicates when IP changes
+            # Use stable ID + app for unique_id so HA doesn't create duplicates
             "unique_id": f"visual_mapper_{sanitized_stable_id}_{sensor.sensor_id}",
             "state_topic": state_topic,
             "availability_topic": availability_topic,
             "json_attributes_topic": attributes_topic,
             "device": {
-                # Use stable ID for identifiers so all sensors from same device group together
-                "identifiers": [f"visual_mapper_{sanitized_stable_id}"],
-                "name": self.get_device_display_name(sensor.device_id),
+                # Use stable ID + app for identifiers to group sensors by device+app
+                "identifiers": [device_identifier],
+                "name": self.get_device_display_name(sensor.device_id, app_name),
                 "manufacturer": "Visual Mapper",
-                "model": "Android Device Monitor",
-                "sw_version": "0.0.7"
+                "model": app_name or "Android Device Monitor",  # Use app name as model
+                "sw_version": "0.0.12"
             }
         }
 
@@ -604,7 +691,7 @@ class MQTTManager:
                 "name": self.get_device_display_name(action_def.action.device_id),
                 "manufacturer": "Visual Mapper",
                 "model": "Android Device Monitor",
-                "sw_version": "0.0.7"
+                "sw_version": "0.0.12"
             },
             "payload_press": "EXECUTE"
         }
@@ -932,6 +1019,59 @@ class MQTTManager:
             self._navigation_learn_callback = callback
             logger.info("[MQTTManager] Navigation learn callback registered (Linux)")
 
+    async def subscribe_to_generated_flows(self) -> bool:
+        """
+        Subscribe to the visualmapper/flows/generated topic.
+        This receives flows generated by the Android companion app exploration.
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected - cannot subscribe to generated flows")
+            return False
+
+        try:
+            topic = "visualmapper/flows/generated"
+
+            if IS_WINDOWS:
+                self.client.subscribe(topic)
+            else:
+                await self.client.subscribe(topic)
+
+            logger.info(f"[MQTTManager] Subscribed to {topic}")
+            return True
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to subscribe to generated flows: {e}")
+            return False
+
+    def set_generated_flow_callback(self, callback):
+        """
+        Set callback for handling flows generated by Android companion app.
+
+        Callback signature: callback(flow_data: dict)
+
+        The callback receives the full flow JSON from the Android app's
+        FlowGenerator which includes per-screen sensor capture steps.
+
+        Args:
+            callback: Function to call when a generated flow is received
+        """
+        if IS_WINDOWS:
+            def on_message_sync(client, userdata, message):
+                topic = message.topic
+                if topic == "visualmapper/flows/generated":
+                    try:
+                        flow_data = json.loads(message.payload.decode())
+                        logger.info(f"[MQTTManager] Received generated flow: {flow_data.get('flow_id', 'unknown')}")
+                        callback(flow_data)
+                    except Exception as e:
+                        logger.error(f"[MQTTManager] Error processing generated flow: {e}")
+
+            self.client.on_message = on_message_sync
+            logger.info("[MQTTManager] Generated flow callback registered (Windows)")
+        else:
+            self._generated_flow_callback = callback
+            logger.info("[MQTTManager] Generated flow callback registered (Linux)")
+
     async def publish_flow_command(self, device_id: str, flow_id: str, payload: dict) -> bool:
         """
         Publish flow execution command to companion app.
@@ -1189,3 +1329,91 @@ class MQTTManager:
         except Exception as e:
             logger.error(f"[MQTTManager] Failed to subscribe to UI topics: {e}")
             return False
+
+    # =========================================================================
+    # Device Announcement (MQTT-based device discovery)
+    # =========================================================================
+
+    async def subscribe_device_announcements(self, callback) -> bool:
+        """
+        Subscribe to device announcements from Android companion apps.
+
+        This enables MQTT-based device discovery, solving the Android 11+
+        wireless debugging discovery problem (dynamic ports can't be scanned).
+
+        Android apps publish to: visualmapper/devices/announce
+        Payload: {
+            "device_id": "SM_X205",
+            "ip": "192.168.86.2",
+            "adb_port": 46747,
+            "model": "SM-X205",
+            "android_version": "13",
+            "already_paired": true,
+            "pairing_port": 37899,  // optional
+            "pairing_code": "123456"  // optional
+        }
+
+        Args:
+            callback: Function(announcement_data: dict) called when device announces
+
+        Returns:
+            True if subscription successful
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected to broker - cannot subscribe to device announcements")
+            return False
+
+        try:
+            topic = "visualmapper/devices/announce"
+
+            if IS_WINDOWS:
+                def on_announcement(client, userdata, message):
+                    try:
+                        payload = message.payload.decode()
+                        if not payload or payload.strip() == "":
+                            # Empty payload = device withdrew announcement
+                            logger.info("[MQTTManager] Device withdrew announcement")
+                            return
+
+                        announcement = json.loads(payload)
+                        device_id = announcement.get('device_id') or f"{announcement.get('ip')}:{announcement.get('adb_port')}"
+                        logger.info(f"[MQTTManager] Device announced: {device_id} ({announcement.get('model')})")
+
+                        # Extract and store device capabilities (Capability Handshake)
+                        # Android companion app sends capabilities list in announcement
+                        capabilities = announcement.get('capabilities', [])
+                        if capabilities:
+                            self.set_device_capabilities(device_id, capabilities)
+                            logger.info(f"[MQTTManager] Device {device_id} capabilities: {capabilities}")
+
+                        # Store announced device for API access
+                        if not hasattr(self, '_announced_devices'):
+                            self._announced_devices = {}
+                        self._announced_devices[device_id] = announcement
+
+                        callback(announcement)
+                    except Exception as e:
+                        logger.error(f"[MQTTManager] Error processing device announcement: {e}")
+
+                self.client.subscribe(topic)
+                self.client.message_callback_add(topic, on_announcement)
+                logger.info(f"[MQTTManager] Subscribed to device announcements: {topic} (Windows)")
+            else:
+                await self.client.subscribe(topic)
+                self._device_announcement_callback = callback
+                logger.info(f"[MQTTManager] Subscribed to device announcements: {topic} (Linux)")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to subscribe to device announcements: {e}")
+            return False
+
+    def get_announced_devices(self) -> list:
+        """
+        Get list of devices that have announced themselves.
+
+        Returns:
+            List of announcement dicts with device info
+        """
+        return list(getattr(self, '_announced_devices', {}).values())

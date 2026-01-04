@@ -32,6 +32,20 @@ router = APIRouter(prefix="/api/actions", tags=["actions"])
 # ACTION CRUD ENDPOINTS
 # =============================================================================
 
+@router.get("")
+async def get_all_actions():
+    """Get all actions across all devices (for dashboard stats)"""
+    deps = get_deps()
+    try:
+        logger.info("[API] Getting all actions")
+        # list_actions() without device_id returns all actions across all devices
+        all_actions = deps.action_manager.list_actions()
+        return [a.dict() for a in all_actions]
+    except Exception as e:
+        logger.error(f"[API] Get all actions failed: {e}")
+        return {"error": str(e), "actions": []}
+
+
 @router.post("")
 async def create_action(request: ActionCreateRequest, device_id: str):
     """Create a new action for a device"""

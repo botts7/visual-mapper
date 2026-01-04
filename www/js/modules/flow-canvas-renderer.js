@@ -1,13 +1,14 @@
 /**
  * Flow Canvas Renderer Module
- * Visual Mapper v0.0.10
+ * Visual Mapper v0.0.11
  *
  * Handles screenshot rendering, element overlays, and canvas scaling
- * v0.0.6: Clickable elements on top, divider filtering
- * v0.0.7: Enhanced filtering - hide empty elements, more container types
- * v0.0.8: Fixed canvasToDevice coordinate conversion (1:1 mapping)
- * v0.0.9: Smart container filtering - keep clickable containers (icon buttons)
+ * v0.0.11: Fix applyZoom - skip if container too small, auto-retry after layout
  * v0.0.10: containerClasses Set for O(1) lookup
+ * v0.0.9: Smart container filtering - keep clickable containers (icon buttons)
+ * v0.0.8: Fixed canvasToDevice coordinate conversion (1:1 mapping)
+ * v0.0.7: Enhanced filtering - hide empty elements, more container types
+ * v0.0.6: Clickable elements on top, divider filtering
  */
 
 export class FlowCanvasRenderer {
@@ -565,14 +566,28 @@ export class FlowCanvasRenderer {
     applyZoom() {
         // In streaming mode, canvas dimensions are set by LiveStream
         // In polling mode, they're set during render()
-        if (!this.canvas.width || !this.canvas.height) return;
+        if (!this.canvas.width || !this.canvas.height) {
+            console.log('[FlowCanvasRenderer] applyZoom skipped - no canvas dimensions');
+            return;
+        }
 
         // Get container dimensions
         const container = this.canvas.parentElement;
-        if (!container) return;
+        if (!container) {
+            console.log('[FlowCanvasRenderer] applyZoom skipped - no container');
+            return;
+        }
 
         const containerWidth = container.clientWidth;
         const containerHeight = container.clientHeight;
+
+        // Skip if container hasn't been laid out yet
+        if (containerWidth < 100) {
+            console.log(`[FlowCanvasRenderer] applyZoom skipped - container too small (${containerWidth}px), will retry`);
+            // Retry after layout settles
+            requestAnimationFrame(() => this.applyZoom());
+            return;
+        }
 
         let baseScale;
         if (this.scaleMode === '1:1') {
@@ -594,7 +609,7 @@ export class FlowCanvasRenderer {
         this.canvas.style.height = `${displayHeight}px`;
         this.canvas.style.maxWidth = (this.zoomLevel > 1 || this.scaleMode === '1:1') ? 'none' : '100%';
 
-        console.log(`[FlowCanvasRenderer] Applied zoom ${this.zoomLevel}x (mode: ${this.scaleMode}, base: ${baseScale.toFixed(2)}x, final: ${finalScale.toFixed(2)}x): ${Math.round(displayWidth)}x${Math.round(displayHeight)}`);
+        console.log(`[FlowCanvasRenderer] Applied zoom ${this.zoomLevel}x (mode: ${this.scaleMode}, canvas: ${this.canvas.width}x${this.canvas.height}, container: ${containerWidth}px, base: ${baseScale.toFixed(2)}x, final: ${finalScale.toFixed(2)}x): ${Math.round(displayWidth)}x${Math.round(displayHeight)}`);
     }
 
     /**

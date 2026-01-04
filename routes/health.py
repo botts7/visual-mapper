@@ -14,13 +14,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["health"])
 
 
-@router.get("/health")
+@router.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
     """
     Health check endpoint
 
     Returns server status, version, and MQTT connection status.
     Used by monitoring systems and health checks.
+    Supports both GET and HEAD methods for Docker health checks.
     """
     deps = get_deps()
 
@@ -29,7 +30,7 @@ async def health_check():
 
     return {
         "status": "ok",
-        "version": "0.0.7",
+        "version": "0.0.13",
         "message": "Visual Mapper is running",
         "mqtt_status": mqtt_status
     }

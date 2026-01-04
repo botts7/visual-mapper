@@ -27,7 +27,9 @@ export async function promptForText(wizard) {
 export async function createTextSensor(wizard, element, coords) {
     // Use full SensorCreator dialog (same as sensors.html page)
     const elementIndex = element?.index || 0;
-    wizard.sensorCreator.show(wizard.selectedDevice, element, elementIndex);
+    wizard.sensorCreator.show(wizard.selectedDevice, element, elementIndex, {
+        stableDeviceId: wizard.selectedDeviceStableId || wizard.selectedDevice
+    });
 
     // Note: SensorCreator handles saving directly via API
     // We don't add a flow step here since sensor creation is independent of flow recording
@@ -42,7 +44,9 @@ export async function createTextSensor(wizard, element, coords) {
 export async function createImageSensor(wizard, element, coords) {
     // Use full SensorCreator dialog (same as sensors.html page)
     const elementIndex = element?.index || 0;
-    wizard.sensorCreator.show(wizard.selectedDevice, element, elementIndex);
+    wizard.sensorCreator.show(wizard.selectedDevice, element, elementIndex, {
+        stableDeviceId: wizard.selectedDeviceStableId || wizard.selectedDevice
+    });
     // Callback will be triggered by onSensorCreated when sensor is created
 }
 

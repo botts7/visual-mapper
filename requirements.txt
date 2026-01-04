@@ -10,7 +10,7 @@ pyyaml==6.0.1
 aiomqtt==2.0.1
 
 # Phase 8: Screenshot stitching & state validation
-opencv-python==4.8.1.78
+opencv-python-headless==4.8.1.78
 numpy==1.24.3
 
 # System diagnostics
@@ -19,6 +19,9 @@ psutil==5.9.7
 # High-performance streaming
 adbutils>=2.12.0
 av>=11.0.0
+
+# Play Store app info
+google-play-scraper>=1.2.4
 
 # Testing dependencies
 pytest==7.4.3

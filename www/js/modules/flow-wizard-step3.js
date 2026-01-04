@@ -1,7 +1,10 @@
 /**
  * Flow Wizard Step 3 Module - Recording Mode
- * Visual Mapper v0.0.27
+ * Visual Mapper v0.0.30
  *
+ * v0.0.30: Consolidate unlock logic to shared device-unlock.js, fix keep-awake interval (30s -> 12s)
+ * v0.0.29: Add screen mismatch detection - warn user when adding sensors to different screen, offer to add navigation step
+ * v0.0.28: Fix sensor/action creation - remove redundant dynamic import, add error handling, guard timeout
  * v0.0.27: Fix flicker - batch canvas ops, add refreshElements guard, remove duplicate calls
  * v0.0.26: Simplify loading overlay - show once at start, remove from onConnect entirely
  * v0.0.25: Fix loading overlay flicker - only show on initial connect, not reconnects
@@ -31,9 +34,15 @@ import { showToast } from './toast.js?v=0.0.5';
 import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.11';
 import FlowInteractions from './flow-interactions.js?v=0.0.15';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
-import FlowRecorder from './flow-recorder.js?v=0.0.9';
+import FlowRecorder from './flow-recorder.js?v=0.0.10';
 import LiveStream from './live-stream.js?v=0.0.32';
 import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.6';
+import {
+    ensureDeviceUnlocked as sharedEnsureUnlocked,
+    startKeepAwake as sharedStartKeepAwake,
+    stopKeepAwake as sharedStopKeepAwake,
+    sendWakeSignal
+} from './device-unlock.js?v=0.0.1';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -935,102 +944,20 @@ async function prepareDeviceForStreaming(wizard) {
             resolve(false);
         });
 
-        // Run preparation sequence
+        // Run preparation sequence using shared unlock module
         (async () => {
             try {
-                // Step 1: Check screen and lock state
-                updateStep('step-screen', 'working');
-                messageEl.textContent = 'Checking device state...';
+                const apiBase = wizard.recorder?.apiBase || getApiBase();
 
-                const apiBase = wizard.recorder?.apiBase || '/api';
-                const lockResponse = await fetch(`${apiBase}/adb/lock-status/${encodeURIComponent(wizard.selectedDevice)}`);
-
-                if (cancelled) return;
-
-                if (!lockResponse.ok) {
-                    updateStep('step-screen', 'skip');
-                    updateStep('step-wake', 'skip');
-                    updateStep('step-unlock', 'skip');
-                    messageEl.textContent = 'Could not check device state, continuing...';
-                    await new Promise(r => setTimeout(r, 1000));
-                    updateStep('step-connect', 'done');
-                    cleanup();
-                    resolve(true);
-                    return;
-                }
-
-                const lockState = await lockResponse.json();
-                updateStep('step-screen', 'done');
-
-                if (cancelled) return;
-
-                // Step 2: Wake screen if needed
-                if (!lockState.screen_on) {
-                    updateStep('step-wake', 'working');
-                    messageEl.textContent = 'Waking screen...';
-                    await fetch(`${apiBase}/adb/wake/${encodeURIComponent(wizard.selectedDevice)}`, { method: 'POST' });
-                    await new Promise(r => setTimeout(r, 500));
-                    updateStep('step-wake', 'done');
-                } else {
-                    updateStep('step-wake', 'skip');
-                }
-
-                if (cancelled) return;
-
-                // Step 3: Unlock if needed
-                if (lockState.is_locked) {
-                    updateStep('step-unlock', 'working');
-                    messageEl.textContent = 'Device is locked, attempting unlock...';
-
-                    // Try auto-unlock first
-                    const securityResponse = await fetch(`${apiBase}/device/${encodeURIComponent(wizard.selectedDevice)}/security`);
-
-                    if (cancelled) return;
-
-                    let unlockSuccess = false;
-
-                    if (securityResponse.ok) {
-                        const securityConfig = await securityResponse.json();
-
-                        if (securityConfig.config?.strategy === 'auto_unlock' && securityConfig.config?.has_passcode) {
-                            messageEl.textContent = 'Using stored passcode...';
-                            const unlockResponse = await fetch(`${apiBase}/device/${encodeURIComponent(wizard.selectedDevice)}/auto-unlock`, {
-                                method: 'POST'
-                            });
-
-                            if (unlockResponse.ok) {
-                                const result = await unlockResponse.json();
-                                unlockSuccess = result.success;
-                            }
-                        }
-                    }
-
-                    if (cancelled) return;
-
-                    // Fallback: Try swipe unlock
-                    if (!unlockSuccess) {
-                        messageEl.textContent = 'Trying swipe unlock...';
-                        const swipeResponse = await fetch(`${apiBase}/adb/unlock/${encodeURIComponent(wizard.selectedDevice)}`, {
-                            method: 'POST'
-                        });
-
-                        if (swipeResponse.ok) {
-                            const result = await swipeResponse.json();
-                            unlockSuccess = result.success;
-                        }
-                    }
-
-                    if (cancelled) return;
-
-                    if (unlockSuccess) {
-                        updateStep('step-unlock', 'done');
-                        messageEl.textContent = 'Device unlocked!';
-                        showToast('🔓 Device unlocked', 'success', 2000);
-                        await new Promise(r => setTimeout(r, 300));
-                    } else {
-                        updateStep('step-unlock', 'fail');
-                        messageEl.textContent = 'Please unlock device manually, then click Continue';
-
+                // Use shared unlock module with wizard-style callbacks
+                const unlockResult = await sharedEnsureUnlocked(wizard.selectedDevice, apiBase, {
+                    onStatus: (msg) => {
+                        messageEl.textContent = msg;
+                    },
+                    onStepUpdate: (stepId, status) => {
+                        updateStep(stepId, status);
+                    },
+                    onNeedsManualUnlock: async () => {
                         // Change cancel button to continue
                         cancelBtn.textContent = 'Continue Anyway';
                         cancelBtn.className = 'btn btn-primary';
@@ -1041,10 +968,9 @@ async function prepareDeviceForStreaming(wizard) {
                                 resolveWait();
                             };
                         });
-                    }
-                } else {
-                    updateStep('step-unlock', 'skip');
-                }
+                    },
+                    isCancelled: () => cancelled
+                });
 
                 if (cancelled) return;
 
@@ -1392,15 +1318,13 @@ export function startElementAutoRefresh(wizard) {
         if (wizard.captureMode === 'streaming' && wizard.liveStream?.connectionState === 'connected') {
             // OPTIMIZATION: Skip refresh if a frame arrived within last 200ms
             // This prevents refresh from competing with active streaming
+            // Debounce: skip if a frame arrived recently (within 200ms)
             const timeSinceFrame = performance.now() - (wizard._lastFrameTime || 0);
             if (timeSinceFrame < 200) {
-                console.log(`[FlowWizard] Skipping element refresh - frame arrived ${Math.round(timeSinceFrame)}ms ago`);
-                return;
+                return; // Skip silently - frame just arrived, elements are fresh
             }
 
-            // Log with timestamp so user can verify actual interval
-            const now = new Date().toLocaleTimeString();
-            console.log(`[FlowWizard] Timer tick at ${now} - refreshing elements...`);
+            // Only log when actually refreshing (reduces log noise)
             refreshElements(wizard);
         }
     }, intervalMs);
@@ -1421,7 +1345,7 @@ export function stopElementAutoRefresh(wizard) {
 
 /**
  * Start keep-awake interval to prevent device screen timeout
- * Sends periodic wake signal every 30 seconds
+ * Uses shared device-unlock.js module with 12 second interval (safe for 15-30s Android timeout)
  */
 export function startKeepAwake(wizard) {
     // Clear any existing interval
@@ -1429,22 +1353,14 @@ export function startKeepAwake(wizard) {
 
     if (!wizard.selectedDevice) return;
 
-    // Send wake signal every 30 seconds to prevent screen timeout
-    wizard._keepAwakeInterval = setInterval(async () => {
-        if (!wizard.selectedDevice) return;
-        try {
-            // Send wake keyevent silently
-            await fetch(`${getApiBase()}/adb/keyevent`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ device_id: wizard.selectedDevice, keycode: 224 })  // KEYCODE_WAKEUP
-            });
-        } catch (e) {
-            // Silently ignore errors
-        }
-    }, 30000);  // Every 30 seconds
+    // Use shared module with 12 second interval (was 30s, now fixed)
+    wizard._keepAwakeInterval = sharedStartKeepAwake(
+        wizard.selectedDevice,
+        getApiBase(),
+        12000  // 12 seconds - safe buffer before Android timeout
+    );
 
-    console.log('[FlowWizard] Keep-awake started (30s interval)');
+    console.log('[FlowWizard] Keep-awake started (12s interval via shared module)');
 }
 
 /**
@@ -1452,7 +1368,7 @@ export function startKeepAwake(wizard) {
  */
 export function stopKeepAwake(wizard) {
     if (wizard._keepAwakeInterval) {
-        clearInterval(wizard._keepAwakeInterval);
+        sharedStopKeepAwake(wizard._keepAwakeInterval);
         wizard._keepAwakeInterval = null;
         console.log('[FlowWizard] Keep-awake stopped');
     }
@@ -1483,6 +1399,14 @@ export async function refreshElements(wizard) {
         return;
     }
     wizard._refreshingElements = true;
+
+    // Safety net: auto-reset guard after 10 seconds in case of hung API call
+    const guardTimeout = setTimeout(() => {
+        if (wizard._refreshingElements) {
+            console.warn('[FlowWizard] refreshElements guard timeout after 10s - resetting');
+            wizard._refreshingElements = false;
+        }
+    }, 10000);
 
     try {
         let elements = [];
@@ -1622,6 +1546,8 @@ export async function refreshElements(wizard) {
     } catch (error) {
         console.warn('[FlowWizard] Failed to refresh elements:', error);
     } finally {
+        // Clear the safety timeout and reset guard
+        clearTimeout(guardTimeout);
         wizard._refreshingElements = false;
     }
 }
@@ -2138,17 +2064,23 @@ export async function executeSwipeGesture(wizard, startCanvasX, startCanvasY, en
             throw new Error('Failed to execute swipe');
         }
 
+        // Build swipe step
+        const swipeStep = {
+            step_type: 'swipe',
+            start_x: startDevice.x,
+            start_y: startDevice.y,
+            end_x: endDevice.x,
+            end_y: endDevice.y,
+            duration: 300,
+            description: `Swipe from (${startDevice.x},${startDevice.y}) to (${endDevice.x},${endDevice.y})`
+        };
+
+        // Track last executed action (even when paused) for navigation step insertion
+        wizard._lastExecutedAction = { ...swipeStep, _timestamp: Date.now() };
+
         // Add swipe step to flow (unless recording is paused)
         if (!wizard.recordingPaused) {
-            wizard.recorder.addStep({
-                step_type: 'swipe',
-                start_x: startDevice.x,
-                start_y: startDevice.y,
-                end_x: endDevice.x,
-                end_y: endDevice.y,
-                duration: 300,
-                description: `Swipe from (${startDevice.x},${startDevice.y}) to (${endDevice.x},${endDevice.y})`
-            });
+            wizard.recorder.addStep(swipeStep);
             showToast('Swipe recorded', 'success', 1500);
         } else {
             showToast('Swipe executed (not recorded)', 'info', 1500);
@@ -2737,7 +2669,7 @@ function handleEditSuggestion(wizard, index) {
 /**
  * Handle Quick Add button click - adds suggestion with defaults immediately
  */
-function handleQuickAddSuggestion(wizard, index) {
+async function handleQuickAddSuggestion(wizard, index) {
     const suggestions = wizard._suggestionsMode === 'sensors'
         ? wizard._sensorSuggestions
         : wizard._actionSuggestions;
@@ -2760,8 +2692,12 @@ function handleQuickAddSuggestion(wizard, index) {
             wait_before: 0,
             wait_after: 0
         };
-        wizard.recorder.addStep(sensorStep);
-        showToast(`Added sensor: ${suggestion.name || 'Sensor'}`, 'success');
+
+        // Check for screen mismatch and offer navigation step
+        const added = await addSensorWithNavigationCheck(wizard, sensorStep);
+        if (added) {
+            showToast(`Added sensor: ${suggestion.name || 'Sensor'}`, 'success');
+        }
     } else {
         // Add action to flow
         if (suggestion.element?.bounds) {
@@ -2868,7 +2804,7 @@ function showSuggestionEditDialog(wizard, suggestion, index) {
     });
 
     // Save button handler
-    dialogOverlay.querySelector('.dialog-save').addEventListener('click', () => {
+    dialogOverlay.querySelector('.dialog-save').addEventListener('click', async () => {
         const name = document.getElementById('editSuggestionName').value.trim();
         const entityId = document.getElementById('editSuggestionEntityId').value.trim();
 
@@ -2889,8 +2825,12 @@ function showSuggestionEditDialog(wizard, suggestion, index) {
                 wait_before: 0,
                 wait_after: 0
             };
-            wizard.recorder.addStep(sensorStep);
-            showToast(`Added sensor: ${name}`, 'success');
+
+            // Check for screen mismatch and offer navigation step
+            const added = await addSensorWithNavigationCheck(wizard, sensorStep);
+            if (added) {
+                showToast(`Added sensor: ${name}`, 'success');
+            }
         } else {
             const actionType = document.getElementById('editSuggestionActionType').value;
 
@@ -3024,12 +2964,47 @@ export async function handleSmartSuggestions(wizard) {
 async function handleBulkSensorAddition(wizard, sensors) {
     console.log('[FlowWizard] Adding bulk sensors:', sensors);
 
-    // Import Dialogs module
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.6');
+    if (sensors.length === 0) return;
 
-    // Add each sensor to the flow
+    // Build the first sensor step to check for screen mismatch
+    const firstSensor = sensors[0];
+    const firstSensorStep = {
+        step_type: 'capture_sensors',
+        sensors: [{
+            name: firstSensor.name,
+            entity_id: firstSensor.entity_id,
+            element: firstSensor.element,
+            device_class: firstSensor.device_class || 'none',
+            unit_of_measurement: firstSensor.unit_of_measurement || null,
+            icon: firstSensor.icon || 'mdi:eye'
+        }],
+        wait_before: 0,
+        wait_after: 0
+    };
+
+    // Check for screen mismatch on first sensor (all sensors are from same screen)
+    const mismatchInfo = await checkScreenMismatch(wizard, firstSensorStep);
+
+    if (mismatchInfo) {
+        // Show dialog asking about navigation step
+        const choice = await showNavigationMismatchDialog(wizard, mismatchInfo);
+
+        if (choice === 'cancel') {
+            showToast('Bulk sensor addition cancelled', 'info');
+            return;
+        }
+
+        // If user chose to add navigation step, add it first
+        if (choice === 'add_nav' && wizard._lastExecutedAction) {
+            const navStep = { ...wizard._lastExecutedAction };
+            delete navStep._timestamp;
+            wizard.recorder.addStep(navStep);
+            console.log('[FlowWizard] Added navigation step before bulk sensors:', navStep);
+        }
+    }
+
+    // Add all sensors to the flow
     for (const sensor of sensors) {
-        // Create sensor step
         const sensorStep = {
             step_type: 'capture_sensors',
             sensors: [{
@@ -3044,7 +3019,6 @@ async function handleBulkSensorAddition(wizard, sensors) {
             wait_after: 0
         };
 
-        // Add to flow
         wizard.recorder.addStep(sensorStep);
     }
 
@@ -3220,11 +3194,12 @@ export async function handleElementClick(wizard, canvasX, canvasY) {
         return; // User cancelled
     }
 
-    // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.6');
+    // NOTE: Dialogs module is already imported at module level (line 36)
+    // Removed redundant dynamic import that was shadowing the static import
 
-    // Execute based on choice
-    switch (choice.type) {
+    // Execute based on choice - wrapped in try-catch to catch silent errors
+    try {
+        switch (choice.type) {
         case 'tap':
             await executeTap(wizard, deviceCoords.x, deviceCoords.y, clickedElement);
             // Only update screenshot in polling mode - streaming updates automatically
@@ -3267,6 +3242,10 @@ export async function handleElementClick(wizard, canvasX, canvasY) {
         case 'refresh':
             await handleRefreshWithRetries(wizard);
             break;
+        }
+    } catch (error) {
+        console.error('[FlowWizard] handleElementClick error:', error);
+        showToast('Operation failed - see console for details', 'error');
     }
 }
 
@@ -3330,6 +3309,9 @@ export async function executeTap(wizard, x, y, element = null) {
             bounds: element.bounds || null
         };
     }
+
+    // Track last executed action (even when paused) for navigation step insertion
+    wizard._lastExecutedAction = { ...step, _timestamp: Date.now() };
 
     // Add step to flow (unless recording is paused)
     if (!wizard.recordingPaused) {
@@ -4078,6 +4060,202 @@ export function setupFlowStepsListener(wizard) {
 }
 
 // ==========================================
+// Screen Mismatch Detection (v0.0.29)
+// ==========================================
+
+/**
+ * Get the current flow's expected screen activity
+ * Returns the screen_activity from the last step that set it
+ */
+function getFlowCurrentActivity(wizard) {
+    const steps = wizard.flowSteps || [];
+
+    // Walk backwards through steps to find the last known activity
+    for (let i = steps.length - 1; i >= 0; i--) {
+        const step = steps[i];
+
+        // launch_app sets the initial screen
+        if (step.step_type === 'launch_app') {
+            return step.screen_activity || step.expected_activity || null;
+        }
+
+        // capture_sensors has screen_activity
+        if (step.screen_activity) {
+            return step.screen_activity;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Check if adding a sensor would create a screen mismatch
+ * Returns: { mismatch: boolean, currentActivity: string, sensorActivity: string }
+ */
+export async function checkScreenMismatch(wizard, sensorElement) {
+    const flowActivity = getFlowCurrentActivity(wizard);
+
+    // Get current device screen
+    let currentScreen = null;
+    try {
+        const response = await fetch(`${getApiBase()}/adb/screen/current/${encodeURIComponent(wizard.selectedDevice)}`);
+        if (response.ok) {
+            currentScreen = await response.json();
+        }
+    } catch (e) {
+        console.warn('[FlowWizard] Could not get current screen:', e);
+    }
+
+    const deviceActivity = currentScreen?.activity?.activity || null;
+
+    // If flow has no activity yet (first sensor), no mismatch
+    if (!flowActivity) {
+        return { mismatch: false, currentActivity: deviceActivity, sensorActivity: deviceActivity };
+    }
+
+    // Compare activities (use simple name comparison)
+    const flowActName = flowActivity.split('.').pop();
+    const deviceActName = deviceActivity ? deviceActivity.split('.').pop() : null;
+
+    if (deviceActName && flowActName !== deviceActName) {
+        return {
+            mismatch: true,
+            currentActivity: flowActName,
+            sensorActivity: deviceActName,
+            fullCurrentActivity: flowActivity,
+            fullSensorActivity: deviceActivity
+        };
+    }
+
+    return { mismatch: false, currentActivity: flowActName, sensorActivity: deviceActName };
+}
+
+/**
+ * Show dialog when adding sensor on different screen
+ * Returns: 'add_nav' | 'add_anyway' | 'cancel'
+ */
+export function showNavigationMismatchDialog(wizard, mismatchInfo) {
+    return new Promise((resolve) => {
+        const hasLastAction = wizard._lastExecutedAction &&
+            (Date.now() - wizard._lastExecutedAction._timestamp) < 60000; // Within last 60 seconds
+
+        const lastActionDesc = hasLastAction
+            ? `"${wizard._lastExecutedAction.description || wizard._lastExecutedAction.step_type}"`
+            : 'the previous tap/swipe';
+
+        // Create modal overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+
+        overlay.innerHTML = `
+            <div class="modal-content" style="background: var(--card-bg, #fff); border-radius: 12px; padding: 24px; max-width: 500px; margin: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                <h3 style="margin: 0 0 16px 0; color: #f59e0b;">⚠️ Different Screen Detected</h3>
+                <p style="margin: 0 0 12px 0;">
+                    This sensor is on <strong>"${mismatchInfo.sensorActivity}"</strong> but your flow is currently on <strong>"${mismatchInfo.currentActivity}"</strong>.
+                </p>
+                <p style="margin: 0 0 16px 0; color: #64748b; font-size: 0.9em;">
+                    Without navigation steps, the sensor won't be found during flow execution.
+                </p>
+
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    ${hasLastAction ? `
+                    <button id="btnAddNav" class="btn btn-primary" style="padding: 12px; font-size: 1em; background: #2196F3;">
+                        📍 Add Navigation Step First
+                        <span style="display: block; font-size: 0.8em; opacity: 0.8;">Adds ${lastActionDesc} before the sensor</span>
+                    </button>
+                    ` : ''}
+
+                    <button id="btnAddAnyway" class="btn btn-secondary" style="padding: 12px; font-size: 1em; background: #f59e0b; color: white; border: none;">
+                        ⚠️ Add Sensor Anyway
+                        <span style="display: block; font-size: 0.8em; opacity: 0.8;">I'll add navigation steps manually</span>
+                    </button>
+
+                    <button id="btnCancel" class="btn" style="padding: 12px; font-size: 1em; background: #e5e7eb; color: #374151;">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        // Event handlers
+        const btnAddNav = overlay.querySelector('#btnAddNav');
+        const btnAddAnyway = overlay.querySelector('#btnAddAnyway');
+        const btnCancel = overlay.querySelector('#btnCancel');
+
+        if (btnAddNav) {
+            btnAddNav.onclick = () => {
+                overlay.remove();
+                resolve('add_nav');
+            };
+        }
+
+        btnAddAnyway.onclick = () => {
+            overlay.remove();
+            resolve('add_anyway');
+        };
+
+        btnCancel.onclick = () => {
+            overlay.remove();
+            resolve('cancel');
+        };
+
+        // Close on overlay click
+        overlay.onclick = (e) => {
+            if (e.target === overlay) {
+                overlay.remove();
+                resolve('cancel');
+            }
+        };
+    });
+}
+
+/**
+ * Add sensor with screen mismatch checking
+ * This wraps the sensor addition with navigation step option
+ */
+export async function addSensorWithNavigationCheck(wizard, sensorStep, skipCheck = false) {
+    if (!skipCheck) {
+        const mismatchInfo = await checkScreenMismatch(wizard, sensorStep);
+
+        if (mismatchInfo.mismatch) {
+            const choice = await showNavigationMismatchDialog(wizard, mismatchInfo);
+
+            if (choice === 'cancel') {
+                showToast('Sensor not added', 'info');
+                return false;
+            }
+
+            if (choice === 'add_nav' && wizard._lastExecutedAction) {
+                // Add the navigation step first (without _timestamp)
+                const navStep = { ...wizard._lastExecutedAction };
+                delete navStep._timestamp;
+
+                // Get screen info for the nav step
+                try {
+                    const screenInfo = await wizard.recorder.getCurrentScreen();
+                    if (screenInfo?.activity) {
+                        navStep.screen_activity = mismatchInfo.fullCurrentActivity;
+                        navStep.screen_package = screenInfo.activity.package;
+                    }
+                } catch (e) {
+                    console.warn('[FlowWizard] Could not get screen info for nav step:', e);
+                }
+
+                wizard.recorder.addStep(navStep);
+                showToast(`Added navigation: ${navStep.description}`, 'info');
+            }
+        }
+    }
+
+    // Add the sensor step
+    await wizard.recorder.addStep(sensorStep);
+    return true;
+}
+
+// ==========================================
 // Dual Export Pattern
 // ==========================================
 
@@ -4140,6 +4318,10 @@ const Step3Module = {
     showTapIndicator,
     findElementAtCoordinates,
     showElementSelectionDialog,
+    // Screen mismatch detection
+    checkScreenMismatch,
+    showNavigationMismatchDialog,
+    addSensorWithNavigationCheck,
     // Screenshot display methods
     handleRefreshWithRetries,
     updateScreenshotDisplay,

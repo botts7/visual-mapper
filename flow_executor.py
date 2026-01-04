@@ -16,7 +16,8 @@ from flow_models import (
     SensorCollectionFlow,
     FlowStep,
     FlowExecutionResult,
-    FlowStepType
+    FlowStepType,
+    StepResult
 )
 from utils.element_finder import SmartElementFinder, ElementMatch
 from utils.device_security import DeviceSecurityManager, LockStrategy
@@ -87,6 +88,7 @@ class FlowExecutor:
             FlowStepType.PULL_REFRESH: self._execute_pull_refresh,
             FlowStepType.RESTART_APP: self._execute_restart_app,
             FlowStepType.STITCH_CAPTURE: self._execute_stitch_capture,
+            FlowStepType.SCREENSHOT: self._execute_screenshot,
             # Screen power control (headless mode)
             FlowStepType.WAKE_SCREEN: self._execute_wake_screen,
             FlowStepType.SLEEP_SCREEN: self._execute_sleep_screen,
@@ -102,6 +104,10 @@ class FlowExecutor:
         # Variable context for flow execution (Phase 9)
         self._variable_context: Dict[str, Any] = {}
 
+        # Session cache for runtime deduplication
+        # Prevents redundant sensor captures within the same execution cycle
+        self._session_captured_sensors: Dict[str, Any] = {}
+
         # Note: execute_action will be added when action system is integrated
 
         logger.info("[FlowExecutor] Initialized")
@@ -109,7 +115,8 @@ class FlowExecutor:
     async def execute_flow(
         self,
         flow: SensorCollectionFlow,
-        device_lock: Optional[asyncio.Lock] = None
+        device_lock: Optional[asyncio.Lock] = None,
+        learn_mode: bool = False
     ) -> FlowExecutionResult:
         """
         Execute complete flow
@@ -117,6 +124,8 @@ class FlowExecutor:
         Args:
             flow: Flow to execute
             device_lock: Optional device lock (from scheduler)
+            learn_mode: If True, capture UI elements at each screen and update navigation graph.
+                       Makes execution slower but improves future Smart Flow generation.
 
         Returns:
             FlowExecutionResult with success/failure details
@@ -128,6 +137,7 @@ class FlowExecutor:
         4. Capture sensors at designated steps
         5. Publish to MQTT in real-time
         6. Update flow metrics
+        7. (Learn Mode) Capture UI elements and update navigation graph
         """
         start_time = time.time()
         result = FlowExecutionResult(
@@ -137,6 +147,11 @@ class FlowExecutor:
             captured_sensors={},
             execution_time_ms=0
         )
+
+        # Track learned screens if learn_mode is enabled
+        learned_screens = []
+        if learn_mode:
+            logger.info(f"[FlowExecutor] Learn Mode enabled - will capture UI elements")
 
         # Create execution log for history tracking
         execution_log = FlowExecutionLog(
@@ -151,6 +166,9 @@ class FlowExecutor:
 
         # Clear variable context at start of each flow (Phase 9)
         self.clear_variable_context()
+
+        # Clear session cache for this execution
+        self._session_captured_sensors = {}
 
         logger.info(f"[FlowExecutor] Starting flow {flow.flow_id} ({flow.name})")
 
@@ -171,79 +189,29 @@ class FlowExecutor:
                     else:
                         logger.warning(f"  [Headless] Screen wake failed, continuing anyway (verify_screen_on=False)")
 
-            # Auto-unlock if device has auto_unlock strategy configured
-            security_config = self.security_manager.get_lock_config(flow.device_id)
-            if security_config and security_config.get('strategy') == LockStrategy.AUTO_UNLOCK.value:
-                logger.info(f"  [Security] Auto-unlock enabled for device")
-
-                # Check unlock status first (cooldown protection)
-                unlock_status = self.adb_bridge.get_unlock_status(flow.device_id)
-                if unlock_status.get("in_cooldown"):
-                    cooldown_remaining = unlock_status.get("cooldown_remaining_seconds", 0)
-                    result.error_message = (
-                        f"Device unlock in cooldown ({cooldown_remaining}s remaining) to prevent lockout. "
-                        f"Please unlock device manually, then call /api/device/{flow.device_id}/reset-unlock-failures"
-                    )
-                    logger.error(f"  [Security] {result.error_message}")
-                    result.execution_time_ms = int((time.time() - start_time) * 1000)
-
-                    # Log failed execution to history
-                    execution_log.completed_at = datetime.now().isoformat()
-                    execution_log.duration_ms = result.execution_time_ms
-                    execution_log.success = False
-                    execution_log.error = result.error_message
-                    execution_log.executed_steps = 0
-                    try:
-                        self.execution_history.add_execution(execution_log)
-                    except Exception as e:
-                        logger.error(f"[FlowExecutor] Failed to save execution history: {e}")
-
-                    return result
-
-                passcode = self.security_manager.get_passcode(flow.device_id)
-                if passcode:
-                    try:
-                        unlock_success = await self.adb_bridge.unlock_device(flow.device_id, passcode)
-                        if unlock_success:
-                            logger.info(f"  [Security] Device unlocked successfully")
-                        else:
-                            # Get updated status after failed attempt
-                            unlock_status = self.adb_bridge.get_unlock_status(flow.device_id)
-                            if unlock_status.get("in_cooldown"):
-                                logger.error(f"  [Security] Device unlock failed - max attempts reached, entering cooldown")
-                            else:
-                                remaining = unlock_status.get("max_attempts", 2) - unlock_status.get("failure_count", 0)
-                                logger.warning(f"  [Security] Device unlock failed - {remaining} attempt(s) remaining")
-                    except Exception as e:
-                        logger.error(f"  [Security] Error during unlock: {e}")
-                else:
-                    logger.warning(f"  [Security] Auto-unlock configured but no passcode found")
-            elif security_config and security_config.get('strategy') == LockStrategy.MANUAL_ONLY.value:
-                logger.info(f"  [Security] Manual unlock strategy - user must unlock device manually")
-
             # Wait briefly for lock screen to stabilize after wake
             # (screen wakes first, then lock screen appears ~500ms later)
             await asyncio.sleep(0.5)
 
-            # CRITICAL: Verify device is actually unlocked before executing flow
-            is_locked = await self.adb_bridge.is_locked(flow.device_id)
-            if is_locked:
-                result.error_message = "Device is locked - cannot execute flow. Configure auto-unlock in device security settings."
-                logger.error(f"  [Security] {result.error_message}")
-                result.execution_time_ms = int((time.time() - start_time) * 1000)
+            # NOTE: Auto-unlock is now handled by FlowScheduler before calling execute_flow()
+            # This ensures centralized lock management based on device security config (AUTO_UNLOCK strategy)
 
-                # Log failed execution to history
-                execution_log.completed_at = datetime.now().isoformat()
-                execution_log.duration_ms = result.execution_time_ms
-                execution_log.success = False
-                execution_log.error = result.error_message
-                execution_log.executed_steps = 0
-                try:
-                    self.execution_history.add_execution(execution_log)
-                except Exception as e:
-                    logger.error(f"[FlowExecutor] Failed to save execution history: {e}")
-
-                return result
+            # ========== ENSURE KNOWN STARTING POINT ==========
+            # Go to home screen and relaunch app for consistent flow execution
+            target_package = self._get_target_package(flow)
+            first_expected_activity = self._get_first_expected_activity(flow)
+            if target_package:
+                logger.info(f"[FlowExecutor] Ensuring known starting point for: {target_package}")
+                if first_expected_activity:
+                    logger.info(f"[FlowExecutor] First expected screen: {first_expected_activity.split('/')[-1] if '/' in first_expected_activity else first_expected_activity}")
+                init_success = await self._ensure_known_starting_point(
+                    flow.device_id, target_package, first_expected_activity
+                )
+                if not init_success:
+                    logger.warning("[FlowExecutor] Failed to initialize starting point, continuing anyway...")
+            else:
+                logger.debug("[FlowExecutor] No target package found, skipping initialization")
+            # ==================================================
 
             # Execute steps sequentially
             for i, step in enumerate(flow.steps):
@@ -269,6 +237,9 @@ class FlowExecutor:
                     success=False
                 )
 
+                # Track sensors captured before this step (to find new ones)
+                sensors_before = set(result.captured_sensors.keys())
+
                 # Execute step with retry
                 try:
                     success = await self._execute_step_with_retry(
@@ -278,8 +249,41 @@ class FlowExecutor:
                     )
 
                     step_log.success = success
+
+                    # Build step result with details
+                    step_result = StepResult(
+                        step_index=i,
+                        step_type=step.step_type,
+                        description=step_desc,
+                        success=success,
+                        details={}
+                    )
+
+                    # Add details based on step type
+                    if step.step_type == FlowStepType.CAPTURE_SENSORS:
+                        # Find sensors captured in this step
+                        sensors_after = set(result.captured_sensors.keys())
+                        new_sensors = sensors_after - sensors_before
+                        if new_sensors:
+                            step_result.details["sensors"] = {
+                                sid: {
+                                    "value": result.captured_sensors.get(sid),
+                                    "name": self._get_sensor_name(flow.device_id, sid)
+                                }
+                                for sid in new_sensors
+                            }
+
+                    elif step.step_type == FlowStepType.EXECUTE_ACTION:
+                        # Add action info
+                        if hasattr(step, 'action_id') and step.action_id:
+                            step_result.details["action_id"] = step.action_id
+                            step_result.details["action_result"] = "executed" if success else "failed"
+
+                    result.step_results.append(step_result)
+
                     if not success:
                         step_log.error = f"Step failed: {step.step_type}"
+                        step_result.error_message = f"Step failed: {step.step_type}"
                         result.failed_step = i
                         logger.warning(f"  Step {i+1} failed: {step.step_type}")
 
@@ -293,10 +297,41 @@ class FlowExecutor:
 
                     result.executed_steps += 1
 
+                    # Learn Mode: Capture UI elements after screen-changing steps
+                    if learn_mode and success:
+                        learn_step_types = {
+                            FlowStepType.SCREENSHOT,
+                            FlowStepType.LAUNCH_APP,
+                            FlowStepType.RESTART_APP,
+                            FlowStepType.TAP,
+                            FlowStepType.SWIPE,
+                            FlowStepType.GO_HOME,
+                            FlowStepType.GO_BACK,
+                        }
+                        if step.step_type in learn_step_types:
+                            try:
+                                # Get package from step or from flow's first launch_app step
+                                step_package = getattr(step, 'package', None) or getattr(step, 'screen_package', None)
+                                learned = await self._learn_current_screen(flow.device_id, step_package)
+                                if learned:
+                                    learned_screens.append(learned)
+                                    logger.info(f"  [Learn Mode] Captured screen: {learned.get('activity', 'unknown')[:50]}")
+                            except Exception as learn_err:
+                                logger.warning(f"  [Learn Mode] Failed to learn screen: {learn_err}")
+
                 except Exception as step_error:
                     step_log.success = False
                     step_log.error = str(step_error)
                     logger.error(f"  Step {i+1} error: {step_error}")
+
+                    # Add failed step result
+                    result.step_results.append(StepResult(
+                        step_index=i,
+                        step_type=step.step_type,
+                        description=step_desc,
+                        success=False,
+                        error_message=str(step_error)
+                    ))
 
                 finally:
                     # Complete step log
@@ -367,6 +402,11 @@ class FlowExecutor:
         logger.info(f"  Steps executed: {result.executed_steps}/{len(flow.steps)}")
         logger.info(f"  Sensors captured: {len(result.captured_sensors)}")
 
+        # Add learned screens to result if learn_mode was enabled
+        if learn_mode and learned_screens:
+            result.learned_screens = learned_screens
+            logger.info(f"  Screens learned: {len(learned_screens)}")
+
         # Record execution metrics (if performance monitor enabled)
         if self.performance_monitor:
             try:
@@ -375,6 +415,78 @@ class FlowExecutor:
                 logger.error(f"[FlowExecutor] Failed to record metrics: {e}")
 
         return result
+
+    async def _learn_current_screen(self, device_id: str, package: str = None) -> Optional[Dict]:
+        """
+        Learn Mode: Capture UI elements from current screen and update navigation graph.
+
+        Args:
+            device_id: Device identifier
+            package: Package name (if known)
+
+        Returns:
+            Dict with learned screen info, or None if learning failed
+        """
+        try:
+            # Get current activity info
+            activity_info = await self.adb_bridge.get_current_activity(device_id, as_dict=True)
+            if not activity_info:
+                return None
+
+            current_package = activity_info.get('package', package or 'unknown')
+            current_activity = activity_info.get('activity', 'unknown')
+
+            # Skip system/launcher screens
+            skip_packages = {'com.android.launcher', 'com.samsung.android.launcher', 'com.google.android.apps.nexuslauncher'}
+            if current_package in skip_packages:
+                logger.debug(f"  [Learn Mode] Skipping launcher screen: {current_package}")
+                return None
+
+            # Capture UI elements (full mode for learning)
+            ui_elements = await self.adb_bridge.get_ui_elements(device_id, force_refresh=True, bounds_only=False)
+
+            if not ui_elements:
+                logger.debug(f"  [Learn Mode] No UI elements captured")
+                return None
+
+            # Filter to meaningful elements (with text, resource_id, or clickable)
+            meaningful_elements = []
+            for el in ui_elements:
+                text = el.get('text', '').strip()
+                resource_id = el.get('resource_id', '').strip()
+                is_clickable = el.get('clickable', False)
+                content_desc = el.get('content_desc', '').strip()
+
+                if text or resource_id or is_clickable or content_desc:
+                    meaningful_elements.append({
+                        'text': text,
+                        'resource_id': resource_id,
+                        'bounds': el.get('bounds'),
+                        'class': el.get('class', ''),
+                        'clickable': is_clickable,
+                        'content_desc': content_desc
+                    })
+
+            # Add screen to navigation graph
+            screen = self.navigation_manager.add_screen(
+                package=current_package,
+                activity=current_activity,
+                ui_elements=meaningful_elements,
+                display_name=current_activity.split('.')[-1] if current_activity else None,
+                learned_from="learn_mode"
+            )
+
+            return {
+                'package': current_package,
+                'activity': current_activity,
+                'screen_id': screen.screen_id if screen else None,
+                'element_count': len(meaningful_elements),
+                'clickable_count': sum(1 for el in meaningful_elements if el.get('clickable'))
+            }
+
+        except Exception as e:
+            logger.warning(f"  [Learn Mode] Screen learning failed: {e}")
+            return None
 
     async def _execute_step_with_retry(
         self,
@@ -398,6 +510,18 @@ class FlowExecutor:
         for attempt in range(max_attempts):
             try:
                 # Phase 8: State validation before step execution
+                # Skip validation for launch/restart steps - app just needs to be open
+                skip_validation_steps = {'launch_app', 'restart_app', 'go_home', 'go_back'}
+                # Normalize step_type for comparison (lowercase, stripped)
+                normalized_step_type = step.step_type.lower().strip() if step.step_type else ''
+                step_type_in_skip = normalized_step_type in skip_validation_steps
+                should_validate = step.validate_state and not step_type_in_skip
+
+                # Debug logging to diagnose validation issues
+                logger.debug(f"  [StepValidation] step_type='{step.step_type}' normalized='{normalized_step_type}'")
+                logger.debug(f"  [StepValidation] step_type in skip_validation_steps: {step_type_in_skip}")
+                logger.debug(f"  [StepValidation] validate_state={step.validate_state}, should_validate={should_validate}")
+
                 # Validate if we have ANY validation data (not just screenshot)
                 has_validation_data = (
                     step.expected_screenshot or
@@ -405,7 +529,8 @@ class FlowExecutor:
                     step.expected_activity or
                     step.screen_activity  # From recording - can validate we're in same activity
                 )
-                if step.validate_state and has_validation_data:
+                logger.debug(f"  [StepValidation] has_validation_data={has_validation_data}")
+                if should_validate and has_validation_data:
                     logger.debug(f"  Validating state before {step.step_type}")
                     state_valid = await self._validate_state_and_recover(device_id, step, result)
                     if not state_valid:
@@ -536,7 +661,7 @@ class FlowExecutor:
             # Same app but wrong screen? Force restart to get clean state
             if current_pkg == package and expected_activity:
                 logger.info(f"  App open but wrong screen ({current}), force restarting...")
-                await self.adb_bridge.shell(device_id, f"am force-stop {package}")
+                await self.adb_bridge.stop_app(device_id, package)
                 await asyncio.sleep(1)
 
             # Different app in foreground? May need to force-stop target first for clean launch
@@ -597,15 +722,46 @@ class FlowExecutor:
         step: FlowStep,
         result: FlowExecutionResult
     ) -> bool:
-        """Wait/delay step"""
+        """
+        Wait/delay step with optional activity polling.
+
+        If step.screen_activity is set, polls for that activity to appear
+        instead of just sleeping for the duration.
+        """
         if not step.duration:
             logger.error("  wait step missing duration")
             return False
 
         duration_seconds = step.duration / 1000.0
-        logger.debug(f"  Waiting {duration_seconds:.1f}s")
-        await asyncio.sleep(duration_seconds)
-        return True
+        expected_activity = step.screen_activity or step.expected_activity
+
+        # If we have an expected activity, poll for it instead of just sleeping
+        if expected_activity:
+            expected_name = expected_activity.split('/')[-1] if '/' in expected_activity else expected_activity
+            logger.debug(f"  Waiting up to {duration_seconds:.1f}s for {expected_name}")
+
+            poll_interval = 0.5  # Check every 500ms
+            max_polls = int(duration_seconds / poll_interval) + 1
+            max_polls = min(max_polls, 20)  # Cap at 10 seconds of polling
+
+            for i in range(max_polls):
+                try:
+                    current = await self.adb_bridge.get_current_activity(device_id)
+                    if current and self._activity_matches(current, expected_activity):
+                        logger.info(f"  Activity {expected_name} detected after {i * poll_interval:.1f}s")
+                        return True
+                except Exception:
+                    pass
+                await asyncio.sleep(poll_interval)
+
+            # Activity not reached, log warning but don't fail
+            logger.warning(f"  Activity {expected_name} not detected within {duration_seconds:.1f}s")
+            return True  # Continue flow, step may have been for timing only
+        else:
+            # Simple sleep
+            logger.debug(f"  Waiting {duration_seconds:.1f}s")
+            await asyncio.sleep(duration_seconds)
+            return True
 
     async def _execute_tap(
         self,
@@ -613,13 +769,49 @@ class FlowExecutor:
         step: FlowStep,
         result: FlowExecutionResult
     ) -> bool:
-        """Tap step"""
+        """
+        Tap step with optional navigation verification.
+
+        If step description suggests navigation (contains 'Navigate to'),
+        verifies the screen changed after tap.
+        """
         if step.x is None or step.y is None:
             logger.error("  tap step missing x/y coordinates")
             return False
 
+        description = step.description or ""
+        is_navigation = "navigate" in description.lower() or "nav to" in description.lower()
+
+        # Get current activity before tap (for navigation verification)
+        activity_before = None
+        if is_navigation:
+            try:
+                activity_before = await self.adb_bridge.get_current_activity(device_id)
+            except Exception:
+                pass
+
+        # Execute tap
         logger.debug(f"  Tapping at ({step.x}, {step.y})")
         await self.adb_bridge.tap(device_id, step.x, step.y)
+
+        # For navigation taps, verify screen changed
+        if is_navigation and activity_before:
+            await asyncio.sleep(0.8)  # Wait for screen transition
+
+            try:
+                activity_after = await self.adb_bridge.get_current_activity(device_id)
+
+                if activity_after and activity_after != activity_before:
+                    logger.debug(f"  Screen changed: {activity_before.split('/')[-1] if activity_before else '?'} -> {activity_after.split('/')[-1] if activity_after else '?'}")
+                elif activity_after == activity_before:
+                    # Screen didn't change - retry tap once
+                    logger.warning(f"  Screen didn't change after tap, retrying...")
+                    await asyncio.sleep(0.3)
+                    await self.adb_bridge.tap(device_id, step.x, step.y)
+                    await asyncio.sleep(0.8)
+            except Exception as e:
+                logger.debug(f"  Could not verify navigation: {e}")
+
         return True
 
     async def _execute_swipe(
@@ -890,8 +1082,10 @@ class FlowExecutor:
         logger.debug(f"  Capturing {len(step.sensor_ids)} sensors")
 
         try:
-            # 0. Validate correct app/screen is visible before capturing
+            # 0. Validate correct app AND screen is visible before capturing
             expected_package = step.screen_package
+            expected_activity = step.screen_activity  # Activity when sensor was created
+
             if not expected_package and step.sensor_ids:
                 # Try to get expected package from first sensor's source
                 first_sensor = self.sensor_manager.get_sensor(device_id, step.sensor_ids[0])
@@ -901,10 +1095,43 @@ class FlowExecutor:
                     if ':id/' in resource_id:
                         expected_package = resource_id.split(':id/')[0]
 
-            if expected_package:
-                current_activity = await self.adb_bridge.get_current_activity(device_id)
-                current_package = current_activity.split('/')[0] if current_activity and '/' in current_activity else current_activity
+            current_activity = await self.adb_bridge.get_current_activity(device_id)
+            current_package = current_activity.split('/')[0] if current_activity and '/' in current_activity else current_activity
+            current_activity_name = current_activity.split('/')[-1] if current_activity and '/' in current_activity else current_activity
 
+            # Check if on correct ACTIVITY (specific screen within app)
+            if expected_activity:
+                expected_activity_name = expected_activity.split('/')[-1] if '/' in expected_activity else expected_activity
+                activity_match = self._activity_matches(current_activity, expected_activity)
+
+                if not activity_match:
+                    # CRITICAL: Wrong screen - sensors won't be found
+                    logger.error(f"  SCREEN MISMATCH: Current={current_activity_name}, Expected={expected_activity_name}")
+                    logger.error(f"  This flow requires navigation steps to reach {expected_activity_name}")
+                    logger.warning(f"  Hint: Add tap/swipe steps in Flow Wizard to navigate to the correct screen before capturing sensors")
+
+                    # Try to launch app - but this may not navigate to the correct SCREEN
+                    if expected_package and current_package != expected_package:
+                        logger.info(f"  Attempting recovery: launching {expected_package} (but may not reach correct screen)")
+                        success = await self.adb_bridge.launch_app(device_id, expected_package)
+                        if success:
+                            await asyncio.sleep(2)
+                            # Re-check activity
+                            new_activity = await self.adb_bridge.get_current_activity(device_id)
+                            if self._activity_matches(new_activity, expected_activity):
+                                logger.info(f"  Recovery successful: reached {expected_activity_name}")
+                            else:
+                                logger.warning(f"  Recovery incomplete: on {new_activity.split('/')[-1] if new_activity and '/' in new_activity else new_activity}")
+                                logger.warning(f"  Sensors may not be found - flow needs navigation steps to {expected_activity_name}")
+                    else:
+                        # Same app, wrong screen - app launch won't help
+                        logger.warning(f"  App is correct ({current_package}) but on wrong screen")
+                        logger.warning(f"  Flow needs tap/swipe steps to navigate from {current_activity_name} to {expected_activity_name}")
+                else:
+                    logger.debug(f"  Correct screen: {current_activity_name}")
+
+            # Check if on correct PACKAGE (app) - fallback if no activity specified
+            elif expected_package:
                 if current_package != expected_package:
                     logger.warning(f"  Wrong app in foreground: {current_package} (expected: {expected_package})")
 
@@ -913,7 +1140,7 @@ class FlowExecutor:
 
                     # Force stop and relaunch to get clean state
                     try:
-                        await self.adb_bridge.shell(device_id, f"am force-stop {expected_package}")
+                        await self.adb_bridge.stop_app(device_id, expected_package)
                         await asyncio.sleep(0.5)
                     except Exception as e:
                         logger.debug(f"  Could not force-stop: {e}")
@@ -951,7 +1178,16 @@ class FlowExecutor:
 
             # 3. Extract each sensor and collect for batch publishing
             sensor_updates = []  # List of (sensor, value) tuples for batch publishing
+            cached_count = 0
             for sensor_id in step.sensor_ids:
+                # Check session cache first - avoid redundant captures
+                if sensor_id in self._session_captured_sensors:
+                    cached_value = self._session_captured_sensors[sensor_id]
+                    result.captured_sensors[sensor_id] = cached_value
+                    cached_count += 1
+                    logger.debug(f"  Sensor {sensor_id}: using cached value '{cached_value}'")
+                    continue
+
                 sensor = self.sensor_manager.get_sensor(device_id, sensor_id)
                 if not sensor:
                     # Try to find sensor by stable_device_id (may be on different port)
@@ -998,8 +1234,9 @@ class FlowExecutor:
                         logger.warning(f"  Element has no text for {sensor.friendly_name}")
                         value = sensor.extraction_rule.fallback_value if sensor.extraction_rule else None
 
-                    # Store in result
+                    # Store in result and session cache
                     result.captured_sensors[sensor_id] = value
+                    self._session_captured_sensors[sensor_id] = value  # Cache for dedup
 
                     logger.debug(f"  Captured {sensor.friendly_name}: {value}")
 
@@ -1027,6 +1264,12 @@ class FlowExecutor:
                     sensor.last_updated = datetime.now()
                     self.sensor_manager.update_sensor(sensor)
                     logger.debug(f"  Persisted {sensor.friendly_name} = {value}")
+
+            # Log session cache statistics
+            fresh_count = len(sensor_updates)
+            total_sensors = len(step.sensor_ids)
+            if cached_count > 0:
+                logger.info(f"  Session cache: {cached_count}/{total_sensors} from cache, {fresh_count} freshly captured")
 
             return True
 
@@ -1198,6 +1441,33 @@ class FlowExecutor:
                 return False
         except Exception as e:
             logger.error(f"  Stitch capture failed: {e}")
+            return False
+
+    async def _execute_screenshot(
+        self,
+        device_id: str,
+        step: FlowStep,
+        result: FlowExecutionResult
+    ) -> bool:
+        """Capture a single screenshot at the current screen"""
+        logger.debug("  Executing screenshot capture")
+        try:
+            # Capture screenshot
+            screenshot_data = await self.adb_bridge.capture_screenshot(device_id)
+            if screenshot_data:
+                result.captured_screenshots.append({
+                    'type': 'screenshot',
+                    'step_index': result.executed_steps,
+                    'description': step.description or 'Screenshot',
+                    'expected_screen_id': getattr(step, 'expected_screen_id', None)
+                })
+                logger.debug(f"  Screenshot captured successfully")
+                return True
+            else:
+                logger.warning("  Screenshot capture returned no data")
+                return False
+        except Exception as e:
+            logger.error(f"  Screenshot capture failed: {e}")
             return False
 
     async def _execute_conditional(
@@ -1504,7 +1774,7 @@ class FlowExecutor:
             import cv2
 
             # Capture current screenshot
-            current_screenshot = await self.adb_bridge.screenshot(device_id)
+            current_screenshot = await self.adb_bridge.capture_screenshot(device_id)
 
             # Decode expected screenshot
             expected_bytes = base64.b64decode(expected_screenshot_b64)
@@ -1588,7 +1858,7 @@ class FlowExecutor:
 
                 # Strategy 2: Restart app and navigate from home
                 logger.debug(f"  [StateValidation] Force stopping {package}")
-                await self.adb_bridge.shell(device_id, f"am force-stop {package}")
+                await self.adb_bridge.stop_app(device_id, package)
                 await asyncio.sleep(1)
 
                 logger.debug(f"  [StateValidation] Relaunching {package}")
@@ -1748,7 +2018,7 @@ class FlowExecutor:
 
         # Restart app to get to home screen
         logger.debug(f"[Navigation] Restarting {package} to reach home screen")
-        await self.adb_bridge.shell(device_id, f"am force-stop {package}")
+        await self.adb_bridge.stop_app(device_id, package)
         await asyncio.sleep(1)
         await self.adb_bridge.launch_app(device_id, package)
         await asyncio.sleep(3)
@@ -1799,13 +2069,13 @@ class FlowExecutor:
                 )
 
             elif action.action_type == "go_back":
-                await self.adb_bridge.shell(device_id, "input keyevent KEYCODE_BACK")
+                await self.adb_bridge.keyevent(device_id, 4)  # KEYCODE_BACK
 
             elif action.action_type == "go_home":
-                await self.adb_bridge.shell(device_id, "input keyevent KEYCODE_HOME")
+                await self.adb_bridge.keyevent(device_id, 3)  # KEYCODE_HOME
 
             elif action.action_type == "keyevent" and action.keycode:
-                await self.adb_bridge.shell(device_id, f"input keyevent {action.keycode}")
+                await self.adb_bridge.keyevent(device_id, action.keycode)
 
             else:
                 logger.warning(f"[Navigation] Unknown action type: {action.action_type}")
@@ -1839,6 +2109,292 @@ class FlowExecutor:
             return []
 
     # ============================================================================
+    # Known Starting Point - Ensures Consistent Flow Execution
+    # ============================================================================
+
+    def _get_target_package(self, flow: SensorCollectionFlow) -> Optional[str]:
+        """
+        Get the target package for a flow.
+        Looks for LAUNCH_APP steps or screen_package in first step.
+
+        Args:
+            flow: Flow to analyze
+
+        Returns:
+            Package name or None
+        """
+        # Strategy 1: Find first LAUNCH_APP step
+        for step in flow.steps:
+            if step.step_type == FlowStepType.LAUNCH_APP and step.package:
+                return step.package
+
+        # Strategy 2: Check first step's screen_package
+        if flow.steps and flow.steps[0].screen_package:
+            return flow.steps[0].screen_package
+
+        # Strategy 3: Check first step's package field
+        if flow.steps and flow.steps[0].package:
+            return flow.steps[0].package
+
+        return None
+
+    def _get_first_expected_activity(self, flow: SensorCollectionFlow) -> Optional[str]:
+        """
+        Get the expected activity for the first screen-dependent step.
+
+        This finds the first step that requires being on a specific screen
+        (e.g., capture_sensors, tap, swipe with screen_activity set).
+
+        Args:
+            flow: Flow to analyze
+
+        Returns:
+            Activity name or None
+        """
+        screen_dependent_types = {
+            FlowStepType.CAPTURE_SENSORS,
+            FlowStepType.TAP,
+            FlowStepType.SWIPE,
+            FlowStepType.TEXT,
+            FlowStepType.VALIDATE_SCREEN
+        }
+
+        for step in flow.steps:
+            # Skip launch/wait steps - they don't require specific screens
+            if step.step_type in {FlowStepType.LAUNCH_APP, FlowStepType.WAIT}:
+                continue
+
+            # Check if step has expected screen
+            if step.step_type in screen_dependent_types:
+                activity = step.screen_activity or step.expected_activity
+                if activity:
+                    logger.debug(f"[FlowExecutor] First expected activity: {activity}")
+                    return activity
+
+        return None
+
+    async def _ensure_known_starting_point(
+        self,
+        device_id: str,
+        package_name: str,
+        expected_first_activity: str = None
+    ) -> bool:
+        """
+        Ensure a known starting point for consistent flow execution.
+
+        This method:
+        1. Goes to home screen (clean slate)
+        2. Waits briefly for home to settle
+        3. Launches the target app fresh
+        4. Waits for app to load
+        5. If expected_first_activity is specified, navigates to it if needed
+
+        This ensures every flow execution starts from the same state,
+        preventing issues caused by the app being in an unexpected screen.
+
+        Args:
+            device_id: Device ID
+            package_name: Package name to launch
+            expected_first_activity: Optional specific activity the first step expects
+
+        Returns:
+            True if initialization succeeded
+        """
+        try:
+            # Step 1: Go to home screen for clean slate
+            logger.debug(f"  [Init] Going to home screen...")
+            await self.adb_bridge.keyevent(device_id, "KEYCODE_HOME")
+            await asyncio.sleep(0.8)  # Wait for home screen to settle
+
+            # Step 2: Launch the app fresh
+            logger.debug(f"  [Init] Launching {package_name}...")
+            success = await self.adb_bridge.launch_app(device_id, package_name)
+
+            if not success:
+                logger.error(f"  [Init] Failed to launch {package_name}")
+                return False
+
+            await asyncio.sleep(2.5)  # Wait for app to fully load
+
+            # Step 3: Verify we're in the right app
+            current_activity = await self.adb_bridge.get_current_activity(device_id)
+            current_package = current_activity.split('/')[0] if current_activity and '/' in current_activity else current_activity
+
+            if current_package != package_name:
+                logger.warning(f"  [Init] Expected {package_name} but got {current_package}")
+                return False
+
+            logger.info(f"  [Init] Successfully launched {package_name} (activity: {current_activity})")
+
+            # Step 4: If specific activity expected, check and navigate if needed
+            if expected_first_activity:
+                expected_name = expected_first_activity.split('/')[-1] if '/' in expected_first_activity else expected_first_activity
+                current_name = current_activity.split('/')[-1] if '/' in current_activity else current_activity
+
+                if not self._activity_matches(current_activity, expected_first_activity):
+                    logger.warning(f"  [Init] On {current_name}, need {expected_name} - attempting navigation")
+
+                    navigation_success = await self._navigate_to_expected_screen(
+                        device_id, package_name, current_activity, expected_first_activity
+                    )
+
+                    if navigation_success:
+                        logger.info(f"  [Init] Successfully navigated to {expected_name}")
+                    else:
+                        logger.warning(f"  [Init] Could not navigate to {expected_name}, flow may fail")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"  [Init] Failed to ensure starting point: {e}")
+            return False
+
+    async def _navigate_to_expected_screen(
+        self,
+        device_id: str,
+        package_name: str,
+        current_activity: str,
+        expected_activity: str
+    ) -> bool:
+        """
+        Navigate from current screen to expected screen using multiple fallback strategies.
+
+        Strategies (in order):
+        1. Navigation graph path (if UI dump works)
+        2. Activity-based path lookup (match by activity name)
+        3. Common patterns (bottom nav, back button)
+        4. Force restart with specific activity intent
+
+        Args:
+            device_id: Device ID
+            package_name: App package name
+            current_activity: Current activity (full or short name)
+            expected_activity: Expected activity (full or short name)
+
+        Returns:
+            True if navigation succeeded
+        """
+        expected_name = expected_activity.split('/')[-1] if '/' in expected_activity else expected_activity
+        current_name = current_activity.split('/')[-1] if '/' in current_activity else current_activity
+
+        # Strategy 1: Navigation graph with UI-based screen ID
+        logger.debug(f"  [Nav] Strategy 1: Navigation graph lookup")
+        try:
+            graph = self.navigation_manager.get_graph(package_name)
+            if graph:
+                # Find target and source screens by activity name
+                target_screen_id = None
+                source_screen_id = None
+
+                for sid, screen in graph.screens.items():
+                    if screen.activity:
+                        if expected_name in screen.activity:
+                            target_screen_id = sid
+                        if current_name in screen.activity:
+                            source_screen_id = sid
+
+                if target_screen_id and source_screen_id:
+                    # Direct path lookup by known screen IDs
+                    path = self.navigation_manager.find_path(package_name, source_screen_id, target_screen_id)
+                    if path and path.transitions:
+                        logger.info(f"  [Nav] Found path with {len(path.transitions)} steps")
+                        for transition in path.transitions:
+                            await self._execute_transition_action(device_id, transition)
+                            await asyncio.sleep(0.8)
+
+                        # Verify we reached the target
+                        new_activity = await self.adb_bridge.get_current_activity(device_id)
+                        if self._activity_matches(new_activity, expected_activity):
+                            return True
+                        logger.debug(f"  [Nav] Strategy 1 incomplete: on {new_activity}")
+        except Exception as e:
+            logger.debug(f"  [Nav] Strategy 1 failed: {e}")
+
+        # Strategy 2: Check if target is the home screen - try Home key or back navigation
+        logger.debug(f"  [Nav] Strategy 2: Home/Back navigation")
+        try:
+            graph = self.navigation_manager.get_graph(package_name)
+            is_target_home = False
+            if graph and graph.home_screen_id:
+                home_screen = graph.screens.get(graph.home_screen_id)
+                if home_screen and home_screen.activity and expected_name in home_screen.activity:
+                    is_target_home = True
+
+            if is_target_home:
+                # Try pressing Back repeatedly to return to home (max 3 times)
+                logger.info(f"  [Nav] Target is home screen, trying Back navigation")
+                for i in range(3):
+                    await self.adb_bridge.keyevent(device_id, "KEYCODE_BACK")
+                    await asyncio.sleep(0.8)
+
+                    new_activity = await self.adb_bridge.get_current_activity(device_id)
+                    if self._activity_matches(new_activity, expected_activity):
+                        return True
+
+                    # Check if we're still in the same app
+                    new_pkg = new_activity.split('/')[0] if new_activity and '/' in new_activity else new_activity
+                    if new_pkg != package_name:
+                        # Exited app, relaunch
+                        await self.adb_bridge.launch_app(device_id, package_name)
+                        await asyncio.sleep(1.5)
+                        new_activity = await self.adb_bridge.get_current_activity(device_id)
+                        if self._activity_matches(new_activity, expected_activity):
+                            return True
+                        break
+        except Exception as e:
+            logger.debug(f"  [Nav] Strategy 2 failed: {e}")
+
+        # Strategy 3: Try common bottom navigation pattern (first tab = home)
+        logger.debug(f"  [Nav] Strategy 3: Bottom navigation tap")
+        try:
+            # Get screen dimensions
+            screen_info = await self.adb_bridge.get_screen_info(device_id)
+            if screen_info:
+                width = screen_info.get('width', 1080)
+                height = screen_info.get('height', 2400)
+
+                # Tap first bottom nav item (typically Home)
+                # Bottom nav is usually in last 10% of screen height, first item at ~10% width
+                tap_x = int(width * 0.1)
+                tap_y = int(height * 0.95)
+
+                logger.info(f"  [Nav] Tapping bottom nav at ({tap_x}, {tap_y})")
+                await self.adb_bridge.tap(device_id, tap_x, tap_y)
+                await asyncio.sleep(1.0)
+
+                new_activity = await self.adb_bridge.get_current_activity(device_id)
+                if self._activity_matches(new_activity, expected_activity):
+                    return True
+        except Exception as e:
+            logger.debug(f"  [Nav] Strategy 3 failed: {e}")
+
+        # Strategy 4: Force restart with specific activity intent
+        logger.debug(f"  [Nav] Strategy 4: Launch specific activity")
+        try:
+            # Build activity intent command
+            full_activity = expected_activity
+            if '/' not in full_activity:
+                full_activity = f"{package_name}/{expected_activity}"
+
+            # Try starting specific activity
+            result = await self.adb_bridge.execute_command(
+                device_id,
+                f"am start -n {full_activity}"
+            )
+
+            await asyncio.sleep(1.5)
+
+            new_activity = await self.adb_bridge.get_current_activity(device_id)
+            if self._activity_matches(new_activity, expected_activity):
+                return True
+        except Exception as e:
+            logger.debug(f"  [Nav] Strategy 4 failed: {e}")
+
+        # All strategies failed
+        logger.warning(f"  [Nav] All navigation strategies failed")
+        return False
+
+    # ============================================================================
     # Utility Methods
     # ============================================================================
 
@@ -1863,6 +2419,17 @@ class FlowExecutor:
 
         # Execute without scheduler lock (caller must ensure no conflicts)
         return await self.execute_flow(flow)
+
+    def _get_sensor_name(self, device_id: str, sensor_id: str) -> str:
+        """Get friendly name for a sensor ID"""
+        try:
+            sensor = self.sensor_manager.get_sensor(device_id, sensor_id)
+            if sensor:
+                return sensor.friendly_name
+        except Exception:
+            pass
+        # Fallback to sensor ID
+        return sensor_id
 
     def get_supported_step_types(self) -> list:
         """Get list of supported step types"""

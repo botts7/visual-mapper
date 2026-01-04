@@ -76,6 +76,19 @@ def validate_sensor_config(sensor: SensorDefinition) -> Optional[str]:
 # SENSOR CRUD ENDPOINTS
 # =============================================================================
 
+@router.get("/sensors")
+async def get_all_sensors():
+    """Get all sensors across all devices (for dashboard stats)"""
+    deps = get_deps()
+    try:
+        logger.info("[API] Getting all sensors")
+        all_sensors = deps.sensor_manager.get_all_sensors()
+        return [s.model_dump(mode='json') for s in all_sensors]
+    except Exception as e:
+        logger.error(f"[API] Get all sensors failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/sensors")
 async def create_sensor(sensor: SensorDefinition):
     """Create a new sensor"""

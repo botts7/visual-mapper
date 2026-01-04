@@ -3,6 +3,9 @@
  *
  * Manages device actions - create, list, execute, update, delete
  * Mirrors sensor-creator.js architecture
+ *
+ * Includes duplicate detection (warning-only) to help users avoid creating
+ * similar actions that already exist.
  */
 
 export default class ActionManager {
@@ -10,6 +13,7 @@ export default class ActionManager {
         this.apiClient = apiClient;
         this.currentDeviceId = null;
         this.actions = [];
+        this.pendingActionData = null;  // For duplicate check flow
         this.actionTypes = [
             'tap', 'swipe', 'text', 'keyevent',
             'launch_app', 'delay', 'macro'
@@ -54,15 +58,44 @@ export default class ActionManager {
     }
 
     /**
-     * Create a new action
+     * Create a new action with optional duplicate check
+     *
+     * @param {Object} actionConfig - Action configuration
+     * @param {Array} tags - Optional tags
+     * @param {boolean} skipDuplicateCheck - If true, skip the duplicate check
+     * @returns {Object} Created action or null if user chose to use existing
      */
-    async createAction(actionConfig, tags = []) {
+    async createAction(actionConfig, tags = [], skipDuplicateCheck = false) {
         if (!this.currentDeviceId) {
             throw new Error('No device selected');
         }
 
         // Ensure device_id is set
         actionConfig.device_id = this.currentDeviceId;
+
+        // Check for duplicates before creating (unless explicitly skipped)
+        if (!skipDuplicateCheck) {
+            try {
+                const dupCheck = await this._checkForDuplicates(actionConfig);
+                if (dupCheck.hasSimilar) {
+                    // Store pending data and show warning
+                    this.pendingActionData = { actionConfig, tags };
+                    const userChoice = await this._showDuplicateWarning(dupCheck);
+
+                    if (userChoice === 'use_existing') {
+                        console.log('[ActionManager] User chose to use existing action');
+                        return dupCheck.bestMatch;
+                    } else if (userChoice === 'cancel') {
+                        console.log('[ActionManager] User cancelled action creation');
+                        return null;
+                    }
+                    // userChoice === 'create_anyway' - continue below
+                }
+            } catch (dupError) {
+                // Log but don't block creation if dedup check fails
+                console.warn('[ActionManager] Duplicate check failed, proceeding:', dupError);
+            }
+        }
 
         try {
             const response = await this.apiClient.post(
@@ -83,6 +116,113 @@ export default class ActionManager {
             console.error('[ActionManager] Create action failed:', error);
             throw error;
         }
+    }
+
+    /**
+     * Check for duplicate/similar actions before creation
+     * @private
+     */
+    async _checkForDuplicates(actionConfig) {
+        const response = await this.apiClient.post('/dedup/actions/check', {
+            device_id: this.currentDeviceId,
+            action: {
+                action_type: actionConfig.action_type,
+                name: actionConfig.name,
+                x: actionConfig.x,
+                y: actionConfig.y,
+                x1: actionConfig.x1,
+                y1: actionConfig.y1,
+                x2: actionConfig.x2,
+                y2: actionConfig.y2,
+                package_name: actionConfig.package_name,
+                text: actionConfig.text,
+                keycode: actionConfig.keycode,
+                screen_activity: actionConfig.screen_activity
+            }
+        });
+
+        return {
+            hasSimilar: response.has_similar,
+            matches: response.matches || [],
+            recommendation: response.recommendation,
+            bestMatch: response.best_match
+        };
+    }
+
+    /**
+     * Show duplicate warning modal and get user choice
+     * @private
+     */
+    async _showDuplicateWarning(dupCheck) {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'action-duplicate-modal';
+
+            const bestMatch = dupCheck.bestMatch;
+            const similarity = bestMatch?.similarity_score
+                ? Math.round(bestMatch.similarity_score * 100)
+                : '?';
+
+            const matchDetails = bestMatch?.details || {};
+            const existingName = matchDetails.existing_name || 'Unknown';
+            const existingType = matchDetails.existing_type || 'Unknown';
+            const matchReason = matchDetails.match_reason || 'Similar configuration';
+
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 500px;">
+                    <div class="modal-header">
+                        <h3>Similar Action Found</h3>
+                        <button class="close-btn" onclick="document.getElementById('action-duplicate-modal').remove()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="duplicate-warning" style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <p style="margin: 0 0 10px 0;"><strong>${similarity}% similar</strong> to existing action:</p>
+                            <div style="background: white; padding: 10px; border-radius: 4px; margin-bottom: 10px;">
+                                <strong>${this.escapeHtml(existingName)}</strong><br>
+                                <small>Type: ${existingType} | ${matchReason}</small>
+                            </div>
+                            <p style="margin: 0; color: #856404; font-size: 0.9em;">
+                                ${dupCheck.recommendation === 'use_existing'
+                                    ? '💡 Recommended: Use the existing action instead of creating a duplicate.'
+                                    : '⚠️ You may want to review the existing action before creating a new one.'}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button class="btn btn-secondary" id="dup-cancel-btn">Cancel</button>
+                        <button class="btn btn-primary" id="dup-use-existing-btn">Use Existing</button>
+                        <button class="btn btn-warning" id="dup-create-anyway-btn">Create Anyway</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // Wire up button handlers
+            document.getElementById('dup-cancel-btn').onclick = () => {
+                modal.remove();
+                resolve('cancel');
+            };
+
+            document.getElementById('dup-use-existing-btn').onclick = () => {
+                modal.remove();
+                resolve('use_existing');
+            };
+
+            document.getElementById('dup-create-anyway-btn').onclick = () => {
+                modal.remove();
+                resolve('create_anyway');
+            };
+
+            // Close on backdrop click
+            modal.onclick = (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                    resolve('cancel');
+                }
+            };
+        });
     }
 
     /**

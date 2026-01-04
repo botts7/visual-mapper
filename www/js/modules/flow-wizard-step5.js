@@ -61,7 +61,10 @@ export async function saveFlow(wizard) {
         }
 
         const updateIntervalSeconds = intervalValue * intervalUnit;
-        const flowId = `flow_${wizard.selectedDevice.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
+
+        // Use stable device ID for storage
+        const stableDeviceId = wizard.selectedDeviceStableId || wizard.selectedDevice;
+        const flowId = `flow_${stableDeviceId.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
 
         // Headless mode options
         const autoWakeBefore = document.getElementById('autoWakeBefore')?.checked ?? true;
@@ -70,7 +73,7 @@ export async function saveFlow(wizard) {
 
         const flowPayload = {
             flow_id: flowId,
-            device_id: wizard.selectedDevice,
+            device_id: stableDeviceId,
             name: flowName,
             description: flowDescription || '',
             steps: wizard.flowSteps,

@@ -38,7 +38,7 @@ async def get_performance_metrics():
     deps = get_deps()
     metrics = {
         "timestamp": time.time(),
-        "version": "0.0.7",
+        "version": "0.0.12",
     }
 
     # Screenshot cache statistics

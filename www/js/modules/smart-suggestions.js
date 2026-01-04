@@ -467,7 +467,8 @@ class SmartSuggestions {
                 entity_id: suggestion.entity_id,
                 device_class: suggestion.device_class || 'none',
                 unit: suggestion.unit || '',
-                icon: suggestion.icon || 'mdi:eye'
+                icon: suggestion.icon || 'mdi:eye',
+                stableDeviceId: this.wizard?.selectedDeviceStableId || this.deviceId
             });
         } else {
             // For actions, use action creator

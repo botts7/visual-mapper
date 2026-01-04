@@ -1,6 +1,6 @@
 /**
  * Flow Wizard Module
- * Visual Mapper v0.0.10
+ * Visual Mapper v0.0.22
  *
  * Interactive wizard for creating flows with recording mode
  * Refactored: Steps 1,2,4,5 use separate modules
@@ -8,6 +8,7 @@
  * v0.0.8: Tabbed panel, loading overlay, fixed ripple offset
  * v0.0.9: Pass overlay filters to findElementAtCoordinates for container filtering
  * v0.0.10: Pause sensor updates during wizard to prevent ADB contention
+ * v0.0.22: Updated Step4 import for navigation issue detection
  */
 
 import { showToast } from './toast.js?v=0.0.5';
@@ -23,8 +24,8 @@ import SensorCreator from './sensor-creator.js?v=0.0.9';
 // Step modules
 import * as Step1 from './flow-wizard-step1.js?v=0.0.6';
 import * as Step2 from './flow-wizard-step2.js?v=0.0.5';
-import * as Step3 from './flow-wizard-step3.js?v=0.0.27';
-import * as Step4 from './flow-wizard-step4.js?v=0.0.5';
+import * as Step3 from './flow-wizard-step3.js?v=0.0.29';
+import * as Step4 from './flow-wizard-step4.js?v=0.0.14';
 import * as Step5 from './flow-wizard-step5.js?v=0.0.6';
 
 // Dialog module

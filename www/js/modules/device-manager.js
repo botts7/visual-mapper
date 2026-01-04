@@ -139,6 +139,105 @@ class DeviceManager {
     hasDevice(deviceId) {
         return this.devices.some(d => d.id === deviceId);
     }
+
+    /**
+     * Get device identity information including stable device ID
+     * @param {string} deviceId - Device ID (connection or stable)
+     * @returns {Promise<Object>} Device identity info
+     */
+    async getDeviceIdentity(deviceId) {
+        try {
+            const response = await this.apiClient.get(`/adb/identity/${encodeURIComponent(deviceId)}`);
+            return response;
+        } catch (error) {
+            console.error('[DeviceManager] Failed to get device identity:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Resolve a connection ID to a stable device ID
+     * @param {string} connectionId - Device connection ID (e.g., 192.168.86.2:46747)
+     * @returns {Promise<string>} Stable device ID (e.g., R9YT50J4S9D) or original ID if resolution fails
+     */
+    async getStableDeviceId(connectionId) {
+        try {
+            const identity = await this.getDeviceIdentity(connectionId);
+            if (identity && identity.stable_device_id) {
+                console.log(`[DeviceManager] Resolved ${connectionId} -> ${identity.stable_device_id}`);
+                return identity.stable_device_id;
+            }
+            return connectionId;
+        } catch (error) {
+            console.warn('[DeviceManager] Could not resolve stable ID, using connection ID:', error);
+            return connectionId;
+        }
+    }
+
+    /**
+     * Get all known devices with stable identifiers
+     * @returns {Promise<Array>} List of known devices
+     */
+    async getKnownDevices() {
+        try {
+            const response = await this.apiClient.get('/adb/devices');
+            return response.devices || [];
+        } catch (error) {
+            console.error('[DeviceManager] Failed to get known devices:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get display name for device (prefers stable ID with model info)
+     * @param {string} deviceId - Device ID
+     * @returns {Promise<string>} Display-friendly device name
+     */
+    async getDeviceDisplayName(deviceId) {
+        try {
+            const identity = await this.getDeviceIdentity(deviceId);
+            if (identity) {
+                const parts = [];
+
+                // Show model if available
+                if (identity.model) {
+                    parts.push(identity.model);
+                }
+
+                // Show stable ID (hardware serial)
+                if (identity.stable_device_id && identity.stable_device_id !== deviceId) {
+                    parts.push(`[${identity.stable_device_id}]`);
+                } else {
+                    parts.push(`[${deviceId}]`);
+                }
+
+                return parts.join(' ');
+            }
+            return deviceId;
+        } catch (error) {
+            return deviceId;
+        }
+    }
+
+    /**
+     * Format device info for UI display
+     * @param {Object} device - Device object
+     * @param {Object} identity - Identity info (optional)
+     * @returns {Object} Formatted device info
+     */
+    formatDeviceForDisplay(device, identity = null) {
+        return {
+            id: device.id || device.device_id,
+            stableId: identity?.stable_device_id || device.stable_device_id || device.id,
+            displayName: identity?.model
+                ? `${identity.model} [${identity.stable_device_id || device.id}]`
+                : device.id,
+            model: identity?.model || device.model || 'Unknown',
+            manufacturer: identity?.manufacturer || device.manufacturer || 'Unknown',
+            isConnected: identity?.is_connected ?? true,
+            connectionId: identity?.current_connection || device.id
+        };
+    }
 }
 
 // ES6 export

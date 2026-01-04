@@ -81,10 +81,12 @@ class QualityPreset:
 
 
 QUALITY_PRESETS = {
-    "high": QualityPreset("high", 0, 90, 30),
-    "medium": QualityPreset("medium", 720, 80, 20),
-    "low": QualityPreset("low", 480, 70, 15),
-    "fast": QualityPreset("fast", 360, 60, 10),
+    # Values aligned with routes/streaming.py (authoritative source)
+    "high": QualityPreset("high", 0, 85, 5),       # Native resolution, ~5 FPS
+    "medium": QualityPreset("medium", 720, 75, 12), # 720p, ~12 FPS
+    "low": QualityPreset("low", 480, 65, 18),       # 480p, ~18 FPS
+    "fast": QualityPreset("fast", 360, 55, 25),     # 360p, ~25 FPS
+    "ultrafast": QualityPreset("ultrafast", 240, 45, 30),  # 240p, ~30 FPS (WiFi)
 }
 
 

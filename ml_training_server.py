@@ -38,6 +38,7 @@ import os
 import platform
 import signal
 import sys
+import tempfile
 import threading
 import time
 from collections import deque
@@ -50,6 +51,59 @@ from typing import Dict, List, Optional, Tuple, Any
 import queue
 
 import paho.mqtt.client as mqtt
+
+# ============================================================================
+# DATA DIRECTORY CONFIGURATION (HA Add-on Compatibility)
+# ============================================================================
+# Standalone (dev): ./data (relative to CWD)
+# HA Add-on (prod): /data (persistent storage in Docker container)
+#
+# This ensures data persists across container restarts in HA Add-on mode.
+# ============================================================================
+DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def atomic_write_json(path: str, data: dict, indent: int = 2) -> None:
+    """
+    Atomically write JSON data to file using temp file + os.replace pattern.
+
+    This prevents file corruption if the process crashes mid-write:
+    1. Write to a temporary file in the same directory
+    2. Use os.replace() to atomically move temp file to target path
+
+    os.replace() is atomic on POSIX systems and "as atomic as possible" on Windows.
+
+    Args:
+        path: Target file path
+        data: Dictionary to serialize as JSON
+        indent: JSON indentation (default 2)
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write to temp file in same directory (same filesystem = atomic replace)
+    fd, temp_path = tempfile.mkstemp(
+        suffix='.tmp',
+        prefix=path.stem + '_',
+        dir=path.parent
+    )
+
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(data, f, indent=indent)
+
+        # Atomic replace (overwrites target if exists)
+        os.replace(temp_path, str(path))
+
+    except Exception:
+        # Clean up temp file on error
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
+
 
 # === Hardware Detection ===
 
@@ -358,7 +412,15 @@ class QTableTrainer:
     - Multi-threaded processing
     - Adaptive learning rate
     - Pattern recognition for dangerous elements
+    - Phase 3: Q-table pruning to prevent OOM
+    - Phase 3: Blocked states tracking for danger zones
+    - Phase 3: Async saves for non-blocking I/O
     """
+
+    # Phase 3: Q-table size limits to prevent OOM
+    MAX_Q_TABLE_SIZE = 10000  # Maximum entries before pruning
+    DANGER_THRESHOLD = -5.0   # Cumulative reward threshold for blocking
+    DANGER_COUNT = 3          # Times to hit threshold before blocking
 
     def __init__(self):
         self.q_table: Dict[str, float] = {}
@@ -375,10 +437,19 @@ class QTableTrainer:
         self.dangerous_patterns: Dict[str, float] = {}  # pattern -> danger score
         self.success_patterns: Dict[str, float] = {}    # pattern -> success score
 
+        # Phase 3: Blocked states tracking (danger zone)
+        self.blocked_states: set = set()  # States to avoid
+        self.danger_scores: Dict[str, float] = {}  # Cumulative negative reward per state
+        self.danger_counts: Dict[str, int] = {}    # Times state hit danger threshold
+
         # Thread pool for parallel processing
         self.executor = ThreadPoolExecutor(max_workers=NUM_WORKERS)
         self.training_queue = queue.Queue(maxsize=1000)
         self.stop_event = Event()
+
+        # Phase 3: Async save tracking
+        self.pending_save = False
+        self.last_prune_time = time.time()
 
         # Start background training thread
         self.training_thread = Thread(target=self._training_loop, daemon=True)
@@ -389,9 +460,13 @@ class QTableTrainer:
         self.updates_since_last = 0
 
         logger.info(f"QTableTrainer initialized with {NUM_WORKERS} worker threads")
+        logger.info(f"Q-table limit: {self.MAX_Q_TABLE_SIZE} entries (auto-prune enabled)")
 
     def _training_loop(self):
         """Background training loop"""
+        prune_interval = 60  # Prune every 60 seconds
+        update_counter = 0
+
         while not self.stop_event.is_set():
             try:
                 # Get batch from queue with timeout
@@ -416,9 +491,23 @@ class QTableTrainer:
                         except Exception as e:
                             logger.error(f"Training error: {e}")
 
+                    update_counter += len(entries)
+
                 # Periodic batch training from replay buffer
                 if len(self.replay_buffer) >= BATCH_SIZE:
                     self.train_batch()
+
+                # Phase 3: Periodic Q-table pruning to prevent OOM
+                current_time = time.time()
+                if current_time - self.last_prune_time > prune_interval:
+                    pruned = self.prune_q_table()
+                    self.last_prune_time = current_time
+                    if pruned > 0:
+                        logger.debug(f"Periodic prune removed {pruned} entries")
+
+                # Phase 3: Force prune if Q-table is significantly over limit
+                if len(self.q_table) > self.MAX_Q_TABLE_SIZE * 1.5:
+                    self.prune_q_table()
 
             except Exception as e:
                 logger.error(f"Training loop error: {e}")
@@ -457,13 +546,39 @@ class QTableTrainer:
         return td_error
 
     def _analyze_pattern(self, entry: ExplorationLogEntry):
-        """Analyze patterns for dangerous/successful elements"""
+        """
+        Analyze patterns for dangerous/successful elements.
+
+        Phase 3: Also tracks blocked states (danger zones) to prevent
+        the explorer from getting stuck in crash loops.
+        """
         pattern = entry.action_key
+        key = f"{entry.screen_hash}|{entry.action_key}"
 
         if entry.reward < -1.0:  # Crash or close
             self.dangerous_patterns[pattern] = self.dangerous_patterns.get(pattern, 0) + abs(entry.reward)
+
+            # Phase 3: Track cumulative negative reward for blocked states
+            self.danger_scores[key] = self.danger_scores.get(key, 0) + entry.reward
+
+            # Check if state should be blocked
+            if self.danger_scores[key] <= self.DANGER_THRESHOLD:
+                self.danger_counts[key] = self.danger_counts.get(key, 0) + 1
+
+                if self.danger_counts[key] >= self.DANGER_COUNT:
+                    if key not in self.blocked_states:
+                        self.blocked_states.add(key)
+                        logger.warning(f"BLOCKED dangerous state: {key} (cumulative reward: {self.danger_scores[key]:.2f})")
+
         elif entry.reward > 0.5:  # New screen or good action
             self.success_patterns[pattern] = self.success_patterns.get(pattern, 0) + entry.reward
+
+            # Phase 3: Good actions can rehabilitate a blocked state
+            if key in self.blocked_states and self.success_patterns.get(pattern, 0) > 5.0:
+                self.blocked_states.discard(key)
+                self.danger_scores[key] = 0
+                self.danger_counts[key] = 0
+                logger.info(f"UNBLOCKED rehabilitated state: {key}")
 
     def add_experience(self, entry: ExplorationLogEntry):
         """Add an experience (async via queue)"""
@@ -603,7 +718,7 @@ class QTableTrainer:
             )
 
     def save(self, path: str):
-        """Save Q-table and patterns to JSON file"""
+        """Save Q-table and patterns to JSON file (atomic write)"""
         with self.lock:
             data = {
                 "q_table": self.q_table,
@@ -617,8 +732,8 @@ class QTableTrainer:
                     "epsilon": HYPERPARAMS.epsilon
                 }
             }
-            with open(path, 'w') as f:
-                json.dump(data, f, indent=2)
+            # Use atomic write to prevent corruption on crash
+            atomic_write_json(path, data)
             logger.info(f"Saved Q-table to {path} ({len(self.q_table)} entries)")
 
     def load(self, path: str):
@@ -657,9 +772,146 @@ class QTableTrainer:
         with self.lock:
             export_data = {
                 "q_table": self.q_table,
-                "dangerous_patterns": list(self.dangerous_patterns.keys())[:50]  # Top 50
+                "dangerous_patterns": list(self.dangerous_patterns.keys())[:50],  # Top 50
+                "blocked_states": list(self.blocked_states)  # Phase 3: Include blocked states
             }
             return json.dumps(export_data)
+
+    # =========================================================================
+    # Phase 3: Q-Table Pruning (Prevent OOM)
+    # =========================================================================
+
+    def prune_q_table(self, max_size: Optional[int] = None) -> int:
+        """
+        Prune Q-table to prevent unbounded growth and OOM crashes.
+
+        Phase 3 Stability: Evicts least-visited entries when table exceeds max size.
+        Uses visit count as primary eviction criterion (LRU-like behavior).
+
+        Args:
+            max_size: Maximum entries to keep (default: MAX_Q_TABLE_SIZE)
+
+        Returns:
+            Number of entries removed
+        """
+        max_size = max_size or self.MAX_Q_TABLE_SIZE
+
+        with self.lock:
+            current_size = len(self.q_table)
+
+            if current_size <= max_size:
+                return 0
+
+            # Calculate how many to remove (remove 20% extra to avoid frequent pruning)
+            to_remove_count = int((current_size - max_size) * 1.2)
+
+            # Sort entries by visit count (ascending) - least visited first
+            entries = [
+                (key, self.visit_counts.get(key, 0))
+                for key in self.q_table.keys()
+            ]
+            entries.sort(key=lambda x: x[1])
+
+            # Remove least visited entries
+            removed_count = 0
+            for key, visit_count in entries[:to_remove_count]:
+                # Don't remove blocked states (important safety info)
+                if key in self.blocked_states:
+                    continue
+
+                del self.q_table[key]
+                self.visit_counts.pop(key, None)
+                self.danger_scores.pop(key, None)
+                self.danger_counts.pop(key, None)
+                removed_count += 1
+
+            if removed_count > 0:
+                logger.info(
+                    f"Pruned Q-table: removed {removed_count} entries "
+                    f"(was {current_size}, now {len(self.q_table)})"
+                )
+
+            return removed_count
+
+    # =========================================================================
+    # Phase 3: Async Saves (Non-blocking I/O)
+    # =========================================================================
+
+    def save_async(self, path: str):
+        """
+        Save Q-table asynchronously to prevent blocking the training loop.
+
+        Phase 3 Stability: Uses thread pool executor for non-blocking disk I/O.
+        The network heartbeat and training continue while save happens in background.
+        """
+        if self.pending_save:
+            logger.debug("Async save already in progress, skipping")
+            return
+
+        self.pending_save = True
+
+        def _save_task():
+            try:
+                self.save(path)
+            finally:
+                self.pending_save = False
+
+        self.executor.submit(_save_task)
+        logger.debug(f"Async save submitted for {path}")
+
+    # =========================================================================
+    # Phase 3: Blocked States API
+    # =========================================================================
+
+    def get_blocked_states(self) -> List[str]:
+        """
+        Get list of blocked (dangerous) state-action pairs.
+
+        Phase 3: Android explorer should avoid these states to prevent crash loops.
+        """
+        with self.lock:
+            return list(self.blocked_states)
+
+    def is_state_blocked(self, screen_hash: str, action_key: str) -> bool:
+        """Check if a specific state-action pair is blocked"""
+        key = f"{screen_hash}|{action_key}"
+        return key in self.blocked_states
+
+    def unblock_state(self, screen_hash: str, action_key: str) -> bool:
+        """
+        Manually unblock a state (for admin/debug purposes).
+
+        Returns True if state was blocked and is now unblocked.
+        """
+        key = f"{screen_hash}|{action_key}"
+        with self.lock:
+            if key in self.blocked_states:
+                self.blocked_states.discard(key)
+                self.danger_scores[key] = 0
+                self.danger_counts[key] = 0
+                logger.info(f"Manually unblocked state: {key}")
+                return True
+            return False
+
+    def get_danger_report(self) -> Dict[str, Any]:
+        """
+        Get a full report of dangerous states and patterns.
+
+        Useful for debugging and monitoring exploration health.
+        """
+        with self.lock:
+            return {
+                "blocked_count": len(self.blocked_states),
+                "blocked_states": list(self.blocked_states)[:20],  # Top 20
+                "danger_scores": dict(sorted(
+                    self.danger_scores.items(),
+                    key=lambda x: x[1]
+                )[:20]),  # Worst 20
+                "dangerous_patterns": dict(sorted(
+                    self.dangerous_patterns.items(),
+                    key=lambda x: -x[1]
+                )[:20]),  # Top 20 dangerous
+            }
 
     def stop(self):
         """Stop background training"""
@@ -1025,7 +1277,7 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
                 return dict(self.q_table)
 
         def save(self, path: str):
-            """Save model and Q-table"""
+            """Save model and Q-table (atomic write)"""
             with self.lock:
                 data = {
                     "q_table": self.q_table,
@@ -1045,8 +1297,8 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
                         "cpu_updates": self.cpu_updates,
                     }
                 }
-                with open(path, 'w') as f:
-                    json.dump(data, f, indent=2)
+                # Use atomic write to prevent corruption on crash
+                atomic_write_json(path, data)
                 logger.info(f"Saved ONNX trainer to {path} ({len(self.q_table)} Q-entries, {self.npu_inferences} NPU inferences)")
 
         def load(self, path: str):
@@ -1372,17 +1624,17 @@ if TORCH_AVAILABLE:
                 )
 
         def save(self, path: str):
-            """Save model and Q-table"""
+            """Save model and Q-table (atomic writes)"""
             with self.lock:
                 data = {
                     "q_table": self.q_table,
                     "model_state": None,  # Can't JSON serialize PyTorch state
                     "stats": asdict(self.stats)
                 }
-                with open(path, 'w') as f:
-                    json.dump(data, f, indent=2)
+                # Use atomic write for JSON to prevent corruption on crash
+                atomic_write_json(path, data)
 
-                # Save PyTorch model separately
+                # Save PyTorch model separately (torch.save uses temp file internally)
                 model_path = path.replace('.json', '_model.pt')
                 torch.save({
                     'q_network': self.q_network.state_dict(),
@@ -1569,9 +1821,8 @@ class MLTrainingServer:
             self.trainer = QTableTrainer()
             logger.info("Using enhanced Q-table trainer")
 
-        # Q-table file path
-        self.data_dir = Path("data")
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+        # Q-table file path (uses DATA_DIR for HA Add-on compatibility)
+        self.data_dir = DATA_DIR
         self.q_table_path = self.data_dir / "exploration_q_table.json"
 
         # Load existing Q-table if available

@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.20">
-    <meta name="version" content="0.0.20" data-build="2026-01-01">
+    <meta name="viewport" content="0.0.21">
+    <meta name="version" content="0.0.21" data-build="2026-01-01">
     <title>Sensors - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.20">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.21">
 </head>
 <body>
     <nav>
@@ -89,7 +89,8 @@
         let deviceSensors = new Map(); // deviceId -> sensors[]
         let deviceInfo = new Map(); // deviceId -> device info (model, activity, etc.)
         let sensorsInFlows = new Set(); // sensor_ids that are referenced in flows
-        let stableIdsWithFlows = new Set(); // stable_device_ids that have at least one flow
+        let stableIdsWithFlows = new Set();
+        let deviceIdsWithFlows = new Set(); // stable_device_ids that have at least one flow
         let allFlows = []; // all flows across all devices
 
         // Extract app package from sensor (from target_app or element_resource_id)
@@ -135,6 +136,7 @@
                 deviceSensors.clear();
                 sensorsInFlows.clear();
                 stableIdsWithFlows.clear();
+                deviceIdsWithFlows.clear();
                 allFlows = [];
 
                 // Create parallel API call promises for sensors (per device) and ALL flows
@@ -176,6 +178,9 @@
                     // Track stable_device_id for device-level flow detection
                     if (flow.stable_device_id) {
                         stableIdsWithFlows.add(flow.stable_device_id);
+                    }
+                    if (flow.device_id) {
+                        deviceIdsWithFlows.add(flow.device_id);
                     }
                     // Extract sensor_ids from flow steps
                     if (flow.steps) {
@@ -313,7 +318,7 @@
         function renderSensorCard(sensor) {
             const isInFlow = sensorsInFlows.has(sensor.sensor_id);
             // Check if device has any flows by stable_device_id
-            const hasDeviceFlow = sensor.stable_device_id && stableIdsWithFlows.has(sensor.stable_device_id);
+            const hasDeviceFlow = (sensor.stable_device_id && stableIdsWithFlows.has(sensor.stable_device_id)) || (sensor.device_id && deviceIdsWithFlows.has(sensor.device_id));
             const isOrphaned = !isInFlow && !hasDeviceFlow;
 
             // Extract app info for display

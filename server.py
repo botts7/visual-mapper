@@ -65,7 +65,7 @@ from navigation_mqtt_handler import NavigationMqttHandler
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration, device_security, device_registration, navigation, companion, services
+from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration, device_security, device_registration, navigation, companion, services, deduplication
 
 # Configure logging
 logging.basicConfig(
@@ -159,7 +159,7 @@ logging.getLogger().addHandler(ws_log_handler)
 # Create FastAPI app
 app = FastAPI(
     title="Visual Mapper API",
-    version="0.0.20",
+    version="0.0.21",
     description="Android Device Monitoring & Automation for Home Assistant"
 )
 
@@ -245,6 +245,15 @@ stream_manager: Optional['StreamManager'] = None
 adb_maintenance: Optional['ADBMaintenance'] = None
 shell_pool: Optional['PersistentShellPool'] = None
 connection_monitor: Optional['ConnectionMonitor'] = None
+
+# Data Directory Configuration (HA Add-on Compatibility)
+# Standalone: ./data (relative to CWD)
+# HA Add-on: /data (persistent storage in Docker)
+DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
+
+# Ensure data directory exists on startup
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+logger.info(f"[Server] Data directory: {DATA_DIR.absolute()}")
 
 # MQTT Configuration (loaded from environment or config)
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
@@ -360,21 +369,21 @@ async def startup_event():
 
     # Initialize App Icon Extractor (independent of MQTT)
     app_icon_extractor = AppIconExtractor(
-        cache_dir="data/app-icons",
+        cache_dir=str(DATA_DIR / "app-icons"),
         enable_extraction=ENABLE_REAL_ICONS
     )
     logger.info(f"[Server] {'✅' if ENABLE_REAL_ICONS else '⚪'} App Icon Extractor initialized (real icons: {ENABLE_REAL_ICONS})")
 
     # Initialize Play Store Icon Scraper (independent of MQTT)
     playstore_icon_scraper = PlayStoreIconScraper(
-        cache_dir="data/app-icons-playstore"
+        cache_dir=str(DATA_DIR / "app-icons-playstore")
     )
     logger.info(f"[Server] ✅ Play Store Icon Scraper initialized")
 
     # Initialize Device Icon Scraper (independent of MQTT)
     device_icon_scraper = DeviceIconScraper(
         adb_bridge=adb_bridge,
-        cache_dir="data/device-icons"
+        cache_dir=str(DATA_DIR / "device-icons")
     )
     logger.info(f"[Server] ✅ Device Icon Scraper initialized (device-specific icons)")
 
@@ -403,55 +412,55 @@ async def startup_event():
     shell_pool = PersistentShellPool(max_sessions_per_device=2)
     logger.info("[Server] ✅ Persistent Shell Pool initialized")
 
+    # Phase 8: Initialize Flow System (independent of MQTT)
+    logger.info("[Server] Initializing Flow System (Phase 8)")
+
+    # Initialize components
+    flow_manager = FlowManager()
+    execution_history = FlowExecutionHistory()  # Track detailed flow execution logs
+
+    flow_executor = FlowExecutor(
+        adb_bridge=adb_bridge,
+        sensor_manager=sensor_manager,
+        text_extractor=text_extractor,
+        mqtt_manager=mqtt_manager,
+        flow_manager=flow_manager,
+        screenshot_stitcher=screenshot_stitcher,
+        execution_history=execution_history,
+        navigation_manager=navigation_manager  # Phase 9: Smart navigation recovery
+    )
+
+    flow_scheduler = FlowScheduler(flow_executor, flow_manager)
+    performance_monitor = PerformanceMonitor(flow_scheduler, mqtt_manager)
+
+    # Update flow_executor with performance_monitor
+    flow_executor.performance_monitor = performance_monitor
+
+    # Start scheduler
+    await flow_scheduler.start()
+    logger.info("[Server] ✅ Flow System initialized and scheduler started")
+
+    # Initialize Connection Monitor (handles device health checks and auto-recovery)
+    connection_monitor = ConnectionMonitor(
+        adb_bridge=adb_bridge,
+        device_migrator=device_migrator,
+        mqtt_manager=mqtt_manager,
+        check_interval=30  # Check every 30 seconds
+    )
+    logger.info("[Server] ✅ Connection Monitor initialized")
+
     # Connect to MQTT broker
     connected = await mqtt_manager.connect()
     if connected:
         logger.info("[Server] ✅ Connected to MQTT broker")
 
-        # Initialize Sensor Updater
+        # Initialize Sensor Updater (requires MQTT)
         sensor_updater = SensorUpdater(adb_bridge, sensor_manager, mqtt_manager)
-
-        # Phase 8: Initialize Flow System
-        logger.info("[Server] Initializing Flow System (Phase 8)")
-
-        # Initialize components
-        flow_manager = FlowManager()
-        execution_history = FlowExecutionHistory()  # Track detailed flow execution logs
-
-        flow_executor = FlowExecutor(
-            adb_bridge=adb_bridge,
-            sensor_manager=sensor_manager,
-            text_extractor=text_extractor,
-            mqtt_manager=mqtt_manager,
-            flow_manager=flow_manager,
-            screenshot_stitcher=screenshot_stitcher,
-            execution_history=execution_history,
-            navigation_manager=navigation_manager  # Phase 9: Smart navigation recovery
-        )
-
-        flow_scheduler = FlowScheduler(flow_executor, flow_manager)
-        performance_monitor = PerformanceMonitor(flow_scheduler, mqtt_manager)
-
-        # Update flow_executor with performance_monitor
-        flow_executor.performance_monitor = performance_monitor
-
-        # Start scheduler
-        await flow_scheduler.start()
-        logger.info("[Server] ✅ Flow System initialized and scheduler started")
 
         # Initialize Navigation MQTT Handler for passive navigation learning
         navigation_mqtt_handler = NavigationMqttHandler(navigation_manager)
         mqtt_manager.set_navigation_learn_callback(navigation_mqtt_handler.handle_learn_transition)
         logger.info("[Server] ✅ Navigation MQTT handler initialized for passive learning")
-
-        # Initialize Connection Monitor (handles device health checks and auto-recovery)
-        connection_monitor = ConnectionMonitor(
-            adb_bridge=adb_bridge,
-            device_migrator=device_migrator,
-            mqtt_manager=mqtt_manager,
-            check_interval=30  # Check every 30 seconds
-        )
-        logger.info("[Server] ✅ Connection Monitor initialized")
 
         # Subscribe to device announcements (MQTT-based device discovery)
         async def on_device_announced(announcement: dict):
@@ -487,6 +496,43 @@ async def startup_event():
 
         await mqtt_manager.subscribe_device_announcements(on_device_announced)
         logger.info("[Server] ✅ Subscribed to device announcements (MQTT discovery)")
+
+        # Subscribe to generated flows from Android companion app
+        async def on_generated_flow(flow_data: dict):
+            """Handle flow generated by Android companion app exploration"""
+            try:
+                flow_id = flow_data.get('flow_id', 'unknown')
+                device_id = flow_data.get('device_id')
+                name = flow_data.get('name', 'Auto-generated flow')
+
+                logger.info(f"[Server] 📥 Received generated flow: {name} ({flow_id})")
+
+                if not device_id:
+                    logger.error("[Server] Generated flow missing device_id, skipping")
+                    return
+
+                # Save the flow using flow_manager
+                if flow_manager:
+                    try:
+                        # Ensure required fields
+                        if 'steps' not in flow_data:
+                            flow_data['steps'] = []
+                        if 'enabled' not in flow_data:
+                            flow_data['enabled'] = False  # Disabled by default for review
+
+                        saved_flow = flow_manager.create_flow(device_id, flow_data)
+                        logger.info(f"[Server] ✅ Saved generated flow: {flow_id} for device {device_id}")
+                    except Exception as e:
+                        logger.error(f"[Server] Failed to save generated flow: {e}")
+                else:
+                    logger.warning("[Server] Flow manager not available, cannot save generated flow")
+
+            except Exception as e:
+                logger.error(f"[Server] Error processing generated flow: {e}")
+
+        await mqtt_manager.subscribe_to_generated_flows()
+        mqtt_manager.set_generated_flow_callback(on_generated_flow)
+        logger.info("[Server] ✅ Subscribed to generated flows (Android exploration)")
 
         # Register callback to publish MQTT discovery when devices are discovered
         async def on_device_discovered(device_id: str, model: str = None):
@@ -564,8 +610,8 @@ async def startup_event():
                 import json
                 import subprocess
 
-                # Find all sensor files in data/ directory
-                sensor_files = glob.glob("data/sensors_*.json")
+                # Find all sensor files in data directory
+                sensor_files = glob.glob(str(DATA_DIR / "sensors_*.json"))
                 device_ids = set()
 
                 for file_path in sensor_files:
@@ -786,7 +832,7 @@ logger.info("[Server] Registered route module: shell (5 endpoints: stats + execu
 app.include_router(maintenance.router)
 logger.info("[Server] Registered route module: maintenance (12 endpoints: 2 server + 6 device optimization + 2 background limit + 2 metrics)")
 app.include_router(adb_connection.router)
-logger.info("[Server] Registered route module: adb_connection (3 endpoints: connect + pair + disconnect)")
+logger.info(f"[Server] Registered route module: adb_connection ({len(adb_connection.router.routes)} endpoints)")
 app.include_router(adb_control.router)
 logger.info("[Server] Registered route module: adb_control (6 endpoints: tap + swipe + text + keyevent + back + home)")
 app.include_router(adb_screenshot.router)
@@ -817,11 +863,21 @@ app.include_router(companion.router)
 logger.info("[Server] Registered route module: companion (5 endpoints: ui-tree + status + devices + discover-screens + select-elements)")
 app.include_router(services.router)
 logger.info("[Server] Registered route module: services (6 endpoints: status + mqtt + ml start/stop/restart)")
+app.include_router(deduplication.router)
+logger.info("[Server] Registered route module: deduplication (5 endpoints: sensor/action/flow similarity + optimize)")
 
 # ============================================================================
 # All API endpoints have been migrated to routes/ modules
 # See routes/__init__.py for the full list of route modules
 # ============================================================================
+
+# === Device Identity Test Endpoint ===
+@app.get("/api/test/device-identity")
+async def test_device_identity():
+    """Test endpoint for device identity"""
+    from services.device_identity import get_device_identity_resolver
+    resolver = get_device_identity_resolver()
+    return {"devices": resolver.get_all_devices(), "status": "ok"}
 
 # === Real-Time Log Viewer ===
 

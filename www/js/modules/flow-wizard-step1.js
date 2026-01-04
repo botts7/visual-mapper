@@ -69,8 +69,25 @@ export async function loadStep(wizard) {
             card.addEventListener('click', async () => {
                 deviceList.querySelectorAll('.device-card').forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
-                wizard.selectedDevice = card.dataset.device;
-                console.log('[Step1] Device selected:', wizard.selectedDevice);
+
+                const connectionId = card.dataset.device;
+                wizard.selectedDevice = connectionId;
+
+                // Resolve to stable device ID for data storage
+                try {
+                    const response = await fetch(`${getApiBase()}/adb/identity/${encodeURIComponent(connectionId)}`);
+                    if (response.ok) {
+                        const identity = await response.json();
+                        wizard.selectedDeviceStableId = identity.stable_device_id || connectionId;
+                        console.log(`[Step1] Device selected: ${connectionId} -> stable ID: ${wizard.selectedDeviceStableId}`);
+                    } else {
+                        wizard.selectedDeviceStableId = connectionId;
+                        console.log('[Step1] Device selected (no stable ID):', connectionId);
+                    }
+                } catch (error) {
+                    wizard.selectedDeviceStableId = connectionId;
+                    console.warn('[Step1] Could not resolve stable ID:', error);
+                }
 
                 // Pause sensor updates for this device to reduce ADB contention
                 if (wizard.pauseSensorUpdates) {
@@ -110,7 +127,8 @@ export function validateStep(wizard) {
  */
 export function getStepData(wizard) {
     return {
-        selectedDevice: wizard.selectedDevice
+        selectedDevice: wizard.selectedDevice,
+        selectedDeviceStableId: wizard.selectedDeviceStableId || wizard.selectedDevice
     };
 }
 

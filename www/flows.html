@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.20">
-    <meta name="version" content="0.0.20" data-build="2026-01-01">
+    <meta name="viewport" content="0.0.21">
+    <meta name="version" content="0.0.21" data-build="2026-01-03">
     <title>Flow Management - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.20">
-    <link rel="stylesheet" href="css/flows.css?v=0.0.20">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.21">
+    <link rel="stylesheet" href="css/flows.css?v=0.0.21">
 </head>
 <body>
     <nav>
@@ -410,7 +410,7 @@
 
                 <div class="form-group" id="appSelectGroup">
                     <label for="smartFlowApp">App (with navigation data)</label>
-                    <select id="smartFlowApp" class="form-control" disabled>
+                    <select id="smartFlowApp" class="form-control" disabled onchange="onSmartFlowAppChange()">
                         <option value="">Select device first...</option>
                     </select>
                 </div>
@@ -425,18 +425,95 @@
                             <input type="checkbox" id="smartFlowSensors" checked>
                             Capture sensors at each screen
                         </label>
+                        <label class="checkbox-label" style="margin-top: 8px; padding: 8px; background: #e8f5e9; border-radius: 4px;">
+                            <input type="checkbox" id="smartFlowLearnMode">
+                            <strong>Learn Mode</strong> - Capture UI elements during test to improve future flows
+                            <div style="font-size: 0.8em; color: #666; margin-top: 4px; margin-left: 20px;">
+                                Slower but updates navigation data with real screen elements
+                            </div>
+                        </label>
                     </div>
                 </div>
                 <div class="smart-flow-preview" id="smartFlowPreview" style="display: none;">
                     <h4>Generated Flow Preview</h4>
+                    <div class="preview-warnings" id="smartFlowWarnings" style="display: none;"></div>
                     <div class="preview-stats" id="smartFlowStats"></div>
-                    <div class="preview-steps" id="smartFlowSteps"></div>
+
+                    <!-- Tabbed Sections for Sensors/Actions -->
+                    <div class="smart-flow-tabs" style="margin: 16px 0;">
+                        <div class="tab-buttons" style="display: flex; gap: 0; border-bottom: 2px solid #ddd; flex-wrap: wrap;">
+                            <button class="smart-tab-btn active" id="tabSensors" onclick="switchSmartFlowTab('sensors')" style="padding: 10px 16px; border: none; background: #f8f9fa; cursor: pointer; font-weight: 500; border-bottom: 2px solid #2196F3; margin-bottom: -2px; flex: 1; min-width: 140px; position: relative;">
+                                <div style="display: flex; flex-direction: column; align-items: center; gap: 2px;">
+                                    <span>📊 Existing Sensors</span>
+                                    <span style="font-size: 0.75em; color: #888; font-weight: normal;">Will be captured</span>
+                                </div>
+                                <span id="sensorsTabCount" style="background: #e3f2fd; color: #1976D2; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; position: absolute; top: 4px; right: 4px;">0</span>
+                            </button>
+                            <button class="smart-tab-btn" id="tabSuggested" onclick="switchSmartFlowTab('suggested')" style="padding: 10px 16px; border: none; background: #fff; cursor: pointer; font-weight: 500; margin-bottom: -2px; flex: 1; min-width: 140px; position: relative;">
+                                <div style="display: flex; flex-direction: column; align-items: center; gap: 2px;">
+                                    <span>✨ Auto-Detected</span>
+                                    <span style="font-size: 0.75em; color: #888; font-weight: normal;">New sensors to create</span>
+                                </div>
+                                <span id="suggestedTabCount" style="background: #fff3cd; color: #856404; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; position: absolute; top: 4px; right: 4px;">0</span>
+                            </button>
+                            <button class="smart-tab-btn" id="tabActions" onclick="switchSmartFlowTab('actions')" style="padding: 10px 16px; border: none; background: #fff; cursor: pointer; font-weight: 500; margin-bottom: -2px; flex: 1; min-width: 140px; position: relative;">
+                                <div style="display: flex; flex-direction: column; align-items: center; gap: 2px;">
+                                    <span>🎮 Flow Steps</span>
+                                    <span style="font-size: 0.75em; color: #888; font-weight: normal;">Navigation & actions</span>
+                                </div>
+                                <span id="actionsTabCount" style="background: #e8f4fd; color: #1565C0; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; position: absolute; top: 4px; right: 4px;">0</span>
+                            </button>
+                        </div>
+
+                        <!-- Sensors Tab Content -->
+                        <div class="smart-tab-content" id="sensorsTabContent" style="padding: 12px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span style="font-size: 0.9em; color: #666;">Existing sensors that will be captured</span>
+                                <label style="font-size: 0.85em; cursor: pointer;">
+                                    <input type="checkbox" id="smartFlowSelectAllSensors" checked onchange="toggleAllSmartFlowSensors(this.checked)"> Select All
+                                </label>
+                            </div>
+                            <div id="smartFlowSensorsList" style="max-height: 220px; overflow-y: auto;"></div>
+                        </div>
+
+                        <!-- Suggested Sensors Tab Content -->
+                        <div class="smart-tab-content" id="suggestedTabContent" style="padding: 12px; background: #fff8e5; border-radius: 0 0 8px 8px; display: none;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span style="font-size: 0.9em; color: #856404;">Smart-detected elements that look like sensor data</span>
+                                <label style="font-size: 0.85em; cursor: pointer;">
+                                    <input type="checkbox" id="smartFlowSelectAllSuggested" onchange="toggleAllSuggestedSensors(this.checked)"> Select All
+                                </label>
+                            </div>
+                            <div id="suggestedSensorsList" style="max-height: 220px; overflow-y: auto;"></div>
+                        </div>
+
+                        <!-- Actions Tab Content -->
+                        <div class="smart-tab-content" id="actionsTabContent" style="padding: 12px; background: #e8f4fd; border-radius: 0 0 8px 8px; display: none;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span style="font-size: 0.9em; color: #666;">Actions/buttons for Home Assistant</span>
+                                <label style="font-size: 0.85em; cursor: pointer;">
+                                    <input type="checkbox" id="smartFlowSelectAllActions" checked onchange="toggleAllSmartFlowActions(this.checked)"> Select All
+                                </label>
+                            </div>
+                            <div id="smartFlowActionsList" style="max-height: 220px; overflow-y: auto;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Steps Section -->
+                    <div class="preview-steps-header" style="display: flex; justify-content: space-between; align-items: center; margin: 12px 0 8px 0;">
+                        <strong>Steps</strong>
+                        <button class="btn btn-sm" id="btnExpandSteps" onclick="toggleSmartFlowSteps()" style="padding: 4px 12px; font-size: 0.85em;">Show All</button>
+                    </div>
+                    <div class="preview-steps" id="smartFlowSteps" style="max-height: 200px; overflow-y: auto;"></div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeSmartFlowModal()">Cancel</button>
                 <button class="btn btn-primary" id="btnGenerateSmartFlow" onclick="generateSmartFlow()" disabled>
                     Generate Flow
+                </button>
+                <button class="btn btn-warning" id="btnTestSmartFlow" onclick="testSmartFlow()" style="display: none;">
+                    🧪 Test Flow
                 </button>
                 <button class="btn btn-success" id="btnSaveSmartFlow" onclick="saveSmartFlow()" style="display: none;">
                     Save Flow
@@ -523,7 +600,7 @@
         </div>
     </div>
 
-    <script src="js/init.js?v=0.0.20"></script>
+    <script src="js/init.js?v=0.0.21"></script>
     <script type="module">
         import FlowManager from './js/modules/flow-manager.js?v=0.0.6.1';
 
@@ -605,7 +682,7 @@
                 }
 
                 const data = await response.json();
-                updateFlowStatus(flowId, data.latest);
+                updateFlowStatus(flowId, data);
             } catch (error) {
                 console.warn(`[Flows] Could not load execution status for ${flowId}:`, error);
                 // Update to show error state
@@ -1230,8 +1307,10 @@
 
         /**
          * Show execution results in modal with step-by-step details
+         * @param {Object} result - Execution result from API
+         * @param {Object} flowDefinition - Optional flow definition (for Smart Flow tests)
          */
-        function showExecutionResults(result) {
+        function showExecutionResults(result, flowDefinition = null) {
             const modal = document.getElementById('executionResultsModal');
             const content = document.getElementById('executionResultsBody');
 
@@ -1241,8 +1320,8 @@
                 return;
             }
 
-            // Get flow definition to show step details
-            const flow = flows.find(f => f.flow_id === result.flow_id);
+            // Get flow definition - use provided definition or find in flows array
+            const flow = flowDefinition || flows.find(f => f.flow_id === result.flow_id);
             const totalSteps = flow ? flow.steps.length : result.executed_steps ?? 0;
             const executedSteps = result.executed_steps ?? 0;
             const executionTime = result.execution_time_ms ?? 0;
@@ -1334,13 +1413,27 @@
                         </div>
                         ${stepsHtml}
                         ${Object.keys(capturedSensors).length > 0 ? `
-                            <div class="captured-sensors">
-                                <h5>Captured Sensors:</h5>
-                                <ul>
+                            <div class="captured-sensors" style="margin-top: 16px; padding: 12px; background: #e8f5e9; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                                <h5 style="margin: 0 0 8px 0; color: #2e7d32;">📊 Captured Sensor Values:</h5>
+                                <ul style="margin: 0; padding-left: 20px;">
                                     ${Object.entries(capturedSensors).map(([id, value]) =>
-                                        `<li><strong>${escapeHtml(id)}:</strong> ${escapeHtml(String(value))}</li>`
+                                        `<li style="margin: 4px 0;"><strong>${escapeHtml(id)}:</strong> <span style="color: #1565c0; font-weight: 600;">${escapeHtml(String(value))}</span></li>`
                                     ).join('')}
                                 </ul>
+                            </div>
+                        ` : '<div style="margin-top: 16px; padding: 12px; background: #fff3e0; border-radius: 8px; border-left: 4px solid #ff9800;"><strong>⚠️ No sensor values captured.</strong> Check if sensors exist and screen was correct.</div>'}
+                        ${result.learned_screens && result.learned_screens.length > 0 ? `
+                            <div class="learned-screens" style="margin-top: 16px; padding: 12px; background: #e3f2fd; border-radius: 8px; border-left: 4px solid #2196F3;">
+                                <h5 style="margin: 0 0 8px 0; color: #1565c0;">🎓 Learn Mode - Captured ${result.learned_screens.length} Screen(s):</h5>
+                                <ul style="margin: 0; padding-left: 20px; font-size: 0.9em;">
+                                    ${result.learned_screens.map(screen =>
+                                        `<li style="margin: 4px 0;">
+                                            <strong>${escapeHtml(screen.activity?.split('.')?.pop() || 'Unknown')}</strong>
+                                            <span style="color: #666;"> - ${screen.element_count} elements (${screen.clickable_count} clickable)</span>
+                                        </li>`
+                                    ).join('')}
+                                </ul>
+                                <p style="margin: 8px 0 0 0; font-size: 0.85em; color: #666;">Navigation graph updated for future Smart Flows!</p>
                             </div>
                         ` : ''}
                     </div>
@@ -2043,6 +2136,9 @@
             const tabBasic = document.getElementById('tabBasic');
             if (tabBasic) tabBasic.classList.add('active');
 
+            // Render the flow steps in the basic editor
+            renderFlowSteps();
+
             // Show modal
             document.getElementById('editModal').classList.add('active');
         }
@@ -2706,6 +2802,7 @@
             companionAppInfo = null;
             document.getElementById('smartFlowPreview').style.display = 'none';
             document.getElementById('btnSaveSmartFlow').style.display = 'none';
+            document.getElementById('btnTestSmartFlow').style.display = 'none';
             document.getElementById('btnGenerateSmartFlow').disabled = true;
             document.getElementById('discoveryModeGroup').style.display = 'none';
             document.getElementById('navDataPanel').style.display = 'none';
@@ -2859,6 +2956,7 @@
                     generateBtn.disabled = !appSelect.value;
                     document.getElementById('smartFlowPreview').style.display = 'none';
                     document.getElementById('btnSaveSmartFlow').style.display = 'none';
+                    document.getElementById('btnTestSmartFlow').style.display = 'none';
 
                     // Show navigation stats for selected app
                     if (appSelect.value) {
@@ -2938,6 +3036,20 @@
                 const appSelect = document.getElementById('smartFlowApp');
                 generateBtn.disabled = !appSelect.value;
                 generateBtn.textContent = 'Generate Flow';
+            }
+        }
+
+        function onSmartFlowAppChange() {
+            const appSelect = document.getElementById('smartFlowApp');
+            const generateBtn = document.getElementById('btnGenerateSmartFlow');
+            const packageName = appSelect.value;
+
+            // Enable Generate button if app is selected
+            generateBtn.disabled = !packageName;
+
+            // Load navigation stats for this app if selected
+            if (packageName) {
+                loadNavigationStats(packageName);
             }
         }
 
@@ -3110,28 +3222,321 @@
             showSmartFlowPreview(result);
         }
 
+        // Track if steps are expanded
+        let smartFlowStepsExpanded = false;
+        // Store sensor selection state
+        window._smartFlowSensors = [];
+
         function showSmartFlowPreview(result) {
             const previewDiv = document.getElementById('smartFlowPreview');
             const statsDiv = document.getElementById('smartFlowStats');
             const stepsDiv = document.getElementById('smartFlowSteps');
+            const warningsDiv = document.getElementById('smartFlowWarnings');
+            const sensorsListDiv = document.getElementById('smartFlowSensorsList');
 
+            // Show warnings if any
+            let warningsHtml = '';
+
+            // Special handling for overlapping flows
+            if (result.overlapping_flows && result.overlapping_flows.length > 0) {
+                warningsHtml += `
+                    <div class="overlap-section" style="background: #fff3cd; border: 1px solid #ffc107; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
+                        <div style="font-weight: 600; margin-bottom: 8px; color: #856404;">
+                            📋 Overlapping Flows Detected
+                        </div>
+                        <div style="font-size: 0.9em; color: #664d03; margin-bottom: 8px;">
+                            This flow captures sensors that are already covered by existing flows:
+                        </div>
+                        ${result.overlapping_flows.map(of => `
+                            <div style="background: white; padding: 8px; border-radius: 4px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong>${of.flow_name}</strong>
+                                    <div style="font-size: 0.8em; color: #666;">${of.similarity}% overlap</div>
+                                </div>
+                                <div style="font-size: 0.8em; color: #856404;">
+                                    ${of.recommendation === 'use_existing' ? '💡 Consider using existing' : '⚠️ Review recommended'}
+                                </div>
+                            </div>
+                        `).join('')}
+                        <div style="font-size: 0.85em; color: #664d03; margin-top: 8px;">
+                            💡 <em>Tip: Consolidating flows reduces redundant sensor captures during scheduled runs.</em>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Regular warnings
+            if (result.warnings && result.warnings.length > 0) {
+                warningsHtml += result.warnings.filter(w => !w.includes('Overlaps')).map(w => `
+                    <div class="warning-item" style="background: #fef3cd; color: #856404; padding: 8px 12px; border-radius: 4px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 1.2em;">⚠️</span>
+                        <span>${w}</span>
+                    </div>
+                `).join('');
+            }
+
+            if (warningsHtml) {
+                warningsDiv.innerHTML = warningsHtml;
+                warningsDiv.style.display = 'block';
+            } else {
+                warningsDiv.style.display = 'none';
+            }
+
+            const suggestionsCount = result.suggestions_count || (result.suggested_sensors ? result.suggested_sensors.length : 0);
             statsDiv.innerHTML = `
                 <div class="stat-item">
                     <span class="stat-label">Screens Covered:</span>
-                    <span class="stat-value">${result.screens_covered}/${result.total_screens}</span>
+                    <span class="stat-value">${result.screens_covered}/${result.safe_screens || result.total_screens}</span>
                 </div>
                 <div class="stat-item">
                     <span class="stat-label">Total Steps:</span>
                     <span class="stat-value">${result.flow.steps.length}</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-label">Sensors Found:</span>
+                    <span class="stat-label">Existing Sensors:</span>
                     <span class="stat-value">${result.sensors_found}</span>
                 </div>
+                ${suggestionsCount > 0 ? `
+                <div class="stat-item" style="color: #856404;">
+                    <span class="stat-label">✨ New Detected:</span>
+                    <span class="stat-value">${suggestionsCount}</span>
+                </div>
+                ` : ''}
             `;
 
-            // Show first 10 steps as preview
-            const steps = result.flow.steps.slice(0, 10);
+            // Store sensors for toggling
+            window._smartFlowSensors = result.sensors || [];
+            renderSmartFlowSensors();
+
+            // Store suggested sensors for toggling
+            window._suggestedSensors = result.suggested_sensors || [];
+            renderSuggestedSensors();
+
+            // Store actions for toggling
+            window._smartFlowActions = result.actions || [];
+            renderSmartFlowActions();
+
+            // Store all steps for toggling
+            window._smartFlowAllSteps = result.flow.steps;
+            smartFlowStepsExpanded = false;
+            renderSmartFlowSteps(false);
+
+            previewDiv.style.display = 'block';
+            document.getElementById('btnTestSmartFlow').style.display = 'inline-block';
+            document.getElementById('btnSaveSmartFlow').style.display = 'inline-block';
+            showToast(result.message, 'success');
+        }
+
+        function renderSmartFlowSensors() {
+            const sensorsListDiv = document.getElementById('smartFlowSensorsList');
+            const sensors = window._smartFlowSensors || [];
+
+            // Update tab count
+            const countEl = document.getElementById('sensorsTabCount');
+            if (countEl) countEl.textContent = sensors.length;
+
+            if (sensors.length === 0) {
+                sensorsListDiv.innerHTML = '<div style="color: #666; font-style: italic; padding: 8px;">No sensors found for this app</div>';
+                return;
+            }
+
+            sensorsListDiv.innerHTML = sensors.map((sensor, i) => `
+                <div class="sensor-item" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-bottom: 1px solid #eee; ${!sensor.enabled ? 'opacity: 0.5;' : ''}">
+                    <input type="checkbox"
+                           id="smartSensor_${i}"
+                           ${sensor.enabled ? 'checked' : ''}
+                           onchange="toggleSmartFlowSensor(${i}, this.checked)"
+                           style="width: 18px; height: 18px;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 500;">${sensor.name}</div>
+                        <div style="font-size: 0.8em; color: #666;">
+                            ${sensor.type} · ${sensor.device_class || 'none'}${sensor.unit ? ' · ' + sensor.unit : ''}
+                        </div>
+                        <div style="font-size: 0.75em; color: #999; font-family: monospace;">${sensor.entity_id}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleSmartFlowSensor(index, enabled) {
+            if (window._smartFlowSensors && window._smartFlowSensors[index]) {
+                window._smartFlowSensors[index].enabled = enabled;
+                // Update the flow's sensor_ids based on enabled sensors
+                updateSmartFlowSensorIds();
+            }
+        }
+
+        function toggleAllSmartFlowSensors(enabled) {
+            if (window._smartFlowSensors) {
+                window._smartFlowSensors.forEach(s => s.enabled = enabled);
+                renderSmartFlowSensors();
+                updateSmartFlowSensorIds();
+            }
+        }
+
+        function updateSmartFlowSensorIds() {
+            // Update the capture_sensors step in the generated flow
+            if (generatedSmartFlow && generatedSmartFlow.steps) {
+                const enabledSensorIds = window._smartFlowSensors
+                    .filter(s => s.enabled)
+                    .map(s => s.sensor_id);
+
+                // Find and update the capture_sensors step
+                const captureStep = generatedSmartFlow.steps.find(s => s.step_type === 'capture_sensors');
+                if (captureStep) {
+                    captureStep.sensor_ids = enabledSensorIds;
+                    captureStep.description = `Capture ${enabledSensorIds.length} sensor(s)`;
+                }
+            }
+        }
+
+        function renderSmartFlowActions() {
+            const actionsListDiv = document.getElementById('smartFlowActionsList');
+            const actions = window._smartFlowActions || [];
+
+            // Update tab count
+            const countEl = document.getElementById('actionsTabCount');
+            if (countEl) countEl.textContent = actions.length;
+
+            if (actions.length === 0) {
+                actionsListDiv.innerHTML = '<div style="color: #666; font-style: italic; padding: 8px;">No actions found. Record tap/swipe actions in the Flow Wizard to create buttons.</div>';
+                return;
+            }
+
+            // Sort actions: flow actions first, then stored, then navigation
+            const sortedActions = [...actions].sort((a, b) => {
+                const order = { 'flow': 0, 'stored': 1, 'navigation': 2 };
+                return (order[a.source] || 3) - (order[b.source] || 3);
+            });
+
+            actionsListDiv.innerHTML = sortedActions.map((action, i) => {
+                const sourceIcon = action.source === 'flow' ? '⚡ Flow Action' :
+                                   action.source === 'stored' ? '💾 Saved Action' :
+                                   '🧭 Navigation';
+                const sourceColor = action.source === 'flow' ? '#059669' :
+                                    action.source === 'stored' ? '#2563eb' :
+                                    '#9ca3af';
+                return `
+                <div class="action-item" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-bottom: 1px solid #cce5ff; ${!action.enabled ? 'opacity: 0.5;' : ''}">
+                    <input type="checkbox"
+                           id="smartAction_${i}"
+                           ${action.enabled ? 'checked' : ''}
+                           onchange="toggleSmartFlowAction(${i}, this.checked)"
+                           style="width: 18px; height: 18px;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 500;">${action.name}</div>
+                        <div style="font-size: 0.8em; color: ${sourceColor};">
+                            ${action.type} · ${sourceIcon}
+                        </div>
+                        <div style="font-size: 0.75em; color: #999;">${action.description || ''}</div>
+                        <div style="font-size: 0.7em; color: #bbb; font-family: monospace;">${action.entity_id}</div>
+                    </div>
+                </div>
+            `}).join('');
+        }
+
+        function toggleSmartFlowAction(index, enabled) {
+            if (window._smartFlowActions && window._smartFlowActions[index]) {
+                window._smartFlowActions[index].enabled = enabled;
+            }
+        }
+
+        function toggleAllSmartFlowActions(enabled) {
+            if (window._smartFlowActions) {
+                window._smartFlowActions.forEach(a => a.enabled = enabled);
+                renderSmartFlowActions();
+            }
+        }
+
+        // Tab switching for Smart Flow preview
+        function switchSmartFlowTab(tabName) {
+            // Hide all tab contents
+            document.getElementById('sensorsTabContent').style.display = 'none';
+            document.getElementById('suggestedTabContent').style.display = 'none';
+            document.getElementById('actionsTabContent').style.display = 'none';
+
+            // Reset all tab buttons
+            document.getElementById('tabSensors').style.borderBottom = 'none';
+            document.getElementById('tabSensors').style.background = '#fff';
+            document.getElementById('tabSuggested').style.borderBottom = 'none';
+            document.getElementById('tabSuggested').style.background = '#fff';
+            document.getElementById('tabActions').style.borderBottom = 'none';
+            document.getElementById('tabActions').style.background = '#fff';
+
+            // Activate selected tab
+            const tabColors = {
+                sensors: { bg: '#f8f9fa', border: '#2196F3' },
+                suggested: { bg: '#fff8e5', border: '#ffc107' },
+                actions: { bg: '#e8f4fd', border: '#1976D2' }
+            };
+
+            const tab = tabColors[tabName];
+            document.getElementById(`${tabName}TabContent`).style.display = 'block';
+            document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).style.borderBottom = `2px solid ${tab.border}`;
+            document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).style.background = tab.bg;
+        }
+
+        // Render suggested (smart-detected) sensors
+        function renderSuggestedSensors() {
+            const listDiv = document.getElementById('suggestedSensorsList');
+            const suggestions = window._suggestedSensors || [];
+
+            // Update tab count
+            const countEl = document.getElementById('suggestedTabCount');
+            if (countEl) countEl.textContent = suggestions.length;
+
+            // Show/hide the tab if no suggestions
+            const tabBtn = document.getElementById('tabSuggested');
+            if (tabBtn) {
+                tabBtn.style.display = suggestions.length > 0 ? 'block' : 'none';
+            }
+
+            if (suggestions.length === 0) {
+                listDiv.innerHTML = '<div style="color: #856404; font-style: italic; padding: 8px;">No new sensors detected on current screen. Navigate to screens with data elements to see suggestions.</div>';
+                return;
+            }
+
+            listDiv.innerHTML = suggestions.map((s, i) => `
+                <div class="sensor-item" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-bottom: 1px solid #f0e6c8; ${!s.enabled ? 'opacity: 0.6;' : ''}">
+                    <input type="checkbox"
+                           id="suggestedSensor_${i}"
+                           ${s.enabled ? 'checked' : ''}
+                           onchange="toggleSuggestedSensor(${i}, this.checked)"
+                           style="width: 18px; height: 18px;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 500;">${s.name}</div>
+                        <div style="font-size: 0.8em; color: #856404;">
+                            ${s.device_class || 'generic'}${s.unit ? ' · ' + s.unit : ''} · ${Math.round((s.confidence || 0.5) * 100)}% match
+                        </div>
+                        <div style="font-size: 0.75em; color: #666;">
+                            Value: <strong>${s.element_text || '(empty)'}</strong>
+                        </div>
+                        <div style="font-size: 0.7em; color: #999;">${s.reason || ''}</div>
+                        <div style="font-size: 0.7em; color: #bbb; font-family: monospace;">${s.suggested_entity_id || ''}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleSuggestedSensor(index, enabled) {
+            if (window._suggestedSensors && window._suggestedSensors[index]) {
+                window._suggestedSensors[index].enabled = enabled;
+            }
+        }
+
+        function toggleAllSuggestedSensors(enabled) {
+            if (window._suggestedSensors) {
+                window._suggestedSensors.forEach(s => s.enabled = enabled);
+                renderSuggestedSensors();
+            }
+        }
+
+        function renderSmartFlowSteps(showAll) {
+            const stepsDiv = document.getElementById('smartFlowSteps');
+            const btn = document.getElementById('btnExpandSteps');
+            const allSteps = window._smartFlowAllSteps || [];
+
+            const steps = showAll ? allSteps : allSteps.slice(0, 10);
             stepsDiv.innerHTML = steps.map((step, i) => `
                 <div class="preview-step">
                     <span class="step-num">${i + 1}</span>
@@ -3140,13 +3545,154 @@
                 </div>
             `).join('');
 
-            if (result.flow.steps.length > 10) {
-                stepsDiv.innerHTML += `<div class="preview-step more">... and ${result.flow.steps.length - 10} more steps</div>`;
+            if (!showAll && allSteps.length > 10) {
+                stepsDiv.innerHTML += `<div class="preview-step more" style="color: #666; font-style: italic;">... and ${allSteps.length - 10} more steps</div>`;
             }
 
-            previewDiv.style.display = 'block';
-            document.getElementById('btnSaveSmartFlow').style.display = 'inline-block';
-            showToast(result.message, 'success');
+            btn.textContent = showAll ? 'Show Less' : `Show All (${allSteps.length})`;
+            stepsDiv.style.maxHeight = showAll ? '400px' : '200px';
+        }
+
+        function toggleSmartFlowSteps() {
+            smartFlowStepsExpanded = !smartFlowStepsExpanded;
+            renderSmartFlowSteps(smartFlowStepsExpanded);
+        }
+
+        async function testSmartFlow() {
+            if (!generatedSmartFlow) {
+                showToast('No flow to test', 'warning');
+                return;
+            }
+
+            const testBtn = document.getElementById('btnTestSmartFlow');
+            const saveBtn = document.getElementById('btnSaveSmartFlow');
+            testBtn.disabled = true;
+            saveBtn.disabled = true;
+            testBtn.textContent = '🧪 Testing...';
+
+            // Show loading overlay
+            const loadingOverlay = document.createElement('div');
+            loadingOverlay.id = 'testFlowLoadingOverlay';
+            loadingOverlay.innerHTML = `
+                <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+                    <div style="background: white; padding: 30px 50px; border-radius: 12px; text-align: center; max-width: 400px;">
+                        <div style="font-size: 48px; margin-bottom: 16px;">🧪</div>
+                        <h3 style="margin: 0 0 12px 0; color: #333;">Testing Flow</h3>
+                        <p id="testFlowStatus" style="color: #666; margin: 0 0 16px 0;">Preparing test...</p>
+                        <div style="width: 100%; height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden;">
+                            <div id="testFlowProgress" style="width: 10%; height: 100%; background: #2196F3; transition: width 0.3s;"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(loadingOverlay);
+
+            const updateStatus = (msg, progress) => {
+                const statusEl = document.getElementById('testFlowStatus');
+                const progressEl = document.getElementById('testFlowProgress');
+                if (statusEl) statusEl.textContent = msg;
+                if (progressEl) progressEl.style.width = progress + '%';
+            };
+
+            let savedFlowId = null;
+            let savedDeviceId = null;
+
+            try {
+                // Step 1: Save the flow temporarily (disabled by default)
+                updateStatus('Saving flow for test...', 20);
+                const flowToSave = {
+                    ...generatedSmartFlow,
+                    enabled: false,
+                    name: generatedSmartFlow.name + ' (Test)'
+                };
+
+                const saveResponse = await fetch(`${window.flowManager.apiBase}/flows/generate-smart/save`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(flowToSave)
+                });
+
+                const saveResult = await saveResponse.json();
+                if (!saveResult.success) {
+                    throw new Error(saveResult.message || 'Failed to save flow for testing');
+                }
+
+                savedFlowId = saveResult.flow.flow_id;
+                savedDeviceId = saveResult.flow.device_id;
+
+                // Check if Learn Mode is enabled
+                const learnMode = document.getElementById('smartFlowLearnMode')?.checked || false;
+                const execMessage = learnMode
+                    ? 'Executing flow with learning (slower)...'
+                    : 'Executing flow on device...';
+                updateStatus(execMessage, 40);
+
+                // Step 2: Execute the flow (with learn_mode if enabled)
+                const execUrl = new URL(`${window.flowManager.apiBase}/flows/${savedDeviceId}/${savedFlowId}/execute`, window.location.origin);
+                if (learnMode) {
+                    execUrl.searchParams.set('learn_mode', 'true');
+                }
+
+                const execResponse = await fetch(execUrl.toString(), {
+                    method: 'POST'
+                });
+
+                updateStatus('Processing results...', 80);
+
+                if (!execResponse.ok) {
+                    const error = await execResponse.json();
+                    throw new Error(error.detail || 'Flow execution failed');
+                }
+
+                const execResult = await execResponse.json();
+                console.log('[SmartFlow] Test result:', execResult);
+                console.log('[SmartFlow] Step results:', execResult.step_results);
+                console.log('[SmartFlow] Captured sensors:', execResult.captured_sensors);
+
+                // Log learned screens if Learn Mode was used
+                if (learnMode && execResult.learned_screens) {
+                    console.log('[SmartFlow] Learned screens:', execResult.learned_screens);
+                }
+
+                updateStatus('Complete!', 100);
+
+                // Remove loading overlay before showing results
+                const overlay = document.getElementById('testFlowLoadingOverlay');
+                if (overlay) overlay.remove();
+
+                // Step 3: Show execution results (pass the flow definition for step details)
+                showExecutionResults(execResult, generatedSmartFlow);
+
+                if (execResult.success) {
+                    showToast('Flow test passed! You can now save the flow.', 'success');
+                } else {
+                    showToast('Flow test failed: ' + (execResult.error_message || 'Unknown error'), 'error');
+                }
+
+            } catch (error) {
+                console.error('Failed to test smart flow:', error);
+                showToast('Test failed: ' + error.message, 'error');
+            } finally {
+                // Remove loading overlay if still present
+                const overlay = document.getElementById('testFlowLoadingOverlay');
+                if (overlay) overlay.remove();
+
+                // Clean up: Delete the test flow
+                if (savedFlowId && savedDeviceId) {
+                    try {
+                        await fetch(`${window.flowManager.apiBase}/flows/${savedDeviceId}/${savedFlowId}`, {
+                            method: 'DELETE'
+                        });
+                        console.log('[SmartFlow] Cleaned up test flow');
+                    } catch (cleanupError) {
+                        console.warn('[SmartFlow] Failed to cleanup test flow:', cleanupError);
+                    }
+                }
+
+                testBtn.disabled = false;
+                saveBtn.disabled = false;
+                testBtn.textContent = '🧪 Test Flow';
+            }
         }
 
         async function saveSmartFlow() {
@@ -3160,6 +3706,56 @@
             saveBtn.textContent = 'Saving...';
 
             try {
+                // Get selected suggested sensors to create
+                const selectedSuggestions = (window._suggestedSensors || []).filter(s => s.enabled);
+                const sensorsCreated = [];
+
+                // Create selected suggested sensors first
+                if (selectedSuggestions.length > 0) {
+                    saveBtn.textContent = `Creating ${selectedSuggestions.length} sensors...`;
+
+                    for (const suggestion of selectedSuggestions) {
+                        try {
+                            const sensorData = {
+                                device_id: generatedSmartFlow.device_id,
+                                friendly_name: suggestion.name,
+                                entity_id: suggestion.suggested_entity_id,
+                                element_index: suggestion.element_index,
+                                element_bounds: suggestion.bounds,
+                                device_class: suggestion.device_class || 'none',
+                                unit_of_measurement: suggestion.unit || '',
+                                enabled: true,
+                                update_interval_seconds: 60
+                            };
+
+                            const createResp = await fetch(`${window.flowManager.apiBase}/sensors`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(sensorData)
+                            });
+
+                            const createResult = await createResp.json();
+                            if (createResult.success || createResult.sensor_id) {
+                                sensorsCreated.push(createResult.sensor_id || suggestion.suggested_entity_id);
+                                console.log(`Created sensor: ${suggestion.name}`);
+                            }
+                        } catch (sensorError) {
+                            console.warn(`Failed to create sensor ${suggestion.name}:`, sensorError);
+                        }
+                    }
+
+                    // Add newly created sensors to the flow's capture step
+                    if (sensorsCreated.length > 0) {
+                        const captureStep = generatedSmartFlow.steps.find(s => s.step_type === 'capture_sensors');
+                        if (captureStep) {
+                            captureStep.sensor_ids = [...(captureStep.sensor_ids || []), ...sensorsCreated];
+                            captureStep.description = `Capture ${captureStep.sensor_ids.length} sensor(s)`;
+                        }
+                    }
+                }
+
+                saveBtn.textContent = 'Saving flow...';
+
                 const response = await fetch(`${window.flowManager.apiBase}/flows/generate-smart/save`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -3172,7 +3768,10 @@
                     throw new Error(result.message || 'Save failed');
                 }
 
-                showToast(result.message, 'success');
+                const msg = sensorsCreated.length > 0
+                    ? `${result.message} (created ${sensorsCreated.length} new sensors)`
+                    : result.message;
+                showToast(msg, 'success');
                 closeSmartFlowModal();
                 await loadFlows();
 
@@ -3194,9 +3793,19 @@
         window.showSmartFlowModal = showSmartFlowModal;
         window.closeSmartFlowModal = closeSmartFlowModal;
         window.onSmartFlowDeviceChange = onSmartFlowDeviceChange;
+        window.onSmartFlowAppChange = onSmartFlowAppChange;
         window.onDiscoveryModeChange = onDiscoveryModeChange;
         window.generateSmartFlow = generateSmartFlow;
+        window.testSmartFlow = testSmartFlow;
         window.saveSmartFlow = saveSmartFlow;
+        window.toggleSmartFlowSteps = toggleSmartFlowSteps;
+        window.toggleSmartFlowSensor = toggleSmartFlowSensor;
+        window.toggleAllSmartFlowSensors = toggleAllSmartFlowSensors;
+        window.toggleSmartFlowAction = toggleSmartFlowAction;
+        window.toggleAllSmartFlowActions = toggleAllSmartFlowActions;
+        window.switchSmartFlowTab = switchSmartFlowTab;
+        window.toggleSuggestedSensor = toggleSuggestedSensor;
+        window.toggleAllSuggestedSensors = toggleAllSuggestedSensors;
 
         // Load flows on page load
         if (document.readyState === 'loading') {

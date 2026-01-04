@@ -7,8 +7,10 @@ via TCP/IP and wireless debugging (Android 11+).
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 import logging
 from routes import get_deps
+from services.device_identity import get_device_identity_resolver
 
 logger = logging.getLogger(__name__)
 
@@ -106,4 +108,90 @@ async def disconnect_device(request: DisconnectDeviceRequest):
         }
     except Exception as e:
         logger.error(f"[API] Disconnection failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/announced")
+async def get_announced_devices():
+    """Get devices that have announced themselves via MQTT
+
+    Android companion apps can announce their connection details to enable
+    auto-discovery without network scanning. This solves the Android 11+
+    wireless debugging discovery problem (dynamic ports).
+
+    Returns:
+        List of announced devices with connection info
+    """
+    deps = get_deps()
+    try:
+        # Get announced devices from MQTT manager
+        announced = deps.mqtt_manager.get_announced_devices() if deps.mqtt_manager else []
+        return {
+            "devices": announced,
+            "count": len(announced)
+        }
+    except Exception as e:
+        logger.error(f"[API] Failed to get announced devices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# DEVICE IDENTITY ENDPOINTS
+# =============================================================================
+
+@router.get("/known-devices")
+async def get_known_devices():
+    """Get all known devices with their stable identifiers.
+
+    Returns devices that have been registered with the identity resolver,
+    including their stable_device_id, current connection, and metadata.
+    """
+    try:
+        resolver = get_device_identity_resolver()
+        devices = resolver.get_all_devices()
+        return {
+            "devices": devices,
+            "count": len(devices)
+        }
+    except Exception as e:
+        logger.error(f"[API] Failed to get known devices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/identity/{device_id}")
+async def get_device_identity(device_id: str):
+    """Get identity information for a specific device.
+
+    Args:
+        device_id: Either connection_id (IP:port) or stable_device_id
+
+    Returns:
+        Device identity info including stable_device_id and connection info
+    """
+    deps = get_deps()
+    try:
+        resolver = get_device_identity_resolver()
+
+        # First try to resolve to stable ID
+        stable_id = resolver.resolve_any_id(device_id)
+
+        # Get device info
+        info = resolver.get_device_info(stable_id)
+
+        # Get current connection if device is connected
+        current_conn = resolver.get_connection_id(stable_id)
+        is_connected = current_conn in deps.adb_bridge.devices if deps.adb_bridge else False
+
+        return {
+            "device_id": device_id,
+            "stable_device_id": stable_id,
+            "current_connection": current_conn,
+            "is_connected": is_connected,
+            "model": info.get("model") if info else None,
+            "manufacturer": info.get("manufacturer") if info else None,
+            "last_seen": info.get("last_seen") if info else None,
+            "connection_history": info.get("connection_history", []) if info else []
+        }
+    except Exception as e:
+        logger.error(f"[API] Failed to get device identity: {e}")
         raise HTTPException(status_code=500, detail=str(e))

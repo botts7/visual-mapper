@@ -4,15 +4,20 @@ Visual Mapper v0.0.5
 
 Provides endpoints for communicating with the Android companion app
 including live UI discovery via MQTT.
+
+Security:
+- POST/write endpoints require companion auth (X-Companion-Key or localhost/Ingress)
+- GET/read endpoints are public (needed for Web UI)
 """
 
 import logging
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
 from routes import get_deps
 from routes.device_registration import registered_devices
+from routes.auth import verify_companion_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/companion", tags=["Companion App"])
@@ -69,7 +74,10 @@ class CompanionStatusResponse(BaseModel):
 # ============================================================================
 
 @router.post("/ui-tree")
-async def get_ui_tree(request: UITreeRequest) -> Dict[str, Any]:
+async def get_ui_tree(
+    request: UITreeRequest,
+    _auth: bool = Depends(verify_companion_auth)
+) -> Dict[str, Any]:
     """
     Request live UI tree from Android companion app.
 
@@ -263,7 +271,8 @@ async def discover_all_screens(
     device_id: str,
     package_name: str = Query(..., description="App package to discover"),
     max_screens: int = Query(20, description="Maximum screens to discover"),
-    timeout_per_screen: float = Query(5.0, description="Timeout per screen in seconds")
+    timeout_per_screen: float = Query(5.0, description="Timeout per screen in seconds"),
+    _auth: bool = Depends(verify_companion_auth)
 ) -> Dict[str, Any]:
     """
     Trigger full screen discovery for an app using companion app.
@@ -329,7 +338,10 @@ async def discover_all_screens(
 # ============================================================================
 
 @router.post("/select-elements")
-async def get_selectable_elements(request: UITreeRequest) -> Dict[str, Any]:
+async def get_selectable_elements(
+    request: UITreeRequest,
+    _auth: bool = Depends(verify_companion_auth)
+) -> Dict[str, Any]:
     """
     Get UI elements suitable for flow actions.
 

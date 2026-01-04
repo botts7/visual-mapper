@@ -1,12 +1,13 @@
 /**
  * Flow Recorder Module
- * Visual Mapper v0.0.9
+ * Visual Mapper v0.0.10
  *
  * Handles interactive flow recording with screenshot capture,
  * tap detection, and step management
  */
 
 import { showToast } from './toast.js?v=0.0.5';
+import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.0.1';
 
 /**
  * Get API base URL for proper routing (supports Home Assistant ingress)
@@ -251,99 +252,17 @@ class FlowRecorder {
 
     /**
      * Ensure device is unlocked before screenshot capture
-     * Checks lock state and attempts automatic unlock if configured
+     * Delegates to shared device-unlock.js module
      * @param {Function} statusCallback - Optional callback to update status text
      */
     async ensureDeviceUnlocked(statusCallback = null) {
-        const updateStatus = (msg) => {
-            console.log(`[FlowRecorder] ${msg}`);
-            if (statusCallback) statusCallback(msg);
-        };
-
-        try {
-            // Step 1: Check screen and lock state using new combined endpoint
-            updateStatus('Checking device state...');
-            const lockResponse = await fetch(`${this.apiBase}/adb/lock-status/${encodeURIComponent(this.deviceId)}`);
-
-            if (!lockResponse.ok) {
-                console.warn('[FlowRecorder] Could not check lock status');
-                return { success: true, status: 'unknown' }; // Continue anyway
+        // Delegate to shared module with simple callback
+        return await sharedEnsureUnlocked(this.deviceId, this.apiBase, {
+            onStatus: (msg) => {
+                console.log(`[FlowRecorder] ${msg}`);
+                if (statusCallback) statusCallback(msg);
             }
-
-            const lockState = await lockResponse.json();
-            console.log('[FlowRecorder] Lock state:', lockState);
-
-            // Step 2: If screen is off, wake it first
-            if (!lockState.screen_on) {
-                updateStatus('Waking screen...');
-                await fetch(`${this.apiBase}/adb/wake/${encodeURIComponent(this.deviceId)}`, { method: 'POST' });
-                await this.wait(500); // Wait for screen to turn on
-            }
-
-            // Step 3: Check if device is locked
-            if (!lockState.is_locked) {
-                updateStatus('Device ready!');
-                console.log('[FlowRecorder] Device is already unlocked');
-                return { success: true, status: 'unlocked' };
-            }
-
-            updateStatus('Device is locked, attempting unlock...');
-            showToast('🔐 Unlocking device...', 'info', 3000);
-
-            // Step 4: Try to get stored security config
-            const securityResponse = await fetch(`${this.apiBase}/device/${encodeURIComponent(this.deviceId)}/security`);
-
-            if (securityResponse.ok) {
-                const securityConfig = await securityResponse.json();
-                console.log('[FlowRecorder] Security config:', securityConfig.config?.strategy);
-
-                // If auto_unlock is configured and has passcode, unlock with it
-                if (securityConfig.config?.strategy === 'auto_unlock' && securityConfig.config?.has_passcode) {
-                    updateStatus('Using stored passcode...');
-
-                    // Call backend unlock API (which retrieves and decrypts passcode)
-                    const unlockResponse = await fetch(`${this.apiBase}/device/${encodeURIComponent(this.deviceId)}/auto-unlock`, {
-                        method: 'POST'
-                    });
-
-                    if (unlockResponse.ok) {
-                        const result = await unlockResponse.json();
-                        if (result.success) {
-                            updateStatus('Device unlocked!');
-                            showToast('🔓 Device unlocked', 'success', 2000);
-                            await this.wait(300); // Brief wait for unlock animation
-                            return { success: true, status: 'unlocked' };
-                        }
-                    }
-                }
-            }
-
-            // Step 5: Fallback - Try simple swipe-to-unlock
-            updateStatus('Trying swipe unlock...');
-            const swipeResponse = await fetch(`${this.apiBase}/adb/unlock/${encodeURIComponent(this.deviceId)}`, {
-                method: 'POST'
-            });
-
-            if (swipeResponse.ok) {
-                const result = await swipeResponse.json();
-                if (result.success) {
-                    updateStatus('Device unlocked!');
-                    showToast('🔓 Device unlocked', 'success', 2000);
-                    await this.wait(500);
-                    return { success: true, status: 'unlocked' };
-                }
-            }
-
-            // If we get here, unlock failed
-            updateStatus('Please unlock device manually');
-            console.warn('[FlowRecorder] Automatic unlock failed');
-            showToast('⚠️ Please unlock device manually to continue', 'warning', 4000);
-            return { success: false, status: 'locked', needsManualUnlock: true };
-
-        } catch (error) {
-            console.warn('[FlowRecorder] Error checking/unlocking device:', error);
-            return { success: true, status: 'error' }; // Continue anyway
-        }
+        });
     }
 
     /**

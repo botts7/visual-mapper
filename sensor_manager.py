@@ -1,8 +1,11 @@
 """
 Visual Mapper - Sensor Manager
-Version: 0.0.4 (Phase 3)
+Version: 0.0.5 (Stable Device ID Support)
 
 Manages sensor storage, CRUD operations, and persistence.
+
+Uses stable_device_id (hardware serial) for file naming and sensor IDs
+to ensure sensors persist across wireless debugging port changes.
 """
 
 import json
@@ -14,6 +17,7 @@ from datetime import datetime
 import logging
 
 from sensor_models import SensorDefinition, SensorList
+from services.device_identity import get_device_identity_resolver
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +37,14 @@ class SensorManager:
         logger.info(f"[SensorManager] Initialized with data_dir={self.data_dir}")
 
     def _get_sensor_file(self, device_id: str) -> Path:
-        """Get sensor file path for device"""
-        # Sanitize device_id for filename (replace : with _)
-        safe_device_id = device_id.replace(":", "_").replace("/", "_")
+        """
+        Get sensor file path for device.
+
+        Uses stable_device_id (hardware serial) for filename to ensure
+        sensors persist across wireless debugging port changes.
+        """
+        resolver = get_device_identity_resolver(str(self.data_dir))
+        safe_device_id = resolver.sanitize_for_filename(device_id)
         return self.data_dir / f"sensors_{safe_device_id}.json"
 
     def _load_sensor_list(self, device_id: str) -> SensorList:
@@ -120,13 +129,32 @@ class SensorManager:
                 return sensor
         return None
 
-    def get_all_sensors(self, device_id: str) -> List[SensorDefinition]:
+    def get_all_sensors(self, device_id: Optional[str] = None) -> List[SensorDefinition]:
         """
-        Get all sensors for a device
+        Get all sensors for a device (or all devices if device_id is None)
 
         Supports both network device_id (192.168.86.2:46747) and stable_device_id (c7028879b7a83aa7).
         This allows Android companion app to query using stable ID across IP/port changes.
+
+        Args:
+            device_id: Optional device ID filter. If None, returns all sensors across all devices.
+
+        Returns:
+            List of sensor definitions
         """
+        # If no device_id, return all sensors from all devices
+        if device_id is None:
+            all_sensors = []
+            for sensor_file in self.data_dir.glob("sensors_*.json"):
+                try:
+                    with open(sensor_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        file_sensor_list = SensorList(**data)
+                        all_sensors.extend(file_sensor_list.sensors)
+                except Exception as e:
+                    logger.error(f"[SensorManager] Failed to load {sensor_file}: {e}")
+            return all_sensors
+
         # First try direct file load (for network device_id)
         sensor_list = self._load_sensor_list(device_id)
 
@@ -294,8 +322,13 @@ class SensorManager:
             raise ValueError(f"Invalid sensor data: {e}")
 
     def _generate_sensor_id(self, device_id: str) -> str:
-        """Generate unique sensor ID"""
-        # Use device_id prefix + UUID for uniqueness
-        safe_device_id = device_id.replace(":", "_").replace(".", "_").replace("/", "_")
+        """
+        Generate unique sensor ID.
+
+        Uses stable_device_id (hardware serial) prefix for persistence
+        across wireless debugging port changes.
+        """
+        resolver = get_device_identity_resolver(str(self.data_dir))
+        safe_device_id = resolver.sanitize_for_filename(device_id)
         unique_id = str(uuid.uuid4())[:8]
         return f"{safe_device_id}_sensor_{unique_id}"

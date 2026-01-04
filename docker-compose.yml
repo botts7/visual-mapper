@@ -12,9 +12,11 @@ services:
     restart: unless-stopped
     ports:
       - "1883:1883"    # MQTT
+      - "8883:8883"    # MQTT over SSL/TLS
       - "9001:9001"    # WebSocket
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
+      - ./mosquitto/certs:/mosquitto/certs:ro   # SSL certificates
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
     healthcheck:
@@ -67,6 +69,11 @@ services:
     volumes:
       - ./data:/app/data
     # No port exposed - communicates via MQTT only
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "python"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 # Named volumes for persistence
 volumes:

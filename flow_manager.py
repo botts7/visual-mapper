@@ -1,6 +1,9 @@
 """
 Visual Mapper - Flow Manager (Phase 8)
 Manages sensor collection flows - both simple and advanced
+
+Uses stable_device_id (hardware serial) for file naming to ensure
+flows persist across wireless debugging port changes.
 """
 
 import json
@@ -10,6 +13,7 @@ from typing import Dict, List, Optional
 from pathlib import Path
 
 from flow_models import SensorCollectionFlow, FlowList, sensor_to_simple_flow
+from services.device_identity import get_device_identity_resolver
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +41,14 @@ class FlowManager:
         logger.info(f"[FlowManager] Initialized with storage: {self.storage_dir}, templates: {self.template_dir}")
 
     def _get_flow_file(self, device_id: str) -> Path:
-        """Get flow file path for device"""
-        safe_device_id = device_id.replace(":", "_").replace(".", "_")
+        """
+        Get flow file path for device.
+
+        Uses stable_device_id (hardware serial) for filename to ensure
+        flows persist across wireless debugging port changes.
+        """
+        resolver = get_device_identity_resolver("data")
+        safe_device_id = resolver.sanitize_for_filename(device_id)
         return self.storage_dir / f"flows_{safe_device_id}.json"
 
     def _load_flows(self, device_id: str) -> FlowList:

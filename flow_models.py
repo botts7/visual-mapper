@@ -25,6 +25,7 @@ class FlowStepType(str):
     PULL_REFRESH = "pull_refresh"
     RESTART_APP = "restart_app"
     STITCH_CAPTURE = "stitch_capture"
+    SCREENSHOT = "screenshot"  # Capture screenshot at current screen
     # Screen power control (headless mode)
     WAKE_SCREEN = "wake_screen"
     SLEEP_SCREEN = "sleep_screen"
@@ -258,7 +259,9 @@ class FlowExecutionResult(BaseModel):
     failed_step: Optional[int] = None
     error_message: Optional[str] = None
     captured_sensors: Dict[str, Any] = {}  # sensor_id -> value
+    captured_screenshots: List[Dict[str, Any]] = []  # Screenshots captured during flow
     step_results: List[StepResult] = []  # Per-step results with values
+    learned_screens: List[Dict[str, Any]] = []  # Screens learned during Learn Mode execution
     execution_time_ms: int
     timestamp: datetime = Field(default_factory=datetime.now)
 
@@ -267,7 +270,7 @@ class FlowList(BaseModel):
     """List of flows for a device"""
     device_id: str
     flows: List[SensorCollectionFlow] = []
-    version: str = "0.0.20"
+    version: str = "0.0.21"
     last_modified: datetime = Field(default_factory=datetime.now)
 
 
