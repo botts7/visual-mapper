@@ -8,7 +8,7 @@ from .ha_device_classes import (
     can_use_state_class,
     get_device_class_info,
     export_to_json as export_device_classes,
-    ALL_DEVICE_CLASSES,
+    SENSOR_DEVICE_CLASSES,
     BINARY_SENSOR_DEVICE_CLASSES
 )
 
@@ -19,6 +19,6 @@ __all__ = [
     'can_use_state_class',
     'get_device_class_info',
     'export_device_classes',
-    'ALL_DEVICE_CLASSES',
+    'SENSOR_DEVICE_CLASSES',
     'BINARY_SENSOR_DEVICE_CLASSES',
 ]

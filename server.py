@@ -161,7 +161,7 @@ logging.getLogger().addHandler(ws_log_handler)
 # Create FastAPI app
 app = FastAPI(
     title="Visual Mapper API",
-    version="0.0.41",
+    version="0.0.42",
     description="Android Device Monitoring & Automation for Home Assistant"
 )
 
