@@ -608,7 +608,7 @@ class FlowScheduler:
                             # ============================================
                             # AUTO-LOCK: After successful flow execution
                             # ============================================
-                            if self.should_lock_device(device_id):
+                            if await self.should_lock_device(device_id):
                                 try:
                                     await self.flow_executor.adb_bridge.sleep_screen(device_id)
                                     logger.info(f"[FlowScheduler] Locked device {device_id} (no flow scheduled soon)")
@@ -978,7 +978,7 @@ class FlowScheduler:
 
         return min_time if min_time != float('inf') else None
 
-    def should_lock_device(self, device_id: str, grace_period_seconds: int = 300) -> bool:
+    async def should_lock_device(self, device_id: str, grace_period_seconds: int = 300) -> bool:
         """
         Check if device should be locked after flow execution.
 
@@ -1008,27 +1008,28 @@ class FlowScheduler:
             return False
 
         # Check if wizard is active (skip lock if user is working)
-        # NOTE: Also check if any wizard device matches this device's alternate IDs
+        # Use ADB to properly resolve USB vs WiFi device ID mismatches
         try:
             from server import wizard_active_devices
             if device_id in wizard_active_devices:
                 logger.debug(f"[FlowScheduler] Skipping lock - wizard active on {device_id}")
                 return False
 
-            # Check if any active wizard device shares this device's serial (USB vs WiFi ID mismatch)
-            # This handles cases where wizard registered WiFi IP but flow uses USB serial
-            for wizard_dev in wizard_active_devices:
-                # If wizard device ID appears in this device ID or vice versa, they might be same device
-                # Simple heuristic: if serial number matches
-                if ':' not in device_id and ':' not in wizard_dev:
-                    # Both are likely USB serials - direct compare
-                    if device_id == wizard_dev:
-                        logger.debug(f"[FlowScheduler] Skipping lock - wizard active (alt match {wizard_dev})")
-                        return False
-                elif ':' in wizard_dev and ':' not in device_id:
-                    # Wizard has WiFi IP, we have USB serial - can't easily compare without ADB lookup
-                    # Fall through - the flow executor's async check will catch it
-                    pass
+            # Check if any active wizard device matches this device (handle WiFi vs USB ID mismatch)
+            if wizard_active_devices:
+                try:
+                    connected = await self.flow_executor.adb_bridge.get_connected_devices()
+                    for dev in connected:
+                        dev_id = dev.get('id', '')
+                        wifi_ip = dev.get('wifi_ip', '')
+                        # Check if this connected device matches our device_id
+                        if dev_id == device_id or wifi_ip == device_id:
+                            # Now check if either ID is in wizard_active
+                            if dev_id in wizard_active_devices or wifi_ip in wizard_active_devices:
+                                logger.debug(f"[FlowScheduler] Skipping lock - wizard active (USB/WiFi match: {dev_id}/{wifi_ip})")
+                                return False
+                except Exception as e:
+                    logger.debug(f"[FlowScheduler] Error checking device IDs for wizard: {e}")
         except ImportError:
             pass
 

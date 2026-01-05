@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["flows"])
 
+# NOTE: wizard_active_devices is stored in server.py and shared with flow_scheduler/executor
+# We import server lazily inside functions to avoid circular imports
+
 def get_flow_service():
     deps = get_deps()
     if not deps.flow_manager:
@@ -274,6 +277,120 @@ async def stop_scheduler():
     except Exception as e:
         logger.error(f"[API] Failed to stop scheduler: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/scheduler/pause")
+async def pause_scheduler():
+    """Pause the scheduler temporarily (flows remain scheduled but won't execute)"""
+    deps = get_deps()
+    try:
+        if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
+            await deps.flow_scheduler.pause()
+            return {"success": True, "message": "Scheduler paused"}
+        return {"success": False, "message": "Scheduler not available"}
+    except Exception as e:
+        logger.error(f"[API] Failed to pause scheduler: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/scheduler/resume")
+async def resume_scheduler():
+    """Resume the scheduler after being paused"""
+    deps = get_deps()
+    try:
+        if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
+            await deps.flow_scheduler.resume()
+            return {"success": True, "message": "Scheduler resumed"}
+        return {"success": False, "message": "Scheduler not available"}
+    except Exception as e:
+        logger.error(f"[API] Failed to resume scheduler: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# WIZARD SESSION MANAGEMENT
+# =============================================================================
+
+@router.post("/wizard/active/{device_id}")
+async def set_wizard_active(device_id: str):
+    """Mark device as having an active wizard session (prevents auto-sleep)
+
+    Also registers alternate device ID (USB serial if WiFi, WiFi IP if USB)
+    to handle ID mismatches between wizard and flow scheduler.
+    """
+    import server  # Lazy import to avoid circular dependency
+    deps = get_deps()
+
+    # Always register the provided device ID
+    server.wizard_active_devices.add(device_id)
+    registered_ids = [device_id]
+
+    # Try to find and register alternate ID (USB vs WiFi)
+    try:
+        connected = await deps.adb_bridge.get_connected_devices()
+        for dev in connected:
+            dev_id = dev.get('id', '')
+            wifi_ip = dev.get('wifi_ip', '')
+            # Check if this device matches the provided device_id
+            if dev_id == device_id or wifi_ip == device_id:
+                # Register both IDs to handle USB/WiFi mismatch
+                if dev_id and dev_id not in server.wizard_active_devices:
+                    server.wizard_active_devices.add(dev_id)
+                    registered_ids.append(dev_id)
+                if wifi_ip and wifi_ip not in server.wizard_active_devices:
+                    server.wizard_active_devices.add(wifi_ip)
+                    registered_ids.append(wifi_ip)
+                break
+    except Exception as e:
+        logger.debug(f"[API] Could not get alternate device ID: {e}")
+
+    logger.info(f"[API] Wizard active for device(s): {registered_ids} (now {len(server.wizard_active_devices)} active)")
+    return {"success": True, "device_id": device_id, "registered_ids": registered_ids, "active": True}
+
+@router.delete("/wizard/active/{device_id}")
+async def set_wizard_inactive(device_id: str):
+    """Mark device as no longer having active wizard session
+
+    Also removes alternate device IDs that were registered.
+    """
+    import server  # Lazy import to avoid circular dependency
+    deps = get_deps()
+
+    # Always remove the provided device ID
+    server.wizard_active_devices.discard(device_id)
+    removed_ids = [device_id]
+
+    # Try to find and remove alternate ID (USB vs WiFi)
+    try:
+        connected = await deps.adb_bridge.get_connected_devices()
+        for dev in connected:
+            dev_id = dev.get('id', '')
+            wifi_ip = dev.get('wifi_ip', '')
+            # Check if this device matches the provided device_id
+            if dev_id == device_id or wifi_ip == device_id:
+                # Remove both IDs
+                if dev_id and dev_id in server.wizard_active_devices:
+                    server.wizard_active_devices.discard(dev_id)
+                    removed_ids.append(dev_id)
+                if wifi_ip and wifi_ip in server.wizard_active_devices:
+                    server.wizard_active_devices.discard(wifi_ip)
+                    removed_ids.append(wifi_ip)
+                break
+    except Exception as e:
+        logger.debug(f"[API] Could not get alternate device ID for removal: {e}")
+
+    logger.info(f"[API] Wizard inactive for device(s): {removed_ids} ({len(server.wizard_active_devices)} remaining)")
+    return {"success": True, "device_id": device_id, "removed_ids": removed_ids, "active": False}
+
+@router.get("/wizard/active/{device_id}")
+async def get_wizard_active(device_id: str):
+    """Check if device has an active wizard session"""
+    import server  # Lazy import to avoid circular dependency
+    return {"device_id": device_id, "active": device_id in server.wizard_active_devices}
+
+@router.get("/wizard/active")
+async def get_all_wizard_active():
+    """Get all devices with active wizard sessions"""
+    import server  # Lazy import to avoid circular dependency
+    return {"devices": list(server.wizard_active_devices)}
 
 
 # =============================================================================
