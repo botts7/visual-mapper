@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.0.38" data-build="2026-01-01">
+    <meta name="version" content="0.0.39" data-build="2026-01-01">
     <title>Action Management - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.38">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.39">
     <style>
         /* Action-specific styles */
         .action-card {
@@ -250,7 +250,7 @@
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.38"></script>
+    <script type="module" src="js/init.js?v=0.0.39"></script>
 
     <div class="container">
         <div class="card">
@@ -324,6 +324,46 @@
                     <label for="editActionTags">Tags (comma-separated)</label>
                     <input type="text" id="editActionTags" placeholder="e.g., navigation, login, settings">
                 </div>
+
+                <!-- Navigation Configuration Section -->
+                <details id="navigationSection" style="margin: 20px 0; border: 1px solid var(--border-color); border-radius: 8px; padding: 15px;">
+                    <summary style="cursor: pointer; font-weight: 600; color: var(--primary-color);">
+                        Navigation Configuration (Optional)
+                    </summary>
+                    <p style="font-size: 0.85em; color: var(--text-secondary); margin: 10px 0;">
+                        Configure navigation to run before this action executes (when triggered from Home Assistant).
+                    </p>
+
+                    <div class="form-group">
+                        <label for="editTargetApp">Target App Package</label>
+                        <input type="text" id="editTargetApp" placeholder="e.g., com.spotify.music">
+                        <small style="color: var(--text-secondary);">App to launch before executing the action</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editValidationElement">Screen Validation (JSON)</label>
+                        <textarea id="editValidationElement" rows="2" placeholder='{"text": "Expected Text"}'></textarea>
+                        <small style="color: var(--text-secondary);">Element to verify correct screen before executing (text, class, or resource_id)</small>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="editMaxNavAttempts">Max Navigation Attempts</label>
+                            <input type="number" id="editMaxNavAttempts" min="1" max="10" value="3">
+                        </div>
+                        <div class="form-group">
+                            <label for="editNavTimeout">Navigation Timeout (sec)</label>
+                            <input type="number" id="editNavTimeout" min="1" max="60" value="10">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" id="editReturnHome">
+                            <label for="editReturnHome" style="margin: 0">Return to home screen after execution</label>
+                        </div>
+                    </div>
+                </details>
 
                 <div class="form-group">
                     <div class="checkbox-wrapper">
@@ -732,10 +772,18 @@
             const isInFlow = actionsInFlows.has(actionDef.id);
             const isOrphaned = !isInFlow;
 
+            // Check if action has navigation configured
+            const hasNavigation = actionDef.target_app || actionDef.navigation_sequence || actionDef.validation_element;
+
             const typeBadge = `<span class="action-type-badge action-type-${action.action_type}">${action.action_type}</span>`;
             const flowBadge = isInFlow
                 ? '<span style="background: #2196F3; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px;">In Flow</span>'
                 : '<span style="background: #FF9800; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px;">Standalone</span>';
+
+            // Navigation badge - shows when action has navigation configured
+            const navBadge = hasNavigation
+                ? '<span style="background: #673AB7; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px;" title="This action has navigation configured">Has Navigation</span>'
+                : '';
 
             // App badge - shows which app this action targets (mainly for launch_app type)
             const appBadge = appName
@@ -779,6 +827,7 @@
                             <strong>${action.name}</strong>
                             ${typeBadge}
                             ${flowBadge}
+                            ${navBadge}
                             ${appBadge}
                         </div>
                         <div class="action-card-footer">
@@ -897,6 +946,19 @@
             document.getElementById('editActionDescription').value = action.description || '';
             document.getElementById('editActionTags').value = (actionDef.tags || []).join(', ');
             document.getElementById('editActionEnabled').checked = actionDef.enabled !== false;
+
+            // Populate navigation configuration fields
+            document.getElementById('editTargetApp').value = actionDef.target_app || '';
+            document.getElementById('editValidationElement').value = actionDef.validation_element
+                ? JSON.stringify(actionDef.validation_element, null, 2)
+                : '';
+            document.getElementById('editMaxNavAttempts').value = actionDef.max_navigation_attempts || 3;
+            document.getElementById('editNavTimeout').value = actionDef.navigation_timeout || 10;
+            document.getElementById('editReturnHome').checked = actionDef.return_home_after || false;
+
+            // Expand navigation section if action has navigation config
+            const hasNavConfig = actionDef.target_app || actionDef.navigation_sequence || actionDef.validation_element;
+            document.getElementById('navigationSection').open = hasNavConfig;
 
             // Show action type info
             const typeInfo = document.getElementById('actionTypeInfo');
@@ -1078,11 +1140,33 @@
 
             const enabled = document.getElementById('editActionEnabled').checked;
 
+            // Parse navigation configuration
+            const targetApp = document.getElementById('editTargetApp').value.trim() || null;
+            let validationElement = null;
+            const validationStr = document.getElementById('editValidationElement').value.trim();
+            if (validationStr) {
+                try {
+                    validationElement = JSON.parse(validationStr);
+                } catch (e) {
+                    alert('Invalid JSON in Screen Validation field. Please check the format.');
+                    return;
+                }
+            }
+            const maxNavAttempts = parseInt(document.getElementById('editMaxNavAttempts').value) || 3;
+            const navTimeout = parseInt(document.getElementById('editNavTimeout').value) || 10;
+            const returnHome = document.getElementById('editReturnHome').checked;
+
             try {
                 const updateData = {
                     action: action,
                     enabled: enabled,
-                    tags: tags
+                    tags: tags,
+                    // Navigation configuration
+                    target_app: targetApp,
+                    validation_element: validationElement,
+                    max_navigation_attempts: maxNavAttempts,
+                    navigation_timeout: navTimeout,
+                    return_home_after: returnHome
                 };
 
                 const result = await apiClient.put(`/actions/${deviceId}/${actionId}`, updateData);

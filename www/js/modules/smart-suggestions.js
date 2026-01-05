@@ -483,7 +483,7 @@ class SmartSuggestions {
             };
 
             // Import Dialogs module to create action
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.6');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.8');
             await Dialogs.createAction(this.wizard, element, null);
         }
     }

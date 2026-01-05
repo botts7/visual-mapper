@@ -2808,3 +2808,192 @@ img.app-icon {
 .device-prep-dialog .btn-primary:hover {
     background: var(--primary-hover);
 }
+
+/* ===========================================
+ * Step 4 Screen Groups & Reorganization
+ * v0.0.15: Step reorganization with screen grouping
+ * =========================================== */
+
+/* Container for grouped steps */
+.steps-review-grouped {
+    max-height: 500px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+/* Screen group container */
+.screen-group {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.screen-group:last-child {
+    border-bottom: none;
+}
+
+/* Screen group header (collapsible) */
+.screen-group-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--card-background);
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.screen-group-header:hover {
+    background: var(--bg-hover);
+}
+
+.group-toggle {
+    font-size: 12px;
+    color: var(--text-secondary);
+    width: 16px;
+    text-align: center;
+}
+
+.group-icon {
+    font-size: 16px;
+}
+
+.group-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.group-count {
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+/* Screen group items container */
+.screen-group-items {
+    background: var(--background-color);
+}
+
+/* Step review item with move buttons */
+.step-review-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.15s;
+}
+
+.step-review-item:last-child {
+    border-bottom: none;
+}
+
+.step-review-item:hover {
+    background: var(--bg-hover);
+}
+
+.step-review-number {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.step-review-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.step-review-type {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.step-review-description {
+    font-size: 13px;
+    color: var(--text-secondary);
+    word-break: break-word;
+}
+
+/* Step actions container */
+.step-review-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Move buttons container */
+.move-buttons {
+    display: flex;
+    gap: 4px;
+}
+
+/* Move up/down buttons */
+.btn-move-up,
+.btn-move-down {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--card-background);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-move-up:hover:not(:disabled),
+.btn-move-down:hover:not(:disabled) {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.btn-move-up:disabled,
+.btn-move-down:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .step-review-item {
+        flex-wrap: wrap;
+    }
+
+    .step-review-actions {
+        width: 100%;
+        margin-top: 8px;
+        justify-content: flex-end;
+    }
+
+    .screen-group-header {
+        padding: 10px 12px;
+    }
+
+    .group-name {
+        font-size: 14px;
+    }
+}

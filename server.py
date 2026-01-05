@@ -159,7 +159,7 @@ logging.getLogger().addHandler(ws_log_handler)
 # Create FastAPI app
 app = FastAPI(
     title="Visual Mapper API",
-    version="0.0.38",
+    version="0.0.39",
     description="Android Device Monitoring & Automation for Home Assistant"
 )
 
@@ -429,7 +429,9 @@ async def startup_event():
         flow_manager=flow_manager,
         screenshot_stitcher=screenshot_stitcher,
         execution_history=execution_history,
-        navigation_manager=navigation_manager  # Phase 9: Smart navigation recovery
+        navigation_manager=navigation_manager,  # Phase 9: Smart navigation recovery
+        action_manager=action_manager,
+        action_executor=action_executor
     )
 
     flow_scheduler = FlowScheduler(flow_executor, flow_manager)

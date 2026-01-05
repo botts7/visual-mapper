@@ -53,11 +53,73 @@ const NavBar = {
             <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
             <li id="themeToggleContainer">
                 <button id="themeToggle" class="theme-toggle" title="Toggle dark/light mode" aria-label="Toggle theme">
-                    <span class="theme-icon-dark">🌙</span>
-                    <span class="theme-icon-light">☀️</span>
+                    <span class="theme-icon">🌙</span> Dark
                 </button>
             </li>
         </ul>`;
+    },
+
+    // Initialize mobile hamburger menu
+    initMobileNav() {
+        const nav = document.querySelector('nav');
+        const navMenu = document.querySelector('nav ul');
+        if (!nav || !navMenu) return;
+
+        // Create hamburger button
+        const hamburger = document.createElement('button');
+        hamburger.className = 'hamburger';
+        hamburger.setAttribute('aria-label', 'Toggle menu');
+        hamburger.setAttribute('aria-expanded', 'false');
+        for (let i = 0; i < 3; i++) {
+            hamburger.appendChild(document.createElement('span'));
+        }
+
+        // Insert at beginning of nav
+        nav.insertBefore(hamburger, nav.firstChild);
+
+        let isOpen = false;
+
+        const openMenu = () => {
+            isOpen = true;
+            hamburger.classList.add('active');
+            navMenu.classList.add('active');
+            nav.classList.add('menu-open');
+            hamburger.setAttribute('aria-expanded', 'true');
+            document.body.style.overflow = 'hidden';
+        };
+
+        const closeMenu = () => {
+            isOpen = false;
+            hamburger.classList.remove('active');
+            navMenu.classList.remove('active');
+            nav.classList.remove('menu-open');
+            hamburger.setAttribute('aria-expanded', 'false');
+            document.body.style.overflow = '';
+        };
+
+        // Event listeners
+        hamburger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            isOpen ? closeMenu() : openMenu();
+        });
+
+        nav.addEventListener('click', (e) => {
+            if (e.target === nav && isOpen) closeMenu();
+        });
+
+        navMenu.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', closeMenu);
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && isOpen) closeMenu();
+        });
+
+        window.addEventListener('resize', () => {
+            if (window.innerWidth > 768 && isOpen) closeMenu();
+        });
+
+        console.log('[NavBar] Mobile navigation initialized');
     },
 
     // Initialize theme toggle
@@ -66,7 +128,7 @@ const NavBar = {
         if (!toggle) return;
 
         // Get saved theme or detect system preference
-        const savedTheme = localStorage.getItem('theme');
+        const savedTheme = localStorage.getItem('visual-mapper-theme');
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         const currentTheme = savedTheme || (prefersDark ? 'dark' : 'light');
 
@@ -75,27 +137,37 @@ const NavBar = {
 
         // Toggle handler
         toggle.addEventListener('click', () => {
-            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            const isDark = document.body.classList.contains('dark-mode');
             this.setTheme(isDark ? 'light' : 'dark');
         });
 
         // Listen for system theme changes
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-            if (!localStorage.getItem('theme')) {
+            if (!localStorage.getItem('visual-mapper-theme')) {
                 this.setTheme(e.matches ? 'dark' : 'light');
             }
         });
+
+        console.log('[NavBar] Theme toggle initialized, current theme:', currentTheme);
     },
 
     // Set theme
     setTheme(theme) {
-        document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem('theme', theme);
+        // Apply theme using body class (matches existing CSS)
+        if (theme === 'dark') {
+            document.body.classList.add('dark-mode');
+        } else {
+            document.body.classList.remove('dark-mode');
+        }
 
-        // Update toggle button appearance
+        localStorage.setItem('visual-mapper-theme', theme);
+
+        // Update toggle button text
         const toggle = document.getElementById('themeToggle');
         if (toggle) {
-            toggle.setAttribute('data-theme', theme);
+            toggle.innerHTML = theme === 'dark'
+                ? '<span class="theme-icon">☀️</span> Light'
+                : '<span class="theme-icon">🌙</span> Dark';
         }
     },
 
@@ -112,8 +184,9 @@ const NavBar = {
         // Clear existing content and inject new
         nav.innerHTML = this.generateHTML();
 
-        // Initialize theme toggle
+        // Initialize components
         this.initThemeToggle();
+        this.initMobileNav();
 
         console.log('[NavBar] Initialized');
     },

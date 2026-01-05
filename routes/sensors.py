@@ -110,6 +110,15 @@ async def create_sensor(sensor: SensorDefinition):
 
         # Publish MQTT discovery for the new sensor
         if deps.mqtt_manager:
+            # Ensure device info is cached for friendly MQTT names
+            device_id_for_info = created_sensor.stable_device_id or created_sensor.device_id
+            try:
+                model = await deps.adb_bridge.get_device_model(sensor.device_id)
+                if model:
+                    deps.mqtt_manager.set_device_info(device_id_for_info, model=model)
+                    logger.info(f"[API] Cached device model for MQTT: {model}")
+            except Exception as e:
+                logger.debug(f"[API] Could not get device model: {e}")
             try:
                 success = await deps.mqtt_manager.publish_discovery(created_sensor)
                 if success:

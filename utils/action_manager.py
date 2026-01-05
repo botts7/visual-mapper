@@ -82,7 +82,16 @@ class ActionManager:
         self,
         device_id: str,
         action: ActionType,
-        tags: List[str] = None
+        tags: List[str] = None,
+        source_app: str = None,
+        # Navigation configuration (optional)
+        target_app: str = None,
+        prerequisite_actions: List[str] = None,
+        navigation_sequence: List[Dict[str, Any]] = None,
+        validation_element: Dict[str, Any] = None,
+        return_home_after: bool = False,
+        max_navigation_attempts: int = 3,
+        navigation_timeout: int = 10
     ) -> ActionDefinition:
         """
         Create a new action
@@ -91,6 +100,14 @@ class ActionManager:
             device_id: Target device ID
             action: Action configuration
             tags: Optional tags for organization
+            source_app: App package name where action was created
+            target_app: Package to launch before executing (optional navigation)
+            prerequisite_actions: Action IDs to execute first (optional navigation)
+            navigation_sequence: Navigation steps to reach target screen (optional)
+            validation_element: Element to verify correct screen (optional)
+            return_home_after: Return to home after execution
+            max_navigation_attempts: Max navigation retry attempts
+            navigation_timeout: Timeout for screen validation
 
         Returns:
             Created ActionDefinition
@@ -102,11 +119,20 @@ class ActionManager:
             # Generate unique ID
             action_id = str(uuid.uuid4())
 
-            # Create action definition
+            # Create action definition with navigation config
             action_def = ActionDefinition(
                 id=action_id,
                 action=action,
                 tags=tags or [],
+                source_app=source_app,
+                # Navigation fields
+                target_app=target_app,
+                prerequisite_actions=prerequisite_actions or [],
+                navigation_sequence=navigation_sequence,
+                validation_element=validation_element,
+                return_home_after=return_home_after,
+                max_navigation_attempts=max_navigation_attempts,
+                navigation_timeout=navigation_timeout,
                 created_at=datetime.now(),
                 updated_at=datetime.now()
             )
@@ -201,7 +227,15 @@ class ActionManager:
         action_id: str,
         action: Optional[ActionType] = None,
         enabled: Optional[bool] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        # Navigation configuration (all optional for partial updates)
+        target_app: Optional[str] = None,
+        prerequisite_actions: Optional[List[str]] = None,
+        navigation_sequence: Optional[List[Dict[str, Any]]] = None,
+        validation_element: Optional[Dict[str, Any]] = None,
+        return_home_after: Optional[bool] = None,
+        max_navigation_attempts: Optional[int] = None,
+        navigation_timeout: Optional[int] = None
     ) -> ActionDefinition:
         """
         Update an existing action
@@ -212,6 +246,13 @@ class ActionManager:
             action: Optional new action configuration
             enabled: Optional enabled status
             tags: Optional new tags
+            target_app: Optional package to launch before executing
+            prerequisite_actions: Optional action IDs to execute first
+            navigation_sequence: Optional navigation steps
+            validation_element: Optional screen validation element
+            return_home_after: Optional return home flag
+            max_navigation_attempts: Optional max navigation retries
+            navigation_timeout: Optional validation timeout
 
         Returns:
             Updated ActionDefinition
@@ -223,13 +264,29 @@ class ActionManager:
 
         for i, existing_action in enumerate(actions):
             if existing_action.id == action_id:
-                # Update fields
+                # Update basic fields
                 if action is not None:
                     existing_action.action = action
                 if enabled is not None:
                     existing_action.action.enabled = enabled
                 if tags is not None:
                     existing_action.tags = tags
+
+                # Update navigation fields (only if provided)
+                if target_app is not None:
+                    existing_action.target_app = target_app
+                if prerequisite_actions is not None:
+                    existing_action.prerequisite_actions = prerequisite_actions
+                if navigation_sequence is not None:
+                    existing_action.navigation_sequence = navigation_sequence
+                if validation_element is not None:
+                    existing_action.validation_element = validation_element
+                if return_home_after is not None:
+                    existing_action.return_home_after = return_home_after
+                if max_navigation_attempts is not None:
+                    existing_action.max_navigation_attempts = max_navigation_attempts
+                if navigation_timeout is not None:
+                    existing_action.navigation_timeout = navigation_timeout
 
                 existing_action.updated_at = datetime.now()
 

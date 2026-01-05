@@ -10,6 +10,7 @@
 
 import { showToast } from './toast.js?v=0.0.5';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
+import { groupStepsByScreen, validateMove, moveStep } from './step-reorganizer.js?v=0.0.1';
 
 function getApiBase() {
     return window.API_BASE || '/api';
@@ -94,6 +95,7 @@ function buildStepResultsHtml(flowSteps, stepResults, result) {
 
 /**
  * Load Step 4: Review & Test
+ * v0.0.15: Added step reorganization with screen grouping and move up/down buttons
  */
 export async function loadStep(wizard) {
     console.log('[Step4] Loading Review & Test');
@@ -112,6 +114,9 @@ export async function loadStep(wizard) {
     const navIssues = checkNavigationIssues(wizard.flowSteps);
     const issueStepIndices = new Set(navIssues.map(i => i.stepIndex));
 
+    // Group steps by screen
+    const screenGroups = groupStepsByScreen(wizard.flowSteps);
+
     const appLabel = wizard.selectedApp?.label || wizard.selectedApp?.package || wizard.selectedApp || 'Unknown';
 
     // Build navigation warning banner if there are issues
@@ -121,14 +126,80 @@ export async function loadStep(wizard) {
         warningBanner = `
             <div class="navigation-warning" style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
                 <h4 style="color: #92400e; margin: 0 0 8px 0;">⚠️ Navigation Issues Detected</h4>
-                <p style="color: #92400e; margin: 0 0 8px 0;">Your flow has sensors on different screens but no navigation steps to reach them:</p>
-                <ul style="color: #92400e; margin: 0 0 8px 0; padding-left: 20px;">${issueList}</ul>
-                <p style="color: #92400e; margin: 0; font-size: 0.9em;">
-                    <strong>Tip:</strong> Add tap/swipe steps to navigate between screens, or create separate flows for each screen.
+                <p style="color: #92400e; margin: 0 0 8px 0;">Your flow has steps on different screens but no navigation steps to reach them:</p>
+                <ul style="color: #92400e; margin: 0 0 12px 0; padding-left: 20px;">${issueList}</ul>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <button class="btn btn-warning" id="btnAddMissingSteps" style="background: #f59e0b; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">
+                        ➕ Add Missing Navigation Steps
+                    </button>
+                </div>
+                <p style="color: #92400e; margin: 12px 0 0 0; font-size: 0.9em;">
+                    <strong>Tip:</strong> You can also insert steps individually using the "Insert" button on each step below, or create separate flows for each screen.
                 </p>
             </div>
         `;
     }
+
+    // Build grouped steps HTML with collapsible sections
+    const groupsHtml = screenGroups.map((group, groupIndex) => {
+        const isExpanded = true; // All groups expanded by default
+        const toggleIcon = isExpanded ? '▼' : '▶';
+        const displayStyle = isExpanded ? 'block' : 'none';
+
+        const stepsHtml = group.steps.map(({ step, originalIndex }) => {
+            const hasIssue = issueStepIndices.has(originalIndex);
+            const issueStyle = hasIssue ? 'border-left: 3px solid #f59e0b; background: #fffbeb;' : '';
+            const issueIcon = hasIssue ? '<span style="color: #f59e0b; margin-left: 8px;" title="Navigation issue">⚠️</span>' : '';
+
+            const isFirst = originalIndex === 0;
+            const isLast = originalIndex === wizard.flowSteps.length - 1;
+
+            const insertBtn = hasIssue
+                ? `<button class="btn btn-sm btn-warning insert-step-btn" data-insert-index="${originalIndex}" style="background: #f59e0b; color: white; font-size: 0.7em; padding: 4px 8px;">Insert</button>`
+                : `<button class="btn btn-sm btn-secondary insert-step-btn" data-insert-index="${originalIndex}" style="font-size: 0.7em; padding: 4px 8px;">Insert</button>`;
+
+            return `
+            <div class="step-review-item" data-original-index="${originalIndex}" style="${issueStyle}">
+                <div class="step-review-number">${originalIndex + 1}</div>
+                <div class="step-review-content">
+                    <div class="step-review-type">${FlowStepManager.formatStepType(step.step_type)}${issueIcon}</div>
+                    <div class="step-review-description">${step.description || FlowStepManager.generateStepDescription(step)}</div>
+                    ${FlowStepManager.renderStepDetails(step)}
+                </div>
+                <div class="step-review-actions">
+                    <div class="move-buttons">
+                        <button class="btn btn-sm btn-move-up" data-index="${originalIndex}"
+                                ${isFirst ? 'disabled' : ''} title="Move up">
+                            ↑
+                        </button>
+                        <button class="btn btn-sm btn-move-down" data-index="${originalIndex}"
+                                ${isLast ? 'disabled' : ''} title="Move down">
+                            ↓
+                        </button>
+                    </div>
+                    ${insertBtn}
+                    <button class="btn btn-sm btn-danger" onclick="window.flowWizard.removeStepAt(${originalIndex})">
+                        Del
+                    </button>
+                </div>
+            </div>
+            `;
+        }).join('');
+
+        return `
+        <div class="screen-group" data-group-index="${groupIndex}">
+            <div class="screen-group-header" data-activity="${escapeHtml(group.activity)}">
+                <span class="group-toggle">${toggleIcon}</span>
+                <span class="group-icon">📱</span>
+                <span class="group-name">${escapeHtml(group.shortName)}</span>
+                <span class="group-count">(${group.steps.length} step${group.steps.length !== 1 ? 's' : ''})</span>
+            </div>
+            <div class="screen-group-items" style="display: ${displayStyle};">
+                ${stepsHtml}
+            </div>
+        </div>
+        `;
+    }).join('');
 
     reviewContainer.innerHTML = `
         <div class="flow-summary">
@@ -143,41 +214,20 @@ export async function loadStep(wizard) {
                     <span class="stat-value">${appLabel}</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-label">Total Steps:</span>
+                    <span class="stat-label">Steps:</span>
                     <span class="stat-value">${wizard.flowSteps.length}</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-label">Mode:</span>
-                    <span class="stat-value">${wizard.recordMode === 'execute' ? 'Execute' : 'Record Only'}</span>
+                    <span class="stat-label">Screens:</span>
+                    <span class="stat-value">${screenGroups.length}</span>
                 </div>
             </div>
         </div>
 
         ${warningBanner}
 
-        <div class="steps-review-list">
-            ${wizard.flowSteps.map((step, index) => {
-                const hasIssue = issueStepIndices.has(index);
-                const issueStyle = hasIssue ? 'border: 2px solid #f59e0b; background: #fffbeb;' : '';
-                const issueIcon = hasIssue ? '<span style="color: #f59e0b; margin-left: 8px;" title="Navigation issue: missing steps to reach this screen">⚠️</span>' : '';
-                const screenInfo = step.screen_activity ? `<div class="step-screen-info" style="font-size: 0.8em; color: #64748b; margin-top: 4px;">Screen: ${step.screen_activity.split('.').pop()}</div>` : '';
-
-                return `
-                <div class="step-review-item" style="${issueStyle}">
-                    <div class="step-review-number">${index + 1}</div>
-                    <div class="step-review-content">
-                        <div class="step-review-type">${FlowStepManager.formatStepType(step.step_type)}${issueIcon}</div>
-                        <div class="step-review-description">${step.description || FlowStepManager.generateStepDescription(step)}</div>
-                        ${FlowStepManager.renderStepDetails(step)}
-                        ${screenInfo}
-                    </div>
-                    <div class="step-review-actions">
-                        <button class="btn btn-sm btn-danger" onclick="window.flowWizard.removeStepAt(${index})">
-                            Delete
-                        </button>
-                    </div>
-                </div>
-            `}).join('')}
+        <div class="steps-review-grouped">
+            ${groupsHtml}
         </div>
 
         <div id="testResults" class="test-results" style="display: none;">
@@ -186,11 +236,157 @@ export async function loadStep(wizard) {
         </div>
     `;
 
-    // Wire up test button
+    // Wire up all event handlers
+    wireUpStep4Handlers(wizard, reviewContainer, navIssues);
+}
+
+/**
+ * Wire up all event handlers for Step 4
+ */
+function wireUpStep4Handlers(wizard, container, navIssues) {
+    // Group toggle (expand/collapse)
+    container.querySelectorAll('.screen-group-header').forEach(header => {
+        header.addEventListener('click', () => {
+            const items = header.nextElementSibling;
+            const toggle = header.querySelector('.group-toggle');
+            const isExpanded = items.style.display !== 'none';
+
+            items.style.display = isExpanded ? 'none' : 'block';
+            toggle.textContent = isExpanded ? '▶' : '▼';
+        });
+    });
+
+    // Move up buttons
+    container.querySelectorAll('.btn-move-up').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const index = parseInt(btn.dataset.index);
+            attemptMoveStep(wizard, index, index - 1);
+        });
+    });
+
+    // Move down buttons
+    container.querySelectorAll('.btn-move-down').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const index = parseInt(btn.dataset.index);
+            attemptMoveStep(wizard, index, index + 1);
+        });
+    });
+
+    // Test button
     const btnTestFlow = document.getElementById('btnTestFlow');
     if (btnTestFlow) {
         btnTestFlow.onclick = () => testFlow(wizard);
     }
+
+    // Wire up "Add Missing Navigation Steps" button
+    const btnAddMissingSteps = document.getElementById('btnAddMissingSteps');
+    if (btnAddMissingSteps) {
+        btnAddMissingSteps.onclick = () => {
+            console.log('[Step4] User clicked Add Missing Navigation Steps - going back to Step 3');
+            showToast('Returning to Step 3 to add navigation steps...', 'info');
+            if (navIssues.length > 0) {
+                wizard.insertAtIndex = navIssues[0].stepIndex;
+            }
+            if (typeof wizard.goToStep === 'function') {
+                wizard.goToStep(3);
+            } else if (window.flowWizard?.goToStep) {
+                window.flowWizard.goToStep(3);
+            }
+        };
+    }
+
+    // Wire up individual "Insert" buttons
+    container.querySelectorAll('.insert-step-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const insertIndex = parseInt(e.target.dataset.insertIndex, 10);
+            console.log(`[Step4] User clicked Insert at index ${insertIndex} - going back to Step 3`);
+            showToast(`Returning to Step 3 to insert step before step ${insertIndex + 1}...`, 'info');
+            wizard.insertAtIndex = insertIndex;
+            if (typeof wizard.goToStep === 'function') {
+                wizard.goToStep(3);
+            } else if (window.flowWizard?.goToStep) {
+                window.flowWizard.goToStep(3);
+            }
+        });
+    });
+}
+
+/**
+ * Attempt to move a step with validation
+ */
+function attemptMoveStep(wizard, fromIndex, toIndex) {
+    const validation = validateMove(wizard.flowSteps, fromIndex, toIndex);
+
+    if (!validation.valid) {
+        showMoveBlockedError(validation.error);
+        return;
+    }
+
+    // Perform the move
+    moveStep(wizard.flowSteps, fromIndex, toIndex);
+    showToast(`Moved step ${fromIndex + 1} to position ${toIndex + 1}`, 'success');
+
+    // Re-render the step list
+    loadStep(wizard);
+}
+
+/**
+ * Show error dialog when move is blocked
+ */
+function showMoveBlockedError(message) {
+    // Create modal overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'move-error-overlay';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+    `;
+    overlay.innerHTML = `
+        <div class="move-error-modal" style="
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            max-width: 400px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        ">
+            <div style="font-size: 48px; margin-bottom: 16px;">⛔</div>
+            <h4 style="margin: 0 0 12px 0; color: #dc2626;">Cannot Move Step</h4>
+            <p style="margin: 0 0 20px 0; color: #64748b; line-height: 1.5;">${escapeHtml(message)}</p>
+            <button class="btn btn-primary" id="btnDismissMoveError" style="
+                background: #2196f3;
+                color: white;
+                border: none;
+                padding: 10px 24px;
+                border-radius: 6px;
+                cursor: pointer;
+            ">OK</button>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    // Wire up dismiss
+    document.getElementById('btnDismissMoveError').addEventListener('click', () => {
+        overlay.remove();
+    });
+
+    // Close on overlay click
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            overlay.remove();
+        }
+    });
 }
 
 /**

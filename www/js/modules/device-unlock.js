@@ -286,13 +286,59 @@ async function ensureDeviceUnlocked(deviceId, apiBase, callbacks = {}) {
         if (isCancelled()) return { success: false, status: 'cancelled' };
 
         if (unlockSuccess) {
-            updateStatus('Device unlocked!');
-            onStepUpdate('step-unlock', 'done');
-            showToast('Device unlocked', 'success', 2000);
-            // Record successful unlock to prevent duplicate unlock calls
-            lastUnlockTime.set(deviceId, Date.now());
-            await wait(300);
-            return { success: true, status: 'unlocked' };
+            // VERIFY: Check lock status again to confirm device is actually unlocked
+            await wait(500); // Give device time to update state
+            let actuallyUnlocked = true;
+
+            try {
+                const verifyResponse = await fetch(`${apiBase}/adb/lock-status/${encodeURIComponent(deviceId)}`);
+                if (verifyResponse.ok) {
+                    const verifyState = await verifyResponse.json();
+                    if (verifyState.is_locked) {
+                        console.log('[DeviceUnlock] Verification failed - device still locked after unlock');
+                        actuallyUnlocked = false;
+
+                        // Retry unlock once with longer wait
+                        onStepUpdate('step-unlock', 'working');
+                        updateStatus('Retrying unlock...');
+                        await wait(500);
+
+                        const retryResponse = await fetch(`${apiBase}/device/${encodeURIComponent(deviceId)}/auto-unlock`, {
+                            method: 'POST'
+                        });
+
+                        if (retryResponse.ok) {
+                            const retryResult = await retryResponse.json();
+                            await wait(700); // Longer wait after retry
+
+                            // Verify again
+                            const reVerifyResponse = await fetch(`${apiBase}/adb/lock-status/${encodeURIComponent(deviceId)}`);
+                            if (reVerifyResponse.ok) {
+                                const reVerifyState = await reVerifyResponse.json();
+                                actuallyUnlocked = !reVerifyState.is_locked;
+                                console.log(`[DeviceUnlock] Retry verification: ${actuallyUnlocked ? 'success' : 'still locked'}`);
+                            } else {
+                                actuallyUnlocked = retryResult.success;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.debug('[DeviceUnlock] Verification check failed (non-critical):', e);
+                // Trust the original unlock result if verification fails
+            }
+
+            if (actuallyUnlocked) {
+                updateStatus('Device unlocked!');
+                onStepUpdate('step-unlock', 'done');
+                showToast('Device unlocked', 'success', 2000);
+                // Record successful unlock to prevent duplicate unlock calls
+                lastUnlockTime.set(deviceId, Date.now());
+                await wait(300);
+                return { success: true, status: 'unlocked' };
+            }
+            // If still locked after retry, fall through to manual unlock section below
+            console.log('[DeviceUnlock] Device still locked after retry - needs manual intervention');
         }
 
         // Unlock failed - needs manual intervention

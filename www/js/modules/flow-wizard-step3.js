@@ -43,7 +43,7 @@ import FlowInteractions from './flow-interactions.js?v=0.0.15';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
 import FlowRecorder from './flow-recorder.js?v=0.0.10';
 import LiveStream from './live-stream.js?v=0.0.32';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.7';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.8';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
@@ -67,15 +67,17 @@ export async function loadStep3(wizard) {
     console.log('Loading Step 3: Recording Mode');
     showToast(`Starting recording session...`, 'info');
 
-    // CRITICAL: Start keep-awake FIRST before anything else
-    // This prevents device from locking during page load
+    // CRITICAL: Mark wizard as active FIRST before anything else
+    // This tells server to not lock this device and cancels any queued flows
     if (wizard.selectedDevice) {
-        await startKeepAwake(wizard);
+        console.log('[FlowWizard] Registering wizard active FIRST...');
+        await wizard.setWizardActive(wizard.selectedDevice);
+        console.log('[FlowWizard] Wizard active registered, server notified');
     }
 
-    // THEN mark wizard as active (and AWAIT it to ensure server knows before continuing)
+    // THEN start keep-awake to prevent device screen from sleeping
     if (wizard.selectedDevice) {
-        await wizard.setWizardActive(wizard.selectedDevice);
+        await startKeepAwake(wizard);
     }
 
     // CRITICAL: Unlock device BEFORE anything else (app launch, UI setup, streaming)
@@ -144,9 +146,8 @@ export async function loadStep3(wizard) {
     // Restore existing steps to recorder and UI if returning from later step
     if (isReturning) {
         wizard.recorder.steps = [...wizard.flowSteps];
-        wizard.flowSteps.forEach((step, index) => {
-            wizard.stepManager.addStep(step, index);
-        });
+        // Use render() to display all steps at once (addStep doesn't exist on FlowStepManager)
+        wizard.stepManager.render(wizard.flowSteps);
         console.log(`[FlowWizard] Restored ${wizard.flowSteps.length} steps to UI`);
     }
 
@@ -2492,7 +2493,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.7');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.8');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -2526,7 +2527,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.7');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.8');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -3999,7 +4000,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.7');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.8');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });

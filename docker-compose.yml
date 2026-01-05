@@ -60,11 +60,15 @@ services:
       - ./sensor_updater.py:/app/sensor_updater.py:ro
       - ./ha_device_classes.py:/app/ha_device_classes.py:ro
       # Flow system
+      - ./flow_models.py:/app/flow_models.py:ro
       - ./flow_manager.py:/app/flow_manager.py:ro
       - ./flow_executor.py:/app/flow_executor.py:ro
       - ./flow_scheduler.py:/app/flow_scheduler.py:ro
       - ./flow_execution_history.py:/app/flow_execution_history.py:ro
       - ./performance_monitor.py:/app/performance_monitor.py:ro
+      # Navigation system
+      - ./navigation_models.py:/app/navigation_models.py:ro
+      - ./navigation_miner.py:/app/navigation_miner.py:ro
       # Screenshot & icons
       - ./screenshot_stitcher.py:/app/screenshot_stitcher.py:ro
       - ./app_icon_extractor.py:/app/app_icon_extractor.py:ro

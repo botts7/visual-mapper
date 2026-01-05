@@ -1,9 +1,10 @@
 /**
  * Flow Wizard Element Actions Module
- * Visual Mapper v0.0.5
+ * Visual Mapper v0.0.6
  *
  * Element interaction methods for tap, type, and sensor actions
  * Extracted from flow-wizard.js for better modularity
+ * v0.0.6: Fixed elementIndex passthrough to createTextSensor
  */
 
 import { showToast } from './toast.js?v=0.0.5';
@@ -53,8 +54,8 @@ export async function addSensorCaptureFromElement(wizard, element, elementIndex)
         y: Math.round((bounds.y || 0) + (bounds.height || 0) / 2)
     };
 
-    // Show sensor configuration dialog
-    await wizard.createTextSensor(element, coords);
+    // Show sensor configuration dialog - pass elementIndex for proper tracking
+    await wizard.createTextSensor(element, coords, elementIndex);
 }
 
 // Dual export pattern: ES6 export + window global

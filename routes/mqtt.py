@@ -194,6 +194,21 @@ async def publish_all_sensor_discoveries(device_id: str):
                 "message": "No sensors found for device"
             }
 
+        # Ensure device info is cached for friendly MQTT names
+        # Try to get model from first sensor's connection or ADB
+        if sensors and deps.adb_bridge:
+            first_sensor = sensors[0]
+            try:
+                # Try the original device_id (IP:port) to get model via ADB
+                model = await deps.adb_bridge.get_device_model(first_sensor.device_id)
+                if model:
+                    # Cache using stable_device_id if available
+                    cache_id = first_sensor.stable_device_id or device_id
+                    deps.mqtt_manager.set_device_info(cache_id, model=model)
+                    logger.info(f"[API] Cached device model for MQTT: {model}")
+            except Exception as e:
+                logger.debug(f"[API] Could not get device model for {device_id}: {e}")
+
         published_count = 0
         failed_sensors = []
 

@@ -63,9 +63,10 @@ export default class ActionManager {
      * @param {Object} actionConfig - Action configuration
      * @param {Array} tags - Optional tags
      * @param {boolean} skipDuplicateCheck - If true, skip the duplicate check
+     * @param {string} sourceApp - App package name where action was created
      * @returns {Object} Created action or null if user chose to use existing
      */
-    async createAction(actionConfig, tags = [], skipDuplicateCheck = false) {
+    async createAction(actionConfig, tags = [], skipDuplicateCheck = false, sourceApp = null) {
         if (!this.currentDeviceId) {
             throw new Error('No device selected');
         }
@@ -102,7 +103,8 @@ export default class ActionManager {
                 `/actions?device_id=${this.currentDeviceId}`,
                 {
                     action: actionConfig,
-                    tags: tags
+                    tags: tags,
+                    source_app: sourceApp
                 }
             );
 

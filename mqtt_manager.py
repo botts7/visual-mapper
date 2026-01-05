@@ -7,7 +7,9 @@ Cross-platform: Uses aiomqtt on Linux, paho-mqtt on Windows
 import asyncio
 import json
 import logging
+import os
 import sys
+from pathlib import Path
 from typing import Dict, Optional, Any
 from datetime import datetime
 
@@ -44,13 +46,15 @@ class MQTTManager:
         port: int = 1883,
         username: Optional[str] = None,
         password: Optional[str] = None,
-        discovery_prefix: str = "homeassistant"
+        discovery_prefix: str = "homeassistant",
+        data_dir: str = "data"
     ):
         self.broker = broker
         self.port = port
         self.username = username
         self.password = password
         self.discovery_prefix = discovery_prefix
+        self.data_dir = Path(data_dir)
         self.client = None
         self._connected = False
         self._event_loop = None  # Store event loop for thread-safe async calls
@@ -58,6 +62,8 @@ class MQTTManager:
         # Device info cache for friendly names in MQTT discovery
         # Maps device_id -> {model: str, friendly_name: str, app_name: str}
         self._device_info: Dict[str, Dict[str, str]] = {}
+        self._device_info_file = self.data_dir / "mqtt_device_info.json"
+        self._load_device_info()
 
         # Device capabilities cache (populated from device announcements)
         # Maps device_id -> list of capability strings
@@ -65,6 +71,27 @@ class MQTTManager:
         self._device_capabilities: Dict[str, list] = {}
 
         logger.info(f"[MQTTManager] Initialized with broker={broker}:{port} (Platform: {'Windows' if IS_WINDOWS else 'Linux'})")
+
+    def _load_device_info(self):
+        """Load device info from persistent storage"""
+        try:
+            if self._device_info_file.exists():
+                with open(self._device_info_file, 'r') as f:
+                    self._device_info = json.load(f)
+                logger.info(f"[MQTTManager] Loaded device info for {len(self._device_info)} devices")
+        except Exception as e:
+            logger.warning(f"[MQTTManager] Failed to load device info: {e}")
+            self._device_info = {}
+
+    def _save_device_info(self):
+        """Save device info to persistent storage"""
+        try:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            with open(self._device_info_file, 'w') as f:
+                json.dump(self._device_info, f, indent=2)
+            logger.debug(f"[MQTTManager] Saved device info for {len(self._device_info)} devices")
+        except Exception as e:
+            logger.warning(f"[MQTTManager] Failed to save device info: {e}")
 
     def set_device_info(self, device_id: str, model: str = None, friendly_name: str = None, app_name: str = None):
         """
@@ -85,6 +112,9 @@ class MQTTManager:
             self._device_info[device_id]['friendly_name'] = friendly_name
         if app_name:
             self._device_info[device_id]['app_name'] = app_name
+
+        # Persist to file
+        self._save_device_info()
 
         logger.debug(f"[MQTTManager] Set device info for {device_id}: {self._device_info[device_id]}")
 
@@ -596,15 +626,34 @@ class MQTTManager:
                 "failed_sensors": failed_sensors
             }
 
-    async def publish_availability(self, device_id: str, online: bool) -> bool:
-        """Publish device availability status"""
+    async def publish_availability(self, device_id: str, online: bool, stable_device_id: str = None) -> bool:
+        """Publish device availability status
+
+        Args:
+            device_id: Connection ID (e.g., 192.168.86.2:46747)
+            online: True for online, False for offline
+            stable_device_id: Optional stable ID (e.g., R9YT50J4S9D) - if not provided, will look up from sensor_manager
+        """
         if not self._connected or not self.client:
             logger.error("[MQTTManager] Not connected to broker")
             return False
 
         try:
-            topic = self._get_availability_topic(device_id)
+            # Use stable_device_id if available (matches sensor discovery topics)
+            # Otherwise try to look it up from sensors, fallback to device_id
+            effective_id = stable_device_id
+            if not effective_id and hasattr(self, 'sensor_manager') and self.sensor_manager:
+                # Try to find stable ID from any sensor for this device
+                sensors = self.sensor_manager.get_sensors_for_device(device_id)
+                if sensors and len(sensors) > 0:
+                    effective_id = sensors[0].stable_device_id
+            if not effective_id:
+                effective_id = device_id
+
+            topic = self._get_availability_topic(effective_id)
             payload = "online" if online else "offline"
+
+            logger.debug(f"[MQTTManager] Publishing availability to {topic} (device_id={device_id}, stable_id={effective_id})")
 
             if IS_WINDOWS:
                 result = self.client.publish(topic, payload, retain=True)

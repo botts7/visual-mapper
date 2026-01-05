@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 import logging
+import asyncio
 from routes import get_deps
 from utils.device_security import LockStrategy
 
@@ -206,23 +207,27 @@ async def auto_unlock_device(device_id: str):
                 "unlock_status": unlock_status
             }
 
-        # Get security config
+        # Step 1: Try swipe unlock first (fast, works for devices without passcode)
+        try:
+            await deps.adb_bridge.unlock_screen(device_id)
+            await asyncio.sleep(0.3)
+
+            # Check if swipe was enough
+            is_locked = await deps.adb_bridge.is_locked(device_id)
+            if not is_locked:
+                logger.info(f"[API] Device {device_id} unlocked via swipe")
+                return {"success": True, "message": "Device unlocked via swipe", "unlock_status": unlock_status}
+        except Exception as e:
+            logger.debug(f"[API] Swipe unlock attempt: {e}")
+
+        # Step 2: Try passcode if configured
         config = deps.device_security_manager.get_lock_config(device_id)
+        passcode = deps.device_security_manager.get_passcode(device_id) if config else None
 
-        if not config:
-            return {"success": False, "message": "No security config found", "unlock_status": unlock_status}
-
-        if config.get('strategy') != "auto_unlock":
-            return {"success": False, "message": f"Device is configured for {config.get('strategy')}, not auto_unlock", "unlock_status": unlock_status}
-
-        # Get decrypted passcode
-        passcode = deps.device_security_manager.get_passcode(device_id)
-
-        if not passcode:
-            return {"success": False, "message": "No passcode stored", "unlock_status": unlock_status}
-
-        # Attempt unlock
-        success = await deps.adb_bridge.unlock_device(device_id, passcode)
+        success = False
+        if passcode and config.get('strategy') == "auto_unlock":
+            # Attempt passcode unlock
+            success = await deps.adb_bridge.unlock_device(device_id, passcode)
 
         # Get updated status after attempt
         unlock_status = deps.adb_bridge.get_unlock_status(device_id)

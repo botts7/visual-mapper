@@ -85,7 +85,20 @@ async def get_flow(device_id: str, flow_id: str, service: FlowService = Depends(
 async def update_flow(device_id: str, flow_id: str, flow_data: dict, service: FlowService = Depends(get_flow_service)):
     """Update an existing flow"""
     try:
-        return await service.update_flow(device_id, flow_id, flow_data)
+        result = await service.update_flow(device_id, flow_id, flow_data)
+
+        # If enabled state changed, reload scheduler to start/stop periodic task
+        # This ensures toggling a flow ON will restart its periodic scheduling
+        if "enabled" in flow_data:
+            deps = get_deps()
+            if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
+                try:
+                    await deps.flow_scheduler.reload_flows(device_id)
+                    logger.info(f"[API] Reloaded scheduler for device {device_id} after flow update")
+                except Exception as e:
+                    logger.warning(f"[API] Failed to reload scheduler: {e}")
+
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -223,17 +236,46 @@ async def get_flow_execution_status(device_id: str, flow_id: str):
                     flow_dict = flow.dict()
                 else:
                     flow_dict = flow if isinstance(flow, dict) else {}
+                # Get execution data
+                last_executed = flow_dict.get("last_executed") or flow_dict.get("last_run_at")
+                last_success = flow_dict.get("last_success")
+                last_error = flow_dict.get("last_error")
+                execution_count = flow_dict.get("execution_count", 0)
+                steps = flow_dict.get("steps", [])
+
                 return {
                     "flow_id": flow_id,
                     "device_id": device_id,
-                    "last_run": flow_dict.get("last_executed") or flow_dict.get("last_run_at"),
-                    "last_status": "success" if flow_dict.get("last_success") else ("failed" if flow_dict.get("last_error") else "unknown"),
+                    # Frontend-expected fields
+                    "success": last_success if last_executed else None,
+                    "error": last_error,
+                    "started_at": last_executed,
+                    "duration_ms": flow_dict.get("last_duration_ms"),
+                    "executed_steps": len(steps) if last_success else 0,
+                    "total_steps": len(steps),
+                    # Backward compatibility
+                    "last_run": last_executed,
+                    "last_status": "success" if last_success else ("failed" if last_error else "unknown"),
                     "last_duration": flow_dict.get("last_duration_ms"),
-                    "run_count": flow_dict.get("execution_count", 0),
+                    "run_count": execution_count,
                     "success_count": flow_dict.get("success_count", 0),
                     "failure_count": flow_dict.get("failure_count", 0)
                 }
-        return {"flow_id": flow_id, "device_id": device_id, "last_run": None, "last_status": "never_run", "run_count": 0}
+        return {
+            "flow_id": flow_id,
+            "device_id": device_id,
+            # Frontend-expected fields
+            "success": None,
+            "error": None,
+            "started_at": None,
+            "duration_ms": None,
+            "executed_steps": 0,
+            "total_steps": 0,
+            # Backward compatibility
+            "last_run": None,
+            "last_status": "never_run",
+            "run_count": 0
+        }
     except Exception as e:
         logger.error(f"[API] Failed to get execution status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -323,6 +365,13 @@ async def set_wizard_active(device_id: str):
     server.wizard_active_devices.add(device_id)
     registered_ids = [device_id]
 
+    # Cancel any queued flows for this device to prevent them executing during wizard
+    cancelled_flows = 0
+    try:
+        cancelled_flows = await deps.flow_scheduler.cancel_queued_flows_for_device(device_id)
+    except Exception as e:
+        logger.warning(f"[API] Could not cancel queued flows for {device_id}: {e}")
+
     # Try to find and register alternate ID (USB vs WiFi)
     try:
         connected = await deps.adb_bridge.get_connected_devices()
@@ -342,8 +391,8 @@ async def set_wizard_active(device_id: str):
     except Exception as e:
         logger.debug(f"[API] Could not get alternate device ID: {e}")
 
-    logger.info(f"[API] Wizard active for device(s): {registered_ids} (now {len(server.wizard_active_devices)} active)")
-    return {"success": True, "device_id": device_id, "registered_ids": registered_ids, "active": True}
+    logger.info(f"[API] Wizard active for device(s): {registered_ids} (cancelled {cancelled_flows} queued flows)")
+    return {"success": True, "device_id": device_id, "registered_ids": registered_ids, "cancelled_flows": cancelled_flows, "active": True}
 
 @router.delete("/wizard/active/{device_id}")
 async def set_wizard_inactive(device_id: str):

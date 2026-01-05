@@ -19,20 +19,20 @@ import FlowStepManager from './flow-step-manager.js?v=0.0.5';
 import LiveStream from './live-stream.js?v=0.0.34';
 import ElementTree from './element-tree.js?v=0.0.5';
 import APIClient from './api-client.js?v=0.0.4';
-import SensorCreator from './sensor-creator.js?v=0.0.9';
+import SensorCreator from './sensor-creator.js?v=0.0.10';
 
 // Step modules
 import * as Step1 from './flow-wizard-step1.js?v=0.0.6';
 import * as Step2 from './flow-wizard-step2.js?v=0.0.5';
-import * as Step3 from './flow-wizard-step3.js?v=0.0.29';
+import * as Step3 from './flow-wizard-step3.js?v=0.0.34';
 import * as Step4 from './flow-wizard-step4.js?v=0.0.14';
 import * as Step5 from './flow-wizard-step5.js?v=0.0.6';
 
 // Dialog module
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.6';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.8';
 
 // Element actions module
-import * as ElementActions from './flow-wizard-element-actions.js?v=0.0.5';
+import * as ElementActions from './flow-wizard-element-actions.js?v=0.0.6';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -324,6 +324,29 @@ class FlowWizard {
         }
     }
 
+    /**
+     * Navigate directly to a specific step
+     * Used by Step 4 to return to Step 3 for inserting missing navigation steps
+     * @param {number} stepNumber - Step number (1-5)
+     */
+    goToStep(stepNumber) {
+        if (stepNumber < 1 || stepNumber > this.totalSteps) {
+            console.warn(`[FlowWizard] Invalid step number: ${stepNumber}`);
+            return;
+        }
+
+        // Stop streaming when leaving Step 3
+        if (this.currentStep === 3 && stepNumber !== 3 && this.captureMode === 'streaming') {
+            this.stopStreaming();
+            this.captureMode = 'polling';
+        }
+
+        console.log(`[FlowWizard] Navigating from step ${this.currentStep} to step ${stepNumber}`);
+        this.currentStep = stepNumber;
+        this.updateUI();
+        this.loadStepContent();
+    }
+
     updateUI() {
         // Update progress indicator
         document.querySelectorAll('.wizard-progress .step').forEach((step, index) => {
@@ -530,12 +553,12 @@ class FlowWizard {
         return Dialogs.promptForText(this);
     }
 
-    async createTextSensor(element, coords) {
-        return Dialogs.createTextSensor(this, element, coords);
+    async createTextSensor(element, coords, elementIndex = 0) {
+        return Dialogs.createTextSensor(this, element, coords, elementIndex);
     }
 
-    async createImageSensor(element, coords) {
-        return Dialogs.createImageSensor(this, element, coords);
+    async createImageSensor(element, coords, elementIndex = 0) {
+        return Dialogs.createImageSensor(this, element, coords, elementIndex);
     }
 
     /**

@@ -27,3 +27,7 @@ google-play-scraper>=1.2.4
 pytest==7.4.3
 pytest-asyncio==0.21.1
 httpx==0.25.2
+
+# E2E Browser Testing (Playwright)
+pytest-playwright>=0.7.0
+playwright>=1.57.0

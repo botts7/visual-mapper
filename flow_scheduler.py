@@ -401,6 +401,10 @@ class FlowScheduler:
         self._last_execution: Dict[str, datetime] = {}
         self._total_executions: Dict[str, int] = {}
 
+        # Unlock debounce tracking - prevents rapid unlock attempts
+        self._last_unlock_attempt: Dict[str, float] = {}
+        self._unlock_debounce_seconds: int = 30  # Match frontend debounce
+
         # Scheduler state
         self._running = False
         self._paused = False  # Pause state for periodic scheduling
@@ -588,8 +592,21 @@ class FlowScheduler:
                         # ============================================
                         unlocked = await self._auto_unlock_if_needed(device_id)
                         if not unlocked:
-                            logger.error(f"[FlowScheduler] Flow {queued.flow.flow_id} skipped - device locked")
+                            # Re-queue instead of skipping - device may unlock soon
+                            logger.warning(f"[FlowScheduler] Flow {queued.flow.flow_id} deferred - device locked, re-queuing in 10s")
                             queue.task_done()
+
+                            # Re-queue with slight delay (don't block the queue)
+                            async def requeue_after_delay():
+                                await asyncio.sleep(10)
+                                # Only requeue if scheduler still running
+                                if self._running and queued.flow.enabled:
+                                    # Lower priority (higher number) for retries to let other flows go first
+                                    retry_priority = min(queued.priority + 5, 20)
+                                    await self.schedule_flow(queued.flow, priority=retry_priority, reason="retry_after_locked")
+                                    logger.info(f"[FlowScheduler] Re-queued flow {queued.flow.flow_id} after device lock")
+
+                            asyncio.create_task(requeue_after_delay())
                             continue
 
                         # 4. Execute flow via execution router (handles server/android/auto routing)
@@ -665,34 +682,64 @@ class FlowScheduler:
         """
         Background task that periodically schedules a flow
 
+        Re-reads flow from disk each iteration to pick up enabled/disabled changes.
+
         Args:
-            flow: Flow to schedule periodically
+            flow: Flow to schedule periodically (used for initial flow_id/device_id)
         """
-        logger.debug(f"[FlowScheduler] Starting periodic scheduling for {flow.flow_id} (interval={flow.update_interval_seconds}s)")
+        import time
+        # Store IDs - we'll re-read flow from disk each iteration
+        flow_id = flow.flow_id
+        device_id = flow.device_id
+        initial_interval = flow.update_interval_seconds
+
+        logger.debug(f"[FlowScheduler] Starting periodic scheduling for {flow_id} (interval={initial_interval}s)")
 
         while self._running:
             try:
+                # RE-READ flow from disk to get current enabled state
+                current_flow = self.flow_manager.get_flow(device_id, flow_id)
+
+                # Check if flow still exists and is enabled
+                if not current_flow:
+                    logger.info(f"[FlowScheduler] Flow {flow_id} no longer exists, stopping periodic task")
+                    break
+
+                if not current_flow.enabled:
+                    logger.info(f"[FlowScheduler] Flow {flow_id} is disabled, stopping periodic task")
+                    break
+
+                # Track execution start time to account for execution duration
+                execution_start = time.time()
+
                 # Calculate priority based on update interval
                 # Faster intervals = higher priority
-                if flow.update_interval_seconds < 30:
+                interval = current_flow.update_interval_seconds
+                if interval < 30:
                     priority = 5  # High priority
-                elif flow.update_interval_seconds < 300:
+                elif interval < 300:
                     priority = 10  # Normal priority
                 else:
                     priority = 15  # Low priority
 
-                # Schedule flow
-                await self.schedule_flow(flow, priority=priority, reason="periodic")
+                # Schedule flow (use current_flow, not stale reference)
+                await self.schedule_flow(current_flow, priority=priority, reason="periodic")
 
-                # Wait for next interval
-                await asyncio.sleep(flow.update_interval_seconds)
+                # Calculate sleep duration, accounting for execution time
+                execution_duration = time.time() - execution_start
+                sleep_duration = max(5, interval - execution_duration)
+
+                logger.debug(f"[FlowScheduler] Flow {flow_id} scheduled (took {execution_duration:.1f}s, sleeping {sleep_duration:.1f}s)")
+
+                # Wait for adjusted interval
+                await asyncio.sleep(sleep_duration)
 
             except asyncio.CancelledError:
-                logger.debug(f"[FlowScheduler] Periodic scheduling cancelled for {flow.flow_id}")
+                logger.debug(f"[FlowScheduler] Periodic scheduling cancelled for {flow_id}")
                 break
             except Exception as e:
-                logger.error(f"[FlowScheduler] Periodic scheduling error for {flow.flow_id}: {e}", exc_info=True)
-                await asyncio.sleep(flow.update_interval_seconds)  # Continue on error
+                logger.error(f"[FlowScheduler] Periodic scheduling error for {flow_id}: {e}", exc_info=True)
+                await asyncio.sleep(initial_interval)  # Continue on error
 
     def _get_all_device_ids(self) -> List[str]:
         """
@@ -849,11 +896,50 @@ class FlowScheduler:
 
         # Since PriorityQueue doesn't allow peeking, return summary info
         # For detailed queue contents, we'd need to track separately
-        return {
+        return [{
             "device_id": device_id,
             "queue_depth": queue_depth,
             "message": f"{queue_depth} flow(s) queued for execution"
-        }
+        }]
+
+    async def cancel_queued_flows_for_device(self, device_id: str) -> int:
+        """
+        Cancel all pending flows for a device.
+
+        Used when Flow Wizard opens to prevent queued flows from executing
+        and locking the device during wizard operation.
+
+        Args:
+            device_id: Device ID to cancel flows for
+
+        Returns:
+            Number of flows cancelled
+        """
+        if device_id not in self._queues:
+            logger.debug(f"[FlowScheduler] No queue for device {device_id}")
+            return 0
+
+        # Get the old queue and replace with new empty queue
+        old_queue = self._queues[device_id]
+        self._queues[device_id] = asyncio.PriorityQueue()
+
+        # Count how many were cancelled (drain the old queue)
+        cancelled = 0
+        while not old_queue.empty():
+            try:
+                old_queue.get_nowait()
+                cancelled += 1
+            except asyncio.QueueEmpty:
+                break
+
+        self._queue_depths[device_id] = 0
+
+        if cancelled > 0:
+            logger.info(f"[FlowScheduler] Cancelled {cancelled} queued flows for {device_id} (wizard opened)")
+        else:
+            logger.debug(f"[FlowScheduler] No queued flows to cancel for {device_id}")
+
+        return cancelled
 
     def is_paused(self) -> bool:
         """Check if scheduler is paused"""
@@ -899,12 +985,25 @@ class FlowScheduler:
 
         logger.info(f"[FlowScheduler] Device {device_id} is locked - attempting auto-unlock")
 
+        # Check debounce - prevent rapid unlock attempts (matches frontend 30s debounce)
+        import time
+        last_attempt = self._last_unlock_attempt.get(device_id, 0)
+        time_since_last = time.time() - last_attempt
+        if time_since_last < self._unlock_debounce_seconds:
+            remaining = int(self._unlock_debounce_seconds - time_since_last)
+            logger.debug(f"[FlowScheduler] Unlock debounce active for {device_id} ({remaining}s remaining)")
+            # Return False to skip this execution - device is still locked
+            return False
+
         # Check unlock cooldown first (prevents device lockout)
         unlock_status = self.flow_executor.adb_bridge.get_unlock_status(device_id)
         if unlock_status.get("in_cooldown"):
             cooldown_remaining = unlock_status.get("cooldown_remaining_seconds", 0)
             logger.error(f"[FlowScheduler] Unlock in cooldown ({cooldown_remaining}s remaining)")
             return False
+
+        # Record this unlock attempt time for debounce
+        self._last_unlock_attempt[device_id] = time.time()
 
         # Step 1: Try swipe-to-unlock first
         try:
@@ -1011,6 +1110,11 @@ class FlowScheduler:
         # Use ADB to properly resolve USB vs WiFi device ID mismatches
         try:
             from server import wizard_active_devices
+
+            # Debug log to help diagnose wizard active issues
+            if wizard_active_devices:
+                logger.debug(f"[FlowScheduler] should_lock_device({device_id}): wizard_active_devices={wizard_active_devices}")
+
             if device_id in wizard_active_devices:
                 logger.debug(f"[FlowScheduler] Skipping lock - wizard active on {device_id}")
                 return False

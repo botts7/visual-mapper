@@ -34,7 +34,8 @@
     --surface: var(--card-background);
     --card-bg: var(--card-background);
     --bg-primary: var(--card-background);
-    --bg-secondary: var(--background-color);
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f0f0f0;
     --bg-hover: rgba(0, 0, 0, 0.04);
     --border: var(--border-color);
     --primary: var(--primary-color);
@@ -78,6 +79,11 @@
 
         /* Dark theme hover */
         --bg-hover: rgba(255, 255, 255, 0.08);
+
+        /* Dark theme backgrounds */
+        --bg-primary: var(--card-background);
+        --bg-secondary: var(--card-background);
+        --bg-tertiary: var(--input-background);
     }
 }
 
@@ -104,6 +110,11 @@ body.dark-mode {
 
     /* Dark mode hover */
     --bg-hover: rgba(255, 255, 255, 0.08);
+
+    /* Dark mode backgrounds */
+    --bg-primary: var(--card-background);
+    --bg-secondary: var(--card-background);
+    --bg-tertiary: var(--input-background);
 
     /* Dark mode semantic aliases */
     --primary-dark: #1976D2;
@@ -136,7 +147,9 @@ nav {
     color: white;
     padding: 1rem;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    position: relative;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
 }
 
 nav ul {
@@ -308,9 +321,25 @@ button:active,
     white-space: nowrap;
 }
 
-#themeToggleContainer button {
-    padding: 6px 12px;
-    font-size: 13px;
+#themeToggleContainer button,
+.theme-toggle {
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+#themeToggleContainer button:hover,
+.theme-toggle:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.theme-icon {
+    margin-right: 4px;
 }
 
 /* Status messages */

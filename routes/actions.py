@@ -11,7 +11,7 @@ Actions support comprehensive HA action types: button, switch, number, text,
 select, scene, and custom automations.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 import logging
 from routes import get_deps
@@ -47,7 +47,7 @@ async def get_all_actions():
 
 
 @router.post("")
-async def create_action(request: ActionCreateRequest, device_id: str):
+async def create_action(request: ActionCreateRequest, device_id: str = Query(..., description="Device ID")):
     """Create a new action for a device"""
     deps = get_deps()
     try:
@@ -56,7 +56,16 @@ async def create_action(request: ActionCreateRequest, device_id: str):
         action_def = deps.action_manager.create_action(
             device_id=device_id,
             action=request.action,
-            tags=request.tags
+            tags=request.tags,
+            source_app=request.source_app,
+            # Navigation configuration (optional)
+            target_app=request.target_app,
+            prerequisite_actions=request.prerequisite_actions,
+            navigation_sequence=request.navigation_sequence,
+            validation_element=request.validation_element,
+            return_home_after=request.return_home_after,
+            max_navigation_attempts=request.max_navigation_attempts,
+            navigation_timeout=request.navigation_timeout
         )
 
         # Publish MQTT discovery to Home Assistant
@@ -65,11 +74,11 @@ async def create_action(request: ActionCreateRequest, device_id: str):
             try:
                 mqtt_published = await deps.mqtt_manager.publish_action_discovery(action_def)
                 if mqtt_published:
-                    logger.info(f"[API] Published MQTT discovery for action {action_def.action_id}")
+                    logger.info(f"[API] Published MQTT discovery for action {action_def.id}")
                 else:
-                    logger.warning(f"[API] Failed to publish MQTT discovery for {action_def.action_id}")
+                    logger.warning(f"[API] Failed to publish MQTT discovery for {action_def.id}")
             except Exception as e:
-                logger.error(f"[API] MQTT discovery failed for {action_def.action_id}: {e}")
+                logger.error(f"[API] MQTT discovery failed for {action_def.id}: {e}")
 
         return {
             "success": True,
@@ -132,7 +141,15 @@ async def update_action(device_id: str, action_id: str, request: ActionUpdateReq
             device_id=device_id,
             action_id=action_id,
             action=request.action,
-            tags=request.tags
+            tags=request.tags,
+            # Navigation configuration (all optional for partial updates)
+            target_app=request.target_app,
+            prerequisite_actions=request.prerequisite_actions,
+            navigation_sequence=request.navigation_sequence,
+            validation_element=request.validation_element,
+            return_home_after=request.return_home_after,
+            max_navigation_attempts=request.max_navigation_attempts,
+            navigation_timeout=request.navigation_timeout
         )
 
         # Republish MQTT discovery to update Home Assistant
@@ -230,7 +247,7 @@ async def execute_action_endpoint(request: ActionExecutionRequest, device_id: st
             )
         else:
             # Execute inline action
-            logger.info(f"[API] Executing inline action: {request.action.type}")
+            logger.info(f"[API] Executing inline action: {request.action.action_type}")
             result = await deps.action_executor.execute_action(request.action)
 
         return result.dict()

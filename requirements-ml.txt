@@ -1,0 +1,15 @@
+# ML Training Server Dependencies
+
+# MQTT Client
+paho-mqtt>=2.0.0
+
+# ML/AI Libraries
+numpy>=1.24.0
+onnxruntime>=1.16.0
+
+# Optional GPU/NPU acceleration (uncomment as needed)
+# onnxruntime-directml  # Windows NPU (DirectML)
+# onnxruntime-gpu       # NVIDIA CUDA
+
+# Utilities
+python-json-logger>=2.0.0

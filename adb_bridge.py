@@ -1926,18 +1926,22 @@ class ADBBridge:
             logger.warning(f"[ADBBridge] Cannot unlock - device {device_id} not found")
             return False
 
-        # Check cooldown status
-        status = self.get_unlock_status(device_id)
+        # Use resolved_id for all failure tracking to ensure consistency
+        # This prevents tracking issues when WiFi IP changes or USB/WiFi switching
+        tracking_id = resolved_id or device_id
+
+        # Check cooldown status using resolved ID
+        status = self.get_unlock_status(tracking_id)
         if status["in_cooldown"]:
-            logger.warning(f"[ADBBridge] Device {device_id} is in unlock cooldown ({status['cooldown_remaining_seconds']}s remaining)")
+            logger.warning(f"[ADBBridge] Device {tracking_id} is in unlock cooldown ({status['cooldown_remaining_seconds']}s remaining)")
             return False
 
         if status["locked_out"]:
-            logger.error(f"[ADBBridge] Device {device_id} marked as locked out")
+            logger.error(f"[ADBBridge] Device {tracking_id} marked as locked out")
             return False
 
         try:
-            logger.info(f"[ADBBridge] Unlocking device {device_id}")
+            logger.info(f"[ADBBridge] Unlocking device {device_id} (tracking as {tracking_id})")
 
             # Step 1: Wake screen and dismiss screensaver
             await self.wake_screen(device_id)
@@ -1946,7 +1950,7 @@ class ADBBridge:
             # Check if already unlocked
             if not await self.is_locked(device_id):
                 logger.info(f"[ADBBridge] Device already unlocked")
-                self.reset_unlock_failures(device_id)
+                self.reset_unlock_failures(tracking_id)
                 return True
 
             # Step 2: Swipe up to reveal PIN entry (with retry for aggressive screen timeout)
@@ -2011,25 +2015,25 @@ class ADBBridge:
             # Step 5: Verify unlock
             still_locked = await self.is_locked(device_id)
             if still_locked:
-                # Record failure
-                failure_info = self._unlock_failures.get(device_id, {"count": 0, "last_attempt": 0, "locked_out": False})
+                # Record failure using tracking_id for consistent tracking
+                failure_info = self._unlock_failures.get(tracking_id, {"count": 0, "last_attempt": 0, "locked_out": False})
                 failure_info["count"] = failure_info.get("count", 0) + 1
                 failure_info["last_attempt"] = time.time()
-                self._unlock_failures[device_id] = failure_info
+                self._unlock_failures[tracking_id] = failure_info
 
                 remaining = self._max_unlock_attempts - failure_info["count"]
                 if remaining <= 0:
-                    logger.error(f"[ADBBridge] UNLOCK FAILED for {device_id} - Max attempts reached! "
+                    logger.error(f"[ADBBridge] UNLOCK FAILED for {tracking_id} - Max attempts reached! "
                                 f"Entering {self._unlock_cooldown_seconds}s cooldown to prevent device lockout. "
                                 f"Please unlock device manually and call reset_unlock_failures().")
                 else:
-                    logger.warning(f"[ADBBridge] Unlock failed for {device_id} - {remaining} attempts remaining before cooldown")
+                    logger.warning(f"[ADBBridge] Unlock failed for {tracking_id} - {remaining} attempts remaining before cooldown")
 
                 return False
 
             # Success - reset failure count
-            logger.info(f"[ADBBridge] Device {device_id} unlocked successfully")
-            self.reset_unlock_failures(device_id)
+            logger.info(f"[ADBBridge] Device {tracking_id} unlocked successfully")
+            self.reset_unlock_failures(tracking_id)
             return True
 
         except Exception as e:
@@ -2045,16 +2049,16 @@ class ADBBridge:
         """
         conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
-            logger.warning(f"[ADBBridge] Device {device_id} not connected for lock check")
-            return False  # Can't check - assume unlocked
+            logger.warning(f"[ADBBridge] Device {device_id} not connected for lock check - assuming LOCKED for safety")
+            return True  # Can't check - assume locked for safety
 
         try:
             # Get full window dump and check for lock indicators
             result = await conn.shell("dumpsys window")
 
             if not result:
-                logger.warning(f"[ADBBridge] Empty window dump for {device_id}")
-                return False
+                logger.warning(f"[ADBBridge] Empty window dump for {device_id} - assuming LOCKED for safety")
+                return True  # Can't check - assume locked for safety
 
             # Check for lock screen indicators
             if "mShowingLockscreen=true" in result:
@@ -2074,8 +2078,8 @@ class ADBBridge:
             return True
 
         except Exception as e:
-            logger.error(f"[ADBBridge] Error checking lock status for {device_id}: {e}")
-            return False
+            logger.error(f"[ADBBridge] Error checking lock status for {device_id}: {e} - assuming LOCKED for safety")
+            return True  # Error occurred - assume locked for safety
 
     async def execute_batch_commands(self, device_id: str, commands: List[str]) -> List[tuple]:
         """

@@ -270,7 +270,7 @@ class FlowList(BaseModel):
     """List of flows for a device"""
     device_id: str
     flows: List[SensorCollectionFlow] = []
-    version: str = "0.0.38"
+    version: str = "0.0.39"
     last_modified: datetime = Field(default_factory=datetime.now)
 
 

@@ -136,12 +136,45 @@ class ActionDefinition(BaseModel):
 
     id: str = Field(..., description="Unique action ID")
     action: ActionType = Field(..., description="Action configuration")
+    stable_device_id: Optional[str] = Field(None, description="Stable device identifier (hashed Android ID)")
+    source_app: Optional[str] = Field(None, description="App package name where action was created (e.g., com.android.chrome)")
     created_at: datetime = Field(default_factory=datetime.now, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.now, description="Last update timestamp")
     execution_count: int = Field(default=0, ge=0, description="Number of times executed")
     last_executed: Optional[datetime] = Field(None, description="Last execution timestamp")
     last_result: Optional[str] = Field(None, description="Last execution result (success/error)")
     tags: List[str] = Field(default_factory=list, description="Action tags for organization")
+
+    # Navigation Configuration (mirrors SensorDefinition pattern)
+    # When set, action will navigate to correct screen before executing
+    target_app: Optional[str] = Field(
+        None,
+        description="Package name to launch before executing action (e.g., com.spotify.music)"
+    )
+    prerequisite_actions: List[str] = Field(
+        default_factory=list,
+        description="Action IDs to execute before this action (e.g., navigate to screen)"
+    )
+    navigation_sequence: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Step-by-step navigation commands to reach target screen (tap, swipe, wait)"
+    )
+    validation_element: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Element to verify correct screen before executing (text, class, resource_id)"
+    )
+    return_home_after: bool = Field(
+        False,  # Default False for actions (unlike sensors)
+        description="Return to home screen after action execution"
+    )
+    max_navigation_attempts: int = Field(
+        3, ge=1, le=10,
+        description="Max retries if navigation/validation fails"
+    )
+    navigation_timeout: int = Field(
+        10, ge=1, le=60,
+        description="Max seconds to wait for screen validation"
+    )
 
     class Config:
         json_encoders = {
@@ -188,6 +221,16 @@ class ActionCreateRequest(BaseModel):
 
     action: ActionType
     tags: List[str] = Field(default_factory=list)
+    source_app: Optional[str] = Field(None, description="App package name where action was created")
+
+    # Navigation Configuration (optional)
+    target_app: Optional[str] = Field(None, description="Package to launch before executing")
+    prerequisite_actions: List[str] = Field(default_factory=list, description="Action IDs to execute first")
+    navigation_sequence: Optional[List[Dict[str, Any]]] = Field(None, description="Navigation steps")
+    validation_element: Optional[Dict[str, Any]] = Field(None, description="Screen validation element")
+    return_home_after: bool = Field(False, description="Return home after execution")
+    max_navigation_attempts: int = Field(3, ge=1, le=10)
+    navigation_timeout: int = Field(10, ge=1, le=60)
 
 
 class ActionUpdateRequest(BaseModel):
@@ -196,6 +239,15 @@ class ActionUpdateRequest(BaseModel):
     action: Optional[ActionType] = None
     enabled: Optional[bool] = None
     tags: Optional[List[str]] = None
+
+    # Navigation Configuration (all optional for partial updates)
+    target_app: Optional[str] = None
+    prerequisite_actions: Optional[List[str]] = None
+    navigation_sequence: Optional[List[Dict[str, Any]]] = None
+    validation_element: Optional[Dict[str, Any]] = None
+    return_home_after: Optional[bool] = None
+    max_navigation_attempts: Optional[int] = None
+    navigation_timeout: Optional[int] = None
 
 
 # MQTT Service Discovery Models

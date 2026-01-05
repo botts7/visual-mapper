@@ -292,11 +292,40 @@ export async function createAction(wizard, element, coords) {
             return;
         }
 
+        // Validate each step has required fields
+        const invalidSteps = [];
+        steps.forEach((step, index) => {
+            if (!step.step_type && !step.action_type) {
+                invalidSteps.push(`Step ${index + 1}: missing step_type/action_type`);
+            } else if (step.step_type === 'tap' || step.action_type === 'tap') {
+                if (step.x === undefined || step.y === undefined) {
+                    invalidSteps.push(`Step ${index + 1}: tap missing x/y coordinates`);
+                }
+            } else if (step.step_type === 'swipe' || step.action_type === 'swipe') {
+                if (step.x1 === undefined || step.y1 === undefined ||
+                    step.x2 === undefined || step.y2 === undefined) {
+                    invalidSteps.push(`Step ${index + 1}: swipe missing coordinates`);
+                }
+            } else if (step.step_type === 'text' || step.action_type === 'text') {
+                if (!step.text) {
+                    invalidSteps.push(`Step ${index + 1}: text input missing text`);
+                }
+            }
+        });
+
+        if (invalidSteps.length > 0) {
+            console.error('[FlowWizard] Invalid steps detected:', invalidSteps);
+            showToast(`Invalid steps: ${invalidSteps.join(', ')}`, 'error', 5000);
+            return;
+        }
+
         // Show configuration dialog
         const config = await promptForActionConfig(wizard, element?.text || 'Custom Action', steps.length);
         if (!config) return;
 
         // Create action via API (using correct ActionCreateRequest structure)
+        // Include source_app from wizard context for device-app association
+        const sourceApp = wizard.selectedApp?.package || wizard.selectedApp || null;
         const response = await fetch(`/api/actions?device_id=${encodeURIComponent(wizard.selectedDevice)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -310,7 +339,8 @@ export async function createAction(wizard, element, coords) {
                     actions: steps,
                     stop_on_error: config.stopOnError
                 },
-                tags: config.tags
+                tags: config.tags,
+                source_app: sourceApp
             })
         });
 
@@ -368,7 +398,8 @@ export async function addActionStepFromElement(wizard, element) {
         const config = await promptForActionCreation(wizard, element?.text || 'Custom Action', steps.length);
         if (!config) return;
 
-        // Create action via API
+        // Create action via API - include source_app from wizard context
+        const sourceApp = wizard.selectedApp?.package || wizard.selectedApp || null;
         const response = await fetch(`/api/actions?device_id=${encodeURIComponent(wizard.selectedDevice)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -382,7 +413,8 @@ export async function addActionStepFromElement(wizard, element) {
                     actions: steps,
                     stop_on_error: config.stopOnError || false
                 },
-                tags: config.tags || []
+                tags: config.tags || [],
+                source_app: sourceApp
             })
         });
 
