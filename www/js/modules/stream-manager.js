@@ -423,12 +423,12 @@ export function stopStreaming(wizard) {
 
 /**
  * Reconnect the stream (stop and restart)
- * Resets slow connection warning flag
+ * Resets slow connection warning flag and ensures device is unlocked
  *
  * @param {Object} wizard - The wizard state object
  * @param {Function} drawElementOverlays - Callback to draw element overlays
  */
-export function reconnectStream(wizard, drawElementOverlays) {
+export async function reconnectStream(wizard, drawElementOverlays) {
     if (wizard.captureMode !== 'streaming') {
         showToast('Not in streaming mode', 'info', 2000);
         return;
@@ -439,13 +439,30 @@ export function reconnectStream(wizard, drawElementOverlays) {
     // Reset slow connection warning
     wizard._slowConnectionWarned = false;
 
-    // Stop and restart the stream
+    // Stop the stream
     stopStreaming(wizard);
 
     // Small delay before reconnecting
-    setTimeout(() => {
-        startStreaming(wizard, drawElementOverlays);
-    }, 500);
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Ensure device is unlocked before reconnecting
+    try {
+        const unlockResult = await sharedEnsureUnlocked(wizard.selectedDevice, getApiBase(), {
+            onStatus: (msg) => {
+                if (msg.includes('Waking') || msg.includes('Unlocking')) {
+                    showToast(msg, 'info', 2000);
+                }
+            }
+        });
+        if (unlockResult?.status === 'unlocked') {
+            showToast('Device unlocked, connecting...', 'success', 2000);
+        }
+    } catch (e) {
+        console.warn('[StreamManager] Unlock during reconnect failed:', e);
+    }
+
+    // Start the stream again
+    startStreaming(wizard, drawElementOverlays);
 }
 
 /**
@@ -540,6 +557,7 @@ export function stopKeepAwake(wizard) {
 
 /**
  * Update stream status display
+ * Makes disconnected status clickable to trigger reconnect
  *
  * @param {Object} wizard - The wizard state object
  * @param {string} className - CSS class for status styling
@@ -549,7 +567,46 @@ export function updateStreamStatus(wizard, className, text) {
     const statusEl = document.getElementById('connectionStatus');
     if (statusEl) {
         statusEl.className = `connection-status ${className}`;
-        statusEl.textContent = text;
+
+        // Make disconnected status clickable for reconnect
+        if (className === 'disconnected') {
+            statusEl.textContent = text + ' (click to reconnect)';
+            statusEl.style.cursor = 'pointer';
+            statusEl.title = 'Click to reconnect';
+
+            // Remove old listener if any
+            if (statusEl._reconnectHandler) {
+                statusEl.removeEventListener('click', statusEl._reconnectHandler);
+            }
+
+            // Add click handler for reconnect
+            statusEl._reconnectHandler = () => {
+                if (wizard.liveStream) {
+                    // Reset reconnect attempts and delay
+                    wizard.liveStream.reconnectAttempts = 0;
+                    wizard.liveStream.reconnectDelay = 1000;
+                    wizard.liveStream._manualStop = false;
+                }
+                showToast('Reconnecting...', 'info', 2000);
+                reconnectStream(wizard, () => {
+                    // Draw overlays callback (optional)
+                    if (wizard.drawElementOverlays) {
+                        wizard.drawElementOverlays();
+                    }
+                });
+            };
+            statusEl.addEventListener('click', statusEl._reconnectHandler);
+        } else {
+            statusEl.textContent = text;
+            statusEl.style.cursor = 'default';
+            statusEl.title = '';
+
+            // Remove reconnect handler when not disconnected
+            if (statusEl._reconnectHandler) {
+                statusEl.removeEventListener('click', statusEl._reconnectHandler);
+                statusEl._reconnectHandler = null;
+            }
+        }
     }
 }
 

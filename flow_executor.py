@@ -538,8 +538,10 @@ class FlowExecutor:
         for attempt in range(max_attempts):
             try:
                 # Phase 8: State validation before step execution
-                # Skip validation for launch/restart steps - app just needs to be open
-                skip_validation_steps = {'launch_app', 'restart_app', 'go_home', 'go_back'}
+                # Skip validation for certain steps:
+                # - launch/restart: app just needs to be open
+                # - capture_sensors: just needs UI elements to be present, not exact screen
+                skip_validation_steps = {'launch_app', 'restart_app', 'go_home', 'go_back', 'capture_sensors'}
                 # Normalize step_type for comparison (lowercase, stripped)
                 normalized_step_type = step.step_type.lower().strip() if step.step_type else ''
                 step_type_in_skip = normalized_step_type in skip_validation_steps

@@ -63,9 +63,9 @@ class LiveStream {
         // Auto-reconnect settings
         this.autoReconnect = true;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 10;
+        this.maxReconnectAttempts = 20; // Increased for WiFi reliability
         this.reconnectDelay = 1000; // Start with 1 second
-        this.maxReconnectDelay = 30000; // Max 30 seconds
+        this.maxReconnectDelay = 15000; // Max 15 seconds (reduced for faster retry)
         this._reconnectTimer = null;
         this._manualStop = false;
 
