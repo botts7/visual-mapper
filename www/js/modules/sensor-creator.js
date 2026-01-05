@@ -1,6 +1,7 @@
 /**
  * Visual Mapper - Sensor Creator Module
- * Version: 0.0.9 (Phase 4 - MQTT + Dynamic Hierarchical Dropdowns)
+ * Version: 0.0.10 (Phase 4 - MQTT + Dynamic Hierarchical Dropdowns)
+ * v0.0.10: Fixed dialog initial display state
  *
  * Handles sensor creation dialog and configuration.
  * Creates Home Assistant sensors from selected UI elements.
@@ -312,6 +313,9 @@ class SensorCreator {
 
         document.body.appendChild(overlay);
         this.dialog = overlay;
+
+        // Ensure dialog is hidden initially (CSS may conflict)
+        this.dialog.style.display = 'none';
 
         // Initialize pipeline
         this.pipelineSteps = [];
@@ -868,7 +872,10 @@ class SensorCreator {
             sensor_type: document.getElementById('sensorType').value,
             device_class: document.getElementById('deviceClass').value,
             unit_of_measurement: document.getElementById('unitOfMeasurement').value || null,
-            state_class: document.getElementById('stateClass').value || "none",
+            state_class: (() => {
+                const val = document.getElementById('stateClass').value;
+                return val === 'none' || val === '' ? null : val;
+            })(),
             icon: document.getElementById('sensorIcon').value,
             source: {
                 source_type: "element",

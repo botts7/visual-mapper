@@ -1,15 +1,23 @@
 /**
  * Device Unlock Module
- * Visual Mapper v0.0.1
+ * Visual Mapper v0.0.4
  *
  * Consolidates device wake/unlock logic and keep-awake functionality.
  * Used by flow-recorder.js and flow-wizard-step3.js.
+ *
+ * v0.0.4: Added 30s debounce to prevent duplicate unlock calls, removed redundant fallback
+ * v0.0.3: Fixed timing - reduced interval to 5s, made startKeepAwake async, await first signal
+ * v0.0.2: Fixed unlock order - try swipe first (like scheduler), then passcode
  */
 
 import { showToast } from './toast.js?v=0.0.5';
 
 // Configuration
-const DEFAULT_KEEP_AWAKE_INTERVAL = 12000; // 12 seconds (safe for 15-30s Android timeout)
+const DEFAULT_KEEP_AWAKE_INTERVAL = 5000; // 5 seconds (safer margin for 15-30s Android timeout)
+const UNLOCK_DEBOUNCE_MS = 30000; // Skip unlock if done within last 30 seconds
+
+// Track last successful unlock time per device to prevent duplicate calls
+const lastUnlockTime = new Map();
 
 /**
  * Send wake signal to device
@@ -33,14 +41,15 @@ async function sendWakeSignal(deviceId, apiBase) {
  * Start keep-awake interval to prevent screen timeout
  * @param {string} deviceId - Device identifier
  * @param {string} apiBase - API base URL
- * @param {number} interval - Interval in ms (default: 12000)
- * @returns {number} Interval ID for stopping later
+ * @param {number} interval - Interval in ms (default: 5000)
+ * @returns {Promise<number>} Interval ID for stopping later
  */
-function startKeepAwake(deviceId, apiBase, interval = DEFAULT_KEEP_AWAKE_INTERVAL) {
+async function startKeepAwake(deviceId, apiBase, interval = DEFAULT_KEEP_AWAKE_INTERVAL) {
     console.log(`[DeviceUnlock] Starting keep-awake (${interval}ms interval)`);
 
-    // Send immediate wake signal
-    sendWakeSignal(deviceId, apiBase);
+    // AWAIT first wake signal to ensure it completes before continuing
+    await sendWakeSignal(deviceId, apiBase);
+    console.log('[DeviceUnlock] First wake signal sent, starting interval');
 
     return setInterval(async () => {
         await sendWakeSignal(deviceId, apiBase);
@@ -64,6 +73,72 @@ function stopKeepAwake(intervalId) {
  */
 function wait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Show a prominent cooldown banner when device is in lockout protection mode
+ * @param {number} remainingSeconds - Seconds remaining in cooldown
+ */
+function showCooldownBanner(remainingSeconds) {
+    // Remove any existing banner
+    const existingBanner = document.getElementById('cooldownBanner');
+    if (existingBanner) existingBanner.remove();
+
+    const remainingMins = Math.ceil(remainingSeconds / 60);
+
+    const banner = document.createElement('div');
+    banner.id = 'cooldownBanner';
+    banner.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 10000;
+        background: linear-gradient(135deg, #fef2f2, #fee2e2);
+        border-bottom: 3px solid #ef4444;
+        padding: 16px 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    `;
+
+    banner.innerHTML = `
+        <span style="font-size: 2em;">🔒</span>
+        <div style="text-align: left;">
+            <strong style="color: #dc2626; font-size: 1.1em;">Device Unlock Cooldown Active</strong>
+            <p style="margin: 4px 0 0 0; color: #b91c1c; font-size: 0.95em;">
+                To prevent device lockout, auto-unlock is paused for <strong>${remainingMins} minute(s)</strong>.
+                Please <strong>unlock the device manually</strong> to continue.
+            </p>
+        </div>
+        <button id="btnDismissCooldown" style="
+            background: #dc2626;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+        ">Dismiss</button>
+    `;
+
+    document.body.prepend(banner);
+
+    // Wire up dismiss button
+    document.getElementById('btnDismissCooldown').addEventListener('click', () => {
+        banner.remove();
+    });
+
+    // Auto-dismiss after cooldown expires
+    setTimeout(() => {
+        if (document.getElementById('cooldownBanner')) {
+            banner.remove();
+        }
+    }, remainingSeconds * 1000);
+
+    console.log(`[DeviceUnlock] Cooldown banner shown (${remainingMins} min remaining)`);
 }
 
 /**
@@ -92,7 +167,54 @@ async function ensureDeviceUnlocked(deviceId, apiBase, callbacks = {}) {
         onStatus(msg);
     };
 
+    // DEBOUNCE: Skip if this device was unlocked recently (within 30 seconds)
+    const lastUnlock = lastUnlockTime.get(deviceId);
+    if (lastUnlock && (Date.now() - lastUnlock) < UNLOCK_DEBOUNCE_MS) {
+        const secondsAgo = Math.round((Date.now() - lastUnlock) / 1000);
+        console.log(`[DeviceUnlock] Skipping - device was unlocked ${secondsAgo}s ago (debounce: ${UNLOCK_DEBOUNCE_MS/1000}s)`);
+        onStepUpdate('step-screen', 'skip');
+        onStepUpdate('step-wake', 'skip');
+        onStepUpdate('step-unlock', 'skip');
+        return { success: true, status: 'debounced' };
+    }
+
     try {
+        // FIRST: Check if device is in unlock cooldown (lockout protection)
+        try {
+            const cooldownResponse = await fetch(`${apiBase}/device/${encodeURIComponent(deviceId)}/unlock-status`);
+            if (cooldownResponse.ok) {
+                const cooldownStatus = await cooldownResponse.json();
+
+                if (cooldownStatus.in_cooldown) {
+                    const remainingMins = Math.ceil(cooldownStatus.cooldown_remaining_seconds / 60);
+                    const message = `Device unlock blocked - in cooldown for ${remainingMins} minute(s) to prevent lockout. Please unlock manually.`;
+                    updateStatus(message);
+                    showToast(`⚠️ Cooldown Active: ${message}`, 'warning', 8000);
+
+                    // Show prominent banner if possible
+                    showCooldownBanner(cooldownStatus.cooldown_remaining_seconds);
+
+                    onStepUpdate('step-screen', 'fail');
+                    onStepUpdate('step-wake', 'skip');
+                    onStepUpdate('step-unlock', 'fail');
+
+                    return {
+                        success: false,
+                        status: 'cooldown',
+                        cooldownSeconds: cooldownStatus.cooldown_remaining_seconds,
+                        message: message
+                    };
+                }
+
+                if (cooldownStatus.failure_count > 0) {
+                    const remaining = cooldownStatus.max_attempts - cooldownStatus.failure_count;
+                    showToast(`⚠️ Previous unlock attempts failed. ${remaining} attempts remaining before cooldown.`, 'warning', 5000);
+                }
+            }
+        } catch (e) {
+            console.debug('[DeviceUnlock] Could not check cooldown status (non-critical):', e);
+        }
+
         // Step 1: Check screen and lock state
         onStepUpdate('step-screen', 'working');
         updateStatus('Checking device state...');
@@ -135,65 +257,30 @@ async function ensureDeviceUnlocked(deviceId, apiBase, callbacks = {}) {
         if (!lockState.is_locked) {
             updateStatus('Device ready!');
             onStepUpdate('step-unlock', 'skip');
+            // Record as "unlocked" to prevent redundant checks
+            lastUnlockTime.set(deviceId, Date.now());
             return { success: true, status: 'unlocked' };
         }
 
         onStepUpdate('step-unlock', 'working');
-        updateStatus('Device is locked, attempting unlock...');
-        showToast('Unlocking device...', 'info', 3000);
+        updateStatus('Unlocking device...');
 
-        // Send wake signal before unlock attempt
-        await sendWakeSignal(deviceId, apiBase);
-
-        // Try auto-unlock first (if configured with stored passcode)
-        const securityResponse = await fetch(`${apiBase}/device/${encodeURIComponent(deviceId)}/security`);
-
-        if (isCancelled()) return { success: false, status: 'cancelled' };
-
+        // Single call to auto-unlock endpoint - handles swipe + passcode in one request
+        // This mirrors the flow scheduler's approach (swipe first, then passcode if needed)
+        // NO FALLBACK - the endpoint already does everything needed
         let unlockSuccess = false;
-
-        if (securityResponse.ok) {
-            const securityConfig = await securityResponse.json();
-            console.log('[DeviceUnlock] Security config:', securityConfig.config?.strategy);
-
-            if (securityConfig.config?.strategy === 'auto_unlock' && securityConfig.config?.has_passcode) {
-                updateStatus('Using stored passcode...');
-
-                // Send wake signal before entering passcode
-                await sendWakeSignal(deviceId, apiBase);
-
-                const unlockResponse = await fetch(`${apiBase}/device/${encodeURIComponent(deviceId)}/auto-unlock`, {
-                    method: 'POST'
-                });
-
-                if (unlockResponse.ok) {
-                    const result = await unlockResponse.json();
-                    unlockSuccess = result.success;
-
-                    if (!unlockSuccess && result.message) {
-                        console.warn('[DeviceUnlock] Auto-unlock failed:', result.message);
-                    }
-                }
-            }
-        }
-
-        if (isCancelled()) return { success: false, status: 'cancelled' };
-
-        // Fallback: Try swipe unlock
-        if (!unlockSuccess) {
-            updateStatus('Trying swipe unlock...');
-
-            // Send wake signal before swipe
-            await sendWakeSignal(deviceId, apiBase);
-
-            const swipeResponse = await fetch(`${apiBase}/adb/unlock/${encodeURIComponent(deviceId)}`, {
+        try {
+            const unlockResponse = await fetch(`${apiBase}/device/${encodeURIComponent(deviceId)}/auto-unlock`, {
                 method: 'POST'
             });
 
-            if (swipeResponse.ok) {
-                const result = await swipeResponse.json();
+            if (unlockResponse.ok) {
+                const result = await unlockResponse.json();
+                console.log('[DeviceUnlock] Auto-unlock result:', result);
                 unlockSuccess = result.success;
             }
+        } catch (e) {
+            console.debug('[DeviceUnlock] Auto-unlock error:', e);
         }
 
         if (isCancelled()) return { success: false, status: 'cancelled' };
@@ -202,6 +289,8 @@ async function ensureDeviceUnlocked(deviceId, apiBase, callbacks = {}) {
             updateStatus('Device unlocked!');
             onStepUpdate('step-unlock', 'done');
             showToast('Device unlocked', 'success', 2000);
+            // Record successful unlock to prevent duplicate unlock calls
+            lastUnlockTime.set(deviceId, Date.now());
             await wait(300);
             return { success: true, status: 'unlocked' };
         }
@@ -233,6 +322,7 @@ export {
     startKeepAwake,
     stopKeepAwake,
     sendWakeSignal,
+    showCooldownBanner,
     DEFAULT_KEEP_AWAKE_INTERVAL
 };
 
@@ -242,6 +332,7 @@ window.DeviceUnlock = {
     startKeepAwake,
     stopKeepAwake,
     sendWakeSignal,
+    showCooldownBanner,
     DEFAULT_KEEP_AWAKE_INTERVAL
 };
 
@@ -250,5 +341,6 @@ export default {
     startKeepAwake,
     stopKeepAwake,
     sendWakeSignal,
+    showCooldownBanner,
     DEFAULT_KEEP_AWAKE_INTERVAL
 };

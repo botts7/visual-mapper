@@ -369,9 +369,37 @@ class FlowExecutor:
             # Auto-sleep screen ONLY if flow was successful (don't sleep if failed - user might be using it!)
             if flow.auto_sleep_after and result.success:
                 # Check if wizard is active on this device - skip sleep if so
+                # NOTE: Device may have multiple IDs (USB serial vs WiFi IP) - check all
                 try:
                     from server import wizard_active_devices
-                    if flow.device_id in wizard_active_devices:
+
+                    # Check if any of the wizard active devices match this device
+                    wizard_active = False
+                    device_id = flow.device_id
+
+                    # Direct match
+                    if device_id in wizard_active_devices:
+                        wizard_active = True
+                    else:
+                        # Check alternative IDs - device might be registered by WiFi IP but flow uses USB serial
+                        # Get all connected devices and check if any match
+                        try:
+                            connected = await self.adb_bridge.get_connected_devices()
+                            for dev in connected:
+                                dev_id = dev.get('id', '')
+                                wifi_ip = dev.get('wifi_ip', '')
+
+                                # If this device matches the flow's device
+                                if dev_id == device_id or wifi_ip == device_id:
+                                    # Check if either ID is in wizard_active
+                                    if dev_id in wizard_active_devices or wifi_ip in wizard_active_devices:
+                                        wizard_active = True
+                                        logger.info(f"  [Headless] Device {device_id} matched wizard active via {dev_id}/{wifi_ip}")
+                                        break
+                        except Exception as e:
+                            logger.debug(f"  [Headless] Could not check alternative device IDs: {e}")
+
+                    if wizard_active:
                         logger.info(f"  [Headless] Skipping auto-sleep - wizard active on device {flow.device_id}")
                     else:
                         logger.info(f"  [Headless] Auto-sleeping screen after successful flow")

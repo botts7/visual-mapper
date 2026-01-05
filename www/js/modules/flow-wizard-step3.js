@@ -1,13 +1,15 @@
 /**
  * Flow Wizard Step 3 Module - Recording Mode
- * Visual Mapper v0.0.31
+ * Visual Mapper v0.0.33
  *
+ * v0.0.33: Fix race condition - unlock device BEFORE app launch, remove redundant dialog
+ * v0.0.32: Fix device locking - await keep-awake and setWizardActive, reorder startup
  * v0.0.31: Phase 2 Refactor - Extract modules for maintainability
  *          - stream-manager.js: Stream lifecycle, element refresh, keep-awake
  *          - canvas-overlay-renderer.js: Tooltips, highlights, element overlays
  *          - gesture-handler.js: Tap/swipe detection and execution
  *          - step3-controller.js: Orchestrator for all modules
- * v0.0.30: Consolidate unlock logic to shared device-unlock.js, fix keep-awake interval (30s -> 12s)
+ * v0.0.30: Fixed elementIndex passthrough for sensor creation, consolidate unlock logic
  * v0.0.29: Add screen mismatch detection - warn user when adding sensors to different screen, offer to add navigation step
  * v0.0.28: Fix sensor/action creation - remove redundant dynamic import, add error handling, guard timeout
  * v0.0.27: Fix flicker - batch canvas ops, add refreshElements guard, remove duplicate calls
@@ -41,13 +43,13 @@ import FlowInteractions from './flow-interactions.js?v=0.0.15';
 import FlowStepManager from './flow-step-manager.js?v=0.0.5';
 import FlowRecorder from './flow-recorder.js?v=0.0.10';
 import LiveStream from './live-stream.js?v=0.0.32';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.6';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.7';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.0.1';
+} from './device-unlock.js?v=0.0.4';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
@@ -65,13 +67,37 @@ export async function loadStep3(wizard) {
     console.log('Loading Step 3: Recording Mode');
     showToast(`Starting recording session...`, 'info');
 
-    // Mark wizard as active on this device (prevents auto-sleep from flow executions)
+    // CRITICAL: Start keep-awake FIRST before anything else
+    // This prevents device from locking during page load
     if (wizard.selectedDevice) {
-        wizard.setWizardActive(wizard.selectedDevice);
+        await startKeepAwake(wizard);
     }
 
-    // Start keep-awake immediately to prevent device screen timeout
-    startKeepAwake(wizard);
+    // THEN mark wizard as active (and AWAIT it to ensure server knows before continuing)
+    if (wizard.selectedDevice) {
+        await wizard.setWizardActive(wizard.selectedDevice);
+    }
+
+    // CRITICAL: Unlock device BEFORE anything else (app launch, UI setup, streaming)
+    // This was causing race conditions - recorder.start() was launching app before unlock finished
+    if (wizard.selectedDevice) {
+        showToast('Preparing device...', 'info', 3000);
+        console.log('[FlowWizard] Unlocking device before setup...');
+        const apiBase = getApiBase();
+        const unlockResult = await sharedEnsureUnlocked(wizard.selectedDevice, apiBase, {
+            onStatus: (msg) => {
+                console.log(`[FlowWizard] ${msg}`);
+                // Show key status updates to user
+                if (msg.includes('Waking') || msg.includes('Unlocking')) {
+                    showToast(msg, 'info', 2000);
+                }
+            }
+        });
+        console.log('[FlowWizard] Device unlock complete, continuing setup');
+        if (unlockResult?.status === 'unlocked' || unlockResult?.status === 'debounced') {
+            showToast('Device ready! Launching app...', 'success', 2000);
+        }
+    }
 
     // Populate app info header
     populateAppInfo(wizard);
@@ -94,6 +120,19 @@ export async function loadStep3(wizard) {
     // Note: Element panel replaced by ElementTree in right panel
     // ElementTree is initialized in setupElementTree()
 
+    // Check if returning from a later step (preserve existing flow steps)
+    const isReturning = wizard.flowSteps && wizard.flowSteps.length > 0;
+    if (isReturning) {
+        console.log(`[FlowWizard] Returning to Step 3 with ${wizard.flowSteps.length} existing steps`);
+    }
+
+    // Check if returning to insert a step at a specific index
+    const isInsertMode = wizard.insertAtIndex !== undefined && wizard.insertAtIndex !== null;
+    if (isInsertMode) {
+        console.log(`[FlowWizard] Insert mode active - will insert before step ${wizard.insertAtIndex + 1}`);
+        showInsertModeBanner(wizard, wizard.insertAtIndex);
+    }
+
     wizard.interactions = new FlowInteractions(getApiBase());
 
     wizard.stepManager = new FlowStepManager(document.getElementById('flowStepsList'));
@@ -101,6 +140,20 @@ export async function loadStep3(wizard) {
     // Initialize FlowRecorder (pass package name, not full object)
     const packageName = wizard.selectedApp?.package || wizard.selectedApp;
     wizard.recorder = new FlowRecorder(wizard.selectedDevice, packageName, wizard.recordMode);
+
+    // Restore existing steps to recorder and UI if returning from later step
+    if (isReturning) {
+        wizard.recorder.steps = [...wizard.flowSteps];
+        wizard.flowSteps.forEach((step, index) => {
+            wizard.stepManager.addStep(step, index);
+        });
+        console.log(`[FlowWizard] Restored ${wizard.flowSteps.length} steps to UI`);
+    }
+
+    // Set insert mode on recorder if we're inserting steps
+    if (isInsertMode) {
+        wizard.recorder.setInsertMode(wizard.insertAtIndex);
+    }
 
     // Pass navigation context to recorder if available
     if (wizard.navigationGraph) {
@@ -128,6 +181,79 @@ export async function loadStep3(wizard) {
             }).catch(e => console.warn('[FlowWizard] Auto-refresh failed:', e));
         }
     }
+}
+
+/**
+ * Show insert mode banner when returning from step 4 to add missing steps
+ * @param {Object} wizard - Flow wizard instance
+ * @param {number} insertIndex - Index where new steps will be inserted
+ */
+function showInsertModeBanner(wizard, insertIndex) {
+    // Remove any existing banner
+    const existingBanner = document.getElementById('insertModeBanner');
+    if (existingBanner) existingBanner.remove();
+
+    const screenshotPanel = document.querySelector('.screenshot-panel');
+    if (!screenshotPanel) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'insertModeBanner';
+    banner.style.cssText = `
+        background: linear-gradient(135deg, #fef3c7, #fde68a);
+        border: 2px solid #f59e0b;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    `;
+    banner.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 1.5em;">➕</span>
+            <div>
+                <strong style="color: #92400e;">Insert Mode Active</strong>
+                <p style="margin: 4px 0 0 0; color: #92400e; font-size: 0.9em;">
+                    Recording navigation steps to insert before step ${insertIndex + 1}
+                </p>
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <button id="btnDoneInserting" class="btn btn-primary" style="background: #16a34a; border: none; padding: 8px 16px; border-radius: 6px; color: white; cursor: pointer;">
+                Done Inserting
+            </button>
+            <button id="btnCancelInsert" class="btn btn-secondary" style="padding: 8px 16px; border-radius: 6px; cursor: pointer;">
+                Cancel
+            </button>
+        </div>
+    `;
+
+    // Insert at top of screenshot panel
+    screenshotPanel.prepend(banner);
+
+    // Wire up buttons
+    document.getElementById('btnDoneInserting').addEventListener('click', () => {
+        console.log('[FlowWizard] Done inserting - returning to step 4');
+        showToast('Steps inserted - returning to review', 'success');
+        // Clear insert mode
+        wizard.insertAtIndex = null;
+        banner.remove();
+        // Sync steps and go to step 4
+        wizard.flowSteps = [...wizard.recorder.steps];
+        if (typeof wizard.goToStep === 'function') {
+            wizard.goToStep(4);
+        } else if (window.flowWizard?.goToStep) {
+            window.flowWizard.goToStep(4);
+        }
+    });
+
+    document.getElementById('btnCancelInsert').addEventListener('click', () => {
+        console.log('[FlowWizard] Cancel insert mode');
+        wizard.insertAtIndex = null;
+        banner.remove();
+        showToast('Insert mode cancelled', 'info');
+    });
 }
 
 /**
@@ -177,6 +303,18 @@ export function setupNavigationContext(wizard) {
     const screenshotPanel = document.querySelector('.screenshot-panel');
     if (!screenshotPanel) {
         console.warn('[FlowWizard] Screenshot panel not found');
+        return;
+    }
+
+    // Check if panel already exists (e.g., when returning from later step)
+    const existingPanel = document.getElementById('navigationContextPanel');
+    if (existingPanel) {
+        console.log('[FlowWizard] Navigation context panel already exists, reusing');
+        // Just update the screen count in case it changed
+        const btnShowScreens = document.getElementById('btnShowScreens');
+        if (btnShowScreens && wizard.navigationStats) {
+            btnShowScreens.innerHTML = `📋 Screens (${wizard.navigationStats.screen_count})`;
+        }
         return;
     }
 
@@ -1047,12 +1185,9 @@ export async function startStreaming(wizard) {
         wizard._streamLoadingTimeout = null;
     }
 
-    // Show device preparation dialog
-    const prepared = await prepareDeviceForStreaming(wizard);
-    if (!prepared) {
-        console.log('[FlowWizard] Device preparation cancelled or failed');
-        return;
-    }
+    // NOTE: Device unlock now happens at start of loadStep3 (before UI setup)
+    // Skip prepareDeviceForStreaming dialog since device is already unlocked
+    // This eliminates the redundant "Preparing Device" dialog
 
     // Show loading indicator (or preloaded image if available)
     if (wizard._preloadedImage) {
@@ -1354,22 +1489,24 @@ export function stopElementAutoRefresh(wizard) {
 
 /**
  * Start keep-awake interval to prevent device screen timeout
- * Uses shared device-unlock.js module with 12 second interval (safe for 15-30s Android timeout)
+ * Uses shared device-unlock.js module with 5 second interval
+ * MUST be awaited to ensure first wake signal is sent before continuing
  */
-export function startKeepAwake(wizard) {
+export async function startKeepAwake(wizard) {
     // Clear any existing interval
     stopKeepAwake(wizard);
 
     if (!wizard.selectedDevice) return;
 
-    // Use shared module with 12 second interval (was 30s, now fixed)
-    wizard._keepAwakeInterval = sharedStartKeepAwake(
+    // Use shared module - await to ensure first wake signal is sent
+    // Uses default 5 second interval from shared module
+    wizard._keepAwakeInterval = await sharedStartKeepAwake(
         wizard.selectedDevice,
-        getApiBase(),
-        12000  // 12 seconds - safe buffer before Android timeout
+        getApiBase()
+        // No interval arg - uses DEFAULT_KEEP_AWAKE_INTERVAL (5s)
     );
 
-    console.log('[FlowWizard] Keep-awake started (12s interval via shared module)');
+    console.log('[FlowWizard] Keep-awake started (5s interval via shared module)');
 }
 
 /**
@@ -2355,10 +2492,12 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.6');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.7');
 
     // Go directly to text sensor creation (most common case from element tree)
-    await Dialogs.createTextSensor(wizard, element, coords);
+    // Use element.index if available (from tree), otherwise default to 0
+    const elementIndex = element.index ?? 0;
+    await Dialogs.createTextSensor(wizard, element, coords, elementIndex);
 }
 
 /**
@@ -2387,7 +2526,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.6');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.7');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -3230,7 +3369,8 @@ export async function handleElementClick(wizard, canvasX, canvasY) {
             break;
 
         case 'sensor_text':
-            await Dialogs.createTextSensor(wizard, clickedElement, deviceCoords);
+            // Use element.index if available, otherwise default to 0
+            await Dialogs.createTextSensor(wizard, clickedElement, deviceCoords, clickedElement?.index ?? 0);
             break;
 
         case 'sensor_image':
@@ -3241,7 +3381,7 @@ export async function handleElementClick(wizard, canvasX, canvasY) {
                 bounds: { x: deviceCoords.x - 50, y: deviceCoords.y - 25, width: 100, height: 50 },
                 index: 0
             };
-            await Dialogs.createImageSensor(wizard, sensorElement, deviceCoords);
+            await Dialogs.createImageSensor(wizard, sensorElement, deviceCoords, sensorElement.index ?? 0);
             break;
 
         case 'action':
@@ -3823,7 +3963,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.0.5');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.0.6');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -3831,7 +3971,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.0.5');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.0.6');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -3839,7 +3979,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.0.5');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.0.6');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -3847,7 +3987,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.6');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.7');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -4050,6 +4190,46 @@ export function setupFlowStepsListener(wizard) {
 
         // Update step count badge
         wizard.updateFlowStepsUI();
+    });
+
+    // Handle step insertion (from insert mode when returning from step 4)
+    window.addEventListener('flowStepInserted', (e) => {
+        const { step, index } = e.detail;
+
+        const stepHtml = `
+            <div class="flow-step-item" data-step-index="${index}" style="border: 2px solid #16a34a; background: #f0fdf4;">
+                <div class="step-number-badge" style="background: #16a34a;">${index + 1}</div>
+                <div class="step-content">
+                    <div class="step-description">${step.description}</div>
+                    <span style="color: #16a34a; font-size: 0.8em;">✓ Inserted</span>
+                </div>
+                <div class="step-actions">
+                    <button class="btn btn-sm" onclick="window.flowWizard.recorder.removeStep(${index})">✕</button>
+                </div>
+            </div>
+        `;
+
+        // Find the element at the insert position
+        const existingSteps = stepsList.querySelectorAll('.flow-step-item');
+        if (index < existingSteps.length) {
+            existingSteps[index].insertAdjacentHTML('beforebegin', stepHtml);
+        } else {
+            stepsList.insertAdjacentHTML('beforeend', stepHtml);
+        }
+
+        // Renumber all steps
+        stepsList.querySelectorAll('.flow-step-item').forEach((el, i) => {
+            el.dataset.stepIndex = i;
+            el.querySelector('.step-number-badge').textContent = i + 1;
+        });
+
+        // Auto-switch to Flow tab when step is inserted
+        wizard.switchToTab('flow');
+
+        // Update step count badge
+        wizard.updateFlowStepsUI();
+
+        showToast(`Inserted step at position ${index + 1}`, 'success', 2000);
     });
 
     window.addEventListener('flowStepRemoved', (e) => {

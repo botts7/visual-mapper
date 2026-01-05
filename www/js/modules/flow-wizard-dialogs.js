@@ -1,9 +1,12 @@
 /**
  * Flow Wizard Dialogs Module
- * Visual Mapper v0.0.5
+ * Visual Mapper v0.0.8
  *
  * All dialog methods for sensor and action creation
  * Extracted from flow-wizard.js for better modularity
+ * v0.0.6: Fixed timestamps dialog
+ * v0.0.7: Fixed elementIndex parameter passthrough for createTextSensor/createImageSensor
+ * v0.0.8: createAction now adds tap step to flow before creating action
  */
 
 import { showToast } from './toast.js?v=0.0.5';
@@ -23,10 +26,24 @@ export async function promptForText(wizard) {
  * @param {FlowWizard} wizard - FlowWizard instance
  * @param {Object} element - Element object
  * @param {Object} coords - Coordinate object
+ * @param {number} elementIndex - Index of element in the UI hierarchy
  */
-export async function createTextSensor(wizard, element, coords) {
+export async function createTextSensor(wizard, element, coords, elementIndex = 0) {
+    // Validate required data
+    if (!wizard.sensorCreator) {
+        console.error('[FlowWizard] SensorCreator not initialized');
+        showToast('Error: Sensor creator not ready', 'error');
+        return;
+    }
+    if (!wizard.selectedDevice) {
+        console.error('[FlowWizard] No device selected');
+        showToast('Error: No device selected', 'error');
+        return;
+    }
+
+    console.log('[FlowWizard] Opening sensor creator for element:', element, 'index:', elementIndex);
+
     // Use full SensorCreator dialog (same as sensors.html page)
-    const elementIndex = element?.index || 0;
     wizard.sensorCreator.show(wizard.selectedDevice, element, elementIndex, {
         stableDeviceId: wizard.selectedDeviceStableId || wizard.selectedDevice
     });
@@ -40,10 +57,24 @@ export async function createTextSensor(wizard, element, coords) {
  * @param {FlowWizard} wizard - FlowWizard instance
  * @param {Object} element - Element object
  * @param {Object} coords - Coordinate object
+ * @param {number} elementIndex - Index of element in the UI hierarchy
  */
-export async function createImageSensor(wizard, element, coords) {
+export async function createImageSensor(wizard, element, coords, elementIndex = 0) {
+    // Validate required data
+    if (!wizard.sensorCreator) {
+        console.error('[FlowWizard] SensorCreator not initialized');
+        showToast('Error: Sensor creator not ready', 'error');
+        return;
+    }
+    if (!wizard.selectedDevice) {
+        console.error('[FlowWizard] No device selected');
+        showToast('Error: No device selected', 'error');
+        return;
+    }
+
+    console.log('[FlowWizard] Opening sensor creator for image element:', element, 'index:', elementIndex);
+
     // Use full SensorCreator dialog (same as sensors.html page)
-    const elementIndex = element?.index || 0;
     wizard.sensorCreator.show(wizard.selectedDevice, element, elementIndex, {
         stableDeviceId: wizard.selectedDeviceStableId || wizard.selectedDevice
     });
@@ -211,15 +242,53 @@ export async function promptForActionConfig(wizard, defaultName, stepCount) {
  * Create action from recorded steps
  * @param {FlowWizard} wizard - FlowWizard instance
  * @param {Object} element - Element object
- * @param {Object} coords - Coordinate object
+ * @param {Object} coords - Coordinate object {x, y}
  */
 export async function createAction(wizard, element, coords) {
     try {
-        // Get all recorded steps up to this point
+        // FIRST: Add the tap at these coordinates to the flow
+        // This ensures the click that triggered action creation is included
+        if (coords && coords.x !== undefined && coords.y !== undefined) {
+            // Build step description
+            let description = `Tap at (${coords.x}, ${coords.y})`;
+            if (element) {
+                if (element.text) {
+                    description = `Tap "${element.text}" at (${coords.x}, ${coords.y})`;
+                } else if (element.content_desc) {
+                    description = `Tap "${element.content_desc}" at (${coords.x}, ${coords.y})`;
+                } else if (element.resource_id) {
+                    const shortId = element.resource_id.split('/').pop() || element.resource_id;
+                    description = `Tap ${shortId} at (${coords.x}, ${coords.y})`;
+                }
+            }
+
+            // Add tap step to flow
+            const tapStep = {
+                step_type: 'tap',
+                x: coords.x,
+                y: coords.y,
+                description: description
+            };
+
+            // Add element metadata if available
+            if (element) {
+                tapStep.element = {
+                    text: element.text || null,
+                    content_desc: element.content_desc || null,
+                    resource_id: element.resource_id || null,
+                    class: element.class || null
+                };
+            }
+
+            wizard.recorder.addStep(tapStep);
+            console.log('[FlowWizard] Added tap step before creating action:', tapStep);
+        }
+
+        // Get all recorded steps (now including the tap we just added)
         const steps = wizard.recorder.getSteps();
 
         if (steps.length === 0) {
-            showToast('No steps recorded yet. Record some steps first!', 'warning', 3000);
+            showToast('No steps recorded. The tap could not be recorded.', 'warning', 3000);
             return;
         }
 

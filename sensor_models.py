@@ -6,7 +6,7 @@ Pydantic models for sensor definitions and text extraction.
 """
 
 from typing import Optional, List, Dict, Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 from enum import Enum
 
@@ -146,6 +146,22 @@ class SensorDefinition(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
+    @field_validator('state_class', mode='before')
+    @classmethod
+    def validate_state_class(cls, v):
+        """Convert 'none' string to None"""
+        if v is None or v == 'none' or v == '':
+            return None
+        return v
+
+    @field_validator('device_class', mode='before')
+    @classmethod
+    def validate_device_class(cls, v):
+        """Convert empty string to 'none' (default device class)"""
+        if v is None or v == '':
+            return 'none'
+        return v
+
     # Current State (runtime, not persisted)
     current_value: Optional[str] = None
     last_updated: Optional[datetime] = None
@@ -184,7 +200,7 @@ class SensorList(BaseModel):
     """List of sensors for a device"""
     device_id: str
     sensors: List[SensorDefinition] = []
-    version: str = "0.0.34"
+    version: str = "0.0.35"
     last_modified: datetime = Field(default_factory=datetime.now)
 
 

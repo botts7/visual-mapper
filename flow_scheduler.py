@@ -550,6 +550,34 @@ class FlowScheduler:
                     queue.task_done()
                     continue
 
+                # 2b. Check if wizard is active on this device - skip flow execution
+                # NOTE: Device may have multiple IDs (USB serial vs WiFi IP) - check all
+                try:
+                    from server import wizard_active_devices
+                    wizard_active = device_id in wizard_active_devices
+
+                    # Also check alternative IDs (WiFi IP vs USB serial mismatch)
+                    if not wizard_active:
+                        try:
+                            connected = await self.flow_executor.adb_bridge.get_connected_devices()
+                            for dev in connected:
+                                dev_id = dev.get('id', '')
+                                wifi_ip = dev.get('wifi_ip', '')
+                                if dev_id == device_id or wifi_ip == device_id:
+                                    if dev_id in wizard_active_devices or wifi_ip in wizard_active_devices:
+                                        wizard_active = True
+                                        logger.info(f"[FlowScheduler] Device {device_id} matched wizard via {dev_id}/{wifi_ip}")
+                                        break
+                        except Exception:
+                            pass
+
+                    if wizard_active:
+                        logger.info(f"[FlowScheduler] Skipping flow {queued.flow.flow_id} - wizard active on {device_id}")
+                        queue.task_done()
+                        continue
+                except ImportError:
+                    pass
+
                 # 3. Acquire device lock (only needed for server/ADB execution)
                 async with lock:
                     logger.info(f"[FlowScheduler] Executing flow {queued.flow.flow_id} (priority={queued.priority}, reason={queued.reason}, method={getattr(queued.flow, 'execution_method', 'server')})")
@@ -980,11 +1008,27 @@ class FlowScheduler:
             return False
 
         # Check if wizard is active (skip lock if user is working)
+        # NOTE: Also check if any wizard device matches this device's alternate IDs
         try:
             from server import wizard_active_devices
             if device_id in wizard_active_devices:
                 logger.debug(f"[FlowScheduler] Skipping lock - wizard active on {device_id}")
                 return False
+
+            # Check if any active wizard device shares this device's serial (USB vs WiFi ID mismatch)
+            # This handles cases where wizard registered WiFi IP but flow uses USB serial
+            for wizard_dev in wizard_active_devices:
+                # If wizard device ID appears in this device ID or vice versa, they might be same device
+                # Simple heuristic: if serial number matches
+                if ':' not in device_id and ':' not in wizard_dev:
+                    # Both are likely USB serials - direct compare
+                    if device_id == wizard_dev:
+                        logger.debug(f"[FlowScheduler] Skipping lock - wizard active (alt match {wizard_dev})")
+                        return False
+                elif ':' in wizard_dev and ':' not in device_id:
+                    # Wizard has WiFi IP, we have USB serial - can't easily compare without ADB lookup
+                    # Fall through - the flow executor's async check will catch it
+                    pass
         except ImportError:
             pass
 

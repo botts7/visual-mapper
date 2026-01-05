@@ -159,7 +159,7 @@ logging.getLogger().addHandler(ws_log_handler)
 # Create FastAPI app
 app = FastAPI(
     title="Visual Mapper API",
-    version="0.0.34",
+    version="0.0.35",
     description="Android Device Monitoring & Automation for Home Assistant"
 )
 
@@ -362,6 +362,8 @@ async def startup_event():
         password=MQTT_PASSWORD if MQTT_PASSWORD else None,
         discovery_prefix=MQTT_DISCOVERY_PREFIX
     )
+    # Link sensor_manager for stable_device_id lookup in availability publishing
+    mqtt_manager.sensor_manager = sensor_manager
 
     # Initialize Screenshot Stitcher (independent of MQTT)
     screenshot_stitcher = ScreenshotStitcher(adb_bridge)
@@ -470,13 +472,30 @@ async def startup_event():
                 adb_port = announcement.get('adb_port')
                 model = announcement.get('model', 'Unknown')
                 already_paired = announcement.get('already_paired', True)
+                device_serial = announcement.get('device_id')  # Stable serial from companion
+                source = announcement.get('source', 'VMC')  # Source indicator
+                current_app = announcement.get('current_app')  # Current foreground app
 
-                logger.info(f"[Server] 📱 Device announced: {model} at {ip}:{adb_port} (paired={already_paired})")
+                logger.info(f"[Server] 📱 Device announced: {model} at {ip}:{adb_port} (paired={already_paired}, app={current_app})")
 
                 # Store announcement for API access
                 if not hasattr(mqtt_manager, '_announced_devices'):
                     mqtt_manager._announced_devices = {}
                 mqtt_manager._announced_devices[f"{ip}:{adb_port}"] = announcement
+
+                # Cache device info for friendly MQTT names (from companion app)
+                # Use stable device serial if provided, otherwise use IP:port
+                device_id_for_cache = device_serial or f"{ip}:{adb_port}"
+                if model and model != 'Unknown':
+                    # Add source indicator for companion-sourced info
+                    model_with_source = f"{model} ({source})" if source else model
+                    # Include app name if available
+                    app_name = None
+                    if current_app:
+                        # Extract app name from package (e.g., com.byd.bydautolink -> BYD)
+                        app_name = current_app.split('.')[-1] if '.' in current_app else current_app
+                    mqtt_manager.set_device_info(device_id_for_cache, model=model_with_source, app_name=app_name)
+                    logger.info(f"[Server] Cached device info from {source}: {model_with_source} (app: {app_name}) for {device_id_for_cache}")
 
                 # Auto-connect if already paired
                 if already_paired and ip and adb_port:

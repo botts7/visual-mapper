@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.34">
-    <meta name="version" content="0.0.34" data-build="2026-01-02">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="version" content="0.0.35" data-build="2026-01-02">
     <title>Services - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.34">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.35">
     <style>
         .service-card {
             background: var(--card-background);
@@ -138,21 +138,9 @@
     </style>
 </head>
 <body>
-    <nav>
-        <ul>
-            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
-            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
-            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
-            <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
-            <li class="nav-priority-med"><a href="flows.html">Flows</a></li>
-            <li class="nav-priority-med"><a href="performance.html">Performance</a></li>
-            <li class="nav-priority-med"><a href="services.html" class="active">Services</a></li>
-            <li class="nav-priority-low"><a href="diagnostic.html">Diagnostics</a></li>
-            <li class="version">v0.0.12</li>
-            <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
-            <li id="themeToggleContainer"></li>
-        </ul>
-    </nav>
+    <!-- Navbar injected by js/components/navbar.js -->
+    <nav></nav>
+    <script type="module" src="js/init.js?v=0.0.35"></script>
 
     <div class="container">
         <div class="card">

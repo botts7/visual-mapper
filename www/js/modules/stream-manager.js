@@ -1,9 +1,11 @@
 /**
  * Stream Manager Module
- * Visual Mapper v0.0.1
+ * Visual Mapper v0.0.6
  *
  * Extracted from flow-wizard-step3.js (Phase 2.1)
  * Handles all live streaming, element refresh, and device connection logic.
+ *
+ * v0.0.6: Fix keep-awake - make async, await first signal, use 5s interval
  *
  * Responsibilities:
  * - Device preparation for streaming (unlock, wake)
@@ -20,7 +22,7 @@ import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake
-} from './device-unlock.js?v=0.0.1';
+} from './device-unlock.js?v=0.0.4';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -501,24 +503,26 @@ export function stopElementAutoRefresh(wizard) {
 
 /**
  * Start keep-awake interval to prevent device screen timeout
- * Uses shared device-unlock.js module with 12 second interval
+ * Uses shared device-unlock.js module with 5 second interval
+ * MUST be awaited to ensure first wake signal is sent
  *
  * @param {Object} wizard - The wizard state object
  */
-export function startKeepAwake(wizard) {
+export async function startKeepAwake(wizard) {
     // Clear any existing interval
     stopKeepAwake(wizard);
 
     if (!wizard.selectedDevice) return;
 
-    // Use shared module with 12 second interval
-    wizard._keepAwakeInterval = sharedStartKeepAwake(
+    // Use shared module - await to ensure first wake signal is sent
+    // Uses default 5 second interval from shared module
+    wizard._keepAwakeInterval = await sharedStartKeepAwake(
         wizard.selectedDevice,
-        getApiBase(),
-        12000  // 12 seconds - safe buffer before Android timeout
+        getApiBase()
+        // No interval arg - uses DEFAULT_KEEP_AWAKE_INTERVAL (5s)
     );
 
-    console.log('[StreamManager] Keep-awake started (12s interval via shared module)');
+    console.log('[StreamManager] Keep-awake started (5s interval via shared module)');
 }
 
 /**

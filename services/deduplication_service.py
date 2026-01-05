@@ -186,7 +186,9 @@ class DeduplicationService:
         try:
             existing_sensors = self.sensor_manager.get_all_sensors(device_id)
 
-            for existing in existing_sensors:
+            for existing_obj in existing_sensors:
+                # Convert SensorDefinition to dict for comparison
+                existing = existing_obj.model_dump() if hasattr(existing_obj, 'model_dump') else existing_obj
                 score, reasons = self._calculate_sensor_similarity(new_sensor, existing)
 
                 if score >= threshold:

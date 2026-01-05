@@ -2,17 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.34">
-    <meta name="version" content="0.0.34" data-build="2026-01-01">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="version" content="0.0.35" data-build="2026-01-01">
     <title>Sensors - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.34">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.35">
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.34"></script>
+    <script type="module" src="js/init.js?v=0.0.35"></script>
 
     <div class="container">
         <div class="card">
@@ -56,31 +56,13 @@
 
     <script type="module">
         import APIClient from './js/modules/api-client.js?v=0.0.5';
-        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.5';
-        import MobileNav from './js/modules/mobile-nav.js?v=0.0.5';
-        import SensorCreator from './js/modules/sensor-creator.js?v=0.0.9';
+        // Note: ThemeToggle and MobileNav now handled by js/components/navbar.js
+        import SensorCreator from './js/modules/sensor-creator.js?v=0.0.10';
         import IconRenderer from './js/modules/icon-renderer.js?v=0.0.5';
 
         const apiClient = new APIClient();
-        const themeToggle = new ThemeToggle();
-        const mobileNav = new MobileNav();
         const sensorCreator = new SensorCreator(apiClient);
         const iconRenderer = new IconRenderer();
-
-        // Apply theme immediately
-        themeToggle.apply();
-
-        // Initialize mobile navigation
-        mobileNav.init();
-
-        // Add theme toggle button to nav
-        const themeToggleContainer = document.getElementById('themeToggleContainer');
-        if (themeToggleContainer) {
-            const toggleButton = themeToggle.createToggleButton((newTheme) => {
-                console.log('Theme changed to:', newTheme);
-            });
-            themeToggleContainer.appendChild(toggleButton);
-        }
 
         let allSensors = [];
         let deviceSensors = new Map(); // deviceId -> sensors[]

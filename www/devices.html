@@ -2,17 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.34">
-    <meta name="version" content="0.0.34" data-build="2025-12-28">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="version" content="0.0.35" data-build="2025-12-28">
     <title>Devices - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.34">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.35">
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.34"></script>
+    <script type="module" src="js/init.js?v=0.0.35"></script>
 
     <div class="container">
         <div class="card">
@@ -380,12 +380,11 @@
         import DeviceManager from './js/modules/device-manager.js?v=0.0.6';
         import OverlayFilters from './js/modules/overlay-filters.js?v=0.0.6';
         import ElementSelector from './js/modules/element-selector.js?v=0.0.6';
-        import SensorCreator from './js/modules/sensor-creator.js?v=0.0.6';
+        import SensorCreator from './js/modules/sensor-creator.js?v=0.0.10';
         import ActionManager from './js/modules/action-manager.js?v=0.0.6';
         import IconRenderer from './js/modules/icon-renderer.js?v=0.0.6';
-        import ThemeToggle from './js/modules/theme-toggle.js?v=0.0.6';
-        import MobileNav from './js/modules/mobile-nav.js?v=0.0.6';
         import DeviceSecurityUI from './js/modules/device-security.js?v=0.0.7';
+        // Note: ThemeToggle and MobileNav now handled by js/components/navbar.js
 
         const apiClient = new APIClient();
         const canvas = document.getElementById('screenshotCanvas');
@@ -398,24 +397,9 @@
         const elementSelector = new ElementSelector(canvas, screenshotCapture);
         const sensorCreator = new SensorCreator(apiClient);
         const actionManager = new ActionManager(apiClient);
-        const themeToggle = new ThemeToggle();
-        const mobileNav = new MobileNav();
         const deviceSecurityUI = new DeviceSecurityUI();
 
-        // Apply theme immediately
-        themeToggle.apply();
-
-        // Initialize mobile navigation
-        mobileNav.init();
-
-        // Add theme toggle button to nav
-        const themeToggleContainer = document.getElementById('themeToggleContainer');
-        if (themeToggleContainer) {
-            const toggleButton = themeToggle.createToggleButton((newTheme) => {
-                console.log('Theme changed to:', newTheme);
-            });
-            themeToggleContainer.appendChild(toggleButton);
-        }
+        // Theme and mobile nav now handled by js/components/navbar.js
 
         // Enable interactive canvas
         deviceControl.enableInteractiveCanvas(canvas, (result) => {
@@ -672,7 +656,7 @@
             try {
                 localStorage.setItem(DEVICE_AUTO_RECONNECT_KEY, JSON.stringify(settings));
                 // Also save to backend
-                apiClient.post('/api/settings/saved-devices/add', {
+                apiClient.post('/settings/saved-devices/add', {
                     ip: '', port: 0, deviceId: stableDeviceId, autoReconnect: enabled
                 }).catch(() => {});
             } catch (e) {

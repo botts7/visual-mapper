@@ -7,7 +7,7 @@
  */
 
 import { showToast } from './toast.js?v=0.0.5';
-import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.0.1';
+import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.0.4';
 
 /**
  * Get API base URL for proper routing (supports Home Assistant ingress)
@@ -60,8 +60,9 @@ class FlowRecorder {
         try {
             console.log('[FlowRecorder] Starting recording session...');
 
-            // Ensure device is unlocked before starting
-            await this.ensureDeviceUnlocked();
+            // NOTE: Device unlock is now handled by prepareDeviceForStreaming() in streaming mode
+            // or by captureScreenshot() in polling mode. Removed duplicate unlock call here
+            // to prevent "max attempts reached" cooldown issues.
 
             // Launch the app
             await this.launchApp();
@@ -211,7 +212,7 @@ class FlowRecorder {
     async launchApp() {
         console.log(`[FlowRecorder] Launching ${this.appPackage}...`);
 
-        const response = await fetch('/api/adb/launch', {
+        const response = await fetch(`${this.apiBase}/adb/launch`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -278,7 +279,7 @@ class FlowRecorder {
         this.showStitchProgress('📸 Capturing screenshot with UI elements...');
 
         try {
-            const response = await fetch('/api/adb/screenshot', {
+            const response = await fetch(`${this.apiBase}/adb/screenshot`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ device_id: this.deviceId, quick: false })
@@ -325,7 +326,7 @@ class FlowRecorder {
     async captureQuickScreenshot() {
         console.log('[FlowRecorder] Capturing quick screenshot (no UI elements)...');
 
-        const response = await fetch('/api/adb/screenshot', {
+        const response = await fetch(`${this.apiBase}/adb/screenshot`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ device_id: this.deviceId, quick: true })
@@ -486,7 +487,7 @@ class FlowRecorder {
     async executeTap(x, y) {
         console.log(`[FlowRecorder] Executing tap at (${x}, ${y})`);
 
-        const response = await fetch('/api/adb/tap', {
+        const response = await fetch(`${this.apiBase}/adb/tap`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -537,7 +538,7 @@ class FlowRecorder {
     async typeText(text) {
         console.log(`[FlowRecorder] Typing text: ${text}`);
 
-        const response = await fetch('/api/adb/text', {
+        const response = await fetch(`${this.apiBase}/adb/text`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -608,7 +609,7 @@ class FlowRecorder {
     async goHome() {
         console.log('[FlowRecorder] Going home...');
 
-        const response = await fetch('/api/adb/home', {
+        const response = await fetch(`${this.apiBase}/adb/home`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ device_id: this.deviceId })
@@ -682,7 +683,7 @@ class FlowRecorder {
                 break;
         }
 
-        const response = await fetch('/api/adb/swipe', {
+        const response = await fetch(`${this.apiBase}/adb/swipe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -754,7 +755,7 @@ class FlowRecorder {
         const endY = Math.round(height * 0.55);
         const duration = 350; // Slightly slower for refresh to register
 
-        const response = await fetch('/api/adb/swipe', {
+        const response = await fetch(`${this.apiBase}/adb/swipe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -791,7 +792,7 @@ class FlowRecorder {
         console.log(`[FlowRecorder] Restarting app ${this.appPackage}...`);
 
         // Force stop the app
-        const stopResponse = await fetch('/api/adb/stop-app', {
+        const stopResponse = await fetch(`${this.apiBase}/adb/stop-app`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -808,7 +809,7 @@ class FlowRecorder {
         await this.wait(500);
 
         // Relaunch the app
-        const launchResponse = await fetch('/api/adb/launch', {
+        const launchResponse = await fetch(`${this.apiBase}/adb/launch`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -869,7 +870,7 @@ class FlowRecorder {
 
             // Use new modular stitcher with BOOKEND strategy
             // Smart algorithm: Captures top & bottom first, then fills middle if needed
-            const response = await fetch('/api/adb/screenshot/stitch', {
+            const response = await fetch(`${this.apiBase}/adb/screenshot/stitch`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1020,9 +1021,64 @@ class FlowRecorder {
     }
 
     /**
+     * Insert a step at a specific index in the flow
+     * Used when returning from step 4 to add missing navigation steps
+     * @param {Object} step - The step to insert
+     * @param {number} index - The index to insert at
+     */
+    async insertStepAt(step, index) {
+        // Capture screen info same as addStep
+        const skipScreenCapture = ['launch_app', 'go_home', 'restart_app'];
+        if (!skipScreenCapture.includes(step.step_type)) {
+            try {
+                const screenInfo = await this.getCurrentScreen();
+                if (screenInfo?.activity) {
+                    step.screen_activity = screenInfo.activity.activity || null;
+                    step.screen_package = screenInfo.activity.package || null;
+                }
+            } catch (e) {
+                console.warn('[FlowRecorder] Failed to capture screen info:', e);
+            }
+        }
+
+        // Add navigation screen ID if available
+        if (this.currentScreenId) {
+            step.expected_screen_id = this.currentScreenId;
+        }
+
+        // Insert at the specified index
+        if (index >= 0 && index <= this.steps.length) {
+            this.steps.splice(index, 0, step);
+            console.log(`[FlowRecorder] Inserted step at index ${index}:`, step);
+        } else {
+            // Fall back to append if index is out of bounds
+            this.steps.push(step);
+            console.log(`[FlowRecorder] Appended step (index ${index} out of bounds):`, step);
+        }
+
+        // Trigger step inserted event for UI update
+        window.dispatchEvent(new CustomEvent('flowStepInserted', {
+            detail: {
+                step: step,
+                index: index
+            }
+        }));
+    }
+
+    /**
+     * Set insert mode - next steps will be inserted at the given index
+     * @param {number|null} index - Index to insert at, or null to disable insert mode
+     */
+    setInsertMode(index) {
+        this.insertAtIndex = index;
+        console.log(`[FlowRecorder] Insert mode ${index !== null ? 'enabled at index ' + index : 'disabled'}`);
+    }
+
+    /**
      * Add a step to the flow
      * Automatically captures screen activity info for Phase 1 screen awareness
      * Also includes navigation screen ID if available from the wizard
+     * If insert mode is active, inserts at the specified index instead of appending
      */
     async addStep(step) {
         // Phase 1 Screen Awareness: Capture screen info before adding step
@@ -1048,16 +1104,35 @@ class FlowRecorder {
             console.log(`[FlowRecorder] Added navigation screen ID: ${this.currentScreenId}`);
         }
 
-        this.steps.push(step);
-        console.log(`[FlowRecorder] Added step ${this.steps.length}:`, step);
+        // Check if we're in insert mode
+        if (this.insertAtIndex !== undefined && this.insertAtIndex !== null) {
+            // Insert at the specified index
+            this.steps.splice(this.insertAtIndex, 0, step);
+            console.log(`[FlowRecorder] Inserted step at index ${this.insertAtIndex}:`, step);
 
-        // Trigger step added event for UI update
-        window.dispatchEvent(new CustomEvent('flowStepAdded', {
-            detail: {
-                step: step,
-                index: this.steps.length - 1
-            }
-        }));
+            // Trigger step inserted event for UI update
+            window.dispatchEvent(new CustomEvent('flowStepInserted', {
+                detail: {
+                    step: step,
+                    index: this.insertAtIndex
+                }
+            }));
+
+            // Increment insert index for next step
+            this.insertAtIndex++;
+        } else {
+            // Normal append mode
+            this.steps.push(step);
+            console.log(`[FlowRecorder] Added step ${this.steps.length}:`, step);
+
+            // Trigger step added event for UI update
+            window.dispatchEvent(new CustomEvent('flowStepAdded', {
+                detail: {
+                    step: step,
+                    index: this.steps.length - 1
+                }
+            }));
+        }
     }
 
     /**
@@ -1143,7 +1218,7 @@ class FlowRecorder {
      */
     async getCurrentActivity() {
         try {
-            const response = await fetch(`/api/adb/activity/${encodeURIComponent(this.deviceId)}`);
+            const response = await fetch(`${this.apiBase}/adb/activity/${encodeURIComponent(this.deviceId)}`);
             if (!response.ok) {
                 console.warn('[FlowRecorder] Failed to get current activity');
                 return null;

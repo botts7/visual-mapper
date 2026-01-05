@@ -2,36 +2,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="0.0.34">
-    <meta name="version" content="0.0.34" data-build="2025-12-29">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="version" content="0.0.35" data-build="2025-12-29">
     <title>Performance Dashboard - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.34">
-    <link rel="stylesheet" href="css/performance.css?v=0.0.34">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.35">
+    <link rel="stylesheet" href="css/performance.css?v=0.0.35">
 </head>
 <body>
-    <nav>
-        <ul>
-            <!-- High priority - always visible -->
-            <li class="nav-priority-high"><a href="main.html">Dashboard</a></li>
-            <li class="nav-priority-high"><a href="devices.html">Devices</a></li>
-            <li class="nav-priority-high"><a href="sensors.html">Sensors</a></li>
-
-            <!-- Medium priority - hidden on mobile -->
-            <li class="nav-priority-med"><a href="actions.html">Actions</a></li>
-            <li class="nav-priority-med"><a href="flows.html">Flows</a></li>
-            <li class="nav-priority-med"><a href="performance.html" class="active">Performance</a></li>
-            <li class="nav-priority-med"><a href="diagnostic.html">Diagnostics</a></li>
-
-            <!-- Low priority - hidden on tablet -->
-            <li class="nav-priority-low"><a href="dev.html">Dev Tools</a></li>
-
-            <li class="version">v0.0.6</li>
-            <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
-            <li id="themeToggleContainer"></li>
-        </ul>
-    </nav>
+    <!-- Navbar injected by js/components/navbar.js -->
+    <nav></nav>
+    <script type="module" src="js/init.js?v=0.0.35"></script>
 
     <div class="performance-container">
         <div class="performance-header">
@@ -193,7 +175,7 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/init.js?v=0.0.34"></script>
+    <script src="js/init.js?v=0.0.35"></script>
     <script type="module">
         import PerformanceDashboard from './js/modules/performance-dashboard.js?v=0.0.6';
 
