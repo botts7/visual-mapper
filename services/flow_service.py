@@ -10,7 +10,7 @@ import logging
 from typing import Dict, List, Optional, Any
 from fastapi import HTTPException
 
-from flow_models import SensorCollectionFlow, FlowStep
+from core.flows import SensorCollectionFlow, FlowStep, FlowExecutionResult
 
 logger = logging.getLogger(__name__)
 
@@ -578,7 +578,7 @@ class FlowService:
         This sends the flow to the companion app which executes it locally
         using the AccessibilityService for gestures.
         """
-        from flow_models import FlowExecutionResult, StepResult
+        from core.flows import FlowExecutionResult, StepResult
         from datetime import datetime
         import asyncio
         import json

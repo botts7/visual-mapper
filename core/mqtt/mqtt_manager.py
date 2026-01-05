@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, Optional, Any
 from datetime import datetime
 
-from sensor_models import SensorDefinition, MQTTDiscoveryConfig, SensorStateUpdate
+from core.sensors.sensor_models import SensorDefinition, MQTTDiscoveryConfig, SensorStateUpdate
 
 # Import ActionDefinition for action discovery
 try:

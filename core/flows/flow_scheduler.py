@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from dataclasses import dataclass
 
-from flow_models import SensorCollectionFlow
+from .flow_models import SensorCollectionFlow
 
 logger = logging.getLogger(__name__)
 

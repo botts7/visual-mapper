@@ -8,10 +8,10 @@ import logging
 from typing import Dict, Set, Optional
 from datetime import datetime
 
-from adb_bridge import ADBBridge
-from sensor_manager import SensorManager
-from text_extractor import TextExtractor
-from mqtt_manager import MQTTManager
+from core.adb.adb_bridge import ADBBridge
+from .sensor_manager import SensorManager
+from .text_extractor import TextExtractor
+from core.mqtt.mqtt_manager import MQTTManager
 
 logger = logging.getLogger(__name__)
 

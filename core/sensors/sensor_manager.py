@@ -16,7 +16,7 @@ from typing import List, Optional, Dict
 from datetime import datetime
 import logging
 
-from sensor_models import SensorDefinition, SensorList
+from .sensor_models import SensorDefinition, SensorList
 from services.device_identity import get_device_identity_resolver
 
 logger = logging.getLogger(__name__)

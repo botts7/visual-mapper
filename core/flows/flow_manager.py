@@ -12,7 +12,7 @@ import os
 from typing import Dict, List, Optional
 from pathlib import Path
 
-from flow_models import SensorCollectionFlow, FlowList, sensor_to_simple_flow
+from .flow_models import SensorCollectionFlow, FlowList, sensor_to_simple_flow
 from services.device_identity import get_device_identity_resolver
 
 logger = logging.getLogger(__name__)
@@ -537,7 +537,7 @@ class FlowManager:
             steps = json.loads(steps_json)
 
             # Create flow
-            from flow_models import FlowStep
+            from .flow_models import FlowStep
             flow = SensorCollectionFlow(
                 flow_id=flow_id,
                 device_id=device_id,

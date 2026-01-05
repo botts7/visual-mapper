@@ -15,12 +15,13 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 import logging
 from routes import get_deps
-from sensor_models import SensorDefinition, TextExtractionRule
-from text_extractor import TextExtractor
-from ha_device_classes import (
+from core.sensors.sensor_models import SensorDefinition, TextExtractionRule
+from core.sensors.text_extractor import TextExtractor
+from core.mqtt.ha_device_classes import (
     validate_unit_for_device_class,
     can_use_state_class,
-    get_device_class_info
+    get_device_class_info,
+    export_to_json as export_device_classes
 )
 
 logger = logging.getLogger(__name__)

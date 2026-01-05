@@ -14,8 +14,8 @@ from pathlib import Path
 
 from navigation_models import TransitionAction
 from navigation_manager import NavigationManager
-from flow_manager import FlowManager
-from flow_models import SensorCollectionFlow, FlowStep
+from core.flows import FlowManager
+from core.flows import SensorCollectionFlow, FlowStep
 
 logger = logging.getLogger(__name__)
 

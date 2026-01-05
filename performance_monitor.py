@@ -9,7 +9,7 @@ from datetime import datetime
 from dataclasses import dataclass
 from collections import deque
 
-from flow_models import SensorCollectionFlow, FlowExecutionResult
+from core.flows import SensorCollectionFlow, FlowExecutionResult
 
 logger = logging.getLogger(__name__)
 

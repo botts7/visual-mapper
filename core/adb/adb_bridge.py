@@ -17,10 +17,10 @@ import time
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional
 
-from utils.adb_manager import ADBManager
-from utils.base_connection import BaseADBConnection
+from .adb_manager import ADBManager
+from .base_connection import BaseADBConnection
 from playstore_icon_scraper import PlayStoreIconScraper
-from adb_helpers import PersistentADBShell
+from .adb_helpers import PersistentADBShell
 from services.device_identity import get_device_identity_resolver
 
 # Optional: adbutils for faster screenshot capture (persistent connections)
@@ -540,7 +540,7 @@ class ADBBridge:
 
             # Pairing REQUIRES subprocess ADB (adb pair command)
             # Import here to avoid circular dependency
-            from utils.adb_subprocess import SubprocessADBConnection
+            from .adb_subprocess import SubprocessADBConnection
 
             # Create a temporary subprocess connection for pairing
             device_id = f"{pairing_host}:{pairing_port}"

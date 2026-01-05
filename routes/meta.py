@@ -7,7 +7,7 @@ No dependencies on managers - safest module to extract first.
 
 from fastapi import APIRouter, HTTPException
 import logging
-from ha_device_classes import export_to_json as export_device_classes
+from core.mqtt.ha_device_classes import export_to_json as export_device_classes
 
 logger = logging.getLogger(__name__)
 

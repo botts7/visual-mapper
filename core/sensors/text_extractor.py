@@ -9,7 +9,7 @@ import re
 import logging
 from typing import Optional, List, Dict, Any
 
-from sensor_models import TextExtractionRule, ExtractionMethod
+from .sensor_models import TextExtractionRule, ExtractionMethod
 
 logger = logging.getLogger(__name__)
 

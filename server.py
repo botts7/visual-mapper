@@ -21,13 +21,13 @@ import uvicorn
 from pathlib import Path
 from PIL import Image
 
-from adb_bridge import ADBBridge
-from sensor_manager import SensorManager
-from sensor_models import SensorDefinition, TextExtractionRule
-from text_extractor import TextExtractor, ElementTextExtractor
-from mqtt_manager import MQTTManager
-from sensor_updater import SensorUpdater
-from ha_device_classes import (
+from core.adb.adb_bridge import ADBBridge
+from core.sensors.sensor_manager import SensorManager
+from core.sensors.sensor_models import SensorDefinition, TextExtractionRule
+from core.sensors.text_extractor import TextExtractor, ElementTextExtractor
+from core.mqtt.mqtt_manager import MQTTManager
+from core.sensors.sensor_updater import SensorUpdater
+from core.mqtt.ha_device_classes import (
     validate_unit_for_device_class,
     can_use_state_class,
     get_device_class_info,
@@ -47,10 +47,12 @@ from utils.connection_monitor import ConnectionMonitor
 from utils.device_security import DeviceSecurityManager
 
 # Phase 8: Flow System
-from flow_manager import FlowManager
-from flow_executor import FlowExecutor
-from flow_scheduler import FlowScheduler
-from flow_execution_history import FlowExecutionHistory
+from core.flows import (
+    FlowManager,
+    FlowExecutor,
+    FlowScheduler,
+    FlowExecutionHistory
+)
 from performance_monitor import PerformanceMonitor
 from screenshot_stitcher import ScreenshotStitcher
 from app_icon_extractor import AppIconExtractor
@@ -59,7 +61,7 @@ from device_icon_scraper import DeviceIconScraper
 from icon_background_fetcher import IconBackgroundFetcher
 from app_name_background_fetcher import AppNameBackgroundFetcher
 from stream_manager import StreamManager, get_stream_manager
-from adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
+from core.adb.adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 from navigation_manager import NavigationManager
 from navigation_mqtt_handler import NavigationMqttHandler
 
@@ -159,7 +161,7 @@ logging.getLogger().addHandler(ws_log_handler)
 # Create FastAPI app
 app = FastAPI(
     title="Visual Mapper API",
-    version="0.0.40",
+    version="0.0.41",
     description="Android Device Monitoring & Automation for Home Assistant"
 )
 

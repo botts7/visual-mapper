@@ -10,17 +10,15 @@ from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Type hints only - avoid runtime circular imports
-    from adb_bridge import ADBBridge
+    from core.adb.adb_bridge import ADBBridge
     from utils.device_migrator import DeviceMigrator
-    from sensor_manager import SensorManager
-    from text_extractor import TextExtractor
+    from core.sensors.sensor_manager import SensorManager
+    from core.sensors.text_extractor import TextExtractor
     from utils.action_manager import ActionManager
     from utils.action_executor import ActionExecutor
-    from mqtt_manager import MQTTManager
-    from sensor_updater import SensorUpdater
-    from flow_manager import FlowManager
-    from flow_executor import FlowExecutor
-    from flow_scheduler import FlowScheduler
+    from core.mqtt.mqtt_manager import MQTTManager
+    from core.sensors.sensor_updater import SensorUpdater
+    from core.flows import FlowManager, FlowExecutor, FlowScheduler
     from performance_monitor import PerformanceMonitor
     from screenshot_stitcher import ScreenshotStitcher
     from app_icon_extractor import AppIconExtractor
@@ -29,8 +27,8 @@ if TYPE_CHECKING:
     from icon_background_fetcher import IconBackgroundFetcher
     from app_name_background_fetcher import AppNameBackgroundFetcher
     from stream_manager import StreamManager
-    from utils.adb_maintenance import ADBMaintenance
-    from utils.adb_subprocess import PersistentShellPool
+    from core.adb.adb_helpers import ADBMaintenance
+    from core.adb.adb_subprocess import PersistentShellPool
     from utils.connection_monitor import ConnectionMonitor
     from utils.device_security import DeviceSecurityManager
     from navigation_manager import NavigationManager
