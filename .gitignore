@@ -69,12 +69,31 @@ desktop.ini
 *.key
 secrets.json
 credentials.json
+_BACKUP/
 
 # =============================================================================
 # Runtime Data & Logs
 # =============================================================================
-config/
-data/
+# Ignore all content in config/ and data/ by default
+config/*
+data/*
+
+# Allow directory structures but keep contents ignored
+!config/flows/
+config/flows/*
+!config/flows/README.md
+
+!config/flow_templates/
+config/flow_templates/*
+!config/flow_templates/README.md
+
+!config/navigation/
+config/navigation/*
+!config/navigation/README.md
+
+!data/README.md
+
+# Logs
 *.log
 *.pid
 *.seed
@@ -197,3 +216,4 @@ dmypy.json
 # Docker (local development)
 # =============================================================================
 docker-build.log
+docker-compose.override.yml
