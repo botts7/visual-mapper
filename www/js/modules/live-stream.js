@@ -1121,6 +1121,31 @@ class LiveStream {
     }
 
     /**
+     * Convert device coordinates to canvas coordinates
+     * Inverse of canvasToDevice - used for drawing overlays at device positions
+     * @param {number} deviceX - Device X
+     * @param {number} deviceY - Device Y
+     * @returns {Object} Canvas coordinates {x, y}
+     */
+    deviceToCanvas(deviceX, deviceY) {
+        if (!this.currentImage) {
+            return { x: deviceX, y: deviceY };
+        }
+        // Update cache if dimensions changed
+        if (this._cachedScaleCanvasWidth !== this.canvas.width ||
+            this._cachedScaleCanvasHeight !== this.canvas.height ||
+            this._cachedScaleDeviceWidth !== this.deviceWidth ||
+            this._cachedScaleDeviceHeight !== this.deviceHeight) {
+            this._updateScaleFactors();
+        }
+        // Inverse scale: canvas = device / scale
+        return {
+            x: Math.round(deviceX / this._cachedScaleX),
+            y: Math.round(deviceY / this._cachedScaleY)
+        };
+    }
+
+    /**
      * Find element at canvas position
      * Scales canvas coordinates to device coordinates before comparing
      * @param {number} x - Canvas X

@@ -3483,9 +3483,21 @@ export async function executeTap(wizard, x, y, element = null) {
 
 /**
  * Show visual tap indicator on canvas
+ * @param {FlowWizard} wizard - Wizard instance
+ * @param {number} x - Device X coordinate
+ * @param {number} y - Device Y coordinate
  */
 export function showTapIndicator(wizard, x, y) {
-    wizard.canvasRenderer.showTapIndicator(x, y);
+    // Convert device coords to canvas coords for drawing
+    // In streaming mode, canvas may be at different resolution than device
+    let canvasX = x, canvasY = y;
+    if (wizard.captureMode === 'streaming' && wizard.liveStream?.deviceToCanvas) {
+        const canvasCoords = wizard.liveStream.deviceToCanvas(x, y);
+        canvasX = canvasCoords.x;
+        canvasY = canvasCoords.y;
+    }
+
+    wizard.canvasRenderer.showTapIndicator(canvasX, canvasY);
 
     // Redraw screenshot after short delay to clear tap indicator
     // In streaming mode, the next frame will naturally clear it
