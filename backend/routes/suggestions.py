@@ -17,17 +17,17 @@ from routes import get_deps
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
+router = APIRouter(prefix="/api/devices", tags=["suggestions"])
 
 
 # Request models
 class SuggestSensorsRequest(BaseModel):
-    device_id: str
+    device_id: Optional[str] = None
     package_name: Optional[str] = None
 
 
 class SuggestActionsRequest(BaseModel):
-    device_id: str
+    device_id: Optional[str] = None
     package_name: Optional[str] = None
 
 
@@ -35,20 +35,23 @@ class SuggestActionsRequest(BaseModel):
 # SMART SENSOR SUGGESTIONS
 # =============================================================================
 
-@router.post("/sensors")
-async def suggest_sensors(request: SuggestSensorsRequest):
+@router.get("/suggest-sensors")
+@router.post("/suggest-sensors")
+async def suggest_sensors(request: Optional[SuggestSensorsRequest] = None, device_id: Optional[str] = None):
     """
-    Analyze current screen and suggest Home Assistant sensors
-
-    Uses AI-powered pattern detection to identify common sensor types
-    (battery, temperature, humidity, etc.) from UI elements.
+    Analyze current screen and suggest Home Assistant sensors.
+    Supports both GET (with query param) and POST (with body).
     """
     deps = get_deps()
     try:
-        logger.info(f"[API] Analyzing UI elements for sensor suggestions on {request.device_id}")
+        did = device_id or (request.device_id if request else None)
+        if not did:
+            raise HTTPException(status_code=400, detail="device_id is required")
+
+        logger.info(f"[API] Analyzing UI elements for sensor suggestions on {did}")
 
         # Get UI elements from device
-        elements_response = await deps.adb_bridge.get_ui_elements(request.device_id)
+        elements_response = await deps.adb_bridge.get_ui_elements(did)
 
         if not elements_response or 'elements' not in elements_response:
             elements = elements_response if isinstance(elements_response, list) else []
@@ -82,20 +85,23 @@ async def suggest_sensors(request: SuggestSensorsRequest):
 # SMART ACTION SUGGESTIONS
 # =============================================================================
 
-@router.post("/actions")
-async def suggest_actions(request: SuggestActionsRequest):
+@router.get("/suggest-actions")
+@router.post("/suggest-actions")
+async def suggest_actions(request: Optional[SuggestActionsRequest] = None, device_id: Optional[str] = None):
     """
-    Analyze current screen and suggest Home Assistant actions
-
-    Uses AI-powered pattern detection to identify actionable UI elements
-    (buttons, switches, input fields, etc.) from UI elements.
+    Analyze current screen and suggest Home Assistant actions.
+    Supports both GET and POST.
     """
     deps = get_deps()
     try:
-        logger.info(f"[API] Analyzing UI elements for action suggestions on {request.device_id}")
+        did = device_id or (request.device_id if request else None)
+        if not did:
+            raise HTTPException(status_code=400, detail="device_id is required")
+
+        logger.info(f"[API] Analyzing UI elements for action suggestions on {did}")
 
         # Get UI elements from device
-        elements_response = await deps.adb_bridge.get_ui_elements(request.device_id)
+        elements_response = await deps.adb_bridge.get_ui_elements(did)
 
         if not elements_response or 'elements' not in elements_response:
             elements = elements_response if isinstance(elements_response, list) else []

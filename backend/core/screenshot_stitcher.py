@@ -15,13 +15,28 @@ import base64
 from typing import Tuple, Optional, Dict, Any
 from PIL import Image
 import numpy as np
-import cv2
 import io
+from services.feature_manager import get_feature_manager
+
+# Conditional OpenCV import for basic mode
+feature_manager = get_feature_manager()
+CV2_AVAILABLE = False
+if feature_manager.is_enabled("real_icons_enabled"):
+    try:
+        import cv2
+        CV2_AVAILABLE = True
+    except ImportError:
+        logger.warning("OpenCV (cv2) not found, falling back to PIL-only mode")
+else:
+    logger.info("OpenCV features disabled by feature flag")
 
 # Import feature-based stitcher
 try:
-    from screenshot_stitcher_feature_matching import FeatureBasedStitcher
-    FEATURE_MATCHING_AVAILABLE = True
+    if CV2_AVAILABLE:
+        from screenshot_stitcher_feature_matching import FeatureBasedStitcher
+        FEATURE_MATCHING_AVAILABLE = True
+    else:
+        FEATURE_MATCHING_AVAILABLE = False
 except ImportError:
     FEATURE_MATCHING_AVAILABLE = False
 

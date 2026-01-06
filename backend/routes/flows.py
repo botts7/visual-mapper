@@ -225,7 +225,7 @@ async def get_flow_execution_status(device_id: str, flow_id: str):
             flow = deps.flow_manager.get_flow(device_id, flow_id)
             if not flow:
                 from services.device_identity import get_device_identity_resolver
-                resolver = get_device_identity_resolver()
+                resolver = get_device_identity_resolver(deps.data_dir)
                 stable_id = resolver.resolve_any_id(device_id)
                 flow = deps.flow_manager.get_flow(stable_id, flow_id)
             if flow:
@@ -358,11 +358,11 @@ async def set_wizard_active(device_id: str):
     Also registers alternate device ID (USB serial if WiFi, WiFi IP if USB)
     to handle ID mismatches between wizard and flow scheduler.
     """
-    import server  # Lazy import to avoid circular dependency
+    import main  # Lazy import to avoid circular dependency
     deps = get_deps()
 
     # Always register the provided device ID
-    server.wizard_active_devices.add(device_id)
+    main.wizard_active_devices.add(device_id)
     registered_ids = [device_id]
 
     # Cancel any queued flows for this device to prevent them executing during wizard
@@ -381,30 +381,25 @@ async def set_wizard_active(device_id: str):
             # Check if this device matches the provided device_id
             if dev_id == device_id or wifi_ip == device_id:
                 # Register both IDs to handle USB/WiFi mismatch
-                if dev_id and dev_id not in server.wizard_active_devices:
-                    server.wizard_active_devices.add(dev_id)
+                if dev_id and dev_id not in main.wizard_active_devices:
+                    main.wizard_active_devices.add(dev_id)
                     registered_ids.append(dev_id)
-                if wifi_ip and wifi_ip not in server.wizard_active_devices:
-                    server.wizard_active_devices.add(wifi_ip)
+                if wifi_ip and wifi_ip not in main.wizard_active_devices:
+                    main.wizard_active_devices.add(wifi_ip)
                     registered_ids.append(wifi_ip)
                 break
     except Exception as e:
         logger.debug(f"[API] Could not get alternate device ID: {e}")
-
     logger.info(f"[API] Wizard active for device(s): {registered_ids} (cancelled {cancelled_flows} queued flows)")
     return {"success": True, "device_id": device_id, "registered_ids": registered_ids, "cancelled_flows": cancelled_flows, "active": True}
 
 @router.delete("/wizard/active/{device_id}")
 async def set_wizard_inactive(device_id: str):
-    """Mark device as no longer having active wizard session
-
-    Also removes alternate device IDs that were registered.
-    """
-    import server  # Lazy import to avoid circular dependency
+    import main  # Lazy import to avoid circular dependency
     deps = get_deps()
 
     # Always remove the provided device ID
-    server.wizard_active_devices.discard(device_id)
+    main.wizard_active_devices.discard(device_id)
     removed_ids = [device_id]
 
     # Try to find and remove alternate ID (USB vs WiFi)
@@ -416,30 +411,30 @@ async def set_wizard_inactive(device_id: str):
             # Check if this device matches the provided device_id
             if dev_id == device_id or wifi_ip == device_id:
                 # Remove both IDs
-                if dev_id and dev_id in server.wizard_active_devices:
-                    server.wizard_active_devices.discard(dev_id)
+                if dev_id and dev_id in main.wizard_active_devices:
+                    main.wizard_active_devices.discard(dev_id)
                     removed_ids.append(dev_id)
-                if wifi_ip and wifi_ip in server.wizard_active_devices:
-                    server.wizard_active_devices.discard(wifi_ip)
+                if wifi_ip and wifi_ip in main.wizard_active_devices:
+                    main.wizard_active_devices.discard(wifi_ip)
                     removed_ids.append(wifi_ip)
                 break
     except Exception as e:
         logger.debug(f"[API] Could not get alternate device ID for removal: {e}")
 
-    logger.info(f"[API] Wizard inactive for device(s): {removed_ids} ({len(server.wizard_active_devices)} remaining)")
+    logger.info(f"[API] Wizard inactive for device(s): {removed_ids} ({len(main.wizard_active_devices)} remaining)")
     return {"success": True, "device_id": device_id, "removed_ids": removed_ids, "active": False}
 
 @router.get("/wizard/active/{device_id}")
 async def get_wizard_active(device_id: str):
     """Check if device has an active wizard session"""
-    import server  # Lazy import to avoid circular dependency
-    return {"device_id": device_id, "active": device_id in server.wizard_active_devices}
+    import main  # Lazy import to avoid circular dependency
+    return {"device_id": device_id, "active": device_id in main.wizard_active_devices}
 
 @router.get("/wizard/active")
 async def get_all_wizard_active():
     """Get all devices with active wizard sessions"""
-    import server  # Lazy import to avoid circular dependency
-    return {"devices": list(server.wizard_active_devices)}
+    import main  # Lazy import to avoid circular dependency
+    return {"devices": list(main.wizard_active_devices)}
 
 
 # =============================================================================
@@ -492,7 +487,7 @@ async def generate_smart_flow(request: dict):
 
         # Resolve stable device ID
         from services.device_identity import get_device_identity_resolver
-        resolver = get_device_identity_resolver()
+        resolver = get_device_identity_resolver(deps.data_dir)
         stable_device_id = resolver.resolve_any_id(device_id)
 
         steps = []

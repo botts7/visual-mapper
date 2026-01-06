@@ -47,7 +47,7 @@ class FlowManager:
         Uses stable_device_id (hardware serial) for filename to ensure
         flows persist across wireless debugging port changes.
         """
-        resolver = get_device_identity_resolver("data")
+        resolver = get_device_identity_resolver(str(self.data_dir))
         safe_device_id = resolver.sanitize_for_filename(device_id)
         return self.storage_dir / f"flows_{safe_device_id}.json"
 
@@ -332,8 +332,8 @@ class FlowManager:
         name: str,
         description: str,
         steps: List[Dict],
-        category: str = "custom",
-        tags: List[str] = None
+        tags: Optional[List[str]] = None,
+        category: Optional[str] = "custom"
     ) -> bool:
         """
         Save a flow as a reusable template

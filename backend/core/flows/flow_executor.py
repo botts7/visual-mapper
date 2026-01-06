@@ -391,7 +391,7 @@ class FlowExecutor:
                 # Check if wizard is active on this device - skip sleep if so
                 # NOTE: Device may have multiple IDs (USB serial vs WiFi IP) - check all
                 try:
-                    from server import wizard_active_devices
+                    from main import wizard_active_devices
 
                     # Check if any of the wizard active devices match this device
                     wizard_active = False
@@ -1970,13 +1970,14 @@ class FlowExecutor:
 
         return (is_valid, avg_score)
 
-    async def _compare_screenshots(
+    async def _calculate_screenshot_similarity(
         self,
         device_id: str,
         expected_screenshot_b64: str
     ) -> float:
         """
-        Compare current screenshot with expected screenshot using histogram comparison
+        Calculate similarity score between current screen and expected screenshot.
+        Uses OpenCV histogram comparison if available, falls back to PIL histogram.
 
         Args:
             device_id: Device ID
@@ -1988,7 +1989,12 @@ class FlowExecutor:
         try:
             import base64
             import numpy as np
-            import cv2
+            from PIL import Image, ImageStat
+            import io
+            from services.feature_manager import get_feature_manager
+
+            feature_manager = get_feature_manager()
+            cv2_available = feature_manager.is_enabled("real_icons_enabled")
 
             # Capture current screenshot
             current_screenshot = await self.adb_bridge.capture_screenshot(device_id)
@@ -2001,24 +2007,42 @@ class FlowExecutor:
             if current_screenshot.size != expected_image.size:
                 expected_image = expected_image.resize(current_screenshot.size)
 
-            # Convert to OpenCV format (BGR)
-            current_np = cv2.cvtColor(np.array(current_screenshot), cv2.COLOR_RGB2BGR)
-            expected_np = cv2.cvtColor(np.array(expected_image), cv2.COLOR_RGB2BGR)
+            if cv2_available:
+                try:
+                    import cv2
+                    # Convert to OpenCV format (BGR)
+                    current_np = cv2.cvtColor(np.array(current_screenshot), cv2.COLOR_RGB2BGR)
+                    expected_np = cv2.cvtColor(np.array(expected_image), cv2.COLOR_RGB2BGR)
 
-            # Calculate histograms
-            current_hist = cv2.calcHist([current_np], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
-            expected_hist = cv2.calcHist([expected_np], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+                    # Calculate histograms
+                    current_hist = cv2.calcHist([current_np], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+                    expected_hist = cv2.calcHist([expected_np], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
 
-            # Normalize histograms
-            cv2.normalize(current_hist, current_hist)
-            cv2.normalize(expected_hist, expected_hist)
+                    # Normalize histograms
+                    cv2.normalize(current_hist, current_hist)
+                    cv2.normalize(expected_hist, expected_hist)
 
-            # Compare histograms using correlation method
-            similarity_score = cv2.compareHist(current_hist, expected_hist, cv2.HISTCMP_CORREL)
+                    # Compare histograms using correlation method
+                    similarity_score = cv2.compareHist(current_hist, expected_hist, cv2.HISTCMP_CORREL)
 
-            # Correlation returns -1 to 1, normalize to 0 to 1
-            normalized_score = (similarity_score + 1) / 2.0
+                    # Correlation returns -1 to 1, normalize to 0 to 1
+                    normalized_score = (similarity_score + 1) / 2.0
+                    return float(normalized_score)
+                except Exception as e:
+                    logger.warning(f"  [StateValidation] OpenCV comparison failed, falling back to PIL: {e}")
 
+            # PIL Fallback: Mean squared error of histograms
+            # This is simpler but effective for basic "is it the same screen" checks
+            h1 = current_screenshot.histogram()
+            h2 = expected_image.histogram()
+
+            # Root mean square error
+            from math import sqrt
+            rms = sqrt(sum((a - b) ** 2 for a, b in zip(h1, h2)) / len(h1))
+
+            # Normalize to 0-1 (heuristic: 0 is identical, >30 is very different)
+            # This is a rough approximation
+            normalized_score = max(0.0, 1.0 - (rms / 1000.0))
             return float(normalized_score)
 
         except Exception as e:

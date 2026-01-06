@@ -194,7 +194,7 @@ class PlayStoreIconScraper:
         except Exception as e:
             logger.warning(f"[PlayStoreIconScraper] Failed to cache app name: {e}")
 
-    def batch_scrape(self, package_names: list[str], max_apps: int = None) -> int:
+    def batch_scrape(self, package_names: list[str], max_apps: Optional[int] = None) -> int:
         """
         Batch scrape icons for multiple apps
 

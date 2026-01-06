@@ -84,7 +84,7 @@ class ExecutionSession:
     Prevents redundant operations within a single execution run.
     """
 
-    def __init__(self, session_id: str = None):
+    def __init__(self, session_id: Optional[str] = None):
         self.session_id = session_id or datetime.now().isoformat()
         self.captured_sensors: Dict[str, Any] = {}  # sensor_id -> value
         self.executed_actions: Set[str] = set()     # action_ids
@@ -164,7 +164,7 @@ class DeduplicationService:
         self,
         device_id: str,
         new_sensor: Dict[str, Any],
-        threshold: float = None
+        threshold: Optional[float] = None
     ) -> List[SimilarMatch]:
         """
         Find sensors similar to the one being created.
@@ -319,7 +319,7 @@ class DeduplicationService:
         self,
         device_id: str,
         new_action: Dict[str, Any],
-        threshold: float = None
+        threshold: Optional[float] = None
     ) -> List[SimilarMatch]:
         """
         Find actions similar to the one being created.
@@ -459,7 +459,7 @@ class DeduplicationService:
         self,
         device_id: str,
         new_flow: Dict[str, Any],
-        threshold: float = None
+        threshold: Optional[float] = None
     ) -> List[SimilarMatch]:
         """
         Find flows that overlap with the one being created.

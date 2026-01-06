@@ -26,7 +26,10 @@ from typing import Dict, List, Tuple, Optional
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+from services.feature_manager import get_feature_manager
+
 # Check for required packages
+feature_manager = get_feature_manager()
 try:
     import numpy as np
     NUMPY_AVAILABLE = True
@@ -34,13 +37,17 @@ except ImportError:
     NUMPY_AVAILABLE = False
     logger.error("NumPy is required. Install with: pip install numpy")
 
-try:
-    import tensorflow as tf
-    TF_AVAILABLE = True
-    logger.info(f"TensorFlow version: {tf.__version__}")
-except ImportError:
-    TF_AVAILABLE = False
-    logger.warning("TensorFlow not available. Install with: pip install tensorflow")
+TF_AVAILABLE = False
+if feature_manager.is_enabled("ml_enabled"):
+    try:
+        import tensorflow as tf
+        TF_AVAILABLE = True
+        logger.info(f"TensorFlow version: {tf.__version__}")
+    except ImportError:
+        TF_AVAILABLE = False
+        logger.warning("TensorFlow not available. Install with: pip install tensorflow")
+else:
+    logger.info("TensorFlow disabled by feature flag")
 
 
 # === Feature Engineering ===

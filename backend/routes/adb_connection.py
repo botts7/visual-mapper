@@ -19,7 +19,8 @@ router = APIRouter(prefix="/api/adb", tags=["adb_connection"])
 
 # Request models
 class ConnectDeviceRequest(BaseModel):
-    host: str
+    host: Optional[str] = None
+    ip: Optional[str] = None  # Frontend often sends 'ip'
     port: int = 5555
 
 
@@ -28,10 +29,11 @@ class DisconnectDeviceRequest(BaseModel):
 
 
 class PairingRequest(BaseModel):
-    pairing_host: str
+    pairing_host: Optional[str] = None
+    ip: Optional[str] = None  # Frontend sends 'ip'
     pairing_port: int
     pairing_code: str
-    connection_port: int  # The actual ADB port to connect to after pairing
+    connection_port: Optional[int] = 5555  # Make optional with default
 
 
 # =============================================================================
@@ -43,11 +45,16 @@ async def connect_device(request: ConnectDeviceRequest):
     """Connect to Android device via TCP/IP"""
     deps = get_deps()
     try:
-        logger.info(f"[API] Connecting to {request.host}:{request.port}")
-        device_id = await deps.adb_bridge.connect_device(request.host, request.port)
+        host = request.host or request.ip
+        if not host:
+            raise HTTPException(status_code=400, detail="Host or IP is required")
+
+        logger.info(f"[API] Connecting to {host}:{request.port}")
+        device_id = await deps.adb_bridge.connect_device(host, request.port)
         return {
             "device_id": device_id,
             "connected": True,
+            "success": True,  # Frontend expects success: true
             "message": f"Connected to {device_id}"
         }
     except Exception as e:
@@ -57,29 +64,33 @@ async def connect_device(request: ConnectDeviceRequest):
 
 @router.post("/pair")
 async def pair_device(request: PairingRequest):
-    """Pair with Android 11+ device using wireless pairing
-
-    Android 11+ wireless debugging uses TWO ports:
-    - Pairing port (e.g., 37899) - for initial pairing with code
-    - Connection port (e.g., 45441) - for actual ADB connection after pairing
-    """
+    """Pair with Android 11+ device using wireless pairing"""
     deps = get_deps()
     try:
-        logger.info(f"[API] Pairing with {request.pairing_host}:{request.pairing_port}")
+        host = request.pairing_host or request.ip
+        if not host:
+            raise HTTPException(status_code=400, detail="Host or IP is required")
+
+        logger.info(f"[API] Pairing with {host}:{request.pairing_port}")
 
         # Step 1: Pair with pairing port using code
         success = await deps.adb_bridge.pair_device(
-            request.pairing_host,
+            host,
             request.pairing_port,
             request.pairing_code
         )
 
         if not success:
-            raise HTTPException(status_code=500, detail="Pairing failed - check code and port")
+            return {
+                "success": False,
+                "message": "Pairing failed - check code and port"
+            }
 
-        # Step 2: Connect on connection port (NOT 5555!) after successful pairing
-        logger.info(f"[API] Pairing successful, connecting on port {request.connection_port}")
-        device_id = await deps.adb_bridge.connect_device(request.pairing_host, request.connection_port)
+        # Step 2: Connect on connection port after successful pairing
+        # Use connection_port if provided, else use pairing_port (some devices use same)
+        conn_port = request.connection_port or request.pairing_port
+        logger.info(f"[API] Pairing successful, connecting on port {conn_port}")
+        device_id = await deps.adb_bridge.connect_device(host, conn_port)
 
         return {
             "success": True,
@@ -141,13 +152,10 @@ async def get_announced_devices():
 
 @router.get("/known-devices")
 async def get_known_devices():
-    """Get all known devices with their stable identifiers.
-
-    Returns devices that have been registered with the identity resolver,
-    including their stable_device_id, current connection, and metadata.
-    """
+    """Get all known devices with their stable identifiers."""
     try:
-        resolver = get_device_identity_resolver()
+        deps = get_deps()
+        resolver = get_device_identity_resolver(deps.data_dir)
         devices = resolver.get_all_devices()
         return {
             "devices": devices,
@@ -170,7 +178,7 @@ async def get_device_identity(device_id: str):
     """
     deps = get_deps()
     try:
-        resolver = get_device_identity_resolver()
+        resolver = get_device_identity_resolver(deps.data_dir)
 
         # First try to resolve to stable ID
         stable_id = resolver.resolve_any_id(device_id)

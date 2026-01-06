@@ -17,8 +17,18 @@ import logging
 from typing import Optional, Callable, Dict, Any, List
 from dataclasses import dataclass, field
 from enum import Enum
-import cv2
 import numpy as np
+from services.feature_manager import get_feature_manager
+
+# Conditional OpenCV import for basic mode
+feature_manager = get_feature_manager()
+CV2_AVAILABLE = False
+if feature_manager.is_enabled("real_icons_enabled"):
+    try:
+        import cv2
+        CV2_AVAILABLE = True
+    except ImportError:
+        pass
 
 logger = logging.getLogger(__name__)
 
@@ -220,9 +230,16 @@ class StreamManager:
 
     async def _encode_jpeg(self, png_bytes: bytes, preset: QualityPreset) -> bytes:
         """Encode PNG to JPEG with quality settings."""
+        from PIL import Image
+        import io
+        from services.feature_manager import get_feature_manager
+
+        feature_manager = get_feature_manager()
+        cv2_available = feature_manager.is_enabled("real_icons_enabled")
+
         loop = asyncio.get_event_loop()
 
-        def encode():
+        def encode_cv2():
             # Decode PNG
             nparr = np.frombuffer(png_bytes, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -243,7 +260,35 @@ class StreamManager:
             _, jpeg = cv2.imencode('.jpg', img, encode_params)
             return jpeg.tobytes()
 
-        return await loop.run_in_executor(None, encode)
+        def encode_pil():
+            # Decode PNG using PIL
+            img = Image.open(io.BytesIO(png_bytes))
+
+            # Resize if needed
+            if preset.max_size > 0:
+                w, h = img.size
+                if max(h, w) > preset.max_size:
+                    scale = preset.max_size / max(h, w)
+                    new_size = (int(w * scale), int(h * scale))
+                    img = img.resize(new_size, Image.LANCZOS)
+
+            # Convert to RGB (JPEGs don't support RGBA)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+
+            # Encode to JPEG
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=preset.jpeg_quality)
+            return buffer.getvalue()
+
+        if cv2_available:
+            try:
+                import cv2
+                return await loop.run_in_executor(None, encode_cv2)
+            except Exception as e:
+                logger.warning(f"OpenCV JPEG encoding failed, falling back to PIL: {e}")
+
+        return await loop.run_in_executor(None, encode_pil)
 
     async def start_stream(
         self,

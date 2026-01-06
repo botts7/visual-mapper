@@ -112,7 +112,8 @@ class ADBBridge:
         # Try to resolve stable ID to connection ID
         try:
             from services.device_identity import get_device_identity_resolver
-            resolver = get_device_identity_resolver()
+            data_dir = os.environ.get("DATA_DIR", "data")
+            resolver = get_device_identity_resolver(data_dir)
 
             current_conn_id = resolver.get_connection_id(device_id)
             if current_conn_id and current_conn_id in self.devices:
@@ -632,7 +633,8 @@ class ADBBridge:
                     model = await asyncio.wait_for(conn.shell("getprop ro.product.model"), timeout=3.0)
                     manufacturer = await asyncio.wait_for(conn.shell("getprop ro.product.manufacturer"), timeout=3.0)
 
-                    resolver = get_device_identity_resolver()
+                    data_dir = os.environ.get("DATA_DIR", "data")
+                    resolver = get_device_identity_resolver(data_dir)
                     resolver.register_device(
                         connection_id=device_id,
                         stable_device_id=stable_id,

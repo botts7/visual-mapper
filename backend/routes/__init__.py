@@ -19,19 +19,19 @@ if TYPE_CHECKING:
     from core.mqtt.mqtt_manager import MQTTManager
     from core.sensors.sensor_updater import SensorUpdater
     from core.flows import FlowManager, FlowExecutor, FlowScheduler
-    from performance_monitor import PerformanceMonitor
-    from screenshot_stitcher import ScreenshotStitcher
-    from app_icon_extractor import AppIconExtractor
-    from playstore_icon_scraper import PlayStoreIconScraper
-    from device_icon_scraper import DeviceIconScraper
-    from icon_background_fetcher import IconBackgroundFetcher
-    from app_name_background_fetcher import AppNameBackgroundFetcher
-    from stream_manager import StreamManager
+    from core.performance_monitor import PerformanceMonitor
+    from core.screenshot_stitcher import ScreenshotStitcher
+    from ml_components.app_icon_extractor import AppIconExtractor
+    from ml_components.playstore_icon_scraper import PlayStoreIconScraper
+    from ml_components.device_icon_scraper import DeviceIconScraper
+    from ml_components.icon_background_fetcher import IconBackgroundFetcher
+    from ml_components.app_name_background_fetcher import AppNameBackgroundFetcher
+    from core.stream_manager import StreamManager
     from core.adb.adb_helpers import ADBMaintenance
     from core.adb.adb_subprocess import PersistentShellPool
     from utils.connection_monitor import ConnectionMonitor
     from utils.device_security import DeviceSecurityManager
-    from navigation_manager import NavigationManager
+    from core.navigation_manager import NavigationManager
 
 
 @dataclass
@@ -85,6 +85,8 @@ class RouteDependencies:
     connection_monitor: Optional['ConnectionMonitor'] = None
     device_security_manager: Optional['DeviceSecurityManager'] = None
     navigation_manager: Optional['NavigationManager'] = None
+    feature_manager: Optional[object] = None  # FeatureManager instance
+    data_dir: Optional[str] = "data"
 
     # =========================================================================
     # UTILITIES

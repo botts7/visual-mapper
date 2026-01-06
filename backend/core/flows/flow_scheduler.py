@@ -557,7 +557,7 @@ class FlowScheduler:
                 # 2b. Check if wizard is active on this device - skip flow execution
                 # NOTE: Device may have multiple IDs (USB serial vs WiFi IP) - check all
                 try:
-                    from server import wizard_active_devices
+                    from main import wizard_active_devices
                     wizard_active = device_id in wizard_active_devices
 
                     # Also check alternative IDs (WiFi IP vs USB serial mismatch)
@@ -1124,7 +1124,7 @@ class FlowScheduler:
         # Check if wizard is active (skip lock if user is working)
         # Use ADB to properly resolve USB vs WiFi device ID mismatches
         try:
-            from server import wizard_active_devices
+            from main import wizard_active_devices
 
             # Debug log to help diagnose wizard active issues
             if wizard_active_devices:

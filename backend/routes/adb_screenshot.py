@@ -49,6 +49,11 @@ async def capture_screenshot(request: ScreenshotRequest):
     """
     deps = get_deps()
     try:
+        # Verify device is connected
+        devices = await deps.adb_bridge.get_devices()
+        if not any(d.get('id') == request.device_id for d in devices):
+            raise HTTPException(status_code=404, detail=f"Device not connected: {request.device_id}")
+
         mode = "quick" if request.quick else "full"
         logger.info(f"[API] Capturing {mode} screenshot from {request.device_id}")
 
@@ -72,6 +77,8 @@ async def capture_screenshot(request: ScreenshotRequest):
             "timestamp": datetime.now().isoformat(),
             "quick": request.quick
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.error(f"[API] Screenshot failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

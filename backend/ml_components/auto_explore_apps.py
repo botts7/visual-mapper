@@ -330,7 +330,7 @@ class ExplorationController:
         print("[X] No device found. Make sure the Android app is running and connected to MQTT.")
         return False
 
-    def start_exploration(self, package: str, config: dict = None) -> bool:
+    def start_exploration(self, package: str, config: Optional[dict] = None) -> bool:
         """Start exploration of an app"""
         if not self.device_id:
             print("[X] No device available")

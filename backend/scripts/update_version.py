@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from datetime import datetime
 import argparse
+from typing import Optional
 
 # Set UTF-8 encoding for Windows console
 if sys.platform == 'win32':
@@ -24,7 +25,7 @@ if sys.platform == 'win32':
     sys.stderr.reconfigure(encoding='utf-8')
 
 
-def update_config(new_version: str, build_date: str = None):
+def update_config(new_version: str, build_date: Optional[str] = None):
     """Update branding/config.json"""
     config_path = Path("www/branding/config.json")
 
@@ -69,7 +70,7 @@ def update_manifest(new_version: str):
     return True
 
 
-def update_html_files(new_version: str, build_date: str = None):
+def update_html_files(new_version: str, build_date: Optional[str] = None):
     """Update version in all HTML files"""
     www_dir = Path("www")
     html_files = list(www_dir.glob("*.html"))

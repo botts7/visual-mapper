@@ -105,6 +105,8 @@ def atomic_write_json(path, data: dict, indent: int = 2) -> None:
         raise
 
 
+from services.feature_manager import get_feature_manager
+
 # === Hardware Detection ===
 
 def detect_hardware():
@@ -118,6 +120,10 @@ def detect_hardware():
         "npu_available": False,
         "onnx_available": False
     }
+
+    feature_manager = get_feature_manager()
+    if not feature_manager.is_enabled("ml_enabled"):
+        return hw_info
 
     # Check for ONNX Runtime with DirectML (best for Windows NPU)
     try:
@@ -161,37 +167,44 @@ def detect_hardware():
 HW_INFO = detect_hardware()
 
 # Try to import PyTorch
-try:
-    import torch
-    import torch.nn as nn
-    import torch.nn.functional as F
-    import torch.optim as optim
-    TORCH_AVAILABLE = True
-
-    # Try DirectML for Windows NPU
+feature_manager = get_feature_manager()
+if feature_manager.is_enabled("ml_enabled"):
     try:
-        import torch_directml
-        DML_AVAILABLE = True
-        print("Using DirectML for NPU acceleration")
-    except ImportError:
-        DML_AVAILABLE = False
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
+        import torch.optim as optim
+        TORCH_AVAILABLE = True
 
-except ImportError:
+        # Try DirectML for Windows NPU
+        try:
+            import torch_directml
+            DML_AVAILABLE = True
+            print("Using DirectML for NPU acceleration")
+        except ImportError:
+            DML_AVAILABLE = False
+
+    except ImportError:
+        TORCH_AVAILABLE = False
+        DML_AVAILABLE = False
+        print("PyTorch not available - using simple Q-table training only")
+else:
     TORCH_AVAILABLE = False
     DML_AVAILABLE = False
-    print("PyTorch not available - using simple Q-table training only")
+    print("ML features disabled by feature flag")
 
 # Try to import ONNX Runtime for NPU acceleration
 ONNX_AVAILABLE = False
 ONNX_DML_AVAILABLE = False
-try:
-    import onnxruntime as ort
-    ONNX_AVAILABLE = True
-    if "DmlExecutionProvider" in ort.get_available_providers():
-        ONNX_DML_AVAILABLE = True
-        print("ONNX Runtime with DirectML available for NPU acceleration")
-except ImportError:
-    pass
+if feature_manager.is_enabled("ml_enabled"):
+    try:
+        import onnxruntime as ort
+        ONNX_AVAILABLE = True
+        if "DmlExecutionProvider" in ort.get_available_providers():
+            ONNX_DML_AVAILABLE = True
+            print("ONNX Runtime with DirectML available for NPU acceleration")
+    except ImportError:
+        pass
 
 # Try to import numpy
 try:

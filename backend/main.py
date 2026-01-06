@@ -64,6 +64,7 @@ from core.stream_manager import StreamManager, get_stream_manager
 from core.adb.adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 from core.navigation_manager import NavigationManager
 from core.navigation_mqtt_handler import NavigationMqttHandler
+from services.feature_manager import get_feature_manager
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
@@ -813,6 +814,8 @@ def _init_route_dependencies():
     global device_icon_scraper, icon_background_fetcher, app_name_background_fetcher
     global stream_manager, adb_maintenance, shell_pool, connection_monitor, ws_log_handler
 
+    feature_manager = get_feature_manager()
+
     deps = RouteDependencies(
         adb_bridge=adb_bridge,
         device_migrator=device_migrator,
@@ -839,7 +842,9 @@ def _init_route_dependencies():
         connection_monitor=connection_monitor,
         device_security_manager=device_security_manager,
         navigation_manager=navigation_manager,
-        ws_log_handler=ws_log_handler
+        ws_log_handler=ws_log_handler,
+        feature_manager=feature_manager,
+        data_dir=str(DATA_DIR)
     )
     set_dependencies(deps)
 
@@ -909,7 +914,7 @@ logger.info("[Server] Registered route module: settings (8 endpoints: preference
 async def test_device_identity():
     """Test endpoint for device identity"""
     from services.device_identity import get_device_identity_resolver
-    resolver = get_device_identity_resolver()
+    resolver = get_device_identity_resolver(str(DATA_DIR))
     return {"devices": resolver.get_all_devices(), "status": "ok"}
 
 # === Real-Time Log Viewer ===
@@ -1015,7 +1020,14 @@ class NoCacheStaticFiles(StaticFiles):
 
 
 # Mount static files LAST (catch-all route)
-app.mount("/", NoCacheStaticFiles(directory="/app/frontend/www", html=True), name="www")
+# Use relative path for development, check environment for production
+STATIC_DIR = Path(__file__).parent.parent / "frontend" / "www"
+if not STATIC_DIR.exists():
+    # Fallback to absolute path for Docker if relative fails
+    STATIC_DIR = Path("/app/frontend/www")
+
+logger.info(f"[Server] Static files directory: {STATIC_DIR.absolute()}")
+app.mount("/", NoCacheStaticFiles(directory=str(STATIC_DIR), html=True), name="www")
 
 if __name__ == "__main__":
     # Default to port 8080 (better firewall compatibility), can be overridden by environment variable
