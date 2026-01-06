@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flow Management - Visual Mapper</title>
+    <link rel="stylesheet" href="styles.css?v=0.0.4">
+    <style>
+        .flow-container {
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .flow-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .flow-header h1 {
+            margin: 0;
+            color: var(--text-primary);
+        }
+
+        .flow-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .flow-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--surface);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .flow-table thead {
+            background: var(--primary);
+            color: white;
+        }
+
+        .flow-table th,
+        .flow-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .flow-table tbody tr:hover {
+            background: var(--hover);
+        }
+
+        .flow-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .flow-status.enabled {
+            background: #22c55e;
+            color: white;
+        }
+
+        .flow-status.disabled {
+            background: #94a3b8;
+            color: white;
+        }
+
+        .flow-stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            flex: 1;
+            background: var(--surface);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-card h3 {
+            margin: 0 0 8px 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .flow-row-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-icon {
+            padding: 6px 12px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            color: var(--text-primary);
+            transition: all 0.2s;
+        }
+
+        .btn-icon:hover {
+            background: var(--hover);
+        }
+
+        .btn-icon.execute {
+            color: #3b82f6;
+            border-color: #3b82f6;
+        }
+
+        .btn-icon.execute:hover {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-icon.delete {
+            color: #ef4444;
+            border-color: #ef4444;
+        }
+
+        .btn-icon.delete:hover {
+            background: #ef4444;
+            color: white;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="flow-container">
+        <div class="flow-header">
+            <h1>Flow Management</h1>
+            <div class="flow-actions">
+                <button class="btn btn-secondary" onclick="loadFlows()">
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        <div class="flow-stats" id="flowStats">
+            <div class="stat-card">
+                <h3>Total Flows</h3>
+                <div class="value" id="statTotal">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Enabled</h3>
+                <div class="value" id="statEnabled">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Queue Depth</h3>
+                <div class="value" id="statQueueDepth">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Success Rate</h3>
+                <div class="value" id="statSuccessRate">-</div>
+            </div>
+        </div>
+
+        <div id="flowTableContainer">
+            <table class="flow-table" id="flowTable">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Device</th>
+                        <th>Steps</th>
+                        <th>Interval</th>
+                        <th>Status</th>
+                        <th>Last Run</th>
+                        <th>Success</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="flowTableBody">
+                    <tr>
+                        <td colspan="8" class="empty-state">
+                            Loading flows...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script type="module">
+        import FlowManager from './js/modules/flow-manager.js?v=0.0.4';
+        import { showToast } from './js/modules/toast.js?v=0.0.4';
+
+        // Make functions globally available
+        window.flowManager = new FlowManager();
+        window.showToast = showToast;
+
+        let flows = [];
+
+        async function loadFlows() {
+            try {
+                flows = await window.flowManager.getFlows();
+                renderFlowTable();
+                updateStats();
+            } catch (error) {
+                console.error('Failed to load flows:', error);
+                showToast('Failed to load flows: ' + error.message, 'error');
+            }
+        }
+
+        function renderFlowTable() {
+            const tbody = document.getElementById('flowTableBody');
+
+            if (flows.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="empty-state">
+                            <p>No flows configured yet.</p>
+                            <p>Flows will appear here once you create them via the API.</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = flows.map(flow => `
+                <tr>
+                    <td><strong>${escapeHtml(flow.name)}</strong></td>
+                    <td><code>${escapeHtml(flow.device_id)}</code></td>
+                    <td>${flow.steps.length} steps</td>
+                    <td>${flow.update_interval_seconds}s</td>
+                    <td>
+                        <span class="flow-status ${flow.enabled ? 'enabled' : 'disabled'}">
+                            ${flow.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                    </td>
+                    <td>${formatDateTime(flow.last_executed)}</td>
+                    <td>${formatSuccessRate(flow)}</td>
+                    <td>
+                        <div class="flow-row-actions">
+                            <button class="btn-icon execute"
+                                    onclick="executeFlow('${flow.device_id}', '${flow.flow_id}')"
+                                    title="Execute Now">
+                                ▶
+                            </button>
+                            <button class="btn-icon delete"
+                                    onclick="deleteFlow('${flow.device_id}', '${flow.flow_id}', '${escapeHtml(flow.name)}')"
+                                    title="Delete">
+                                ✕
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function updateStats() {
+            const totalFlows = flows.length;
+            const enabledFlows = flows.filter(f => f.enabled).length;
+
+            document.getElementById('statTotal').textContent = totalFlows;
+            document.getElementById('statEnabled').textContent = enabledFlows;
+
+            // Get metrics for queue depth and success rate
+            try {
+                const metricsData = await window.flowManager.getMetrics();
+                const metrics = metricsData.all_devices || {};
+
+                let totalQueueDepth = 0;
+                let totalSuccessRate = 0;
+                let deviceCount = 0;
+
+                Object.values(metrics).forEach(m => {
+                    if (m.queue_depth !== undefined) {
+                        totalQueueDepth += m.queue_depth;
+                        deviceCount++;
+                    }
+                    if (m.success_rate !== undefined) {
+                        totalSuccessRate += m.success_rate;
+                    }
+                });
+
+                document.getElementById('statQueueDepth').textContent = totalQueueDepth;
+
+                if (deviceCount > 0) {
+                    const avgSuccessRate = (totalSuccessRate / deviceCount) * 100;
+                    document.getElementById('statSuccessRate').textContent =
+                        avgSuccessRate.toFixed(1) + '%';
+                } else {
+                    document.getElementById('statSuccessRate').textContent = '-';
+                }
+            } catch (error) {
+                console.error('Failed to load metrics:', error);
+            }
+        }
+
+        async function executeFlow(deviceId, flowId) {
+            try {
+                await window.flowManager.executeFlow(deviceId, flowId);
+                showToast('Flow execution scheduled', 'success');
+                await loadFlows();
+            } catch (error) {
+                showToast('Failed to execute flow: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteFlow(deviceId, flowId, flowName) {
+            if (!confirm(`Are you sure you want to delete flow "${flowName}"?`)) {
+                return;
+            }
+
+            try {
+                await window.flowManager.deleteFlow(deviceId, flowId);
+                showToast('Flow deleted successfully', 'success');
+                await loadFlows();
+            } catch (error) {
+                showToast('Failed to delete flow: ' + error.message, 'error');
+            }
+        }
+
+        function formatDateTime(dateStr) {
+            if (!dateStr) return 'Never';
+            const date = new Date(dateStr);
+            return date.toLocaleString();
+        }
+
+        function formatSuccessRate(flow) {
+            if (flow.execution_count === 0) return '-';
+            const rate = (flow.success_count / flow.execution_count) * 100;
+            return `${flow.success_count}/${flow.execution_count} (${rate.toFixed(0)}%)`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Make functions globally available
+        window.loadFlows = loadFlows;
+        window.executeFlow = executeFlow;
+        window.deleteFlow = deleteFlow;
+
+        // Load flows on page load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadFlows);
+        } else {
+            loadFlows();
+        }
+    </script>
+</body>
+</html>
