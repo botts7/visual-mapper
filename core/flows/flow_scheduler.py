@@ -777,6 +777,11 @@ class FlowScheduler:
                     pass
                 del self._periodic_tasks[flow.flow_id]
 
+        # Only restart periodic scheduling if not paused
+        if self._paused:
+            logger.info(f"[FlowScheduler] Scheduler is paused - skipping periodic task creation for {device_id}")
+            return
+
         # Restart periodic scheduling for enabled flows
         enabled_flows = self.flow_manager.get_enabled_flows(device_id)
         for flow in enabled_flows:
@@ -840,13 +845,23 @@ class FlowScheduler:
     async def resume(self):
         """
         Resume periodic scheduling
+
+        Always restarts periodic scheduling if tasks are empty, even if not
+        officially "paused". This handles edge cases where tasks were cancelled
+        but _paused flag wasn't properly set (e.g., race conditions with wizard).
         """
-        if not self._paused:
+        if not self._paused and len(self._periodic_tasks) > 0:
             logger.warning("[FlowScheduler] Not paused")
             return
 
+        # Reset paused flag
+        was_paused = self._paused
         self._paused = False
-        logger.info("[FlowScheduler] Resuming periodic scheduling")
+
+        if was_paused:
+            logger.info("[FlowScheduler] Resuming periodic scheduling")
+        else:
+            logger.info("[FlowScheduler] Force-resuming periodic scheduling (tasks were empty)")
 
         # Restart periodic scheduling
         await self._start_periodic_scheduling()

@@ -1,9 +1,11 @@
 /**
  * Flow Recorder Module
- * Visual Mapper v0.0.10
+ * Visual Mapper v0.0.12
  *
  * Handles interactive flow recording with screenshot capture,
  * tap detection, and step management
+ * v0.0.12: Fix addStep - respect existing screen_activity if provided (for pre-action capture)
+ * v0.0.11: Add moveStep() method for reordering steps
  */
 
 import { showToast } from './toast.js?v=0.0.5';
@@ -1085,15 +1087,18 @@ class FlowRecorder {
         // Skip for certain step types that don't need screen context
         const skipScreenCapture = ['launch_app', 'go_home', 'restart_app'];
         if (!skipScreenCapture.includes(step.step_type)) {
-            try {
-                const screenInfo = await this.getCurrentScreen();
-                if (screenInfo?.activity) {
-                    step.screen_activity = screenInfo.activity.activity || null;
-                    step.screen_package = screenInfo.activity.package || null;
-                    console.log(`[FlowRecorder] Captured screen: ${step.screen_activity} (${step.screen_package})`);
+            // Only capture if not already provided (allows capturing BEFORE action)
+            if (!step.screen_activity || !step.screen_package) {
+                try {
+                    const screenInfo = await this.getCurrentScreen();
+                    if (screenInfo?.activity) {
+                        if (!step.screen_activity) step.screen_activity = screenInfo.activity.activity || null;
+                        if (!step.screen_package) step.screen_package = screenInfo.activity.package || null;
+                        console.log(`[FlowRecorder] Captured screen: ${step.screen_activity} (${step.screen_package})`);
+                    }
+                } catch (e) {
+                    console.warn('[FlowRecorder] Failed to capture screen info:', e);
                 }
-            } catch (e) {
-                console.warn('[FlowRecorder] Failed to capture screen info:', e);
             }
         }
 
@@ -1150,6 +1155,36 @@ class FlowRecorder {
     }
 
     /**
+     * Move a step from one position to another
+     * @param {number} fromIndex - Current index of the step
+     * @param {number} toIndex - Target index to move to
+     */
+    moveStep(fromIndex, toIndex) {
+        if (fromIndex < 0 || fromIndex >= this.steps.length) {
+            console.warn(`[FlowRecorder] Invalid fromIndex: ${fromIndex}`);
+            return;
+        }
+        if (toIndex < 0 || toIndex >= this.steps.length) {
+            console.warn(`[FlowRecorder] Invalid toIndex: ${toIndex}`);
+            return;
+        }
+        if (fromIndex === toIndex) {
+            return; // No change needed
+        }
+
+        // Remove step from original position
+        const [step] = this.steps.splice(fromIndex, 1);
+        // Insert at new position
+        this.steps.splice(toIndex, 0, step);
+
+        console.log(`[FlowRecorder] Moved step from ${fromIndex} to ${toIndex}:`, step.description);
+
+        window.dispatchEvent(new CustomEvent('flowStepMoved', {
+            detail: { fromIndex, toIndex, step }
+        }));
+    }
+
+    /**
      * Clear all steps
      */
     clearSteps() {
@@ -1167,6 +1202,65 @@ class FlowRecorder {
      */
     getSteps() {
         return this.steps;
+    }
+
+    /**
+     * Load existing steps (for edit mode)
+     * Converts action format (x1/y1/x2/y2) to flow format (start_x/start_y/end_x/end_y) if needed
+     * @param {Array} steps - Array of step objects to load
+     * @param {boolean} skipLaunchStep - If true, skip any launch_app steps (already on screen)
+     */
+    loadSteps(steps, skipLaunchStep = false) {
+        if (!Array.isArray(steps)) {
+            console.warn('[FlowRecorder] loadSteps: steps must be an array');
+            return;
+        }
+
+        this.steps = steps.map(step => {
+            const normalized = { ...step };
+
+            // Convert action_type to step_type if needed
+            if (step.action_type && !step.step_type) {
+                normalized.step_type = step.action_type;
+            }
+
+            // Convert action swipe format (x1/y1/x2/y2) to flow format (start_x/start_y/end_x/end_y)
+            if (normalized.step_type === 'swipe' || normalized.action_type === 'swipe') {
+                if (step.x1 !== undefined && step.start_x === undefined) {
+                    normalized.start_x = step.x1;
+                    normalized.start_y = step.y1;
+                    normalized.end_x = step.x2;
+                    normalized.end_y = step.y2;
+                }
+            }
+
+            // Mark as pre-existing for UI differentiation
+            normalized._preExisting = true;
+
+            return normalized;
+        });
+
+        // Optionally filter out launch steps if already on the app
+        if (skipLaunchStep) {
+            this.steps = this.steps.filter(s => s.step_type !== 'launch_app');
+        }
+
+        console.log(`[FlowRecorder] Loaded ${this.steps.length} existing steps`);
+    }
+
+    /**
+     * Clear all steps
+     */
+    clearSteps() {
+        this.steps = [];
+        console.log('[FlowRecorder] Steps cleared');
+    }
+
+    /**
+     * Get count of pre-existing steps (loaded in edit mode)
+     */
+    getPreExistingCount() {
+        return this.steps.filter(s => s._preExisting).length;
     }
 
     /**

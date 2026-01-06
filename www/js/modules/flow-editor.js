@@ -208,12 +208,24 @@ class FlowEditor {
 
         const steps = this.editingFlow.flow.steps || [];
 
+        // Add "Edit in Wizard" button at the top
+        let wizardButtonHtml = `
+            <div style="margin-bottom: 16px; padding: 12px; background: var(--bg-tertiary, #1e293b); border-radius: 8px; border: 1px dashed var(--border-color, #334155);">
+                <button type="button" class="btn btn-primary" onclick="window.flowEditor.openInWizard()" style="width: 100%;">
+                    🪄 Edit Steps in Visual Wizard
+                </button>
+                <p style="color: var(--text-secondary, #94a3b8); font-size: 0.8em; margin-top: 8px; text-align: center;">
+                    Opens the wizard to add taps, swipes, and sensors by clicking on the screen
+                </p>
+            </div>
+        `;
+
         if (steps.length === 0) {
-            stepsContainer.innerHTML = '<p style="text-align:center;color:#64748b;">No steps defined yet. Click "+ Add Step" to create one.</p>';
+            stepsContainer.innerHTML = wizardButtonHtml + '<p style="text-align:center;color:#64748b;">No steps defined yet. Use the Visual Wizard or click "+ Add Step" below.</p>';
             return;
         }
 
-        stepsContainer.innerHTML = steps.map((step, index) => `
+        stepsContainer.innerHTML = wizardButtonHtml + steps.map((step, index) => `
             <div class="step-card" data-step-index="${index}">
                 <div class="step-card-header">
                     <span class="step-type-badge">${step.step_type || 'unknown'}</span>
@@ -333,6 +345,26 @@ class FlowEditor {
         if (stepIndex === steps.length - 1) return;
         [steps[stepIndex], steps[stepIndex + 1]] = [steps[stepIndex + 1], steps[stepIndex]];
         this.renderSteps();
+    }
+
+    /**
+     * Open flow in Visual Wizard for visual step editing
+     * Allows adding taps, swipes, etc. by clicking on the screen
+     */
+    openInWizard() {
+        if (!this.editingFlow) {
+            this.showToast('No flow selected for editing', 'error');
+            return;
+        }
+
+        const { deviceId, flowId } = this.editingFlow;
+
+        // Close the modal
+        this.close();
+
+        // Navigate to wizard with flow edit params
+        const wizardUrl = `flow-wizard.html?editFlow=true&device=${encodeURIComponent(deviceId)}&flow=${encodeURIComponent(flowId)}`;
+        window.location.href = wizardUrl;
     }
 
     addNewStep() {

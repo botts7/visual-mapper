@@ -9,7 +9,7 @@
  */
 
 import { showToast } from './toast.js?v=0.0.5';
-import FlowStepManager from './flow-step-manager.js?v=0.0.5';
+import FlowStepManager from './flow-step-manager.js?v=0.0.7';
 import { groupStepsByScreen, validateMove, moveStep } from './step-reorganizer.js?v=0.0.1';
 
 function getApiBase() {

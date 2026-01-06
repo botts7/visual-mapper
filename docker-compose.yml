@@ -51,20 +51,22 @@ services:
       - ./routes:/app/routes:ro
       - ./services:/app/services:ro
       - ./utils:/app/utils:ro
-      # Core modules
-      - ./adb_bridge.py:/app/adb_bridge.py:ro
-      - ./sensor_manager.py:/app/sensor_manager.py:ro
-      - ./sensor_models.py:/app/sensor_models.py:ro
-      - ./text_extractor.py:/app/text_extractor.py:ro
-      - ./mqtt_manager.py:/app/mqtt_manager.py:ro
-      - ./sensor_updater.py:/app/sensor_updater.py:ro
-      - ./ha_device_classes.py:/app/ha_device_classes.py:ro
+      # Core modules (refactored to core/ directory)
+      - ./core:/app/core:ro
+      # Legacy compatibility mounts (map core modules to expected locations)
+      - ./core/adb/adb_bridge.py:/app/adb_bridge.py:ro
+      - ./core/sensors/sensor_manager.py:/app/sensor_manager.py:ro
+      - ./core/sensors/sensor_models.py:/app/sensor_models.py:ro
+      - ./core/sensors/text_extractor.py:/app/text_extractor.py:ro
+      - ./core/mqtt/mqtt_manager.py:/app/mqtt_manager.py:ro
+      - ./core/sensors/sensor_updater.py:/app/sensor_updater.py:ro
+      - ./core/mqtt/ha_device_classes.py:/app/ha_device_classes.py:ro
       # Flow system
-      - ./flow_models.py:/app/flow_models.py:ro
-      - ./flow_manager.py:/app/flow_manager.py:ro
-      - ./flow_executor.py:/app/flow_executor.py:ro
-      - ./flow_scheduler.py:/app/flow_scheduler.py:ro
-      - ./flow_execution_history.py:/app/flow_execution_history.py:ro
+      - ./core/flows/flow_models.py:/app/flow_models.py:ro
+      - ./core/flows/flow_manager.py:/app/flow_manager.py:ro
+      - ./core/flows/flow_executor.py:/app/flow_executor.py:ro
+      - ./core/flows/flow_scheduler.py:/app/flow_scheduler.py:ro
+      - ./core/flows/flow_execution_history.py:/app/flow_execution_history.py:ro
       - ./performance_monitor.py:/app/performance_monitor.py:ro
       # Navigation system
       - ./navigation_models.py:/app/navigation_models.py:ro
@@ -79,7 +81,7 @@ services:
       - ./app_label_extractor.py:/app/app_label_extractor.py:ro
       # Streaming & helpers
       - ./stream_manager.py:/app/stream_manager.py:ro
-      - ./adb_helpers.py:/app/adb_helpers.py:ro
+      - ./core/adb/adb_helpers.py:/app/adb_helpers.py:ro
       - ./navigation_manager.py:/app/navigation_manager.py:ro
       - ./navigation_mqtt_handler.py:/app/navigation_mqtt_handler.py:ro
       # Screenshot stitching modules

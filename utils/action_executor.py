@@ -502,8 +502,24 @@ class ActionExecutor:
                             action_type="macro"
                         )
 
+                    # Normalize field names between flow format and action format
+                    # Flow format: start_x/start_y/end_x/end_y, Action format: x1/y1/x2/y2
+                    normalized_dict = dict(action_dict)
+                    if action_type == "swipe":
+                        # Convert flow format to action format if needed
+                        if "start_x" in normalized_dict and "x1" not in normalized_dict:
+                            normalized_dict["x1"] = normalized_dict.pop("start_x")
+                        if "start_y" in normalized_dict and "y1" not in normalized_dict:
+                            normalized_dict["y1"] = normalized_dict.pop("start_y")
+                        if "end_x" in normalized_dict and "x2" not in normalized_dict:
+                            normalized_dict["x2"] = normalized_dict.pop("end_x")
+                        if "end_y" in normalized_dict and "y2" not in normalized_dict:
+                            normalized_dict["y2"] = normalized_dict.pop("end_y")
+                        # Remove step_type if present (flow format uses step_type)
+                        normalized_dict.pop("step_type", None)
+
                     # Create action instance
-                    step_action = action_class(**action_dict)
+                    step_action = action_class(**normalized_dict)
 
                     # Execute step
                     logger.debug(f"[ActionExecutor] Macro step {i+1}/{len(action.actions)}: {action_type}")

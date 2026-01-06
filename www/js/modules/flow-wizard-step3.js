@@ -1,7 +1,11 @@
 /**
  * Flow Wizard Step 3 Module - Recording Mode
- * Visual Mapper v0.0.33
+ * Visual Mapper v0.0.37
  *
+ * v0.0.37: Fix screen mismatch detection - ignore mismatch if last step was navigation (tap/swipe)
+ * v0.0.36: Fix tap/swipe recording - capture screen context BEFORE executing action to ensure correct step metadata
+ * v0.0.35: Don't re-launch app in edit mode - use isEditMode() check
+ * v0.0.34: Preserve steps when returning from step 4 - don't re-launch app or reset recorder
  * v0.0.33: Fix race condition - unlock device BEFORE app launch, remove redundant dialog
  * v0.0.32: Fix device locking - await keep-awake and setWizardActive, reorder startup
  * v0.0.31: Phase 2 Refactor - Extract modules for maintainability
@@ -40,10 +44,10 @@
 import { showToast } from './toast.js?v=0.0.5';
 import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.11';
 import FlowInteractions from './flow-interactions.js?v=0.0.15';
-import FlowStepManager from './flow-step-manager.js?v=0.0.5';
-import FlowRecorder from './flow-recorder.js?v=0.0.10';
+import FlowStepManager from './flow-step-manager.js?v=0.0.7';
+import FlowRecorder from './flow-recorder.js?v=0.0.12';
 import LiveStream from './live-stream.js?v=0.0.32';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.8';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.9';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
@@ -139,9 +143,14 @@ export async function loadStep3(wizard) {
 
     wizard.stepManager = new FlowStepManager(document.getElementById('flowStepsList'));
 
-    // Initialize FlowRecorder (pass package name, not full object)
+    // Only create new recorder if we don't have one with steps
+    // This prevents losing steps when returning from step 4
     const packageName = wizard.selectedApp?.package || wizard.selectedApp;
-    wizard.recorder = new FlowRecorder(wizard.selectedDevice, packageName, wizard.recordMode);
+
+    if (!wizard.recorder || !isReturning) {
+        // Initialize FlowRecorder (pass package name, not full object)
+        wizard.recorder = new FlowRecorder(wizard.selectedDevice, packageName, wizard.recordMode);
+    }
 
     // Restore existing steps to recorder and UI if returning from later step
     if (isReturning) {
@@ -149,6 +158,19 @@ export async function loadStep3(wizard) {
         // Use render() to display all steps at once (addStep doesn't exist on FlowStepManager)
         wizard.stepManager.render(wizard.flowSteps);
         console.log(`[FlowWizard] Restored ${wizard.flowSteps.length} steps to UI`);
+    }
+
+    // Load pending edit steps if in edit mode (only on first load, not when returning)
+    if (wizard.isEditMode() && wizard._pendingEditSteps?.length > 0 && !isReturning) {
+        wizard.recorder.loadSteps(wizard._pendingEditSteps, false);
+        wizard.stepManager.render(wizard.recorder.getSteps());
+        console.log(`[FlowWizard] Edit mode - loaded ${wizard._pendingEditSteps.length} existing steps`);
+
+        // Show edit mode indicator in steps panel
+        const stepsHeader = document.querySelector('#stepsPanel h3, .steps-header');
+        if (stepsHeader) {
+            stepsHeader.innerHTML = `📝 Steps <span style="font-size: 12px; color: #f59e0b;">(editing ${wizard.preExistingStepCount} existing)</span>`;
+        }
     }
 
     // Set insert mode on recorder if we're inserting steps
@@ -167,19 +189,34 @@ export async function loadStep3(wizard) {
     // Setup flow steps event listeners (for step added/removed events)
     setupFlowStepsListener(wizard);
 
-    // Start recording session
-    const started = await wizard.recorder.start();
+    // Only start recording session on FIRST new flow (not when returning OR editing existing flow)
+    // Starting re-launches app and adds duplicate launch_app step
+    const shouldStartFresh = !isReturning && !wizard.isEditMode();
 
-    if (started) {
-        // Only load initial screenshot in polling mode
-        // Streaming mode will handle display via LiveStream callbacks
-        if (wizard.captureMode !== 'streaming') {
+    if (shouldStartFresh) {
+        console.log('[FlowWizard] Starting fresh recording session');
+        const started = await wizard.recorder.start();
+
+        if (started) {
+            // Only load initial screenshot in polling mode
+            // Streaming mode will handle display via LiveStream callbacks
+            if (wizard.captureMode !== 'streaming') {
+                await wizard.updateScreenshotDisplay();
+                // Auto-fetch full screenshot with elements after initial quick preview
+                // This runs in background while user sees the quick preview
+                refreshElements(wizard).then(() => {
+                    wizard.updateScreenshotDisplay();
+                }).catch(e => console.warn('[FlowWizard] Auto-refresh failed:', e));
+            }
+        }
+    } else {
+        // When returning or editing, just refresh the screenshot without re-launching
+        console.log('[FlowWizard] Edit/Return mode - refreshing screenshot without re-launching app');
+        try {
+            await wizard.recorder.captureScreenshot();
             await wizard.updateScreenshotDisplay();
-            // Auto-fetch full screenshot with elements after initial quick preview
-            // This runs in background while user sees the quick preview
-            refreshElements(wizard).then(() => {
-                wizard.updateScreenshotDisplay();
-            }).catch(e => console.warn('[FlowWizard] Auto-refresh failed:', e));
+        } catch (e) {
+            console.warn('[FlowWizard] Failed to refresh screenshot:', e);
         }
     }
 }
@@ -2193,6 +2230,23 @@ export async function executeSwipeGesture(wizard, startCanvasX, startCanvasY, en
 
     console.log(`[FlowWizard] Executing swipe: (${startDevice.x},${startDevice.y}) → (${endDevice.x},${endDevice.y})`);
 
+    // Capture screen context BEFORE executing action (so step is linked to source screen)
+    let screenContext = {};
+    if (wizard.recorder) {
+        try {
+            const screenInfo = await wizard.recorder.getCurrentScreen();
+            if (screenInfo?.activity) {
+                screenContext = {
+                    screen_activity: screenInfo.activity.activity || null,
+                    screen_package: screenInfo.activity.package || null
+                };
+                console.log(`[FlowWizard] Captured pre-swipe context: ${screenContext.screen_activity}`);
+            }
+        } catch (e) {
+            console.warn('[FlowWizard] Failed to capture pre-swipe screen context:', e);
+        }
+    }
+
     try {
         const response = await fetch(`${getApiBase()}/adb/swipe`, {
             method: 'POST',
@@ -2219,7 +2273,9 @@ export async function executeSwipeGesture(wizard, startCanvasX, startCanvasY, en
             end_x: endDevice.x,
             end_y: endDevice.y,
             duration: 300,
-            description: `Swipe from (${startDevice.x},${startDevice.y}) to (${endDevice.x},${endDevice.y})`
+            description: `Swipe from (${startDevice.x},${startDevice.y}) to (${endDevice.x},${endDevice.y})`,
+            // Include pre-captured screen context
+            ...screenContext
         };
 
         // Track last executed action (even when paused) for navigation step insertion
@@ -2493,7 +2549,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.8');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.9');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -2527,7 +2583,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.8');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.9');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -3336,6 +3392,36 @@ export async function handleElementClick(wizard, canvasX, canvasY) {
         }
     );
 
+    // Handle timestamp element selection for wait step
+    if (wizard._waitingForTimestampElement && wizard._pendingWaitStep) {
+        if (!clickedElement) {
+            showToast('Please tap on an element with text (e.g., a timestamp)', 'warning', 3000);
+            return;
+        }
+
+        // Build timestamp element config
+        const timestampElement = {
+            text: clickedElement.text || null,
+            'resource-id': clickedElement.resource_id || null,
+            class: clickedElement.class || null,
+            bounds: clickedElement.bounds || null
+        };
+
+        // Add timestamp element to the pending wait step
+        wizard._pendingWaitStep.timestamp_element = timestampElement;
+
+        // Add the complete wait step to the recorder
+        wizard.recorder.addStep(wizard._pendingWaitStep);
+
+        const elementName = clickedElement.text?.substring(0, 30) || clickedElement.resource_id?.split('/').pop() || 'element';
+        showToast(`Wait step added - will monitor "${elementName}" for changes`, 'success', 3000);
+
+        // Clear the pending state
+        wizard._waitingForTimestampElement = false;
+        wizard._pendingWaitStep = null;
+        return;
+    }
+
     // Show selection dialog
     const choice = await wizard.interactions.showElementSelectionDialog(clickedElement, deviceCoords);
 
@@ -3422,6 +3508,23 @@ export async function executeTap(wizard, x, y, element = null) {
     // Show tap indicator on canvas
     showTapIndicator(wizard, x, y);
 
+    // Capture screen context BEFORE executing action (so step is linked to source screen)
+    let screenContext = {};
+    if (wizard.recorder) {
+        try {
+            const screenInfo = await wizard.recorder.getCurrentScreen();
+            if (screenInfo?.activity) {
+                screenContext = {
+                    screen_activity: screenInfo.activity.activity || null,
+                    screen_package: screenInfo.activity.package || null
+                };
+                console.log(`[FlowWizard] Captured pre-tap context: ${screenContext.screen_activity}`);
+            }
+        } catch (e) {
+            console.warn('[FlowWizard] Failed to capture pre-tap screen context:', e);
+        }
+    }
+
     // Execute tap if in execute mode
     if (wizard.recordMode === 'execute') {
         await wizard.recorder.executeTap(x, y);
@@ -3431,12 +3534,12 @@ export async function executeTap(wizard, x, y, element = null) {
     let description = `Tap at (${x}, ${y})`;
     if (element) {
         if (element.text) {
-            description = `Tap "${element.text}" at (${x}, ${y})`;
+            description = `Tap "${element.text}"`;
         } else if (element.content_desc) {
-            description = `Tap "${element.content_desc}" at (${x}, ${y})`;
+            description = `Tap "${element.content_desc}"`;
         } else if (element.resource_id) {
             const shortId = element.resource_id.split('/').pop() || element.resource_id;
-            description = `Tap ${shortId} at (${x}, ${y})`;
+            description = `Tap ${shortId}`;
         }
     }
 
@@ -3445,7 +3548,9 @@ export async function executeTap(wizard, x, y, element = null) {
         step_type: 'tap',
         x: x,
         y: y,
-        description: description
+        description: description,
+        // Include pre-captured screen context
+        ...screenContext
     };
 
     // Include element metadata if available
@@ -4000,7 +4105,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.8');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.9');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -4320,6 +4425,18 @@ export async function checkScreenMismatch(wizard, sensorElement) {
     const deviceActName = deviceActivity ? deviceActivity.split('.').pop() : null;
 
     if (deviceActName && flowActName !== deviceActName) {
+        // Check if the screen change was caused by the last recorded navigation step
+        if (wizard.recorder) {
+            const steps = wizard.recorder.getSteps();
+            const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
+
+            // If the last step was a tap or swipe, the screen change is likely the intended result
+            if (lastStep && (lastStep.step_type === 'tap' || lastStep.step_type === 'swipe')) {
+                console.log(`[FlowWizard] Screen changed after ${lastStep.step_type} (${flowActName} -> ${deviceActName}) - valid transition`);
+                return { mismatch: false, currentActivity: flowActName, sensorActivity: deviceActName };
+            }
+        }
+
         return {
             mismatch: true,
             currentActivity: flowActName,

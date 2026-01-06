@@ -128,6 +128,17 @@ export function handleSensorCreated(wizard, response, sensorData) {
  */
 export async function promptForActionConfig(wizard, defaultName, stepCount) {
     return new Promise((resolve) => {
+        // Check if in edit mode and get existing values
+        const isEditMode = wizard.isEditMode?.() && wizard.editingActionDef;
+        const existingAction = isEditMode ? wizard.editingActionDef.action : null;
+        const existingTags = isEditMode ? (wizard.editingActionDef.tags || []) : [];
+
+        // Pre-fill values from existing action in edit mode
+        const actionName = isEditMode ? (existingAction?.name || defaultName) : defaultName;
+        const actionDescription = isEditMode ? (existingAction?.description || '') : '';
+        const stopOnError = isEditMode ? (existingAction?.stop_on_error || false) : false;
+        const tagsValue = existingTags.join(', ');
+
         const overlay = document.createElement('div');
         overlay.id = 'action-config-overlay';
         overlay.style.cssText = `
@@ -143,25 +154,31 @@ export async function promptForActionConfig(wizard, defaultName, stepCount) {
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
         `;
 
+        const headerText = isEditMode ? '✏️ Update Action' : 'Configure Action';
+        const subText = isEditMode
+            ? `Updating action with ${stepCount} step${stepCount !== 1 ? 's' : ''} (was ${wizard.preExistingStepCount || 0})`
+            : `Creating action with ${stepCount} step${stepCount !== 1 ? 's' : ''}`;
+        const submitBtnText = isEditMode ? 'Update Action' : 'Create Action';
+
         dialog.innerHTML = `
-            <h3 style="margin-top: 0;">Configure Action</h3>
-            <p style="color: #666; margin-bottom: 20px;">Creating action with ${stepCount} step${stepCount !== 1 ? 's' : ''}</p>
+            <h3 style="margin-top: 0;">${headerText}</h3>
+            <p style="color: #666; margin-bottom: 20px;">${subText}</p>
 
             <div style="margin-bottom: 16px;">
                 <label style="display: block; margin-bottom: 4px; font-weight: 600;">Action Name:</label>
-                <input type="text" id="actionName" value="${defaultName}"
+                <input type="text" id="actionName" value="${actionName}"
                        style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
             </div>
 
             <div style="margin-bottom: 16px;">
                 <label style="display: block; margin-bottom: 4px; font-weight: 600;">Description (optional):</label>
                 <textarea id="actionDescription" rows="2" placeholder="What does this action do?"
-                          style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;"></textarea>
+                          style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">${actionDescription}</textarea>
             </div>
 
             <div style="margin-bottom: 16px;">
                 <label style="display: block; margin-bottom: 4px;">
-                    <input type="checkbox" id="stopOnError">
+                    <input type="checkbox" id="stopOnError" ${stopOnError ? 'checked' : ''}>
                     Stop if any step fails
                 </label>
                 <p style="color: #666; font-size: 13px; margin: 4px 0 0 24px;">
@@ -171,7 +188,7 @@ export async function promptForActionConfig(wizard, defaultName, stepCount) {
 
             <div style="margin-bottom: 16px;">
                 <label style="display: block; margin-bottom: 4px; font-weight: 600;">Tags (optional):</label>
-                <input type="text" id="actionTags" placeholder="e.g., automation, setup, navigation"
+                <input type="text" id="actionTags" placeholder="e.g., automation, setup, navigation" value="${tagsValue}"
                        style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
                 <p style="color: #666; font-size: 13px; margin: 4px 0 0 0;">
                     Comma-separated tags for organizing actions
@@ -186,7 +203,7 @@ export async function promptForActionConfig(wizard, defaultName, stepCount) {
                     Use Defaults
                 </button>
                 <button id="createBtn" style="padding: 10px 20px; border: none; background: #ec4899; color: white; border-radius: 4px; cursor: pointer;">
-                    Create Action
+                    ${submitBtnText}
                 </button>
             </div>
         `;
@@ -246,6 +263,11 @@ export async function promptForActionConfig(wizard, defaultName, stepCount) {
  */
 export async function createAction(wizard, element, coords) {
     try {
+        // Check if we're in flow edit mode - save to flow instead of action
+        if (wizard.isFlowEditMode?.()) {
+            return await saveFlowEdits(wizard, element, coords);
+        }
+
         // FIRST: Add the tap at these coordinates to the flow
         // This ensures the click that triggered action creation is included
         if (coords && coords.x !== undefined && coords.y !== undefined) {
@@ -302,8 +324,9 @@ export async function createAction(wizard, element, coords) {
                     invalidSteps.push(`Step ${index + 1}: tap missing x/y coordinates`);
                 }
             } else if (step.step_type === 'swipe' || step.action_type === 'swipe') {
-                if (step.x1 === undefined || step.y1 === undefined ||
-                    step.x2 === undefined || step.y2 === undefined) {
+                // Backend uses start_x/start_y/end_x/end_y
+                if (step.start_x === undefined || step.start_y === undefined ||
+                    step.end_x === undefined || step.end_y === undefined) {
                     invalidSteps.push(`Step ${index + 1}: swipe missing coordinates`);
                 }
             } else if (step.step_type === 'text' || step.action_type === 'text') {
@@ -326,23 +349,73 @@ export async function createAction(wizard, element, coords) {
         // Create action via API (using correct ActionCreateRequest structure)
         // Include source_app from wizard context for device-app association
         const sourceApp = wizard.selectedApp?.package || wizard.selectedApp || null;
-        const response = await fetch(`/api/actions?device_id=${encodeURIComponent(wizard.selectedDevice)}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: {
-                    action_type: 'macro',
-                    name: config.name,
-                    description: config.description,
-                    device_id: wizard.selectedDevice,
-                    enabled: true,
-                    actions: steps,
-                    stop_on_error: config.stopOnError
-                },
-                tags: config.tags,
-                source_app: sourceApp
-            })
+
+        // Convert steps from flow format to action format
+        // Flow format uses start_x/start_y/end_x/end_y, Action format uses x1/y1/x2/y2
+        const normalizedSteps = steps.map(step => {
+            const normalized = { ...step };
+            // Convert step_type to action_type for the Actions API
+            if (step.step_type && !step.action_type) {
+                normalized.action_type = step.step_type;
+            }
+            // Convert swipe coordinates from flow format to action format
+            if (normalized.action_type === 'swipe' || normalized.step_type === 'swipe') {
+                if (step.start_x !== undefined) normalized.x1 = step.start_x;
+                if (step.start_y !== undefined) normalized.y1 = step.start_y;
+                if (step.end_x !== undefined) normalized.x2 = step.end_x;
+                if (step.end_y !== undefined) normalized.y2 = step.end_y;
+                // Clean up flow-format fields
+                delete normalized.start_x;
+                delete normalized.start_y;
+                delete normalized.end_x;
+                delete normalized.end_y;
+                delete normalized.step_type;
+            }
+            return normalized;
         });
+
+        // Check if we're in edit mode (updating an existing action)
+        const isEditMode = wizard.isEditMode?.() && wizard.editingActionId;
+        let response;
+
+        if (isEditMode) {
+            // UPDATE existing action
+            response = await fetch(`/api/actions/${encodeURIComponent(wizard.selectedDevice)}/${encodeURIComponent(wizard.editingActionId)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: {
+                        action_type: 'macro',
+                        name: config.name,
+                        description: config.description,
+                        device_id: wizard.selectedDevice,
+                        enabled: true,
+                        actions: normalizedSteps,
+                        stop_on_error: config.stopOnError
+                    },
+                    tags: config.tags
+                })
+            });
+        } else {
+            // CREATE new action
+            response = await fetch(`/api/actions?device_id=${encodeURIComponent(wizard.selectedDevice)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: {
+                        action_type: 'macro',
+                        name: config.name,
+                        description: config.description,
+                        device_id: wizard.selectedDevice,
+                        enabled: true,
+                        actions: normalizedSteps,
+                        stop_on_error: config.stopOnError
+                    },
+                    tags: config.tags,
+                    source_app: sourceApp
+                })
+            });
+        }
 
         if (!response.ok) {
             const error = await response.json();
@@ -355,13 +428,21 @@ export async function createAction(wizard, element, coords) {
                 throw new Error(errorMessages || 'Validation failed');
             }
 
-            throw new Error(error.detail || 'Failed to create action');
+            throw new Error(error.detail || `Failed to ${isEditMode ? 'update' : 'create'} action`);
         }
 
         const result = await response.json();
-        showToast(`Action "${config.name}" created successfully! (ID: ${result.action.id})`, 'success', 5000);
 
-        console.log('[FlowWizard] Created action:', result.action);
+        if (isEditMode) {
+            showToast(`Action "${config.name}" updated successfully!`, 'success', 5000);
+            console.log('[FlowWizard] Updated action:', result.action);
+
+            // Exit edit mode and optionally redirect back
+            wizard.exitEditMode?.();
+        } else {
+            showToast(`Action "${config.name}" created successfully! (ID: ${result.action.id})`, 'success', 5000);
+            console.log('[FlowWizard] Created action:', result.action);
+        }
     } catch (error) {
         console.error('[FlowWizard] Failed to create action:', error);
         showToast(`Failed to create action: ${error.message}`, 'error', 5000);
@@ -575,9 +656,10 @@ export async function promptForActionCreation(wizard, defaultName, stepCount) {
 }
 
 /**
- * Prompt user for wait/delay duration
+ * Prompt user for wait/delay duration with optional UI refresh detection
  * @param {FlowWizard} wizard - FlowWizard instance
- * @returns {Promise<number|null>} Duration in milliseconds, or null if cancelled
+ * @returns {Promise<Object|null>} Wait config object or null if cancelled
+ *   { duration: number, validateTimestamp?: boolean, refreshMaxRetries?: number, refreshRetryDelay?: number }
  */
 export async function promptForWaitDuration(wizard) {
     return new Promise((resolve) => {
@@ -586,7 +668,7 @@ export async function promptForWaitDuration(wizard) {
 
         const dialog = document.createElement('div');
         dialog.className = 'modal-content';
-        dialog.style.maxWidth = '400px';
+        dialog.style.maxWidth = '450px';
 
         dialog.innerHTML = `
             <h3>Add Wait/Delay Step</h3>
@@ -608,6 +690,39 @@ export async function promptForWaitDuration(wizard) {
                 </div>
             </div>
 
+            <div style="margin-bottom: 16px; padding: 12px; background: var(--background-color); border: 1px solid var(--border-color); border-radius: 6px;">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="enableRefreshDetection" style="width: 18px; height: 18px;" />
+                    <span style="font-weight: 600;">Wait for UI refresh</span>
+                </label>
+                <div style="margin-top: 8px; font-size: 13px; color: var(--text-secondary);">
+                    Poll for a timestamp/text element to change instead of just waiting.
+                    After enabling, tap on the timestamp element in the screenshot.
+                </div>
+            </div>
+
+            <div id="refreshOptions" style="display: none; margin-bottom: 20px; padding: 12px; background: #e8f4fd; border: 1px solid #2196F3; border-radius: 6px;">
+                <div style="display: flex; gap: 16px; margin-bottom: 12px;">
+                    <div style="flex: 1;">
+                        <label style="display: block; margin-bottom: 4px; font-size: 13px; font-weight: 600;">Max Checks:</label>
+                        <input type="number" id="refreshMaxRetries" min="1" max="10" step="1" value="3"
+                            style="width: 100%; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 14px;" />
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="display: block; margin-bottom: 4px; font-size: 13px; font-weight: 600;">Check Interval:</label>
+                        <select id="refreshRetryDelay" style="width: 100%; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 14px;">
+                            <option value="1000">1 second</option>
+                            <option value="2000" selected>2 seconds</option>
+                            <option value="3000">3 seconds</option>
+                            <option value="5000">5 seconds</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="font-size: 12px; color: #1565C0;">
+                    💡 After adding, tap the timestamp element (e.g., "Updated: 11:14 am") on the screenshot
+                </div>
+            </div>
+
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
                 <button id="btnCancelWait" class="btn btn-secondary">Cancel</button>
                 <button id="btnAddWait" class="btn btn-primary">Add Wait Step</button>
@@ -619,7 +734,15 @@ export async function promptForWaitDuration(wizard) {
 
         // Focus on duration input
         const durationInput = dialog.querySelector('#waitDuration');
+        const refreshCheckbox = dialog.querySelector('#enableRefreshDetection');
+        const refreshOptions = dialog.querySelector('#refreshOptions');
+
         setTimeout(() => durationInput?.focus(), 100);
+
+        // Toggle refresh options visibility
+        refreshCheckbox.onchange = () => {
+            refreshOptions.style.display = refreshCheckbox.checked ? 'block' : 'none';
+        };
 
         // Handle Add button
         dialog.querySelector('#btnAddWait').onclick = () => {
@@ -632,9 +755,20 @@ export async function promptForWaitDuration(wizard) {
             }
 
             const durationMs = duration * unit;
+            const enableRefresh = refreshCheckbox.checked;
+
+            const config = {
+                duration: durationMs,
+                validateTimestamp: enableRefresh
+            };
+
+            if (enableRefresh) {
+                config.refreshMaxRetries = parseInt(dialog.querySelector('#refreshMaxRetries').value) || 3;
+                config.refreshRetryDelay = parseInt(dialog.querySelector('#refreshRetryDelay').value) || 2000;
+            }
 
             document.body.removeChild(overlay);
-            resolve(durationMs);
+            resolve(config);
         };
 
         // Handle Cancel button
@@ -789,20 +923,43 @@ export async function promptForTimestampConfig(wizard, element, refreshStep) {
  * @param {FlowWizard} wizard - FlowWizard instance
  */
 export async function addWaitStep(wizard) {
-    const duration = await promptForWaitDuration(wizard);
+    const config = await promptForWaitDuration(wizard);
 
-    if (duration === null) {
+    if (config === null) {
         return; // User cancelled
     }
 
-    // Add wait step to recorder
-    wizard.recorder.addStep({
+    const duration = config.duration;
+    const durationText = duration >= 1000 ? `${(duration / 1000).toFixed(1)}s` : `${duration}ms`;
+
+    // Build the wait step
+    const waitStep = {
         step_type: 'wait',
         duration: duration,
-        description: `Wait ${duration >= 1000 ? (duration / 1000).toFixed(1) + 's' : duration + 'ms'}`
-    });
+        description: `Wait ${durationText}`
+    };
 
-    const durationText = duration >= 1000 ? `${(duration / 1000).toFixed(1)}s` : `${duration}ms`;
+    // If refresh detection is enabled, need to select timestamp element
+    if (config.validateTimestamp) {
+        waitStep.validate_timestamp = true;
+        waitStep.refresh_max_retries = config.refreshMaxRetries || 3;
+        waitStep.refresh_retry_delay = config.refreshRetryDelay || 2000;
+        waitStep.description = `Wait for UI refresh (${config.refreshMaxRetries} checks, ${durationText} timeout)`;
+
+        // Prompt user to select timestamp element
+        showToast('Tap on a timestamp element (e.g., "Updated: 11:14 am") to monitor for changes', 'info', 5000);
+
+        // Enable element selection mode
+        wizard._waitingForTimestampElement = true;
+        wizard._pendingWaitStep = waitStep;
+
+        // The actual step will be added when user taps an element
+        // See flow-wizard-step3.js handleScreenshotClick for handling
+        return;
+    }
+
+    // Add wait step to recorder (simple wait, no refresh detection)
+    wizard.recorder.addStep(waitStep);
     showToast(`Added ${durationText} wait step`, 'success', 2000);
 }
 
@@ -1047,6 +1204,200 @@ export async function showInsertActionDialog(wizard) {
     });
 }
 
+/**
+ * Save flow edits when in flow edit mode
+ * @param {FlowWizard} wizard - FlowWizard instance
+ * @param {Object} element - Element object (for final tap if any)
+ * @param {Object} coords - Coordinate object {x, y}
+ */
+async function saveFlowEdits(wizard, element, coords) {
+    try {
+        // Add final tap if coords provided
+        if (coords && coords.x !== undefined && coords.y !== undefined) {
+            let description = `Tap at (${coords.x}, ${coords.y})`;
+            if (element?.text) {
+                description = `Tap "${element.text}" at (${coords.x}, ${coords.y})`;
+            } else if (element?.content_desc) {
+                description = `Tap "${element.content_desc}" at (${coords.x}, ${coords.y})`;
+            }
+
+            const tapStep = {
+                step_type: 'tap',
+                x: coords.x,
+                y: coords.y,
+                description: description
+            };
+
+            if (element) {
+                tapStep.element = {
+                    text: element.text || null,
+                    content_desc: element.content_desc || null,
+                    resource_id: element.resource_id || null,
+                    class: element.class || null
+                };
+            }
+
+            wizard.recorder.addStep(tapStep);
+        }
+
+        // Get all steps
+        const wizardSteps = wizard.recorder.getSteps();
+
+        if (wizardSteps.length === 0) {
+            showToast('No steps to save', 'warning', 3000);
+            return;
+        }
+
+        // Convert wizard steps to flow format
+        const flowSteps = wizard._convertWizardStepsToFlowFormat(wizardSteps);
+
+        // Prompt for flow configuration
+        const config = await promptForFlowConfig(wizard, wizard.editingFlowData?.name || 'Updated Flow', flowSteps.length);
+        if (!config) return;
+
+        // Update the flow
+        const updatedFlow = {
+            ...wizard.editingFlowData,
+            name: config.name,
+            description: config.description,
+            update_interval_seconds: config.interval,
+            enabled: config.enabled,
+            steps: flowSteps
+        };
+
+        const response = await fetch(`/api/flows/${encodeURIComponent(wizard.selectedDevice)}/${encodeURIComponent(wizard.editingFlowId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updatedFlow)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to update flow');
+        }
+
+        const result = await response.json();
+        showToast(`Flow "${config.name}" updated successfully!`, 'success', 5000);
+        console.log('[FlowWizard] Updated flow:', result);
+
+        // Exit edit mode and redirect back to flows page
+        wizard.exitEditMode?.();
+        window.location.href = 'flows.html';
+
+    } catch (error) {
+        console.error('[FlowWizard] Failed to save flow edits:', error);
+        showToast(`Failed to save flow: ${error.message}`, 'error', 5000);
+    }
+}
+
+/**
+ * Prompt for flow configuration in edit mode
+ * @param {FlowWizard} wizard - FlowWizard instance
+ * @param {string} defaultName - Default flow name
+ * @param {number} stepCount - Number of steps
+ * @returns {Promise<Object|null>} Configuration or null if cancelled
+ */
+async function promptForFlowConfig(wizard, defaultName, stepCount) {
+    return new Promise((resolve) => {
+        const existingFlow = wizard.editingFlowData || {};
+
+        const overlay = document.createElement('div');
+        overlay.id = 'flow-config-overlay';
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7); display: flex; align-items: center;
+            justify-content: center; z-index: 10000;
+        `;
+
+        const dialog = document.createElement('div');
+        dialog.style.cssText = `
+            background: var(--bg-secondary, #1e293b); padding: 24px; border-radius: 8px;
+            max-width: 450px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        `;
+
+        dialog.innerHTML = `
+            <h3 style="margin-top: 0;">✏️ Update Flow</h3>
+            <p style="color: #666; margin-bottom: 20px;">Saving ${stepCount} steps to flow</p>
+
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 4px; color: var(--text-secondary);">Flow Name</label>
+                <input type="text" id="flowName" value="${existingFlow.name || defaultName}"
+                       style="width: 100%; padding: 8px; border: 1px solid #334155; border-radius: 4px; background: var(--bg-tertiary, #0f172a); color: var(--text-primary, white);">
+            </div>
+
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 4px; color: var(--text-secondary);">Description</label>
+                <textarea id="flowDescription" rows="2"
+                          style="width: 100%; padding: 8px; border: 1px solid #334155; border-radius: 4px; background: var(--bg-tertiary, #0f172a); color: var(--text-primary, white); resize: vertical;">${existingFlow.description || ''}</textarea>
+            </div>
+
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 4px; color: var(--text-secondary);">Update Interval (seconds)</label>
+                <input type="number" id="flowInterval" min="10" value="${existingFlow.update_interval_seconds || 60}"
+                       style="width: 100%; padding: 8px; border: 1px solid #334155; border-radius: 4px; background: var(--bg-tertiary, #0f172a); color: var(--text-primary, white);">
+            </div>
+
+            <div style="margin-bottom: 16px;">
+                <label style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary); cursor: pointer;">
+                    <input type="checkbox" id="flowEnabled" ${existingFlow.enabled !== false ? 'checked' : ''}>
+                    Flow Enabled
+                </label>
+            </div>
+
+            <div style="display: flex; gap: 12px; margin-top: 20px;">
+                <button id="cancelBtn" style="flex: 1; padding: 10px; background: #64748b; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+                <button id="saveBtn" style="flex: 1; padding: 10px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">Update Flow</button>
+            </div>
+        `;
+
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+
+        // Focus name input
+        setTimeout(() => dialog.querySelector('#flowName').focus(), 100);
+
+        // Handle save
+        dialog.querySelector('#saveBtn').addEventListener('click', () => {
+            const name = dialog.querySelector('#flowName').value.trim();
+            if (!name) {
+                showToast('Please enter a flow name', 'warning', 2000);
+                return;
+            }
+
+            const config = {
+                name: name,
+                description: dialog.querySelector('#flowDescription').value.trim(),
+                interval: parseInt(dialog.querySelector('#flowInterval').value) || 60,
+                enabled: dialog.querySelector('#flowEnabled').checked
+            };
+
+            document.body.removeChild(overlay);
+            resolve(config);
+        });
+
+        // Handle cancel
+        dialog.querySelector('#cancelBtn').addEventListener('click', () => {
+            document.body.removeChild(overlay);
+            resolve(null);
+        });
+
+        // Click outside to cancel
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                document.body.removeChild(overlay);
+                resolve(null);
+            }
+        });
+
+        // Enter to save
+        dialog.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+                dialog.querySelector('#saveBtn').click();
+            }
+        });
+    });
+}
+
 // Dual export pattern: ES6 export + window global
 const FlowWizardDialogs = {
     promptForText,
@@ -1055,6 +1406,8 @@ const FlowWizardDialogs = {
     handleSensorCreated,
     promptForActionConfig,
     createAction,
+    saveFlowEdits,
+    promptForFlowConfig,
     promptForSensorName,
     addActionStepFromElement,
     promptForActionCreation,

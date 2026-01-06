@@ -610,7 +610,7 @@ class MQTTManager:
             await asyncio.sleep(0.01)
 
             if success_count > 0:
-                logger.debug(f"[MQTTManager] Batch published {success_count}/{len(sensor_updates)} sensor states")
+                logger.info(f"[MQTTManager] Batch published {success_count}/{len(sensor_updates)} sensor states to MQTT")
 
             return {
                 "success": success_count,

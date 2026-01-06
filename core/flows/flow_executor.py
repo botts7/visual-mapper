@@ -15,7 +15,9 @@ import io
 from .flow_models import (
     SensorCollectionFlow,
     FlowStep,
-    FlowExecutionResult
+    FlowStepType,
+    FlowExecutionResult,
+    StepResult
 )
 from utils.element_finder import SmartElementFinder, ElementMatch
 from utils.device_security import DeviceSecurityManager, LockStrategy
@@ -771,19 +773,57 @@ class FlowExecutor:
         result: FlowExecutionResult
     ) -> bool:
         """
-        Wait/delay step with optional activity polling.
+        Wait/delay step with optional activity polling or timestamp refresh detection.
 
-        If step.screen_activity is set, polls for that activity to appear
-        instead of just sleeping for the duration.
+        Modes:
+        1. If validate_timestamp + timestamp_element: Poll for UI element text change
+        2. If screen_activity: Poll for that activity to appear
+        3. Otherwise: Simple sleep for duration
         """
         if not step.duration:
             logger.error("  wait step missing duration")
             return False
 
         duration_seconds = step.duration / 1000.0
-        expected_activity = step.screen_activity or step.expected_activity
 
-        # If we have an expected activity, poll for it instead of just sleeping
+        # Mode 1: Timestamp/UI refresh detection
+        if step.validate_timestamp and step.timestamp_element:
+            logger.info(f"  Wait with UI refresh detection (max {step.refresh_max_retries} checks)")
+
+            # Get initial element text
+            initial_text = await self._extract_timestamp_text(device_id, step.timestamp_element)
+            if initial_text:
+                logger.debug(f"  Initial element text: '{initial_text}'")
+            else:
+                logger.warning(f"  Could not find timestamp element - falling back to simple wait")
+                await asyncio.sleep(duration_seconds)
+                return True
+
+            # Poll for text change
+            max_retries = step.refresh_max_retries or 3
+            retry_delay = (step.refresh_retry_delay or 2000) / 1000.0  # Convert to seconds
+
+            for attempt in range(max_retries):
+                # Wait before checking (give app time to update)
+                await asyncio.sleep(retry_delay)
+
+                # Check if text changed
+                new_text = await self._extract_timestamp_text(device_id, step.timestamp_element)
+                logger.debug(f"  Check {attempt + 1}/{max_retries}: '{new_text}'")
+
+                if new_text and new_text != initial_text:
+                    logger.info(f"  UI updated after {attempt + 1} check(s): '{initial_text}' -> '{new_text}'")
+                    return True
+
+                if attempt < max_retries - 1:
+                    logger.debug(f"  Text unchanged, waiting for next check...")
+
+            # Max retries reached - continue anyway (soft failure)
+            logger.warning(f"  UI text unchanged after {max_retries} checks (continuing anyway)")
+            return True
+
+        # Mode 2: Activity polling
+        expected_activity = step.screen_activity or step.expected_activity
         if expected_activity:
             expected_name = expected_activity.split('/')[-1] if '/' in expected_activity else expected_activity
             logger.debug(f"  Waiting up to {duration_seconds:.1f}s for {expected_name}")
@@ -805,11 +845,11 @@ class FlowExecutor:
             # Activity not reached, log warning but don't fail
             logger.warning(f"  Activity {expected_name} not detected within {duration_seconds:.1f}s")
             return True  # Continue flow, step may have been for timing only
-        else:
-            # Simple sleep
-            logger.debug(f"  Waiting {duration_seconds:.1f}s")
-            await asyncio.sleep(duration_seconds)
-            return True
+
+        # Mode 3: Simple sleep
+        logger.debug(f"  Waiting {duration_seconds:.1f}s")
+        await asyncio.sleep(duration_seconds)
+        return True
 
     async def _execute_tap(
         self,
@@ -1388,11 +1428,15 @@ class FlowExecutor:
                     self.sensor_manager.update_sensor(sensor)
                     logger.debug(f"  Persisted {sensor.friendly_name} = {value}")
 
-            # Log session cache statistics
+            # Log capture results
             fresh_count = len(sensor_updates)
             total_sensors = len(step.sensor_ids)
+            if fresh_count > 0:
+                logger.info(f"  Sensors captured: {fresh_count}")
             if cached_count > 0:
                 logger.info(f"  Session cache: {cached_count}/{total_sensors} from cache, {fresh_count} freshly captured")
+            if fresh_count == 0 and cached_count == 0:
+                logger.warning(f"  No sensors captured (0/{total_sensors})")
 
             return True
 
@@ -1861,26 +1905,46 @@ class FlowExecutor:
         expected_act = step.expected_activity or step.screen_activity
         if expected_act:
             try:
-                current_activity = await self.adb_bridge.get_current_activity(device_id)
+                # Retry up to 3 times if activity is empty (transient null during transitions)
+                current_activity = ""
+                for retry in range(3):
+                    current_activity = await self.adb_bridge.get_current_activity(device_id)
+                    if current_activity:
+                        break
+                    if retry < 2:
+                        logger.debug(f"  [StateValidation] Activity empty, retrying ({retry + 1}/3)...")
+                        await asyncio.sleep(0.3)  # Brief delay for focus to settle
 
-                # Match can be exact or just the activity name part (after /)
-                activity_match = False
-                if current_activity == expected_act:
-                    activity_match = True
+                # If still empty after retries, skip activity validation (don't fail)
+                if not current_activity:
+                    logger.debug(f"  [StateValidation] Could not determine current activity, skipping activity check")
+                    # Don't add score - let other validation methods decide
                 else:
-                    # Try matching just the activity name (e.g., ".MainActivity" vs "com.app/.MainActivity")
-                    current_name = current_activity.split('/')[-1] if '/' in current_activity else current_activity
-                    expected_name = expected_act.split('/')[-1] if '/' in expected_act else expected_act
-                    if current_name == expected_name:
+                    # Match can be exact or just the activity name part (after /)
+                    activity_match = False
+                    if current_activity == expected_act:
                         activity_match = True
+                    else:
+                        # Try matching just the activity name (e.g., ".MainActivity" vs "com.app/.MainActivity")
+                        current_name = current_activity.split('/')[-1] if '/' in current_activity else current_activity
+                        expected_name = expected_act.split('/')[-1] if '/' in expected_act else expected_act
+                        if current_name == expected_name:
+                            activity_match = True
+                        # Also try matching full package/activity format
+                        elif '/' in expected_act and '/' in current_activity:
+                            # Compare just the activity class name
+                            curr_class = current_activity.split('/')[-1].split('.')[-1]
+                            exp_class = expected_act.split('/')[-1].split('.')[-1]
+                            if curr_class == exp_class:
+                                activity_match = True
 
-                activity_score = 1.0 if activity_match else 0.0
-                confidence_scores.append(activity_score)
+                    activity_score = 1.0 if activity_match else 0.0
+                    confidence_scores.append(activity_score)
 
-                logger.debug(f"  [StateValidation] Activity: {current_activity} vs {expected_act} (match: {activity_match})")
+                    logger.debug(f"  [StateValidation] Activity: {current_activity} vs {expected_act} (match: {activity_match})")
 
-                if activity_match:
-                    return (True, activity_score)
+                    if activity_match:
+                        return (True, activity_score)
 
             except Exception as e:
                 logger.debug(f"  [StateValidation] Activity check failed: {e}")

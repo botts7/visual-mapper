@@ -1566,6 +1566,42 @@ class ADBBridge:
         logger.debug(f"[ADBBridge] Key event {keycode} on {resolved_id}")
         await conn.shell(f"input keyevent {keycode}")
 
+    async def go_home(self, device_id: str) -> bool:
+        """
+        Navigate to the device home screen.
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            await self.keyevent(device_id, "KEYCODE_HOME")
+            logger.debug(f"[ADBBridge] Sent HOME keyevent to {device_id}")
+            return True
+        except Exception as e:
+            logger.error(f"[ADBBridge] Failed to go home on {device_id}: {e}")
+            return False
+
+    async def go_back(self, device_id: str) -> bool:
+        """
+        Press the back button on the device.
+
+        Args:
+            device_id: Device identifier
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            await self.keyevent(device_id, "KEYCODE_BACK")
+            logger.debug(f"[ADBBridge] Sent BACK keyevent to {device_id}")
+            return True
+        except Exception as e:
+            logger.error(f"[ADBBridge] Failed to go back on {device_id}: {e}")
+            return False
+
     # ========== Screen Power Control (Headless Mode) ==========
 
     async def is_screen_on(self, device_id: str) -> bool:
@@ -2138,6 +2174,35 @@ class ADBBridge:
             # Use dumpsys to get current focused window
             # Example output: "mCurrentFocus=Window{abc123 u0 com.android.launcher3/com.android.launcher3.Launcher}"
             output = await conn.shell("dumpsys activity | grep mCurrentFocus")
+
+            # Check for mCurrentFocus=null (happens during screen transitions)
+            if "mCurrentFocus=null" in output:
+                # Fallback: Try mFocusedApp which is more stable during transitions
+                logger.debug(f"[ADBBridge] mCurrentFocus=null, trying mFocusedApp fallback")
+                fallback_output = await conn.shell("dumpsys activity activities | grep mFocusedApp")
+                # Example: mFocusedApp=ActivityRecord{abc123 u0 com.package/.Activity t123}
+                fallback_match = re.search(r'ActivityRecord\{[^\}]+\s+u\d+\s+([^\s]+)', fallback_output)
+                if fallback_match:
+                    activity = fallback_match.group(1).strip()
+                    logger.debug(f"[ADBBridge] Current activity (mFocusedApp): {activity}")
+                    if as_dict:
+                        return self._parse_activity_string(activity)
+                    return activity
+
+                # Second fallback: Try dumpsys window to get the top activity
+                window_output = await conn.shell("dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp'")
+                window_match = re.search(r'([a-zA-Z0-9_.]+/[a-zA-Z0-9_.]+)', window_output)
+                if window_match:
+                    activity = window_match.group(1)
+                    logger.debug(f"[ADBBridge] Current activity (window fallback): {activity}")
+                    if as_dict:
+                        return self._parse_activity_string(activity)
+                    return activity
+
+                logger.debug(f"[ADBBridge] Activity focus in transition (null), returning empty")
+                if as_dict:
+                    return {"package": None, "activity": None, "full_name": None}
+                return ""
 
             # Extract activity name from output
             # Pattern: Window{...package/activity}

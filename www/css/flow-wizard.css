@@ -1,6 +1,8 @@
 /**
  * Flow Wizard Styles
- * Visual Mapper v0.0.5
+ * Visual Mapper v0.0.6
+ *
+ * v0.0.6: Add styles for step move up/down buttons
  */
 
 /* Wizard Container */
@@ -1184,7 +1186,112 @@ img.app-icon {
 
 .step-actions {
     display: flex;
-    gap: 5px;
+    gap: 4px;
+}
+
+.step-actions .btn-sm {
+    padding: 4px 8px;
+    font-size: 12px;
+    min-width: 28px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--card-background);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.step-actions .btn-sm:hover:not(:disabled) {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.step-actions .btn-sm:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.step-actions .btn-move-up,
+.step-actions .btn-move-down {
+    font-weight: bold;
+}
+
+.step-actions .btn-delete {
+    color: #ef4444;
+}
+
+.step-actions .btn-delete:hover:not(:disabled) {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: white;
+}
+
+/* Screen Group Headers */
+.screen-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-top: 12px;
+    margin-bottom: 4px;
+    background: var(--primary-color);
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: white;
+}
+
+.screen-group-header:first-child {
+    margin-top: 0;
+}
+
+.screen-group-header .screen-icon {
+    font-size: 14px;
+}
+
+.screen-group-header .screen-name {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* Nested Steps (indented under screen headers) */
+.flow-step-item.nested-step {
+    margin-left: 16px;
+    border-left: 3px solid var(--primary-color);
+}
+
+/* Step on wrong screen warning */
+.flow-step-item.wrong-screen {
+    border-left: 3px solid #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+}
+
+.wrong-screen-warning {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #b45309;
+    margin-top: 4px;
+    padding: 4px 8px;
+    background: rgba(245, 158, 11, 0.15);
+    border-radius: 4px;
+}
+
+.wrong-screen-warning .btn-fix {
+    padding: 2px 8px;
+    font-size: 10px;
+    background: #f59e0b;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    margin-left: auto;
+}
+
+.wrong-screen-warning .btn-fix:hover {
+    background: #d97706;
 }
 
 .test-result {

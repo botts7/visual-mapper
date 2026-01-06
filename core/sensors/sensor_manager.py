@@ -122,11 +122,32 @@ class SensorManager:
         return sensor
 
     def get_sensor(self, device_id: str, sensor_id: str) -> Optional[SensorDefinition]:
-        """Get a specific sensor"""
+        """
+        Get a specific sensor by ID
+
+        Supports both network device_id and stable_device_id for lookup.
+        First tries direct file, then searches all files for matching sensor_id.
+        """
+        # First try direct file load
         sensor_list = self._load_sensor_list(device_id)
         for sensor in sensor_list.sensors:
             if sensor.sensor_id == sensor_id:
                 return sensor
+
+        # If not found, search all sensor files (handles stable_device_id queries)
+        for sensor_file in self.data_dir.glob("sensors_*.json"):
+            try:
+                with open(sensor_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    file_sensor_list = SensorList(**data)
+                    for sensor in file_sensor_list.sensors:
+                        if sensor.sensor_id == sensor_id:
+                            # Also check device_id or stable_device_id matches
+                            if sensor.device_id == device_id or sensor.stable_device_id == device_id:
+                                return sensor
+            except Exception as e:
+                logger.error(f"[SensorManager] Failed to load {sensor_file}: {e}")
+
         return None
 
     def get_all_sensors(self, device_id: Optional[str] = None) -> List[SensorDefinition]:
@@ -155,29 +176,36 @@ class SensorManager:
                     logger.error(f"[SensorManager] Failed to load {sensor_file}: {e}")
             return all_sensors
 
+        # Collect sensors from direct file AND other files with matching stable_device_id
+        # This ensures we get all sensors regardless of whether they were created with
+        # network device_id or stable device_id
+        all_matching_sensors = []
+        seen_sensor_ids = set()
+
         # First try direct file load (for network device_id)
         sensor_list = self._load_sensor_list(device_id)
+        for sensor in sensor_list.sensors:
+            if sensor.sensor_id not in seen_sensor_ids:
+                all_matching_sensors.append(sensor)
+                seen_sensor_ids.add(sensor.sensor_id)
 
-        # If we found sensors in the direct file, return them
-        if sensor_list.sensors:
-            return sensor_list.sensors
-
-        # Otherwise, search all sensor files for sensors matching stable_device_id
-        # This handles queries with stable device ID (e.g., from Android app)
-        matching_sensors = []
+        # Also search all sensor files for sensors matching device_id or stable_device_id
+        # This handles queries with stable device ID and finds sensors in other files
         for sensor_file in self.data_dir.glob("sensors_*.json"):
             try:
                 with open(sensor_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     file_sensor_list = SensorList(**data)
-                    # Check each sensor's stable_device_id
+                    # Check each sensor's device_id and stable_device_id
                     for sensor in file_sensor_list.sensors:
-                        if sensor.stable_device_id == device_id:
-                            matching_sensors.append(sensor)
+                        if sensor.sensor_id not in seen_sensor_ids:
+                            if sensor.device_id == device_id or sensor.stable_device_id == device_id:
+                                all_matching_sensors.append(sensor)
+                                seen_sensor_ids.add(sensor.sensor_id)
             except Exception as e:
                 logger.error(f"[SensorManager] Failed to load {sensor_file}: {e}")
 
-        return matching_sensors
+        return all_matching_sensors
 
     def update_sensor(self, sensor: SensorDefinition) -> SensorDefinition:
         """
@@ -217,29 +245,61 @@ class SensorManager:
         """
         Delete a sensor
 
+        Supports both network device_id and stable_device_id for lookup.
+        First tries direct file, then searches all files for matching sensor_id.
+
         Args:
-            device_id: Device ID
+            device_id: Device ID (network or stable)
             sensor_id: Sensor ID
 
         Returns:
             True if deleted, False if not found
         """
+        # First try direct file load
         sensor_list = self._load_sensor_list(device_id)
 
         # Find and remove sensor
         original_count = len(sensor_list.sensors)
         sensor_list.sensors = [s for s in sensor_list.sensors if s.sensor_id != sensor_id]
 
-        if len(sensor_list.sensors) == original_count:
-            logger.warning(f"[SensorManager] Sensor {sensor_id} not found for deletion")
-            return False
+        if len(sensor_list.sensors) < original_count:
+            # Found and removed - save
+            if not self._save_sensor_list(sensor_list):
+                raise RuntimeError(f"Failed to delete sensor {sensor_id}")
+            logger.info(f"[SensorManager] Deleted sensor {sensor_id}")
+            return True
 
-        # Save
-        if not self._save_sensor_list(sensor_list):
-            raise RuntimeError(f"Failed to delete sensor {sensor_id}")
+        # If not found in direct file, search all sensor files
+        for sensor_file in self.data_dir.glob("sensors_*.json"):
+            try:
+                with open(sensor_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    file_sensor_list = SensorList(**data)
 
-        logger.info(f"[SensorManager] Deleted sensor {sensor_id}")
-        return True
+                # Check if sensor exists in this file with matching device/stable ID
+                matching_sensor = None
+                for sensor in file_sensor_list.sensors:
+                    if sensor.sensor_id == sensor_id:
+                        if sensor.device_id == device_id or sensor.stable_device_id == device_id:
+                            matching_sensor = sensor
+                            break
+
+                if matching_sensor:
+                    # Remove and save
+                    original_count = len(file_sensor_list.sensors)
+                    file_sensor_list.sensors = [s for s in file_sensor_list.sensors if s.sensor_id != sensor_id]
+
+                    if len(file_sensor_list.sensors) < original_count:
+                        if not self._save_sensor_list(file_sensor_list):
+                            raise RuntimeError(f"Failed to delete sensor {sensor_id}")
+                        logger.info(f"[SensorManager] Deleted sensor {sensor_id} from {sensor_file.name}")
+                        return True
+
+            except Exception as e:
+                logger.error(f"[SensorManager] Failed to process {sensor_file}: {e}")
+
+        logger.warning(f"[SensorManager] Sensor {sensor_id} not found for deletion")
+        return False
 
     def delete_all_sensors(self, device_id: str) -> int:
         """

@@ -267,6 +267,97 @@ async def delete_sensor(device_id: str, sensor_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/sensors/{device_id}/cleanup/orphaned")
+async def cleanup_orphaned_sensors(device_id: str, confirm: bool = False):
+    """
+    Delete all orphaned sensors (sensors not used in any flow)
+
+    CAUTION: This is a destructive operation. Use preview=true first to see what would be deleted.
+    Pass confirm=true to actually delete.
+    """
+    if not confirm:
+        # Preview mode - just show what would be deleted
+        deps = get_deps()
+        all_sensors = deps.sensor_manager.get_all_sensors(device_id)
+        all_flows = deps.flow_manager.get_all_flows() if deps.flow_manager else []
+        flows = [f for f in all_flows if f.device_id == device_id or f.stable_device_id == device_id]
+        used_sensor_ids = set()
+        for flow in flows:
+            for step in flow.steps:
+                if step.step_type == 'capture_sensors' and step.sensor_ids:
+                    used_sensor_ids.update(step.sensor_ids)
+        orphaned = [s for s in all_sensors if s.sensor_id not in used_sensor_ids]
+        return {
+            "preview": True,
+            "would_delete": len(orphaned),
+            "would_keep": len(all_sensors) - len(orphaned),
+            "orphaned_ids": [s.sensor_id for s in orphaned[:20]],
+            "message": f"Would delete {len(orphaned)} orphaned sensors. Add ?confirm=true to actually delete."
+        }
+    deps = get_deps()
+    try:
+        logger.info(f"[API] Cleaning up orphaned sensors for device {device_id}")
+
+        # Get all sensors for this device
+        all_sensors = deps.sensor_manager.get_all_sensors(device_id)
+        if not all_sensors:
+            return {"deleted": 0, "message": "No sensors found"}
+
+        # Get all flows to find used sensor IDs
+        all_flows = deps.flow_manager.get_all_flows() if deps.flow_manager else []
+        # Filter to flows for this device (by device_id or stable_device_id)
+        flows = [f for f in all_flows if f.device_id == device_id or f.stable_device_id == device_id]
+        used_sensor_ids = set()
+
+        for flow in flows:
+            for step in flow.steps:
+                if step.step_type == 'capture_sensors' and step.sensor_ids:
+                    used_sensor_ids.update(step.sensor_ids)
+
+        logger.info(f"[API] Found {len(all_sensors)} total sensors, {len(flows)} flows, {len(used_sensor_ids)} sensor IDs used in flows")
+
+        # Find orphaned sensors
+        orphaned = [s for s in all_sensors if s.sensor_id not in used_sensor_ids]
+        logger.info(f"[API] Found {len(orphaned)} orphaned sensors to delete")
+
+        # Log some examples
+        if orphaned:
+            logger.info(f"[API] Example orphaned: {[s.sensor_id for s in orphaned[:5]]}")
+
+        # Delete orphaned sensors
+        deleted_count = 0
+        failed = []
+        for sensor in orphaned:
+            try:
+                # Remove from MQTT/Home Assistant first
+                if deps.mqtt_manager and deps.mqtt_manager.is_connected:
+                    try:
+                        await deps.mqtt_manager.remove_discovery(sensor)
+                    except Exception as e:
+                        logger.warning(f"[API] MQTT removal failed for {sensor.sensor_id}: {e}")
+
+                # Delete from storage - use the sensor's actual device_id
+                success = deps.sensor_manager.delete_sensor(sensor.device_id, sensor.sensor_id)
+                if success:
+                    deleted_count += 1
+                else:
+                    failed.append(sensor.sensor_id)
+            except Exception as e:
+                logger.error(f"[API] Failed to delete {sensor.sensor_id}: {e}")
+                failed.append(sensor.sensor_id)
+
+        return {
+            "deleted": deleted_count,
+            "failed": len(failed),
+            "failed_ids": failed[:10],  # Return first 10 failed IDs
+            "message": f"Deleted {deleted_count} orphaned sensors" + (f", {len(failed)} failed" if failed else "")
+        }
+
+    except Exception as e:
+        logger.error(f"[API] Cleanup orphaned sensors failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # =============================================================================
 # TEXT EXTRACTION TESTING
 # =============================================================================

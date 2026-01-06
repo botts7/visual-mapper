@@ -1,6 +1,12 @@
 /**
  * Flow Wizard Module
- * Visual Mapper v0.0.22
+ * Visual Mapper v0.0.27
+ *
+ * v0.0.27: Preserve screen_activity/screen_package in step conversions, add wait refresh support
+ * v0.0.26: Fix _convertWizardStepsToFlowFormat - use step.step_type || step.type, handle all step types
+ * v0.0.25: Fix step format - include step_type in converted flow steps for executor compatibility
+ * v0.0.24: Sync flowSteps when navigating between steps to preserve changes
+ * v0.0.23: Fix edit mode not showing step 3 - add missing updateUI() call
  *
  * Interactive wizard for creating flows with recording mode
  * Refactored: Steps 1,2,4,5 use separate modules
@@ -12,10 +18,10 @@
  */
 
 import { showToast } from './toast.js?v=0.0.5';
-import FlowRecorder from './flow-recorder.js?v=0.0.9';
+import FlowRecorder from './flow-recorder.js?v=0.0.12';
 import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.11';
 import FlowInteractions from './flow-interactions.js?v=0.0.15';
-import FlowStepManager from './flow-step-manager.js?v=0.0.5';
+import FlowStepManager from './flow-step-manager.js?v=0.0.7';
 import LiveStream from './live-stream.js?v=0.0.34';
 import ElementTree from './element-tree.js?v=0.0.5';
 import APIClient from './api-client.js?v=0.0.4';
@@ -24,12 +30,12 @@ import SensorCreator from './sensor-creator.js?v=0.0.10';
 // Step modules
 import * as Step1 from './flow-wizard-step1.js?v=0.0.6';
 import * as Step2 from './flow-wizard-step2.js?v=0.0.5';
-import * as Step3 from './flow-wizard-step3.js?v=0.0.34';
+import * as Step3 from './flow-wizard-step3.js?v=0.0.36';
 import * as Step4 from './flow-wizard-step4.js?v=0.0.14';
 import * as Step5 from './flow-wizard-step5.js?v=0.0.6';
 
 // Dialog module
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.8';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.9';
 
 // Element actions module
 import * as ElementActions from './flow-wizard-element-actions.js?v=0.0.6';
@@ -107,8 +113,394 @@ class FlowWizard {
             Dialogs.handleSensorCreated(this, response, sensorData);
         };
 
+        // Edit mode properties
+        this.editMode = false;
+        this.editingActionId = null;
+        this.editingActionDef = null;
+        this.preExistingStepCount = 0;
+
         console.log('FlowWizard initialized');
         this.init();
+    }
+
+    /**
+     * Open wizard in edit mode with pre-loaded action steps
+     * @param {Object} actionDef - Full action definition object
+     * @param {string} deviceId - Device ID the action belongs to
+     */
+    async openInEditMode(actionDef, deviceId) {
+        console.log('[FlowWizard] Opening in edit mode for action:', actionDef.id);
+
+        this.editMode = true;
+        this.editingActionId = actionDef.id;
+        this.editingActionDef = actionDef;
+
+        const action = actionDef.action;
+
+        // Set device and app context
+        this.selectedDevice = deviceId;
+        this.selectedApp = actionDef.source_app || action.package_name || null;
+
+        // Skip to step 3 (recording step) directly
+        this.currentStep = 3;
+
+        // Create recorder with existing steps
+        if (this.recorder) {
+            this.recorder.stop?.();
+        }
+
+        const FlowRecorder = (await import('./flow-recorder.js?v=0.0.12')).default;
+        this.recorder = new FlowRecorder(deviceId, this.selectedApp, this.recordMode);
+
+        // Load existing steps (convert from action format to flow format)
+        if (action.action_type === 'macro' && Array.isArray(action.actions)) {
+            // Don't skip launch step - user might want to see full sequence
+            this.recorder.loadSteps(action.actions, false);
+            this.preExistingStepCount = action.actions.length;
+        }
+
+        // Update UI to show we're in edit mode
+        this._showEditModeUI();
+
+        // Navigate to wizard page with edit params
+        const wizardUrl = `flow-wizard.html?edit=true&device=${encodeURIComponent(deviceId)}&action=${encodeURIComponent(actionDef.id)}`;
+        window.location.href = wizardUrl;
+    }
+
+    /**
+     * Resume edit mode from URL params (called on page load)
+     * Handles both action editing (edit=true&action=X) and flow editing (editFlow=true&flow=X)
+     */
+    async resumeEditMode() {
+        const params = new URLSearchParams(window.location.search);
+
+        // Check for flow editing first
+        if (params.get('editFlow') === 'true') {
+            return await this._resumeFlowEditMode(params);
+        }
+
+        // Then check for action editing
+        if (params.get('edit') !== 'true') return false;
+
+        const deviceId = params.get('device');
+        const actionId = params.get('action');
+
+        if (!deviceId || !actionId) {
+            console.warn('[FlowWizard] Edit mode missing device or action ID');
+            return false;
+        }
+
+        try {
+            // Fetch action data
+            const response = await fetch(`${getApiBase()}/actions/${deviceId}/${actionId}`);
+            if (!response.ok) throw new Error('Failed to fetch action');
+
+            const data = await response.json();
+            if (!data.success || !data.action) throw new Error('Invalid action data');
+
+            const actionDef = data.action;
+            const action = actionDef.action;
+
+            this.editMode = true;
+            this.editingActionId = actionId;
+            this.editingActionDef = actionDef;
+            this.selectedDevice = deviceId;
+            this.selectedApp = actionDef.source_app || action.package_name || null;
+
+            // Load steps into recorder when it's ready
+            this._pendingEditSteps = action.action_type === 'macro' ? action.actions : [];
+            this.preExistingStepCount = this._pendingEditSteps.length;
+
+            console.log(`[FlowWizard] Resumed edit mode: ${actionId} with ${this.preExistingStepCount} steps`);
+            return true;
+        } catch (error) {
+            console.error('[FlowWizard] Failed to resume edit mode:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Resume flow edit mode from URL params
+     * @private
+     */
+    async _resumeFlowEditMode(params) {
+        const deviceId = params.get('device');
+        const flowId = params.get('flow');
+
+        if (!deviceId || !flowId) {
+            console.warn('[FlowWizard] Flow edit mode missing device or flow ID');
+            return false;
+        }
+
+        try {
+            // Fetch flow data
+            const response = await fetch(`${getApiBase()}/flows/${deviceId}/${flowId}`);
+            if (!response.ok) throw new Error('Failed to fetch flow');
+
+            const flow = await response.json();
+
+            this.editMode = true;
+            this.editingFlowMode = true;  // Flag to distinguish from action editing
+            this.editingFlowId = flowId;
+            this.editingFlowData = flow;
+            this.stableDeviceId = deviceId;  // Store stable ID separately
+
+            // Resolve connection ID from stable ID by fetching ADB devices
+            let connectionId = deviceId;  // Fallback to stable ID
+            try {
+                const devicesResponse = await fetch(`${getApiBase()}/adb/devices`);
+                if (devicesResponse.ok) {
+                    const devicesData = await devicesResponse.json();
+                    const devices = devicesData.devices || [];
+                    // Find device by matching stable ID in the id or by model
+                    const matchingDevice = devices.find(d =>
+                        d.id === deviceId ||
+                        d.serial === deviceId ||
+                        d.id.includes(deviceId)
+                    );
+                    if (matchingDevice) {
+                        connectionId = matchingDevice.id;
+                        console.log(`[FlowWizard] Resolved stable ID ${deviceId} to connection ID ${connectionId}`);
+                    }
+                }
+            } catch (e) {
+                console.warn('[FlowWizard] Could not resolve connection ID:', e);
+            }
+
+            this.selectedDevice = connectionId;
+
+            // Extract app from first launch_app step or from step screen_package
+            const launchStep = (flow.steps || []).find(s => s.step_type === 'launch_app');
+            const anyStep = (flow.steps || []).find(s => s.screen_package);
+            this.selectedApp = launchStep?.package || anyStep?.screen_package || null;
+
+            // Convert flow steps to wizard step format
+            this._pendingEditSteps = this._convertFlowStepsToWizardFormat(flow.steps || []);
+            this.preExistingStepCount = this._pendingEditSteps.length;
+
+            console.log(`[FlowWizard] Resumed FLOW edit mode: ${flowId} with ${this.preExistingStepCount} steps`);
+            return true;
+        } catch (error) {
+            console.error('[FlowWizard] Failed to resume flow edit mode:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Convert flow steps to wizard step format
+     * Flow steps have different property names than wizard steps
+     * IMPORTANT: Keep step_type for compatibility with flow executor
+     * @private
+     */
+    _convertFlowStepsToWizardFormat(flowSteps) {
+        return flowSteps.map(step => {
+            const wizardStep = {
+                step_type: step.step_type,  // Keep step_type for flow executor compatibility
+                type: step.step_type,       // Also set type for wizard UI
+                description: step.description || '',
+                // Preserve screen context
+                screen_activity: step.screen_activity || null,
+                screen_package: step.screen_package || null,
+                _preExisting: true,  // Mark as existing step
+                _flowStep: step      // Keep original for reference
+            };
+
+            switch (step.step_type) {
+                case 'tap':
+                    wizardStep.x = step.x;
+                    wizardStep.y = step.y;
+                    wizardStep.element_id = step.element_resource_id;
+                    wizardStep.element = step.element;
+                    break;
+                case 'swipe':
+                    wizardStep.x1 = step.start_x;
+                    wizardStep.y1 = step.start_y;
+                    wizardStep.x2 = step.end_x;
+                    wizardStep.y2 = step.end_y;
+                    wizardStep.start_x = step.start_x;
+                    wizardStep.start_y = step.start_y;
+                    wizardStep.end_x = step.end_x;
+                    wizardStep.end_y = step.end_y;
+                    wizardStep.duration = step.duration || 500;
+                    break;
+                case 'launch_app':
+                    wizardStep.package = step.package;
+                    wizardStep.expected_activity = step.expected_activity;
+                    break;
+                case 'wait':
+                    wizardStep.duration = step.duration;
+                    wizardStep.validate_timestamp = step.validate_timestamp;
+                    wizardStep.timestamp_element = step.timestamp_element;
+                    wizardStep.refresh_max_retries = step.refresh_max_retries;
+                    wizardStep.refresh_retry_delay = step.refresh_retry_delay;
+                    break;
+                case 'type_text':
+                case 'text':
+                    wizardStep.text = step.text;
+                    break;
+                case 'capture_sensors':
+                    wizardStep.sensor_ids = step.sensor_ids || [];
+                    wizardStep.sensor_name = step.sensor_name;
+                    wizardStep.sensor_type = step.sensor_type;
+                    wizardStep.element = step.element;
+                    break;
+                case 'keypress':
+                case 'keyevent':
+                    wizardStep.keycode = step.keycode;
+                    break;
+            }
+
+            return wizardStep;
+        });
+    }
+
+    /**
+     * Convert wizard steps back to flow step format for saving
+     * @private
+     */
+    _convertWizardStepsToFlowFormat(wizardSteps) {
+        return wizardSteps.map(step => {
+            // If this was a pre-existing step with original data, use it as base
+            const baseStep = step._flowStep || {};
+
+            // Get step type - new recorder steps use step_type, converted ones have type
+            const stepType = step.step_type || step.type;
+
+            const flowStep = {
+                ...baseStep,
+                step_type: stepType,
+                description: step.description || `${stepType} step`,
+                // Preserve screen context (from wizard step or base)
+                screen_activity: step.screen_activity || baseStep.screen_activity || null,
+                screen_package: step.screen_package || baseStep.screen_package || null
+            };
+
+            switch (stepType) {
+                case 'tap':
+                    flowStep.x = step.x;
+                    flowStep.y = step.y;
+                    if (step.element_id) flowStep.element_resource_id = step.element_id;
+                    if (step.element) flowStep.element = step.element;
+                    break;
+                case 'swipe':
+                    flowStep.start_x = step.x1 || step.start_x;
+                    flowStep.start_y = step.y1 || step.start_y;
+                    flowStep.end_x = step.x2 || step.end_x;
+                    flowStep.end_y = step.y2 || step.end_y;
+                    flowStep.duration = step.duration || 500;
+                    break;
+                case 'launch_app':
+                    flowStep.package = step.package;
+                    if (step.expected_activity) flowStep.expected_activity = step.expected_activity;
+                    break;
+                case 'wait':
+                    flowStep.duration = step.duration;
+                    // Legacy refresh_attempts support
+                    if (step.refresh_attempts) {
+                        flowStep.refresh_attempts = step.refresh_attempts;
+                        flowStep.refresh_delay = step.refresh_delay;
+                    }
+                    // New validate_timestamp support
+                    if (step.validate_timestamp) {
+                        flowStep.validate_timestamp = step.validate_timestamp;
+                        flowStep.timestamp_element = step.timestamp_element;
+                        flowStep.refresh_max_retries = step.refresh_max_retries || 3;
+                        flowStep.refresh_retry_delay = step.refresh_retry_delay || 2000;
+                    }
+                    break;
+                case 'pull_refresh':
+                    // Pull refresh is its own step type - preserve it
+                    if (step.validate_timestamp) {
+                        flowStep.validate_timestamp = step.validate_timestamp;
+                        flowStep.timestamp_element = step.timestamp_element;
+                        flowStep.refresh_max_retries = step.refresh_max_retries;
+                        flowStep.refresh_retry_delay = step.refresh_retry_delay;
+                    }
+                    break;
+                case 'type_text':
+                case 'text':
+                    flowStep.step_type = 'text';
+                    flowStep.text = step.text;
+                    break;
+                case 'capture_sensors':
+                    flowStep.sensor_ids = step.sensor_ids || [];
+                    // Preserve sensor details for execution
+                    if (step.sensor_name) flowStep.sensor_name = step.sensor_name;
+                    if (step.sensor_type) flowStep.sensor_type = step.sensor_type;
+                    if (step.element) flowStep.element = step.element;
+                    if (step.extraction) flowStep.extraction = step.extraction;
+                    break;
+                case 'keypress':
+                case 'keyevent':
+                    flowStep.step_type = 'keyevent';
+                    flowStep.keycode = step.keycode;
+                    break;
+                case 'go_back':
+                case 'go_home':
+                    // Navigation steps - keep as is
+                    break;
+            }
+
+            // Remove internal wizard properties
+            delete flowStep._preExisting;
+            delete flowStep._flowStep;
+            delete flowStep.type;  // Remove wizard-only property
+
+            return flowStep;
+        });
+    }
+
+    /**
+     * Check if editing a flow (vs an action)
+     */
+    isFlowEditMode() {
+        return this.editMode && this.editingFlowMode === true;
+    }
+
+    /**
+     * Show edit mode UI indicators
+     * @private
+     */
+    _showEditModeUI() {
+        // Add edit mode banner when DOM is ready
+        setTimeout(() => {
+            const header = document.querySelector('.wizard-header h1, .page-title');
+            if (header && this.editMode) {
+                if (this.isFlowEditMode()) {
+                    header.innerHTML = `✏️ Editing Flow: ${this.editingFlowData?.name || 'Unknown'}`;
+                } else {
+                    header.innerHTML = `✏️ Editing Action: ${this.editingActionDef?.action?.name || 'Unknown'}`;
+                }
+            }
+
+            // Show pre-existing step count
+            const stepsPanel = document.getElementById('stepsPanel');
+            if (stepsPanel && this.preExistingStepCount > 0) {
+                const badge = document.createElement('div');
+                badge.className = 'edit-mode-badge';
+                const editType = this.isFlowEditMode() ? 'flow' : 'action';
+                badge.innerHTML = `<span style="background: #f59e0b; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">📝 ${this.preExistingStepCount} existing ${editType} steps loaded</span>`;
+                stepsPanel.insertBefore(badge, stepsPanel.firstChild);
+            }
+        }, 500);
+    }
+
+    /**
+     * Check if in edit mode
+     */
+    isEditMode() {
+        return this.editMode === true;
+    }
+
+    /**
+     * Exit edit mode and reset state
+     */
+    exitEditMode() {
+        this.editMode = false;
+        this.editingActionId = null;
+        this.editingActionDef = null;
+        this.preExistingStepCount = 0;
+        this._pendingEditSteps = null;
     }
 
     init() {
@@ -120,11 +512,25 @@ class FlowWizard {
         }
     }
 
-    setup() {
+    async setup() {
         this.setupNavigation();
         this.setupCleanup();
         this.pauseSchedulerForEditing();
-        Step1.loadStep(this); // Load first step immediately
+
+        // Check if resuming edit mode from URL
+        const isEditMode = await this.resumeEditMode();
+
+        if (isEditMode) {
+            // Skip device/app selection, go directly to step 3
+            console.log('[FlowWizard] Edit mode - skipping to step 3');
+            this.currentStep = 3;
+            this.updateUI();  // CRITICAL: Update DOM to show step 3 content, hide step 1
+            Step3.loadStep3(this);
+            this._showEditModeUI();
+        } else {
+            Step1.loadStep(this); // Load first step for new flow
+        }
+
         console.log('FlowWizard setup complete');
     }
 
@@ -306,6 +712,12 @@ class FlowWizard {
             return;
         }
 
+        // Sync flowSteps when leaving step 3
+        if (this.currentStep === 3 && this.recorder) {
+            this.flowSteps = [...this.recorder.getSteps()];
+            console.log(`[FlowWizard] Synced ${this.flowSteps.length} steps before leaving step 3`);
+        }
+
         if (this.currentStep < this.totalSteps) {
             this.currentStep++;
             this.updateUI();
@@ -317,6 +729,12 @@ class FlowWizard {
     }
 
     previousStep() {
+        // Sync flowSteps when leaving step 4 (going back to 3)
+        if (this.currentStep === 4 && this.recorder) {
+            this.flowSteps = [...this.recorder.getSteps()];
+            console.log(`[FlowWizard] Synced ${this.flowSteps.length} steps before going back to step 3`);
+        }
+
         if (this.currentStep > 1) {
             this.currentStep--;
             this.updateUI();

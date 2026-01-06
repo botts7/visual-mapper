@@ -64,7 +64,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def atomic_write_json(path: str, data: dict, indent: int = 2) -> None:
+def atomic_write_json(path, data: dict, indent: int = 2) -> None:
     """
     Atomically write JSON data to file using temp file + os.replace pattern.
 
