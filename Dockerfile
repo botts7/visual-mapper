@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 # Set version
-ENV VERSION=0.0.42
+ENV VERSION=0.0.43
 
 # Set working directory
 WORKDIR /app

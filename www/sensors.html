@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.0.42" data-build="2026-01-01">
+    <meta name="version" content="0.0.43" data-build="2026-01-01">
     <title>Sensors - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.42">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.43">
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.42"></script>
+    <script type="module" src="js/init.js?v=0.0.43"></script>
 
     <div class="container">
         <div class="card">
@@ -589,7 +589,8 @@
             }
 
             try {
-                await apiClient.delete(`/sensors/${deviceId}/${sensorId}`);
+                // URL encode device_id (contains : which can cause issues)
+                await apiClient.delete(`/sensors/${encodeURIComponent(deviceId)}/${encodeURIComponent(sensorId)}`);
                 console.log(`[Sensors] Deleted sensor ${sensorId}`);
                 await loadSensors();
             } catch (error) {
@@ -601,8 +602,8 @@
         // Toggle sensor enabled/disabled
         window.toggleSensor = async function(deviceId, sensorId, enable) {
             try {
-                // Get current sensor
-                const response = await apiClient.get(`/sensors/${deviceId}/${sensorId}`);
+                // Get current sensor (URL encode to handle : in device_id)
+                const response = await apiClient.get(`/sensors/${encodeURIComponent(deviceId)}/${encodeURIComponent(sensorId)}`);
                 const sensor = response.sensor;
 
                 // Update enabled flag
@@ -621,8 +622,8 @@
         // Test sensor extraction - Call backend API to verify extraction still works
         window.testSensor = async function(deviceId, sensorId) {
             try {
-                // Get sensor details
-                const response = await apiClient.get(`/sensors/${deviceId}/${sensorId}`);
+                // Get sensor details (URL encode to handle : in device_id)
+                const response = await apiClient.get(`/sensors/${encodeURIComponent(deviceId)}/${encodeURIComponent(sensorId)}`);
                 const sensor = response.sensor;
 
                 // Test extraction with current element text
@@ -645,8 +646,8 @@
         // Edit sensor - Open sensor creator in edit mode
         window.editSensor = async function(deviceId, sensorId) {
             try {
-                // Get sensor details
-                const response = await apiClient.get(`/sensors/${deviceId}/${sensorId}`);
+                // Get sensor details (URL encode to handle : in device_id)
+                const response = await apiClient.get(`/sensors/${encodeURIComponent(deviceId)}/${encodeURIComponent(sensorId)}`);
                 const sensor = response.sensor;
 
                 // Open sensor creator in edit mode

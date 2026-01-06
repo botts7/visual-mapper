@@ -161,7 +161,7 @@ logging.getLogger().addHandler(ws_log_handler)
 # Create FastAPI app
 app = FastAPI(
     title="Visual Mapper API",
-    version="0.0.42",
+    version="0.0.43",
     description="Android Device Monitoring & Automation for Home Assistant"
 )
 
@@ -618,6 +618,14 @@ async def startup_event():
                     await connection_monitor.add_device(device_id, stable_device_id)
                 except Exception as e:
                     logger.warning(f"[Server] Failed to add device {device_id} to connection monitor: {e}")
+
+                # Publish device availability (so HA sensors show as "available")
+                try:
+                    stable_device_id = await adb_bridge.get_device_serial(device_id)
+                    await mqtt_manager.publish_availability(device_id, online=True, stable_device_id=stable_device_id)
+                    logger.info(f"[Server] Published availability for {device_id}: online")
+                except Exception as e:
+                    logger.warning(f"[Server] Failed to publish availability for {device_id}: {e}")
 
             except Exception as e:
                 logger.error(f"[Server] Failed to publish discoveries for {device_id}: {e}")

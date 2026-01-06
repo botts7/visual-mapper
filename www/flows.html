@@ -3,17 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.0.42" data-build="2026-01-03">
+    <meta name="version" content="0.0.43" data-build="2026-01-03">
     <title>Flow Management - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.42">
-    <link rel="stylesheet" href="css/flows.css?v=0.0.42">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.43">
+    <link rel="stylesheet" href="css/flows.css?v=0.0.43">
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.42"></script>
+    <script type="module" src="js/init.js?v=0.0.43"></script>
 
     <div class="flow-container">
         <div class="flow-header">
@@ -179,7 +179,10 @@
                         <div class="steps-editor" id="stepsEditor">
                             <!-- Steps will be rendered here -->
                         </div>
-                        <div class="add-step-buttons">
+                        <div class="add-step-buttons" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                            <button type="button" class="btn btn-primary btn-sm" onclick="openFlowInWizard()" style="background: #8b5cf6;">
+                                🪄 Edit in Wizard
+                            </button>
                             <button type="button" class="btn btn-secondary btn-sm" onclick="showInsertSensorDialog()">
                                 + Add Sensor
                             </button>
@@ -597,7 +600,7 @@
         </div>
     </div>
 
-    <script src="js/init.js?v=0.0.42"></script>
+    <script src="js/init.js?v=0.0.43"></script>
     <script type="module">
         import FlowManager from './js/modules/flow-manager.js?v=0.0.6.1';
 
@@ -1971,6 +1974,26 @@
             editingFlow.flow.steps.push(newStep);
             renderFlowSteps();
         }
+
+        /**
+         * Open current flow in the Visual Wizard for visual editing
+         */
+        function openFlowInWizard() {
+            if (!editingFlow) {
+                showToast('No flow selected', 'error');
+                return;
+            }
+
+            const { deviceId, flowId } = editingFlow;
+
+            // Close the edit modal
+            closeEditModal();
+
+            // Navigate to wizard with flow edit params
+            const wizardUrl = `flow-wizard.html?editFlow=true&device=${encodeURIComponent(deviceId)}&flow=${encodeURIComponent(flowId)}`;
+            window.location.href = wizardUrl;
+        }
+        window.openFlowInWizard = openFlowInWizard;
 
         async function showInsertSensorDialog() {
             if (!editingFlow) return;
