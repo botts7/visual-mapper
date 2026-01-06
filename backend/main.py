@@ -53,17 +53,17 @@ from core.flows import (
     FlowScheduler,
     FlowExecutionHistory
 )
-from performance_monitor import PerformanceMonitor
-from screenshot_stitcher import ScreenshotStitcher
-from app_icon_extractor import AppIconExtractor
-from playstore_icon_scraper import PlayStoreIconScraper
-from device_icon_scraper import DeviceIconScraper
-from icon_background_fetcher import IconBackgroundFetcher
-from app_name_background_fetcher import AppNameBackgroundFetcher
-from stream_manager import StreamManager, get_stream_manager
+from core.performance_monitor import PerformanceMonitor
+from core.screenshot_stitcher import ScreenshotStitcher
+from ml_components.app_icon_extractor import AppIconExtractor
+from ml_components.playstore_icon_scraper import PlayStoreIconScraper
+from ml_components.device_icon_scraper import DeviceIconScraper
+from ml_components.icon_background_fetcher import IconBackgroundFetcher
+from ml_components.app_name_background_fetcher import AppNameBackgroundFetcher
+from core.stream_manager import StreamManager, get_stream_manager
 from core.adb.adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
-from navigation_manager import NavigationManager
-from navigation_mqtt_handler import NavigationMqttHandler
+from core.navigation_manager import NavigationManager
+from core.navigation_mqtt_handler import NavigationMqttHandler
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
@@ -251,7 +251,7 @@ connection_monitor: Optional['ConnectionMonitor'] = None
 # Data Directory Configuration (HA Add-on Compatibility)
 # Standalone: ./data (relative to CWD)
 # HA Add-on: /data (persistent storage in Docker)
-DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
+DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 
 # Ensure data directory exists on startup
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -1015,7 +1015,7 @@ class NoCacheStaticFiles(StaticFiles):
 
 
 # Mount static files LAST (catch-all route)
-app.mount("/", NoCacheStaticFiles(directory="www", html=True), name="www")
+app.mount("/", NoCacheStaticFiles(directory="../frontend/www", html=True), name="www")
 
 if __name__ == "__main__":
     # Default to port 8080 (better firewall compatibility), can be overridden by environment variable

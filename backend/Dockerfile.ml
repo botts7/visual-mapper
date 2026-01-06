@@ -18,9 +18,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements-ml.txt .
 RUN pip install --no-cache-dir -r requirements-ml.txt
 
-# Copy ML training server
-COPY ml_training_server.py .
-COPY model_exporter.py .
+# Copy ML training server and related files
+COPY ml_components/ml_training_server.py .
+COPY ml_components/model_exporter.py .
 
 # Create data directory
 RUN mkdir -p /app/data
