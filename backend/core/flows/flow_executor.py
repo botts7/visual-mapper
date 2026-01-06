@@ -22,8 +22,8 @@ from .flow_models import (
 from utils.element_finder import SmartElementFinder, ElementMatch
 from utils.device_security import DeviceSecurityManager, LockStrategy
 from .flow_execution_history import FlowExecutionHistory, FlowExecutionLog, FlowStepLog
-from navigation_manager import NavigationManager
-from navigation_models import compute_screen_id, extract_ui_landmarks
+from core.navigation_manager import NavigationManager
+from ml_components.navigation_models import compute_screen_id, extract_ui_landmarks
 
 logger = logging.getLogger(__name__)
 

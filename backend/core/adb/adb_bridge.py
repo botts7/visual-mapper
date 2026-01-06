@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 
 from .adb_manager import ADBManager
 from .base_connection import BaseADBConnection
-from playstore_icon_scraper import PlayStoreIconScraper
+from ml_components.playstore_icon_scraper import PlayStoreIconScraper
 from .adb_helpers import PersistentADBShell
 from services.device_identity import get_device_identity_resolver
 

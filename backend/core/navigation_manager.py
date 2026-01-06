@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 import heapq
 
-from navigation_models import (
+from ml_components.navigation_models import (
     NavigationGraph,
     ScreenNode,
     ScreenTransition,

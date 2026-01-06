@@ -8,7 +8,7 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from navigation_models import (
+from ml_components.navigation_models import (
     NavigationGraph,
     ScreenNode,
     ScreenTransition,

@@ -1015,7 +1015,7 @@ class NoCacheStaticFiles(StaticFiles):
 
 
 # Mount static files LAST (catch-all route)
-app.mount("/", NoCacheStaticFiles(directory="../frontend/www", html=True), name="www")
+app.mount("/", NoCacheStaticFiles(directory="/app/frontend/www", html=True), name="www")
 
 if __name__ == "__main__":
     # Default to port 8080 (better firewall compatibility), can be overridden by environment variable

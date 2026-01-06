@@ -9,8 +9,8 @@ import json
 import logging
 from typing import Callable, Optional, Dict, Any
 
-from navigation_models import LearnTransitionRequest, TransitionAction
-from navigation_manager import NavigationManager
+from ml_components.navigation_models import LearnTransitionRequest, TransitionAction
+from core.navigation_manager import NavigationManager
 
 logger = logging.getLogger(__name__)
 
