@@ -1,6 +1,9 @@
 /**
  * Visual Mapper - Sensor Creator Module
- * Version: 0.0.10 (Phase 4 - MQTT + Dynamic Hierarchical Dropdowns)
+ * Version: 0.0.13 (Phase 4 - MQTT + Dynamic Hierarchical Dropdowns)
+ * v0.0.13: Added targetApp to sensor data for app association
+ * v0.0.12: Added pre-fill options support (name, device_class, unit, icon) for suggestions integration
+ * v0.0.11: Added screenActivity to source data for better deduplication
  * v0.0.10: Fixed dialog initial display state
  *
  * Handles sensor creation dialog and configuration.
@@ -90,6 +93,12 @@ class SensorCreator {
      * @param {number} elementIndex - Element index in hierarchy
      * @param {Object} options - Optional settings
      * @param {string} options.stableDeviceId - Stable device ID for data storage
+     * @param {string} options.screenActivity - Current screen activity
+     * @param {string} options.targetApp - Target app package name
+     * @param {string} options.name - Pre-fill sensor name
+     * @param {string} options.device_class - Pre-fill device class
+     * @param {string} options.unit - Pre-fill unit of measurement
+     * @param {string} options.icon - Pre-fill icon
      */
     show(deviceId, element, elementIndex, options = {}) {
         this.editMode = false;
@@ -98,6 +107,8 @@ class SensorCreator {
         this.currentDeviceStableId = options.stableDeviceId || deviceId;
         this.currentElement = element;
         this.currentElementIndex = elementIndex;
+        this.screenActivity = options.screenActivity || null;
+        this.targetApp = options.targetApp || null;
 
         // Create dialog if it doesn't exist
         if (!this.dialog) {
@@ -107,7 +118,29 @@ class SensorCreator {
         // Populate form with element data
         this._populateForm(element, elementIndex);
 
-        // Populate datalists based on default device class selection
+        // Apply pre-fill options from suggestions (override defaults)
+        if (options.name) {
+            const nameInput = document.getElementById('sensorName');
+            if (nameInput) nameInput.value = options.name;
+        }
+        if (options.device_class && options.device_class !== 'none') {
+            const deviceClassSelect = document.getElementById('deviceClass');
+            if (deviceClassSelect) {
+                deviceClassSelect.value = options.device_class;
+                // Trigger change to update units and state class
+                this._onDeviceClassChange();
+            }
+        }
+        if (options.unit) {
+            const unitInput = document.getElementById('unitOfMeasurement');
+            if (unitInput) unitInput.value = options.unit;
+        }
+        if (options.icon) {
+            const iconInput = document.getElementById('sensorIcon');
+            if (iconInput) iconInput.value = options.icon;
+        }
+
+        // Populate datalists based on device class selection
         this._onDeviceClassChange();
 
         // Update dialog title
@@ -117,7 +150,7 @@ class SensorCreator {
         // Show dialog
         this.dialog.style.display = 'block';
 
-        console.log('[SensorCreator] Dialog shown for element:', element);
+        console.log('[SensorCreator] Dialog shown for element:', element, 'options:', options);
     }
 
     /**
@@ -877,12 +910,15 @@ class SensorCreator {
                 return val === 'none' || val === '' ? null : val;
             })(),
             icon: document.getElementById('sensorIcon').value,
+            target_app: this.targetApp || null,
             source: {
                 source_type: "element",
                 element_index: this.currentElementIndex,
                 element_text: this.currentElement.text || null,
                 element_class: this.currentElement.class || null,
-                element_resource_id: this.currentElement.resource_id || null
+                element_resource_id: this.currentElement.resource_id || null,
+                screen_activity: this.screenActivity || null,
+                custom_bounds: this.currentElement.bounds || null
             },
             extraction_rule: this._buildExtractionRule(),
             update_interval_seconds: parseInt(document.getElementById('updateInterval').value),
@@ -920,10 +956,20 @@ class SensorCreator {
                     // else: User chose to create anyway, continue below
                 }
 
-                // Create new sensor
+                // Create new sensor (backend may auto-reuse if ≥90% match found)
                 response = await this.apiClient.post('/sensors', sensorData);
-                console.log('[SensorCreator] Sensor created:', response);
-                alert(`Sensor "${sensorData.friendly_name}" created successfully!`);
+                console.log('[SensorCreator] Sensor response:', response);
+
+                // Handle auto-reuse response from backend
+                if (response.reused) {
+                    // Backend auto-reused an existing sensor
+                    const reusedName = response.sensor?.friendly_name || 'existing sensor';
+                    console.log(`[SensorCreator] Auto-reused existing sensor: ${reusedName}`);
+                    alert(`Using existing sensor: ${reusedName}\n\n(A matching sensor already exists)`);
+                } else {
+                    // New sensor was created
+                    alert(`Sensor "${sensorData.friendly_name}" created successfully!`);
+                }
             }
 
             // Hide dialog

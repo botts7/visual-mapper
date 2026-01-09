@@ -1133,6 +1133,150 @@ img.app-icon {
     font-weight: 500;
 }
 
+/* ==========================================
+   Step 3 Setup Overlay (Full-screen progress)
+   ========================================== */
+.setup-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 1;
+    transition: opacity 0.4s ease;
+}
+
+.setup-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.setup-overlay-content {
+    text-align: center;
+    color: white;
+    max-width: 320px;
+    padding: 20px;
+}
+
+.setup-app-icon {
+    margin-bottom: 16px;
+}
+
+.setup-app-icon img {
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    object-fit: contain;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.setup-app-icon img[src=""],
+.setup-app-icon img:not([src]) {
+    display: none;
+}
+
+.setup-overlay-content h3 {
+    margin: 0 0 24px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.setup-steps {
+    text-align: left;
+    margin: 0 0 20px 0;
+}
+
+.setup-step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    margin: 6px 0;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    opacity: 0.4;
+    transition: all 0.3s ease;
+}
+
+.setup-step.active {
+    opacity: 1;
+    background: rgba(59, 130, 246, 0.15);
+    border-left: 3px solid #3b82f6;
+}
+
+.setup-step.done {
+    opacity: 0.7;
+    background: rgba(34, 197, 94, 0.1);
+}
+
+.setup-step.done .step-icon {
+    background: #22c55e;
+}
+
+.setup-step.error {
+    opacity: 1;
+    background: rgba(239, 68, 68, 0.15);
+    border-left: 3px solid #ef4444;
+}
+
+.setup-step.error .step-icon {
+    background: #ef4444;
+}
+
+.setup-step .step-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #3b82f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+    transition: background 0.3s ease;
+}
+
+.setup-step .step-text {
+    flex: 1;
+    font-size: 13px;
+    color: #cbd5e1;
+}
+
+.setup-step.active .step-text {
+    color: #e2e8f0;
+    font-weight: 500;
+}
+
+.setup-step .step-status {
+    font-size: 14px;
+    min-width: 20px;
+    text-align: center;
+}
+
+.setup-step.active .step-status {
+    animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.setup-hint {
+    font-size: 12px;
+    color: #64748b;
+    margin: 16px 0 0 0;
+}
+
 /* Zoom controls */
 .zoom-controls {
     display: inline-flex;

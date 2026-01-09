@@ -1,4 +1,5 @@
-/* Visual Mapper - Flow Management Styles v0.0.6 */
+/* Visual Mapper - Flow Management Styles v0.0.7 */
+/* v0.0.7: Added schedule badges for manual vs scheduled flows */
 /* Extracted from inline styles for modularity */
 
 /* ==========================================
@@ -349,6 +350,26 @@ body.dark-mode {
             background: #10b981;
             color: white;
             animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        /* Schedule Badges */
+        .schedule-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .schedule-badge.manual {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .schedule-badge.scheduled {
+            background: #3b82f6;
+            color: white;
         }
 
         .btn-icon.delete {
@@ -855,6 +876,38 @@ body.dark-mode {
             align-items: center;
         }
 
+        .auto-refresh-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            padding: 4px 10px;
+            border-radius: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+
+        .auto-refresh-toggle:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .auto-refresh-toggle input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            cursor: pointer;
+            accent-color: #22c55e;
+        }
+
+        .auto-refresh-toggle .toggle-label {
+            color: #888;
+            font-weight: 500;
+        }
+
+        .auto-refresh-toggle input:checked + .toggle-label {
+            color: #22c55e;
+        }
+
         .scheduler-status-badge {
             display: inline-flex;
             align-items: center;
@@ -975,6 +1028,15 @@ body.dark-mode {
 
         .btn-resume:hover {
             background: #16a34a;
+        }
+
+        .btn-clear-queue {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-clear-queue:hover {
+            background: #dc2626;
         }
 
         /* Execution Status Indicators */

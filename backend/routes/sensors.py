@@ -91,11 +91,26 @@ async def get_all_sensors():
 
 
 @router.post("/sensors")
-async def create_sensor(sensor: SensorDefinition):
-    """Create a new sensor"""
+async def create_sensor(sensor: SensorDefinition, auto_reuse: bool = True):
+    """
+    Create a new sensor or reuse an existing matching sensor.
+
+    Args:
+        sensor: Sensor definition to create
+        auto_reuse: If True (default), automatically reuse existing sensor if a high-confidence
+                   match is found (≥90% similarity). Set to False to always create new.
+
+    Returns:
+        {
+            "success": True,
+            "reused": bool,  # True if existing sensor was reused
+            "sensor": {...},
+            "message": str   # Description of what happened
+        }
+    """
     deps = get_deps()
     try:
-        logger.info(f"[API] Creating sensor for device {sensor.device_id}")
+        logger.info(f"[API] Creating sensor for device {sensor.device_id} (auto_reuse={auto_reuse})")
 
         # Get stable device ID if not already set (survives IP/port changes)
         if not sensor.stable_device_id:
@@ -105,8 +120,32 @@ async def create_sensor(sensor: SensorDefinition):
                 logger.info(f"[API] Set stable_device_id for sensor: {stable_id}")
             except Exception as e:
                 logger.warning(f"[API] Could not get stable device ID: {e}")
-                # Continue without stable_device_id - will use device_id as fallback
 
+        # AUTO-REUSE: Check for existing matching sensor
+        if auto_reuse:
+            try:
+                from routes.deduplication import get_dedup_service
+                dedup_service = get_dedup_service()
+
+                # Convert sensor to dict for comparison
+                sensor_data = sensor.model_dump(mode='json')
+                device_id = sensor.stable_device_id or sensor.device_id
+
+                # Find matching sensor with ≥55% similarity (resource_id=35% + extraction=20% = 55%)
+                match = dedup_service.find_matching_sensor(device_id, sensor_data, threshold=0.55)
+
+                if match:
+                    logger.info(f"[API] Auto-reusing existing sensor: {match.sensor_id} ({match.friendly_name})")
+                    return {
+                        "success": True,
+                        "reused": True,
+                        "sensor": match.model_dump(mode='json'),
+                        "message": f"Reused existing sensor: {match.friendly_name}"
+                    }
+            except Exception as e:
+                logger.warning(f"[API] Auto-reuse check failed, creating new sensor: {e}")
+
+        # No match found or auto_reuse disabled - create new sensor
         created_sensor = deps.sensor_manager.create_sensor(sensor)
 
         # Publish MQTT discovery for the new sensor
@@ -134,7 +173,9 @@ async def create_sensor(sensor: SensorDefinition):
 
         return {
             "success": True,
-            "sensor": created_sensor.model_dump(mode='json')
+            "reused": False,
+            "sensor": created_sensor.model_dump(mode='json'),
+            "message": f"Created new sensor: {created_sensor.friendly_name}"
         }
     except ValueError as e:
         logger.error(f"[API] Sensor creation failed: {e}")

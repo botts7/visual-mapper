@@ -1,7 +1,21 @@
 /**
  * Flow Wizard Step 3 Module - Recording Mode
- * Visual Mapper v0.0.55
+ * Visual Mapper v0.0.62
  *
+ * v0.0.62: Fix sensor creation from suggestions - create actual sensors via API instead of inline definitions
+ *          - handleQuickAddSuggestion now creates sensor via API and uses sensor_ids
+ *          - showSuggestionEditDialog save handler now creates sensor via API
+ *          - addSelectedSuggestions batch operation now creates sensors via API
+ *          - handleBulkSensorAddition now creates sensors via API
+ * v0.0.61: Fix screen mismatch detection for app launch transitions
+ * v0.0.60: Added screen_activity and bounds to sensor source data for better deduplication
+ * v0.0.59: Reduce log spam - only call setDeviceDimensions when changed, throttle guard messages
+ * v0.0.58: Simplified setup overlay - trust recorder.start() 3s wait, no complex validation
+ * v0.0.57: (reverted) Complex app validation polling - overcomplicated
+ * v0.0.56: Enhanced setup overlay - full-screen progress indicator during device prep
+ *          - Shows step-by-step progress (register, wake, unlock, launch, wait, stream)
+ *          - Covers black canvas during setup to prevent seeing random screens
+ *          - Validates correct app is showing before revealing stream
  * v0.0.37: Fix screen mismatch detection - ignore mismatch if last step was navigation (tap/swipe)
  * v0.0.36: Fix tap/swipe recording - capture screen context BEFORE executing action to ensure correct step metadata
  * v0.0.35: Don't re-launch app in edit mode - use isEditMode() check
@@ -47,7 +61,7 @@ import { showToast } from './toast.js?v=0.0.5';
 import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.11';
 import FlowInteractions from './flow-interactions.js?v=0.0.15';
 import FlowStepManager from './flow-step-manager.js?v=0.0.9';
-import FlowRecorder from './flow-recorder.js?v=0.0.12';
+import FlowRecorder from './flow-recorder.js?v=0.0.13';
 import LiveStream from './live-stream.js?v=0.0.32';
 import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.10';
 import {
@@ -97,13 +111,132 @@ function setSetupStatusReady(wizard, message = 'Ready to record') {
     }, 1500);
 }
 
+// =============================================================================
+// Setup Overlay Controls (Full-screen progress during device preparation)
+// =============================================================================
+
+/**
+ * Show the setup overlay with app info
+ * @param {Object} wizard - Flow wizard instance
+ */
+function showSetupOverlay(wizard) {
+    const overlay = document.getElementById('step3SetupOverlay');
+    if (!overlay) return;
+
+    // Reset all step states
+    document.querySelectorAll('.setup-step').forEach(step => {
+        step.classList.remove('active', 'done', 'error');
+        const statusEl = step.querySelector('.step-status');
+        if (statusEl) statusEl.textContent = '';
+    });
+
+    // Set app icon and name
+    const iconEl = document.getElementById('setupAppIcon');
+    const nameEl = document.getElementById('setupAppName');
+
+    if (iconEl) {
+        const icon = wizard.selectedApp?.icon;
+        if (icon) {
+            iconEl.src = icon;
+            iconEl.style.display = '';
+        } else {
+            iconEl.style.display = 'none';
+        }
+    }
+
+    if (nameEl) {
+        const appName = wizard.selectedApp?.name || wizard.selectedApp?.package || wizard.selectedApp || 'App';
+        nameEl.textContent = `Preparing ${appName}`;
+    }
+
+    overlay.classList.remove('hidden');
+    wizard._setupOverlayVisible = true;
+}
+
+/**
+ * Update a setup step's status
+ * @param {string} stepName - Step identifier (register, wake, unlock, launch, wait, stream)
+ * @param {string} status - Status: 'active', 'done', 'error', or 'pending'
+ */
+function updateSetupStep(stepName, status) {
+    const step = document.querySelector(`.setup-step[data-step="${stepName}"]`);
+    if (!step) return;
+
+    step.classList.remove('active', 'done', 'error');
+    const statusEl = step.querySelector('.step-status');
+
+    switch (status) {
+        case 'active':
+            step.classList.add('active');
+            if (statusEl) statusEl.textContent = '...';
+            break;
+        case 'done':
+            step.classList.add('done');
+            if (statusEl) statusEl.textContent = '\u2713'; // checkmark
+            break;
+        case 'error':
+            step.classList.add('error');
+            if (statusEl) statusEl.textContent = '\u2717'; // X mark
+            break;
+        default:
+            // pending - no class, empty status
+            if (statusEl) statusEl.textContent = '';
+    }
+}
+
+/**
+ * Hide the setup overlay with fade animation
+ * @param {Object} wizard - Flow wizard instance (optional, for state tracking)
+ */
+function hideSetupOverlay(wizard) {
+    const overlay = document.getElementById('step3SetupOverlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+    }
+    if (wizard) {
+        wizard._setupOverlayVisible = false;
+    }
+}
+
+/**
+ * Validate that the correct app is showing on screen
+ * @param {Object} wizard - Flow wizard instance
+ * @returns {Promise<boolean>} - True if correct app is showing
+ */
+async function validateCurrentApp(wizard) {
+    if (!wizard.selectedDevice || !wizard.selectedApp) {
+        return true; // Assume OK if no app selected
+    }
+
+    try {
+        const apiBase = getApiBase();
+        const response = await fetch(`${apiBase}/adb/screen/current/${encodeURIComponent(wizard.selectedDevice)}`);
+        if (!response.ok) return true; // Assume OK if API fails
+
+        const data = await response.json();
+        const currentPackage = data.activity?.package;
+        const expectedPackage = wizard.selectedApp?.package || wizard.selectedApp;
+
+        console.log(`[SetupOverlay] App validation: current=${currentPackage}, expected=${expectedPackage}`);
+        return currentPackage === expectedPackage;
+    } catch (e) {
+        console.warn('[SetupOverlay] App validation failed:', e);
+        return true; // Assume OK if can't validate
+    }
+}
+
 /**
  * Load Step 3: Recording Mode
  */
 export async function loadStep3(wizard) {
     console.log('Loading Step 3: Recording Mode');
+
+    // Show setup overlay immediately (covers black canvas)
+    showSetupOverlay(wizard);
+
     showToast(`Starting recording session...`, 'info');
     setSetupStatus(wizard, 'Registering session...');
+    updateSetupStep('register', 'active');
 
     // CRITICAL: Mark wizard as active FIRST before anything else
     // This tells server to not lock this device and cancels any queued flows
@@ -112,34 +245,23 @@ export async function loadStep3(wizard) {
         await wizard.setWizardActive(wizard.selectedDevice);
         console.log('[FlowWizard] Wizard active registered, server notified');
     }
+    updateSetupStep('register', 'done');
 
-    // THEN start keep-awake to prevent device screen from sleeping
+    // Wake and unlock combined - skip separate keep-awake (streaming onConnect will handle it)
+    updateSetupStep('wake', 'done');
+    updateSetupStep('unlock', 'active');
     if (wizard.selectedDevice) {
-        setSetupStatus(wizard, 'Keeping device awake...');
-        await startKeepAwake(wizard);
-    }
-
-    // CRITICAL: Unlock device BEFORE anything else (app launch, UI setup, streaming)
-    // This was causing race conditions - recorder.start() was launching app before unlock finished
-    if (wizard.selectedDevice) {
-        showToast('Preparing device...', 'info', 3000);
         console.log('[FlowWizard] Unlocking device before setup...');
         setSetupStatus(wizard, 'Unlocking device...');
         const apiBase = getApiBase();
         const unlockResult = await sharedEnsureUnlocked(wizard.selectedDevice, apiBase, {
             onStatus: (msg) => {
                 console.log(`[FlowWizard] ${msg}`);
-                // Show key status updates to user
-                if (msg.includes('Waking') || msg.includes('Unlocking')) {
-                    showToast(msg, 'info', 2000);
-                }
             }
         });
         console.log('[FlowWizard] Device unlock complete, continuing setup');
-        if (unlockResult?.status === 'unlocked' || unlockResult?.status === 'debounced') {
-            showToast('Device ready! Launching app...', 'success', 2000);
-        }
     }
+    updateSetupStep('unlock', 'done')
 
     // Populate app info header
     populateAppInfo(wizard);
@@ -186,6 +308,8 @@ export async function loadStep3(wizard) {
     if (!wizard.recorder || !isReturning) {
         // Initialize FlowRecorder (pass package name, not full object)
         wizard.recorder = new FlowRecorder(wizard.selectedDevice, packageName, wizard.recordMode);
+        // Use wizard's fresh start preference (default true = always restart app fresh)
+        wizard.recorder.forceRestart = wizard.freshStart !== false;
     }
 
     // Restore existing steps to recorder and UI if returning from later step
@@ -231,32 +355,55 @@ export async function loadStep3(wizard) {
 
     if (shouldStartFresh) {
         console.log('[FlowWizard] Starting fresh recording session');
-        setSetupStatus(wizard, 'Starting capture...');
+
+        // Launch app step
+        updateSetupStep('launch', 'active');
+        setSetupStatus(wizard, 'Launching app...');
         const started = await wizard.recorder.start();
+        updateSetupStep('launch', 'done');
 
         if (started) {
-            // Only load initial screenshot in polling mode
-            // Streaming mode will handle display via LiveStream callbacks
+            // App launched and recorder.start() already waited 3s
+            // Mark wait as done
+            updateSetupStep('wait', 'done');
+            updateSetupStep('stream', 'done');
+
+            // Hide overlay - app should be ready now
+            hideSetupOverlay(wizard);
+            setSetupStatusReady(wizard);
+
+            // Load screenshot display (polling mode) or streaming will start via UI
             if (wizard.captureMode !== 'streaming') {
                 await wizard.updateScreenshotDisplay();
-                // Auto-fetch full screenshot with elements after initial quick preview
-                // This runs in background while user sees the quick preview
                 refreshElements(wizard).then(() => {
                     wizard.updateScreenshotDisplay();
                 }).catch(e => console.warn('[FlowWizard] Auto-refresh failed:', e));
-                setSetupStatusReady(wizard);
             }
+        } else {
+            updateSetupStep('launch', 'error');
+            hideSetupOverlay(wizard);
         }
     } else {
         // When returning or editing, just refresh the screenshot without re-launching
         console.log('[FlowWizard] Edit/Return mode - refreshing screenshot without re-launching app');
+        // Mark all previous steps done for returning users
+        updateSetupStep('register', 'done');
+        updateSetupStep('wake', 'done');
+        updateSetupStep('unlock', 'done');
+        updateSetupStep('launch', 'done');
+        updateSetupStep('wait', 'active');
         setSetupStatus(wizard, 'Restoring session...');
         try {
             await wizard.recorder.captureScreenshot();
             await wizard.updateScreenshotDisplay();
+            updateSetupStep('wait', 'done');
+            updateSetupStep('stream', 'done');
+            hideSetupOverlay(wizard);
             setSetupStatusReady(wizard, 'Session ready');
         } catch (e) {
             console.warn('[FlowWizard] Failed to refresh screenshot:', e);
+            updateSetupStep('wait', 'error');
+            hideSetupOverlay(wizard);
             setSetupStatus(wizard, 'Failed to refresh screen', 'error');
         }
     }
@@ -1569,12 +1716,11 @@ export async function startStreaming(wizard) {
     console.log('[FlowWizard] Created new LiveStream for canvas:', wizard.canvas);
 
     // Handle each frame - hide loading overlay and apply zoom (once per stream)
-    // FIX: Call applyZoom() on first frame when canvas dimensions are correct
     wizard.liveStream.onFrame = (data) => {
-        // Only process these once per stream session
+        // Only process once per stream session
         if (!wizard._streamLoadingHidden) {
-            wizard.hideLoadingOverlay();
             wizard._streamLoadingHidden = true;
+            wizard.hideLoadingOverlay();
 
             // Clear any loading timeout since we got a frame
             if (wizard._streamLoadingTimeout) {
@@ -1583,7 +1729,6 @@ export async function startStreaming(wizard) {
             }
 
             // CRITICAL: Apply zoom after browser has finished layout
-            // Use double requestAnimationFrame to ensure canvas dimensions are fully updated
             if (wizard.canvasRenderer) {
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
@@ -1591,6 +1736,7 @@ export async function startStreaming(wizard) {
                     });
                 });
             }
+
             setSetupStatusReady(wizard);
         }
     };
@@ -1752,18 +1898,34 @@ export function reconnectStream(wizard) {
 }
 
 /**
- * Start periodic element auto-refresh (for streaming mode)
+ * Start element auto-refresh (for streaming mode)
+ * Uses SMART refresh: detects screen changes and refreshes automatically
+ * Falls back to interval-based refresh when screens are static
  */
 export function startElementAutoRefresh(wizard) {
     // Clear any existing interval
     stopElementAutoRefresh(wizard);
 
-    // Get configurable interval from dropdown (default 3000ms)
+    // Get configurable interval from dropdown (default 5000ms when smart refresh is enabled)
     const intervalSelect = document.getElementById('elementRefreshInterval');
-    const intervalMs = intervalSelect ? parseInt(intervalSelect.value) : 3000;
+    const intervalMs = intervalSelect ? parseInt(intervalSelect.value) : 5000;
 
     // Track last frame time for debouncing
     wizard._lastFrameTime = performance.now();
+
+    // SMART REFRESH: Hook into LiveStream's screen change detection
+    // This fires when the screen changes and then stabilizes (3 stable frames)
+    if (wizard.liveStream) {
+        console.log('[FlowWizard] Setting up smart refresh callback');
+        wizard.liveStream.onScreenChange = () => {
+            if (wizard.captureMode === 'streaming' && wizard.liveStream?.connectionState === 'connected') {
+                console.log('[FlowWizard] Smart refresh triggered');
+                refreshElements(wizard);
+            }
+        };
+    } else {
+        console.warn('[FlowWizard] No liveStream - smart refresh not available');
+    }
 
     // Wrap original onFrame to track frame times
     const originalOnFrame = wizard.liveStream?.onFrame;
@@ -1774,23 +1936,21 @@ export function startElementAutoRefresh(wizard) {
         };
     }
 
-    // Start refresh with configured interval
+    // FALLBACK: Interval-based refresh for static screens
+    // Runs less frequently since smart refresh handles screen changes
     wizard.elementRefreshIntervalTimer = setInterval(() => {
         if (wizard.captureMode === 'streaming' && wizard.liveStream?.connectionState === 'connected') {
-            // OPTIMIZATION: Skip refresh if a frame arrived within last 200ms
-            // This prevents refresh from competing with active streaming
-            // Debounce: skip if a frame arrived recently (within 200ms)
+            // Skip if a frame arrived recently (streaming active)
             const timeSinceFrame = performance.now() - (wizard._lastFrameTime || 0);
             if (timeSinceFrame < 200) {
                 return; // Skip silently - frame just arrived, elements are fresh
             }
-
-            // Only log when actually refreshing (reduces log noise)
+            // Fallback refresh for static screens (no smart refresh triggered recently)
             refreshElements(wizard);
         }
     }, intervalMs);
 
-    console.log(`[FlowWizard] Element auto-refresh started (${intervalMs / 1000}s interval, debounced)`);
+    console.log(`[FlowWizard] Smart element refresh enabled (fallback: ${intervalMs / 1000}s interval)`);
 }
 
 /**
@@ -1800,8 +1960,12 @@ export function stopElementAutoRefresh(wizard) {
     if (wizard.elementRefreshIntervalTimer) {
         clearInterval(wizard.elementRefreshIntervalTimer);
         wizard.elementRefreshIntervalTimer = null;
-        console.log('[FlowWizard] Element auto-refresh stopped');
     }
+    // Clear smart refresh callback
+    if (wizard.liveStream) {
+        wizard.liveStream.onScreenChange = null;
+    }
+    console.log('[FlowWizard] Element auto-refresh stopped');
 }
 
 /**
@@ -1858,18 +2022,23 @@ export async function refreshElements(wizard) {
 
     // Guard against concurrent refreshElements calls (prevents race conditions)
     if (wizard._refreshingElements) {
-        console.log('[FlowWizard] refreshElements already in progress, skipping');
+        // Throttle log message to once every 10s to reduce noise
+        const now = Date.now();
+        if (!wizard._lastSkipLog || now - wizard._lastSkipLog > 10000) {
+            console.log('[FlowWizard] refreshElements in progress, skipping (this message throttled)');
+            wizard._lastSkipLog = now;
+        }
         return;
     }
     wizard._refreshingElements = true;
 
-    // Safety net: auto-reset guard after 10 seconds in case of hung API call
+    // Safety net: auto-reset guard after 15 seconds in case of hung API call
     const guardTimeout = setTimeout(() => {
         if (wizard._refreshingElements) {
-            console.warn('[FlowWizard] refreshElements guard timeout after 10s - resetting');
+            console.warn('[FlowWizard] refreshElements guard timeout - resetting');
             wizard._refreshingElements = false;
         }
-    }, 10000);
+    }, 15000);
 
     try {
         let elements = [];
@@ -1919,18 +2088,24 @@ export async function refreshElements(wizard) {
                 );
             }
 
-            // Update device dimensions for proper overlay scaling
+            // Update device dimensions for proper overlay scaling (only if changed)
             if (data.device_width && data.device_height && wizard.liveStream) {
                 const oldWidth = wizard.liveStream.deviceWidth;
                 const oldHeight = wizard.liveStream.deviceHeight;
-                wizard.liveStream.setDeviceDimensions(data.device_width, data.device_height);
-
+                // Only call setDeviceDimensions if dimensions actually changed
+                // This prevents spam from resetScreenChangeTracking() every refresh
                 if (oldWidth !== data.device_width || oldHeight !== data.device_height) {
+                    wizard.liveStream.setDeviceDimensions(data.device_width, data.device_height);
                     console.log(`[FlowWizard] Device dimensions updated: ${oldWidth}x${oldHeight} → ${data.device_width}x${data.device_height}`);
                 }
             }
 
-            console.log(`[FlowWizard] Fast elements refresh: ${elements.length} elements (pkg: ${currentPackage || 'unknown'})`);
+            // Only log when element count changes significantly (reduces log noise)
+            const lastCount = wizard._lastElementCount || 0;
+            if (Math.abs(elements.length - lastCount) > 5) {
+                console.log(`[FlowWizard] Elements updated: ${lastCount} → ${elements.length} (pkg: ${currentPackage || 'unknown'})`);
+            }
+            wizard._lastElementCount = elements.length;
         } else {
             // Polling mode: full screenshot with elements
             const response = await fetch(`${getApiBase()}/adb/screenshot`, {
@@ -3165,7 +3340,7 @@ function renderSuggestionsContent(wizard) {
 }
 
 /**
- * Handle Edit button click - opens edit dialog for the suggestion
+ * Handle Edit button click - opens full SensorCreator for sensors, simple dialog for actions
  */
 function handleEditSuggestion(wizard, index) {
     const suggestions = wizard._suggestionsMode === 'sensors'
@@ -3175,8 +3350,35 @@ function handleEditSuggestion(wizard, index) {
     const suggestion = suggestions[index];
     if (!suggestion) return;
 
-    // Show edit dialog
-    showSuggestionEditDialog(wizard, suggestion, index);
+    if (wizard._suggestionsMode === 'sensors') {
+        // Open full SensorCreator with pre-filled data from suggestion
+        const element = suggestion.element || {
+            text: suggestion.current_value || suggestion.name,
+            bounds: suggestion.bounds,
+            resource_id: suggestion.resource_id,
+            class: suggestion.element_class,
+            index: suggestion.element_index || 0
+        };
+
+        const screenActivity = wizard.recorder?.currentScreenActivity || wizard.currentActivity || null;
+
+        // Show full sensor creator with suggestion data pre-filled
+        wizard.sensorCreator.show(wizard.selectedDevice, element, element.index || 0, {
+            stableDeviceId: wizard.selectedDeviceStableId || wizard.selectedDevice,
+            screenActivity: screenActivity,
+            targetApp: wizard.selectedApp?.package || null,
+            // Pre-fill with suggestion data
+            name: suggestion.name || suggestion.suggested_name,
+            device_class: suggestion.device_class || 'none',
+            unit: suggestion.unit_of_measurement || '',
+            icon: suggestion.icon || 'mdi:eye'
+        });
+
+        console.log('[Suggestions] Opened full SensorCreator for:', suggestion.name);
+    } else {
+        // For actions, use the simple edit dialog
+        showSuggestionEditDialog(wizard, suggestion, index);
+    }
 }
 
 /**
@@ -3191,25 +3393,65 @@ async function handleQuickAddSuggestion(wizard, index) {
     if (!suggestion) return;
 
     if (wizard._suggestionsMode === 'sensors') {
-        // Add sensor to flow with defaults
-        const sensorStep = {
-            step_type: 'capture_sensors',
-            sensors: [{
-                name: suggestion.name || suggestion.suggested_name || 'Sensor',
-                entity_id: suggestion.entity_id || `sensor.${(suggestion.name || 'unnamed').toLowerCase().replace(/\s+/g, '_')}`,
-                element: suggestion.element,
-                device_class: suggestion.device_class || 'none',
-                unit_of_measurement: suggestion.unit_of_measurement || null,
-                icon: suggestion.icon || 'mdi:eye'
-            }],
-            wait_before: 0,
-            wait_after: 0
-        };
+        // Create actual sensor via API first, then add capture step
+        const sensorName = suggestion.name || suggestion.suggested_name || 'Sensor';
 
-        // Check for screen mismatch and offer navigation step
-        const added = await addSensorWithNavigationCheck(wizard, sensorStep);
-        if (added) {
-            showToast(`Added sensor: ${suggestion.name || 'Sensor'}`, 'success');
+        try {
+            // Build sensor definition for API
+            // Note: state_class='measurement' requires unit_of_measurement
+            const hasUnit = suggestion.unit_of_measurement && suggestion.unit_of_measurement.trim() !== '';
+            const hasDeviceClass = suggestion.device_class && suggestion.device_class !== 'none';
+            const sensorData = {
+                device_id: wizard.selectedDevice,
+                stable_device_id: wizard.selectedDeviceStableId || null,
+                friendly_name: sensorName,
+                sensor_type: 'sensor',
+                device_class: suggestion.device_class || 'none',
+                state_class: (hasDeviceClass && hasUnit) ? 'measurement' : 'none',
+                unit_of_measurement: hasUnit ? suggestion.unit_of_measurement : null,
+                icon: suggestion.icon || 'mdi:eye',
+                target_app: wizard.selectedApp?.package || null,
+                source: {
+                    source_type: 'element',
+                    element_index: suggestion.element?.index || 0,
+                    element_text: suggestion.element?.text || null,
+                    element_class: suggestion.element?.class || null,
+                    element_resource_id: suggestion.element?.resource_id || null,
+                    screen_activity: wizard.recorder?.currentScreenActivity || wizard.currentActivity || null,
+                    custom_bounds: suggestion.element?.bounds || null
+                },
+                extraction_rule: {
+                    method: 'exact',
+                    extract_numeric: suggestion.device_class && ['battery', 'temperature', 'humidity', 'voltage', 'current', 'power', 'energy'].includes(suggestion.device_class)
+                }
+            };
+
+            // Create sensor via API (will auto-reuse if matching sensor exists)
+            const response = await wizard.apiClient.post('/sensors', sensorData);
+            console.log('[Suggestions] Sensor created/reused:', response);
+
+            // Get sensor_id from response
+            const sensorId = response?.sensor?.sensor_id || response?.sensor_id;
+            if (!sensorId) {
+                throw new Error('No sensor_id in response');
+            }
+
+            // Create capture_sensors step with sensor_ids (not inline sensors)
+            const sensorStep = {
+                step_type: 'capture_sensors',
+                description: `Capture: ${sensorName}`,
+                sensor_ids: [sensorId]
+            };
+
+            // Check for screen mismatch and offer navigation step
+            const added = await addSensorWithNavigationCheck(wizard, sensorStep);
+            if (added) {
+                const wasReused = response?.reused;
+                showToast(`${wasReused ? 'Reused' : 'Created'} sensor: ${sensorName}`, 'success');
+            }
+        } catch (error) {
+            console.error('[Suggestions] Failed to create sensor:', error);
+            showToast(`Failed to create sensor: ${error.message}`, 'error');
         }
     } else {
         // Add action to flow
@@ -3325,25 +3567,64 @@ function showSuggestionEditDialog(wizard, suggestion, index) {
         if (wizard._suggestionsMode === 'sensors') {
             const deviceClass = document.getElementById('editSuggestionDeviceClass').value;
             const unit = document.getElementById('editSuggestionUnit').value.trim();
+            const sensorName = name || 'Sensor';
 
-            const sensorStep = {
-                step_type: 'capture_sensors',
-                sensors: [{
-                    name: name || 'Sensor',
-                    entity_id: entityId || `sensor.${name.toLowerCase().replace(/\s+/g, '_')}`,
-                    element: suggestion.element,
-                    device_class: deviceClass,
-                    unit_of_measurement: unit || null,
-                    icon: suggestion.icon || 'mdi:eye'
-                }],
-                wait_before: 0,
-                wait_after: 0
-            };
+            try {
+                // Build sensor definition for API
+                // Note: state_class='measurement' requires unit_of_measurement
+                const hasUnit = unit && unit.trim() !== '';
+                const hasDeviceClass = deviceClass && deviceClass !== 'none';
+                const sensorData = {
+                    device_id: wizard.selectedDevice,
+                    stable_device_id: wizard.selectedDeviceStableId || null,
+                    friendly_name: sensorName,
+                    sensor_type: 'sensor',
+                    device_class: deviceClass || 'none',
+                    state_class: (hasDeviceClass && hasUnit) ? 'measurement' : 'none',
+                    unit_of_measurement: hasUnit ? unit : null,
+                    icon: suggestion.icon || 'mdi:eye',
+                    target_app: wizard.selectedApp?.package || null,
+                    source: {
+                        source_type: 'element',
+                        element_index: suggestion.element?.index || 0,
+                        element_text: suggestion.element?.text || null,
+                        element_class: suggestion.element?.class || null,
+                        element_resource_id: suggestion.element?.resource_id || null,
+                        screen_activity: wizard.recorder?.currentScreenActivity || wizard.currentActivity || null,
+                        custom_bounds: suggestion.element?.bounds || null
+                    },
+                    extraction_rule: {
+                        method: 'exact',
+                        extract_numeric: hasDeviceClass && ['battery', 'temperature', 'humidity', 'voltage', 'current', 'power', 'energy'].includes(deviceClass)
+                    }
+                };
 
-            // Check for screen mismatch and offer navigation step
-            const added = await addSensorWithNavigationCheck(wizard, sensorStep);
-            if (added) {
-                showToast(`Added sensor: ${name}`, 'success');
+                // Create sensor via API (will auto-reuse if matching sensor exists)
+                const response = await wizard.apiClient.post('/sensors', sensorData);
+                console.log('[Suggestions Edit] Sensor created/reused:', response);
+
+                // Get sensor_id from response
+                const sensorId = response?.sensor?.sensor_id || response?.sensor_id;
+                if (!sensorId) {
+                    throw new Error('No sensor_id in response');
+                }
+
+                // Create capture_sensors step with sensor_ids (not inline sensors)
+                const sensorStep = {
+                    step_type: 'capture_sensors',
+                    description: `Capture: ${sensorName}`,
+                    sensor_ids: [sensorId]
+                };
+
+                // Check for screen mismatch and offer navigation step
+                const added = await addSensorWithNavigationCheck(wizard, sensorStep);
+                if (added) {
+                    const wasReused = response?.reused;
+                    showToast(`${wasReused ? 'Reused' : 'Created'} sensor: ${sensorName}`, 'success');
+                }
+            } catch (error) {
+                console.error('[Suggestions Edit] Failed to create sensor:', error);
+                showToast(`Failed to create sensor: ${error.message}`, 'error');
             }
         } else {
             const actionType = document.getElementById('editSuggestionActionType').value;
@@ -3398,24 +3679,78 @@ async function addSelectedSuggestions(wizard) {
     const selectedItems = Array.from(wizard._selectedSuggestions).map(i => suggestions[i]);
 
     if (wizard._suggestionsMode === 'sensors') {
-        // Add sensors to flow
+        // Add sensors to flow - create actual sensors via API first
+        let createdCount = 0;
+        let reusedCount = 0;
+        let failedCount = 0;
+
         for (const sensor of selectedItems) {
-            const sensorStep = {
-                step_type: 'capture_sensors',
-                sensors: [{
-                    name: sensor.name || sensor.suggested_name,
-                    entity_id: sensor.entity_id || `sensor.${(sensor.name || sensor.suggested_name || 'unnamed').toLowerCase().replace(/\s+/g, '_')}`,
-                    element: sensor.element,
+            const sensorName = sensor.name || sensor.suggested_name || 'Sensor';
+
+            try {
+                // Build sensor definition for API
+                // Note: state_class='measurement' requires unit_of_measurement
+                const hasUnit = sensor.unit_of_measurement && sensor.unit_of_measurement.trim() !== '';
+                const hasDeviceClass = sensor.device_class && sensor.device_class !== 'none';
+                const sensorData = {
+                    device_id: wizard.selectedDevice,
+                    stable_device_id: wizard.selectedDeviceStableId || null,
+                    friendly_name: sensorName,
+                    sensor_type: 'sensor',
                     device_class: sensor.device_class || 'none',
-                    unit_of_measurement: sensor.unit_of_measurement || null,
-                    icon: sensor.icon || 'mdi:eye'
-                }],
-                wait_before: 0,
-                wait_after: 0
-            };
-            wizard.recorder.addStep(sensorStep);
+                    state_class: (hasDeviceClass && hasUnit) ? 'measurement' : 'none',
+                    unit_of_measurement: hasUnit ? sensor.unit_of_measurement : null,
+                    icon: sensor.icon || 'mdi:eye',
+                    target_app: wizard.selectedApp?.package || null,
+                    source: {
+                        source_type: 'element',
+                        element_index: sensor.element?.index || 0,
+                        element_text: sensor.element?.text || null,
+                        element_class: sensor.element?.class || null,
+                        element_resource_id: sensor.element?.resource_id || null,
+                        screen_activity: wizard.recorder?.currentScreenActivity || wizard.currentActivity || null,
+                        custom_bounds: sensor.element?.bounds || null
+                    },
+                    extraction_rule: {
+                        method: 'exact',
+                        extract_numeric: hasDeviceClass && ['battery', 'temperature', 'humidity', 'voltage', 'current', 'power', 'energy'].includes(sensor.device_class)
+                    }
+                };
+
+                // Create sensor via API (will auto-reuse if matching sensor exists)
+                const response = await wizard.apiClient.post('/sensors', sensorData);
+
+                // Get sensor_id from response
+                const sensorId = response?.sensor?.sensor_id || response?.sensor_id;
+                if (!sensorId) {
+                    throw new Error('No sensor_id in response');
+                }
+
+                // Create capture_sensors step with sensor_ids (not inline sensors)
+                const sensorStep = {
+                    step_type: 'capture_sensors',
+                    description: `Capture: ${sensorName}`,
+                    sensor_ids: [sensorId]
+                };
+                wizard.recorder.addStep(sensorStep);
+
+                if (response?.reused) {
+                    reusedCount++;
+                } else {
+                    createdCount++;
+                }
+            } catch (error) {
+                console.error(`[Suggestions Batch] Failed to create sensor ${sensorName}:`, error);
+                failedCount++;
+            }
         }
-        showToast(`Added ${selectedItems.length} sensor(s) to flow`, 'success');
+
+        // Show summary toast
+        const parts = [];
+        if (createdCount > 0) parts.push(`${createdCount} created`);
+        if (reusedCount > 0) parts.push(`${reusedCount} reused`);
+        if (failedCount > 0) parts.push(`${failedCount} failed`);
+        showToast(`Sensors: ${parts.join(', ')}`, failedCount > 0 ? 'warning' : 'success');
     } else {
         // Add actions to flow
         for (const action of selectedItems) {
@@ -3475,30 +3810,23 @@ export async function handleSmartSuggestions(wizard) {
 
 /**
  * Handle bulk sensor addition from Smart Suggestions
+ * Creates actual sensors via API and adds capture_sensors steps with sensor_ids
  */
 async function handleBulkSensorAddition(wizard, sensors) {
     console.log('[FlowWizard] Adding bulk sensors:', sensors);
 
     if (sensors.length === 0) return;
 
-    // Build the first sensor step to check for screen mismatch
+    // Build a dummy step to check for screen mismatch (using first sensor's element)
     const firstSensor = sensors[0];
-    const firstSensorStep = {
+    const dummyStep = {
         step_type: 'capture_sensors',
-        sensors: [{
-            name: firstSensor.name,
-            entity_id: firstSensor.entity_id,
-            element: firstSensor.element,
-            device_class: firstSensor.device_class || 'none',
-            unit_of_measurement: firstSensor.unit_of_measurement || null,
-            icon: firstSensor.icon || 'mdi:eye'
-        }],
-        wait_before: 0,
-        wait_after: 0
+        description: `Capture: ${firstSensor.name}`,
+        element: firstSensor.element
     };
 
     // Check for screen mismatch on first sensor (all sensors are from same screen)
-    const mismatchInfo = await checkScreenMismatch(wizard, firstSensorStep);
+    const mismatchInfo = await checkScreenMismatch(wizard, dummyStep);
 
     if (mismatchInfo) {
         // Show dialog asking about navigation step
@@ -3518,29 +3846,81 @@ async function handleBulkSensorAddition(wizard, sensors) {
         }
     }
 
-    // Add all sensors to the flow
-    for (const sensor of sensors) {
-        const sensorStep = {
-            step_type: 'capture_sensors',
-            sensors: [{
-                name: sensor.name,
-                entity_id: sensor.entity_id,
-                element: sensor.element,
-                device_class: sensor.device_class || 'none',
-                unit_of_measurement: sensor.unit_of_measurement || null,
-                icon: sensor.icon || 'mdi:eye'
-            }],
-            wait_before: 0,
-            wait_after: 0
-        };
+    // Create actual sensors via API and add capture steps
+    let createdCount = 0;
+    let reusedCount = 0;
+    let failedCount = 0;
 
-        wizard.recorder.addStep(sensorStep);
+    for (const sensor of sensors) {
+        const sensorName = sensor.name || 'Sensor';
+
+        try {
+            // Build sensor definition for API
+            // Note: state_class='measurement' requires unit_of_measurement
+            const hasUnit = sensor.unit_of_measurement && sensor.unit_of_measurement.trim() !== '';
+            const hasDeviceClass = sensor.device_class && sensor.device_class !== 'none';
+            const sensorData = {
+                device_id: wizard.selectedDevice,
+                stable_device_id: wizard.selectedDeviceStableId || null,
+                friendly_name: sensorName,
+                sensor_type: 'sensor',
+                device_class: sensor.device_class || 'none',
+                state_class: (hasDeviceClass && hasUnit) ? 'measurement' : 'none',
+                unit_of_measurement: hasUnit ? sensor.unit_of_measurement : null,
+                icon: sensor.icon || 'mdi:eye',
+                target_app: wizard.selectedApp?.package || null,
+                source: {
+                    source_type: 'element',
+                    element_index: sensor.element?.index || 0,
+                    element_text: sensor.element?.text || null,
+                    element_class: sensor.element?.class || null,
+                    element_resource_id: sensor.element?.resource_id || null,
+                    screen_activity: wizard.recorder?.currentScreenActivity || wizard.currentActivity || null,
+                    custom_bounds: sensor.element?.bounds || null
+                },
+                extraction_rule: {
+                    method: 'exact',
+                    extract_numeric: hasDeviceClass && ['battery', 'temperature', 'humidity', 'voltage', 'current', 'power', 'energy'].includes(sensor.device_class)
+                }
+            };
+
+            // Create sensor via API (will auto-reuse if matching sensor exists)
+            const response = await wizard.apiClient.post('/sensors', sensorData);
+
+            // Get sensor_id from response
+            const sensorId = response?.sensor?.sensor_id || response?.sensor_id;
+            if (!sensorId) {
+                throw new Error('No sensor_id in response');
+            }
+
+            // Create capture_sensors step with sensor_ids (not inline sensors)
+            const sensorStep = {
+                step_type: 'capture_sensors',
+                description: `Capture: ${sensorName}`,
+                sensor_ids: [sensorId]
+            };
+            wizard.recorder.addStep(sensorStep);
+
+            if (response?.reused) {
+                reusedCount++;
+            } else {
+                createdCount++;
+            }
+        } catch (error) {
+            console.error(`[Bulk Sensors] Failed to create sensor ${sensorName}:`, error);
+            failedCount++;
+        }
     }
 
     // Update UI
     wizard.updateFlowStepsUI();
 
-    showToast(`Added ${sensors.length} sensor(s) to flow!`, 'success');
+    // Show summary toast
+    const parts = [];
+    if (createdCount > 0) parts.push(`${createdCount} created`);
+    if (reusedCount > 0) parts.push(`${reusedCount} reused`);
+    if (failedCount > 0) parts.push(`${failedCount} failed`);
+    showToast(`Sensors: ${parts.join(', ')}`, failedCount > 0 ? 'warning' : 'success');
 }
 
 /**
@@ -4762,6 +5142,7 @@ export async function checkScreenMismatch(wizard, sensorElement) {
     const flowSignature = flowContext.signature || null;
     const lastStep = wizard.recorder?.getSteps?.().slice(-1)[0] || null;
     const lastStepIsNavigation = lastStep && ['tap', 'swipe', 'go_back', 'go_home'].includes(lastStep.step_type);
+    const lastStepIsAppLaunch = lastStep && lastStep.step_type === 'launch_app';
 
     console.log('[FlowWizard] checkScreenMismatch', {
         flowContext,
@@ -4796,11 +5177,23 @@ export async function checkScreenMismatch(wizard, sensorElement) {
     }
 
     if (flowScreenId && deviceScreenId && flowScreenId !== deviceScreenId) {
-        // Check if the screen change was caused by the last recorded navigation step
-        if (lastStepIsNavigation) {
+        // Check if the screen change was caused by navigation or app launch (splash → main screen)
+        if (lastStepIsNavigation || lastStepIsAppLaunch) {
             annotateNavigationTarget(wizard, deviceActivity, deviceScreenId);
             console.log(`[FlowWizard] Screen changed after ${lastStep.step_type} (${flowLabel} -> ${deviceLabel}) - valid transition`);
-            return { mismatch: false, currentActivity: flowLabel, sensorActivity: deviceLabel };
+            // Update the launch_app step with the final screen (not splash)
+            if (lastStepIsAppLaunch) {
+                lastStep.expected_activity = deviceActivity;
+                lastStep.screen_activity = deviceActivity;  // Also update screen_activity for nav issue detection
+                lastStep.expected_screen_id = deviceScreenId;
+                lastStep.screen_signature = deviceScreenId;
+                console.log(`[FlowWizard] Updated launch_app step with final screen: ${deviceLabel}`);
+                // Refresh the step list UI to show updated screen info
+                if (typeof wizard.updateFlowStepsUI === 'function') {
+                    wizard.updateFlowStepsUI();
+                }
+            }
+            return { mismatch: false, currentActivity: deviceLabel, sensorActivity: deviceLabel };
         }
 
         return {
@@ -4813,10 +5206,21 @@ export async function checkScreenMismatch(wizard, sensorElement) {
     }
 
     if (flowSignature && deviceScreenId && flowSignature !== deviceScreenId) {
-        if (lastStepIsNavigation) {
+        if (lastStepIsNavigation || lastStepIsAppLaunch) {
             annotateNavigationTarget(wizard, deviceActivity, deviceScreenId);
             console.log(`[FlowWizard] Screen changed after ${lastStep.step_type} (${flowLabel} -> ${deviceLabel}) - valid transition`);
-            return { mismatch: false, currentActivity: flowLabel, sensorActivity: deviceLabel };
+            if (lastStepIsAppLaunch) {
+                lastStep.expected_activity = deviceActivity;
+                lastStep.screen_activity = deviceActivity;  // Also update screen_activity for nav issue detection
+                lastStep.expected_screen_id = deviceScreenId;
+                lastStep.screen_signature = deviceScreenId;
+                console.log(`[FlowWizard] Updated launch_app step with final screen: ${deviceLabel}`);
+                // Refresh the step list UI to show updated screen info
+                if (typeof wizard.updateFlowStepsUI === 'function') {
+                    wizard.updateFlowStepsUI();
+                }
+            }
+            return { mismatch: false, currentActivity: deviceLabel, sensorActivity: deviceLabel };
         }
         return {
             mismatch: true,
@@ -4830,9 +5234,19 @@ export async function checkScreenMismatch(wizard, sensorElement) {
     // Fallback to activity name comparison when screen ids are unavailable
     if (flowContext.activity && deviceActivity) {
         if (flowActName !== deviceActName) {
-            if (lastStepIsNavigation) {
+            if (lastStepIsNavigation || lastStepIsAppLaunch) {
                 console.log(`[FlowWizard] Screen changed after ${lastStep.step_type} (${flowLabel} -> ${deviceLabel}) - valid transition`);
-                return { mismatch: false, currentActivity: flowLabel, sensorActivity: deviceLabel };
+                if (lastStepIsAppLaunch) {
+                    lastStep.expected_activity = deviceActivity;
+                    lastStep.screen_activity = deviceActivity;  // Also update screen_activity for nav issue detection
+                    lastStep.expected_screen_id = deviceScreenId;
+                    lastStep.screen_signature = deviceScreenId;
+                    // Refresh the step list UI to show updated screen info
+                    if (typeof wizard.updateFlowStepsUI === 'function') {
+                        wizard.updateFlowStepsUI();
+                    }
+                }
+                return { mismatch: false, currentActivity: deviceLabel, sensorActivity: deviceLabel };
             }
             return {
                 mismatch: true,

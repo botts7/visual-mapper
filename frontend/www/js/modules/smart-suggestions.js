@@ -468,7 +468,9 @@ class SmartSuggestions {
                 device_class: suggestion.device_class || 'none',
                 unit: suggestion.unit || '',
                 icon: suggestion.icon || 'mdi:eye',
-                stableDeviceId: this.wizard?.selectedDeviceStableId || this.deviceId
+                stableDeviceId: this.wizard?.selectedDeviceStableId || this.deviceId,
+                screenActivity: this.wizard?.recorder?.currentScreenActivity || this.wizard?.currentActivity || null,
+                targetApp: this.wizard?.selectedApp?.package || null
             });
         } else {
             // For actions, use action creator

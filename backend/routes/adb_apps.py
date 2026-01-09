@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/adb", tags=["adb_apps"])
 class LaunchAppRequest(BaseModel):
     device_id: str
     package: str
+    force_restart: bool = False  # If True, force-stop app before launching
 
 
 class StopAppRequest(BaseModel):
@@ -135,9 +136,27 @@ async def get_app_icon(device_id: str, package_name: str, skip_extraction: bool 
 
 @router.post("/launch")
 async def launch_app(request: LaunchAppRequest):
-    """Launch an app by package name"""
+    """
+    Launch an app by package name
+
+    Args:
+        device_id: ADB device ID
+        package: App package name
+        force_restart: If True, force-stop the app first for a fresh start
+    """
     deps = get_deps()
     try:
+        # Force-stop first if requested (ensures fresh app start)
+        if request.force_restart:
+            logger.info(f"[API] Force-stopping {request.package} before launch (fresh start)")
+            try:
+                await deps.adb_bridge.stop_app(request.device_id, request.package)
+                # Brief pause to let the app fully stop
+                import asyncio
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                logger.warning(f"[API] Force-stop failed (continuing with launch): {e}")
+
         logger.info(f"[API] Launching {request.package} on {request.device_id}")
         success = await deps.adb_bridge.launch_app(request.device_id, request.package)
 
@@ -145,6 +164,7 @@ async def launch_app(request: LaunchAppRequest):
             "success": success,
             "device_id": request.device_id,
             "package": request.package,
+            "force_restart": request.force_restart,
             "timestamp": time.time()
         }
     except Exception as e:

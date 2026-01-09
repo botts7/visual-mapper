@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.0.45" data-build="2026-01-01">
+    <meta name="version" content="0.0.51" data-build="2026-01-09">
     <title>Flow Wizard - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.44">
-    <link rel="stylesheet" href="css/flow-wizard.css?v=0.0.45">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.51">
+    <link rel="stylesheet" href="css/flow-wizard.css?v=0.0.51">
     <link rel="stylesheet" href="css/smart-suggestions.css?v=0.0.44">
 </head>
 <body>
@@ -72,6 +72,18 @@
                         </div>
                     </label>
                 </div>
+            </div>
+
+            <div class="app-launch-options" style="margin: 16px 0; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="freshStartToggle" checked style="width: 18px; height: 18px;">
+                    <div>
+                        <strong>Fresh Start</strong>
+                        <p style="margin: 2px 0 0 0; font-size: 12px; color: var(--text-secondary);">
+                            Force-stop and restart app from beginning (recommended for consistent recordings)
+                        </p>
+                    </div>
+                </label>
             </div>
 
             <h3>Select App to Automate</h3>
@@ -233,6 +245,48 @@
                     <!-- Screenshot Display -->
                     <div id="screenshotContainer" class="screenshot-display">
                         <canvas id="screenshotCanvas"></canvas>
+                        <!-- Step 3 Setup Overlay (covers canvas during device preparation) -->
+                        <div id="step3SetupOverlay" class="setup-overlay">
+                            <div class="setup-overlay-content">
+                                <div class="setup-app-icon">
+                                    <img id="setupAppIcon" src="" alt="">
+                                </div>
+                                <h3 id="setupAppName">Preparing App</h3>
+                                <div class="setup-steps">
+                                    <div class="setup-step" data-step="register">
+                                        <span class="step-icon">1</span>
+                                        <span class="step-text">Registering session</span>
+                                        <span class="step-status"></span>
+                                    </div>
+                                    <div class="setup-step" data-step="wake">
+                                        <span class="step-icon">2</span>
+                                        <span class="step-text">Waking device</span>
+                                        <span class="step-status"></span>
+                                    </div>
+                                    <div class="setup-step" data-step="unlock">
+                                        <span class="step-icon">3</span>
+                                        <span class="step-text">Unlocking screen</span>
+                                        <span class="step-status"></span>
+                                    </div>
+                                    <div class="setup-step" data-step="launch">
+                                        <span class="step-icon">4</span>
+                                        <span class="step-text">Launching app</span>
+                                        <span class="step-status"></span>
+                                    </div>
+                                    <div class="setup-step" data-step="wait">
+                                        <span class="step-icon">5</span>
+                                        <span class="step-text">Waiting for app to load</span>
+                                        <span class="step-status"></span>
+                                    </div>
+                                    <div class="setup-step" data-step="stream">
+                                        <span class="step-icon">6</span>
+                                        <span class="step-text">Starting live stream</span>
+                                        <span class="step-status"></span>
+                                    </div>
+                                </div>
+                                <p class="setup-hint">This may take 5-10 seconds</p>
+                            </div>
+                        </div>
                         <!-- Loading Overlay -->
                         <div id="screenshotLoading" class="screenshot-loading-overlay">
                             <div class="loading-spinner"></div>
@@ -419,6 +473,6 @@
     </div>
 
     <!-- Note: ThemeToggle and MobileNav now handled by js/components/navbar.js -->
-    <script type="module" src="js/modules/flow-wizard.js?v=0.0.60"></script>
+    <script type="module" src="js/modules/flow-wizard.js?v=0.0.65"></script>
 </body>
 </html>

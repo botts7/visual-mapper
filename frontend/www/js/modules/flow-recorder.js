@@ -1,9 +1,10 @@
 /**
  * Flow Recorder Module
- * Visual Mapper v0.0.12
+ * Visual Mapper v0.0.13
  *
  * Handles interactive flow recording with screenshot capture,
  * tap detection, and step management
+ * v0.0.13: Add forceRestart option - force-stop app before launch for fresh start
  * v0.0.12: Fix addStep - respect existing screen_activity if provided (for pre-action capture)
  * v0.0.11: Add moveStep() method for reordering steps
  */
@@ -28,6 +29,7 @@ class FlowRecorder {
         this.deviceId = deviceId;
         this.appPackage = appPackage;
         this.recordMode = recordMode; // 'execute' or 'record-only'
+        this.forceRestart = true; // Default to fresh start - force-stop app before launching
         this.steps = [];
         this.currentScreenshot = null;
         this.screenshotMetadata = null;
@@ -38,7 +40,7 @@ class FlowRecorder {
         this.navigationGraph = null;
         this.currentScreenSignature = null;
 
-        console.log(`[FlowRecorder] Initialized for ${deviceId} - ${appPackage} (mode: ${recordMode})`);
+        console.log(`[FlowRecorder] Initialized for ${deviceId} - ${appPackage} (mode: ${recordMode}, forceRestart: ${this.forceRestart})`);
     }
 
     /**
@@ -76,18 +78,13 @@ class FlowRecorder {
             // or by captureScreenshot() in polling mode. Removed duplicate unlock call here
             // to prevent "max attempts reached" cooldown issues.
 
-            // Launch the app
+            // Launch the app (includes force-stop if forceRestart is true)
             await this.launchApp();
 
-            // TEMPORARILY DISABLED: Smart UI detection (was too aggressive)
-            // TODO: Debug why detection fails and re-enable
-            // await this.waitForUIToSettle();
-
-            // Simple wait for now
-            await this.wait(3000);
+            // Brief wait for app to initialize (reduced from 3s)
+            await this.wait(1500);
 
             // Capture quick screenshot for initial preview (no UI elements)
-            // This is MUCH faster than full screenshot with UI extraction
             await this.captureQuickScreenshot();
 
             showToast('Quick preview loaded - Choose capture method', 'info', 3000);
@@ -222,14 +219,15 @@ class FlowRecorder {
      * Launch the target app
      */
     async launchApp() {
-        console.log(`[FlowRecorder] Launching ${this.appPackage}...`);
+        console.log(`[FlowRecorder] Launching ${this.appPackage} (forceRestart: ${this.forceRestart})...`);
 
         const response = await fetch(`${this.apiBase}/adb/launch`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 device_id: this.deviceId,
-                package: this.appPackage
+                package: this.appPackage,
+                force_restart: this.forceRestart
             })
         });
 
@@ -240,8 +238,8 @@ class FlowRecorder {
         const result = await response.json();
         console.log('[FlowRecorder] App launched:', result);
 
-        // Wait for app to fully load before capturing activity
-        await this.wait(2000);
+        // Brief wait for app activity to register (reduced from 2s)
+        await this.wait(1000);
 
         // Capture the activity that was launched for state validation
         const screenInfo = await this.getCurrentScreen();

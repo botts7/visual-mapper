@@ -1,7 +1,8 @@
 /**
  * Flow Wizard Module
- * Visual Mapper v0.0.27
+ * Visual Mapper v0.0.28
  *
+ * v0.0.28: Fix wizard cleanup - use sendBeacon for reliable release on page unload
  * v0.0.27: Preserve screen_activity/screen_package in step conversions, add wait refresh support
  * v0.0.26: Fix _convertWizardStepsToFlowFormat - use step.step_type || step.type, handle all step types
  * v0.0.25: Fix step format - include step_type in converted flow steps for executor compatibility
@@ -18,24 +19,24 @@
  */
 
 import { showToast } from './toast.js?v=0.0.5';
-import FlowRecorder from './flow-recorder.js?v=0.0.12';
+import FlowRecorder from './flow-recorder.js?v=0.0.13';
 import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.11';
 import FlowInteractions from './flow-interactions.js?v=0.0.15';
 import FlowStepManager from './flow-step-manager.js?v=0.0.9';
 import LiveStream from './live-stream.js?v=0.0.34';
 import ElementTree from './element-tree.js?v=0.0.5';
 import APIClient from './api-client.js?v=0.0.4';
-import SensorCreator from './sensor-creator.js?v=0.0.10';
+import SensorCreator from './sensor-creator.js?v=0.0.11';
 
 // Step modules
 import * as Step1 from './flow-wizard-step1.js?v=0.0.6';
 import * as Step2 from './flow-wizard-step2.js?v=0.0.6';
-import * as Step3 from './flow-wizard-step3.js?v=0.0.60';
+import * as Step3 from './flow-wizard-step3.js?v=0.0.61';
 import * as Step4 from './flow-wizard-step4.js?v=0.0.17';
 import * as Step5 from './flow-wizard-step5.js?v=0.0.9';
 
 // Dialog module
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.10';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.11';
 
 // Element actions module
 import * as ElementActions from './flow-wizard-element-actions.js?v=0.0.6';
@@ -52,6 +53,7 @@ class FlowWizard {
         this.selectedDevice = null;
         this.selectedApp = null;
         this.recordMode = 'execute';
+        this.freshStart = true; // Force-stop app before launch by default
         const savedStartMode = localStorage.getItem('flowWizard.startFromCurrentScreen');
         this.startFromCurrentScreen = savedStartMode === 'true';
         this.recorder = null;
@@ -541,12 +543,14 @@ class FlowWizard {
      */
     setupCleanup() {
         // Resume scheduler and mark wizard inactive when leaving the page
+        // Use 'pagehide' instead of 'beforeunload' for better mobile support
+        window.addEventListener('pagehide', (event) => {
+            this._cleanupOnUnload();
+        });
+
+        // Also use beforeunload as backup
         window.addEventListener('beforeunload', () => {
-            this.resumeSchedulerAfterEditing();
-            // Mark wizard inactive for the device (if any)
-            if (this._wizardActiveDevice) {
-                this.setWizardInactive(this._wizardActiveDevice);
-            }
+            this._cleanupOnUnload();
         });
 
         // Also handle visibility change (tab switch)
@@ -555,6 +559,34 @@ class FlowWizard {
                 // Don't resume on tab switch - only on page close
             }
         });
+    }
+
+    /**
+     * Cleanup wizard state on page unload
+     * Uses sendBeacon for reliable delivery during page close
+     */
+    _cleanupOnUnload() {
+        // Resume scheduler (fire and forget with sendBeacon)
+        try {
+            const apiBase = window.API_BASE || '/api';
+            navigator.sendBeacon(`${apiBase}/scheduler/resume`);
+        } catch (e) {
+            console.warn('[FlowWizard] Could not resume scheduler on unload');
+        }
+
+        // Mark wizard inactive using sendBeacon (more reliable during unload)
+        if (this._wizardActiveDevice) {
+            try {
+                const apiBase = window.API_BASE || '/api';
+                // sendBeacon only supports POST, so we need a POST endpoint
+                // Use a blob to send the DELETE-like request
+                const url = `${apiBase}/wizard/release/${encodeURIComponent(this._wizardActiveDevice)}`;
+                navigator.sendBeacon(url);
+                console.log(`[FlowWizard] Sent beacon to release wizard for ${this._wizardActiveDevice}`);
+            } catch (e) {
+                console.warn('[FlowWizard] Could not release wizard on unload:', e);
+            }
+        }
     }
 
     /**
@@ -689,6 +721,7 @@ class FlowWizard {
         this.selectedDevice = null;
         this.selectedApp = null;
         this.recordMode = 'execute';
+        this.freshStart = true;
         this.recorder = null;
         this.flowSteps = [];
         this.updateUI();
@@ -817,9 +850,13 @@ class FlowWizard {
                 if (modeInput) {
                     this.recordMode = modeInput.value;
                 }
+                // Get fresh start preference
+                const freshStartToggle = document.getElementById('freshStartToggle');
+                this.freshStart = freshStartToggle ? freshStartToggle.checked : true;
                 console.log('[FlowWizard] Validated step 2:', {
                     app: this.selectedApp,
-                    mode: this.recordMode
+                    mode: this.recordMode,
+                    freshStart: this.freshStart
                 });
                 return true;
 

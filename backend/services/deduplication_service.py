@@ -160,6 +160,80 @@ class DeduplicationService:
     # SENSOR DEDUPLICATION
     # =========================================================================
 
+    def find_matching_sensor(
+        self,
+        device_id: str,
+        new_sensor_data: Dict[str, Any],
+        threshold: float = 0.90
+    ) -> Optional[Any]:
+        """
+        Find an existing sensor that matches the new sensor data.
+        Returns the matching sensor if confidence >= threshold, else None.
+
+        This is used for auto-reuse: when creating a sensor, if a high-confidence
+        match exists, we return it instead of creating a duplicate.
+
+        Args:
+            device_id: Device identifier
+            new_sensor_data: New sensor data being created
+            threshold: Minimum similarity score for auto-match (default: 0.90)
+
+        Returns:
+            Matching SensorDefinition if found, else None
+        """
+        logger.info(f"[Dedup] find_matching_sensor called for device: {device_id}")
+
+        if not self.sensor_manager:
+            logger.warning("[Dedup] No sensor_manager available, cannot check for matches")
+            return None
+
+        try:
+            existing_sensors = self.sensor_manager.get_all_sensors(device_id)
+            logger.info(f"[Dedup] Found {len(existing_sensors)} existing sensors for device {device_id}")
+
+            if not existing_sensors:
+                logger.info("[Dedup] No existing sensors to compare against")
+                return None
+
+            # Log new sensor key fields for debugging
+            new_rid = new_sensor_data.get('source', {}).get('element_resource_id', '') or new_sensor_data.get('element_resource_id', '')
+            new_screen = new_sensor_data.get('source', {}).get('screen_activity', '') or new_sensor_data.get('screen_activity', '')
+            logger.info(f"[Dedup] New sensor: resource_id={new_rid}, screen={new_screen}")
+
+            best_match = None
+            best_score = 0.0
+            best_reasons = []
+            highest_score_found = 0.0  # Track highest score even if below threshold
+
+            for existing_obj in existing_sensors:
+                existing = existing_obj.model_dump() if hasattr(existing_obj, 'model_dump') else existing_obj
+                score, reasons = self._calculate_sensor_similarity(new_sensor_data, existing)
+
+                existing_name = existing.get('friendly_name', 'Unknown')
+                existing_rid = existing.get('source', {}).get('element_resource_id', '') if existing.get('source') else ''
+                logger.info(f"[Dedup] Compared with '{existing_name}' (rid={existing_rid}): score={score:.2f}, reasons={[r.value for r in reasons]}")
+
+                # Track highest score found regardless of threshold
+                if score > highest_score_found:
+                    highest_score_found = score
+
+                if score >= threshold and score > best_score:
+                    best_score = score
+                    best_match = existing_obj
+                    best_reasons = reasons
+
+            if best_match:
+                sensor_name = best_match.friendly_name if hasattr(best_match, 'friendly_name') else 'Unknown'
+                logger.info(f"[Dedup] Auto-match found: {sensor_name} (score: {best_score:.2f}, reasons: {[r.value for r in best_reasons]})")
+                return best_match
+
+            logger.info(f"[Dedup] No match found above threshold {threshold} (highest score: {highest_score_found:.2f})")
+            return None
+
+        except Exception as e:
+            logger.error(f"[Dedup] Error finding matching sensor: {e}", exc_info=True)
+            return None
+
     def find_similar_sensors(
         self,
         device_id: str,
@@ -226,45 +300,79 @@ class DeduplicationService:
         new_sensor: Dict[str, Any],
         existing: Dict[str, Any]
     ) -> Tuple[float, List[MatchReason]]:
-        """Calculate similarity score between two sensors."""
+        """
+        Calculate similarity score between two sensors.
+
+        Weights (updated for smart auto-reuse):
+        - element_resource_id: 35%
+        - extraction_rule.method: 20% (different extraction = different sensor)
+        - screen_activity: 20%
+        - bounds: 15%
+        - element_class: 5%
+        - friendly_name: 5%
+        """
         score = 0.0
         reasons = []
 
-        # Same resource_id is a strong indicator (40%)
-        new_rid = new_sensor.get('resource_id', '').strip()
-        existing_rid = existing.get('resource_id', '').strip()
+        # Helper to get nested source values
+        def get_source_value(sensor: Dict, key: str, fallback_key: str = None) -> str:
+            source = sensor.get('source', {}) or {}
+            value = source.get(key, '') or sensor.get(key, '')
+            if not value and fallback_key:
+                value = source.get(fallback_key, '') or sensor.get(fallback_key, '')
+            return str(value).strip() if value else ''
+
+        # Same resource_id (35%)
+        new_rid = get_source_value(new_sensor, 'element_resource_id', 'resource_id')
+        existing_rid = get_source_value(existing, 'element_resource_id', 'resource_id')
         if new_rid and existing_rid and new_rid == existing_rid:
-            score += 0.40
+            score += 0.35
             reasons.append(MatchReason.SAME_RESOURCE_ID)
 
-        # Same screen/activity (25%)
-        new_screen = new_sensor.get('screen_activity', '') or new_sensor.get('activity', '')
-        existing_screen = existing.get('screen_activity', '') or existing.get('activity', '')
+        # Same extraction method (20%) - CRITICAL: different extraction = different sensor
+        new_extract = new_sensor.get('extraction_rule', {})
+        existing_extract = existing.get('extraction_rule', {})
+        if isinstance(new_extract, dict) and isinstance(existing_extract, dict):
+            new_method = new_extract.get('method', '')
+            existing_method = existing_extract.get('method', '')
+            if new_method and existing_method and new_method == existing_method:
+                score += 0.20
+                reasons.append(MatchReason.SAME_EXTRACTION)
+        else:
+            # Fallback to flat extraction_method field
+            new_method = new_sensor.get('extraction_method', '')
+            existing_method = existing.get('extraction_method', '')
+            if new_method and existing_method and new_method == existing_method:
+                score += 0.20
+                reasons.append(MatchReason.SAME_EXTRACTION)
+
+        # Same screen/activity (20%)
+        new_screen = get_source_value(new_sensor, 'screen_activity', 'activity')
+        existing_screen = get_source_value(existing, 'screen_activity', 'activity')
         if new_screen and existing_screen:
             # Extract activity name (last part after dot)
             new_activity = new_screen.split('.')[-1] if '.' in new_screen else new_screen
             existing_activity = existing_screen.split('.')[-1] if '.' in existing_screen else existing_screen
             if new_activity == existing_activity:
-                score += 0.25
+                score += 0.20
                 reasons.append(MatchReason.SAME_SCREEN)
 
-        # Similar bounds (20%)
-        new_bounds = new_sensor.get('bounds', {})
-        existing_bounds = existing.get('bounds', {})
+        # Similar bounds (15%) - with ±20px tolerance
+        new_bounds = new_sensor.get('source', {}).get('custom_bounds') or new_sensor.get('bounds', {})
+        existing_bounds = existing.get('source', {}).get('custom_bounds') or existing.get('bounds', {})
         if new_bounds and existing_bounds:
-            if self._bounds_overlap(new_bounds, existing_bounds):
-                score += 0.20
+            if self._bounds_overlap(new_bounds, existing_bounds, tolerance=20):
+                score += 0.15
                 reasons.append(MatchReason.SAME_BOUNDS)
 
-        # Same extraction method (10%)
-        new_extract = new_sensor.get('extraction_method', '')
-        existing_extract = existing.get('extraction_method', '')
-        if new_extract and existing_extract and new_extract == existing_extract:
-            score += 0.10
-            reasons.append(MatchReason.SAME_EXTRACTION)
+        # Same element class (5%)
+        new_class = get_source_value(new_sensor, 'element_class')
+        existing_class = get_source_value(existing, 'element_class')
+        if new_class and existing_class and new_class == existing_class:
+            score += 0.05
 
         # Similar name (5%)
-        new_name = (new_sensor.get('name', '') or '').lower()
+        new_name = (new_sensor.get('name', '') or new_sensor.get('friendly_name', '') or '').lower()
         existing_name = (existing.get('name', '') or existing.get('friendly_name', '') or '').lower()
         if new_name and existing_name:
             if new_name == existing_name or new_name in existing_name or existing_name in new_name:
@@ -273,8 +381,9 @@ class DeduplicationService:
 
         return min(score, 1.0), reasons
 
-    def _bounds_overlap(self, bounds1: Dict, bounds2: Dict) -> bool:
+    def _bounds_overlap(self, bounds1: Dict, bounds2: Dict, tolerance: int = None) -> bool:
         """Check if two bounds overlap within tolerance."""
+        tolerance = tolerance or self.BOUNDS_TOLERANCE
         try:
             # Handle different bounds formats
             if 'x' in bounds1:
@@ -306,7 +415,7 @@ class DeduplicationService:
             dx = abs(center1_x - center2_x)
             dy = abs(center1_y - center2_y)
 
-            return dx <= self.BOUNDS_TOLERANCE and dy <= self.BOUNDS_TOLERANCE
+            return dx <= tolerance and dy <= tolerance
 
         except Exception:
             return False

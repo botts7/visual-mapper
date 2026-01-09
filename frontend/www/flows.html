@@ -71,11 +71,18 @@
                         <span class="status-dot running" id="schedulerStatusDot"></span>
                         <span id="schedulerStatusText">Running</span>
                     </span>
+                    <label class="auto-refresh-toggle" title="Auto-refresh status every 10 seconds">
+                        <input type="checkbox" id="autoRefreshToggle" checked>
+                        <span class="toggle-label">Live</span>
+                    </label>
                     <button class="btn btn-pause" id="btnPauseScheduler" onclick="pauseScheduler()">
                         Pause All
                     </button>
                     <button class="btn btn-resume" id="btnResumeScheduler" onclick="resumeScheduler()" style="display: none;">
                         Resume
+                    </button>
+                    <button class="btn btn-clear-queue" id="btnClearQueue" onclick="clearQueue()" title="Clear all queued flows">
+                        Clear Queue
                     </button>
                 </div>
             </div>
@@ -134,7 +141,7 @@
                         <th>Device</th>
                         <th>IP</th>
                         <th>Steps</th>
-                        <th>Interval</th>
+                        <th>Schedule</th>
                         <th>Enabled</th>
                         <th>Status</th>
                         <th>Last Executed</th>
@@ -897,7 +904,12 @@
                 for (const execution of history.reverse()) {
                     const statusIcon = execution.success ? '✅' : '❌';
                     const statusClass = execution.success ? 'success' : 'failed';
-                    const startedAt = new Date(execution.started_at);
+                    // Apply UTC fix for timestamp parsing
+                    let startedAtStr = execution.started_at;
+                    if (startedAtStr && !startedAtStr.endsWith('Z') && !startedAtStr.includes('+') && !startedAtStr.includes('-', 10)) {
+                        startedAtStr += 'Z';
+                    }
+                    const startedAt = new Date(startedAtStr);
                     const timeAgo = formatTimeAgo(execution.started_at);
                     const formattedDate = startedAt.toLocaleString();
 
@@ -1088,7 +1100,12 @@
 
         function formatTimeAgo(dateStr) {
             if (!dateStr) return 'Never';
-            const date = new Date(dateStr);
+            // Backend sends UTC timestamps without 'Z' suffix - add it if missing
+            let isoStr = dateStr;
+            if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.includes('-', 10)) {
+                isoStr = dateStr + 'Z';
+            }
+            const date = new Date(isoStr);
             const now = new Date();
             const diffMs = now - date;
             const diffSec = Math.floor(diffMs / 1000);
@@ -1128,6 +1145,22 @@
                 await loadSchedulerStatus();
             } catch (error) {
                 showToast('Failed to resume scheduler: ' + error.message, 'error');
+            }
+        }
+
+        async function clearQueue() {
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/scheduler/clear-queue`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) throw new Error('Failed to clear queue');
+
+                const result = await response.json();
+                showToast(result.message || 'Queue cleared', 'success');
+                await loadSchedulerStatus();
+            } catch (error) {
+                showToast('Failed to clear queue: ' + error.message, 'error');
             }
         }
 
@@ -1363,7 +1396,7 @@
                     <td>${escapeHtml(deviceName)}${connectionBadge}</td>
                     <td><code>${escapeHtml(deviceIP)}</code></td>
                     <td>${flow.steps.length} steps</td>
-                    <td>${flow.update_interval_seconds}s</td>
+                    <td>${formatSchedule(flow.update_interval_seconds)}</td>
                     <td>
                         <label class="toggle-switch">
                             <input type="checkbox"
@@ -1797,7 +1830,12 @@
 
         function formatDateTime(dateStr) {
             if (!dateStr) return 'Never';
-            const date = new Date(dateStr);
+            // Backend sends UTC timestamps without 'Z' suffix - add it if missing
+            let isoStr = dateStr;
+            if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.includes('-', 10)) {
+                isoStr = dateStr + 'Z';
+            }
+            const date = new Date(isoStr);
             return date.toLocaleString();
         }
 
@@ -1805,6 +1843,33 @@
             if (flow.execution_count === 0) return '-';
             const rate = (flow.success_count / flow.execution_count) * 100;
             return `${flow.success_count}/${flow.execution_count} (${rate.toFixed(0)}%)`;
+        }
+
+        /**
+         * Format schedule interval for display
+         * Shows "Manual" badge for manual-only flows, formatted time for scheduled
+         */
+        function formatSchedule(seconds) {
+            if (!seconds || seconds === 0) {
+                return '<span class="schedule-badge manual" title="Manual trigger only - no automatic scheduling">Manual</span>';
+            }
+
+            let display;
+            if (seconds < 60) {
+                display = `${seconds}s`;
+            } else if (seconds < 3600) {
+                const mins = Math.floor(seconds / 60);
+                display = `${mins}m`;
+            } else if (seconds < 86400) {
+                const hours = Math.floor(seconds / 3600);
+                const mins = Math.floor((seconds % 3600) / 60);
+                display = mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+            } else {
+                const days = Math.floor(seconds / 86400);
+                display = `${days}d`;
+            }
+
+            return `<span class="schedule-badge scheduled" title="Runs every ${display}">${display}</span>`;
         }
 
         function escapeHtml(text) {
@@ -2160,7 +2225,12 @@
                             const deviceClass = s.device_class && s.device_class !== 'none' ? s.device_class : null;
                             const currentValue = s.current_value;
                             const unit = s.unit_of_measurement || '';
-                            const lastUpdated = s.updated_at ? new Date(s.updated_at).toLocaleString() : null;
+                            // Apply UTC fix for timestamp parsing
+                            let updatedAtStr = s.updated_at;
+                            if (updatedAtStr && !updatedAtStr.endsWith('Z') && !updatedAtStr.includes('+') && !updatedAtStr.includes('-', 10)) {
+                                updatedAtStr += 'Z';
+                            }
+                            const lastUpdated = updatedAtStr ? new Date(updatedAtStr).toLocaleString() : null;
 
                             return `
                             <div class="sensor-option" data-sensor-id="${s.sensor_id}" data-sensor-name="${s.friendly_name}" style="
@@ -2548,6 +2618,7 @@
         window.renderFlowSteps = renderFlowSteps;
         window.pauseScheduler = pauseScheduler;
         window.resumeScheduler = resumeScheduler;
+        window.clearQueue = clearQueue;
         window.loadSchedulerStatus = loadSchedulerStatus;
         window.showInsertSensorDialog = showInsertSensorDialog;
         window.showInsertActionDialog = showInsertActionDialog;
@@ -4160,6 +4231,115 @@
                 loadFlows();
             }
         });
+
+        // ==========================================================================
+        // Auto-Refresh / Live Status
+        // ==========================================================================
+        let autoRefreshInterval = null;
+        const AUTO_REFRESH_INTERVAL_MS = 10000; // 10 seconds
+
+        function setupAutoRefresh() {
+            const toggle = document.getElementById('autoRefreshToggle');
+            if (!toggle) return;
+
+            // Load preference from localStorage
+            const savedPref = localStorage.getItem('flows.autoRefresh');
+            toggle.checked = savedPref !== 'false'; // Default to true
+
+            // Start auto-refresh if enabled
+            if (toggle.checked) {
+                startAutoRefresh();
+            }
+
+            // Handle toggle change
+            toggle.addEventListener('change', () => {
+                localStorage.setItem('flows.autoRefresh', toggle.checked);
+                if (toggle.checked) {
+                    startAutoRefresh();
+                } else {
+                    stopAutoRefresh();
+                }
+            });
+        }
+
+        function startAutoRefresh() {
+            if (autoRefreshInterval) return; // Already running
+
+            console.log('[Flows] Starting auto-refresh (every 10s)');
+            autoRefreshInterval = setInterval(async () => {
+                try {
+                    // Only update scheduler status and flow execution times (lightweight)
+                    await loadSchedulerStatus();
+                    await updateFlowExecutionTimes();
+                } catch (e) {
+                    console.warn('[Flows] Auto-refresh failed:', e);
+                }
+            }, AUTO_REFRESH_INTERVAL_MS);
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                console.log('[Flows] Stopping auto-refresh');
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+        }
+
+        /**
+         * Lightweight update of flow execution times without full reload
+         */
+        async function updateFlowExecutionTimes() {
+            try {
+                // Fetch all flows to get updated execution info
+                const response = await fetch(`${window.flowManager.apiBase}/flows`);
+                if (!response.ok) return;
+
+                const data = await response.json();
+                const flowList = data.flows || data || [];
+
+                // Update each flow card's execution time
+                for (const flow of flowList) {
+                    const flowId = flow.flow_id;
+
+                    // Update last executed time
+                    const lastExecEl = document.querySelector(`[data-flow-id="${flowId}"] .last-executed, [data-flow-id="${flowId}"] .flow-meta .meta-item:nth-child(2)`);
+                    if (lastExecEl && flow.last_executed) {
+                        const timeAgo = formatTimeAgo(flow.last_executed);
+                        if (lastExecEl.textContent !== timeAgo) {
+                            lastExecEl.innerHTML = `<span class="meta-label">Last Run:</span> ${timeAgo}`;
+                        }
+                    }
+
+                    // Update execution count
+                    const execCountEl = document.querySelector(`[data-flow-id="${flowId}"] .execution-count`);
+                    if (execCountEl) {
+                        const newCount = `${flow.execution_count || 0} runs`;
+                        if (!execCountEl.textContent.includes(flow.execution_count)) {
+                            execCountEl.textContent = newCount;
+                        }
+                    }
+                }
+            } catch (e) {
+                // Silently fail - this is just a background update
+            }
+        }
+
+        // Stop auto-refresh when page is hidden, restart when visible
+        document.addEventListener('visibilitychange', () => {
+            const toggle = document.getElementById('autoRefreshToggle');
+            if (document.visibilityState === 'hidden') {
+                stopAutoRefresh();
+            } else if (toggle?.checked) {
+                startAutoRefresh();
+            }
+        });
+
+        // Initialize auto-refresh after page load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupAutoRefresh);
+        } else {
+            setupAutoRefresh();
+        }
     </script>
 </body>
 </html>

@@ -108,6 +108,18 @@ class IconBackgroundFetcher:
                 device_id, package_name = self.queue.popleft()
                 key = f"{device_id}:{package_name}"
 
+                # Skip if wizard is active on this device (avoid ADB contention)
+                try:
+                    from main import wizard_active_devices
+                    if device_id in wizard_active_devices:
+                        logger.debug(f"[IconBackgroundFetcher] Skipping {package_name} - wizard active on {device_id}")
+                        # Re-queue for later
+                        self.queue.append((device_id, package_name))
+                        await asyncio.sleep(5)  # Wait before retrying
+                        continue
+                except ImportError:
+                    pass  # wizard_active_devices not available
+
                 # Mark as processing
                 self.processing.add(key)
 

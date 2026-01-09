@@ -401,6 +401,9 @@ class FlowScheduler:
         self._last_execution: Dict[str, datetime] = {}
         self._total_executions: Dict[str, int] = {}
 
+        # Track which flow_ids are currently queued per device (prevents duplicate queueing)
+        self._queued_flow_ids: Dict[str, set] = {}
+
         # Unlock debounce tracking - prevents rapid unlock attempts
         self._last_unlock_attempt: Dict[str, float] = {}
         self._unlock_debounce_seconds: int = 30  # Match frontend debounce
@@ -487,6 +490,7 @@ class FlowScheduler:
         - 15-19: Low priority periodic
         """
         device_id = flow.device_id
+        flow_id = flow.flow_id
 
         # Create queue and lock if needed
         if device_id not in self._queues:
@@ -494,6 +498,17 @@ class FlowScheduler:
             self._device_locks[device_id] = asyncio.Lock()
             self._queue_depths[device_id] = 0
             self._total_executions[device_id] = 0
+            self._queued_flow_ids[device_id] = set()
+
+        # Initialize queued flow tracking if needed
+        if device_id not in self._queued_flow_ids:
+            self._queued_flow_ids[device_id] = set()
+
+        # SMART QUEUE: Skip if flow already queued (unless on-demand)
+        # On-demand (priority < 5) always allowed - user explicitly wants it
+        if reason == "periodic" and flow_id in self._queued_flow_ids[device_id]:
+            logger.info(f"[FlowScheduler] Skipping {flow_id} - already queued (queue_depth={self._queue_depths.get(device_id, 0)})")
+            return
 
         # Create queued flow item
         queued = QueuedFlow(
@@ -503,13 +518,16 @@ class FlowScheduler:
             reason=reason
         )
 
+        # Track that this flow is now queued
+        self._queued_flow_ids[device_id].add(flow_id)
+
         # Add to queue
         await self._queues[device_id].put(queued)
 
         # Update metrics
         self._queue_depths[device_id] = self._queues[device_id].qsize()
 
-        logger.debug(f"[FlowScheduler] Queued flow {flow.flow_id} (priority={priority}, reason={reason}, queue_depth={self._queue_depths[device_id]})")
+        logger.debug(f"[FlowScheduler] Queued flow {flow_id} (priority={priority}, reason={reason}, queue_depth={self._queue_depths[device_id]})")
 
         # Start scheduler task if not running
         if device_id not in self._scheduler_tasks or self._scheduler_tasks[device_id].done():
@@ -547,6 +565,11 @@ class FlowScheduler:
             try:
                 # 1. Wait for flow (blocks until available)
                 queued = await queue.get()
+
+                # Remove from queued tracking (flow is now being processed)
+                flow_id = queued.flow.flow_id
+                if device_id in self._queued_flow_ids:
+                    self._queued_flow_ids[device_id].discard(flow_id)
 
                 # 2. Check if flow still enabled
                 if not queued.flow.enabled:
@@ -934,20 +957,23 @@ class FlowScheduler:
             logger.debug(f"[FlowScheduler] No queue for device {device_id}")
             return 0
 
-        # Get the old queue and replace with new empty queue
-        old_queue = self._queues[device_id]
-        self._queues[device_id] = asyncio.PriorityQueue()
-
-        # Count how many were cancelled (drain the old queue)
+        # Drain the existing queue (DON'T replace with new queue - that breaks
+        # the scheduler task's reference to the queue object!)
+        queue = self._queues[device_id]
         cancelled = 0
-        while not old_queue.empty():
+        while not queue.empty():
             try:
-                old_queue.get_nowait()
+                queue.get_nowait()
+                queue.task_done()  # Mark task as done to prevent blocking
                 cancelled += 1
             except asyncio.QueueEmpty:
                 break
 
         self._queue_depths[device_id] = 0
+
+        # Clear queued flow tracking
+        if device_id in self._queued_flow_ids:
+            self._queued_flow_ids[device_id].clear()
 
         if cancelled > 0:
             logger.info(f"[FlowScheduler] Cancelled {cancelled} queued flows for {device_id} (wizard opened)")

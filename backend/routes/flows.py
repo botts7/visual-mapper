@@ -55,7 +55,21 @@ async def get_flow_schema(service: FlowService = Depends(get_flow_service)):
 async def create_flow(flow_data: dict, service: FlowService = Depends(get_flow_service)):
     """Create a new flow"""
     try:
-        return await service.create_flow(flow_data)
+        result = await service.create_flow(flow_data)
+
+        # CRITICAL: Reload scheduler to register periodic task for the new flow
+        # Without this, newly created flows won't run on schedule until server restart
+        device_id = flow_data.get("device_id")
+        if device_id and flow_data.get("enabled", True):
+            deps = get_deps()
+            if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
+                try:
+                    await deps.flow_scheduler.reload_flows(device_id)
+                    logger.info(f"[API] Reloaded scheduler for device {device_id} after flow creation")
+                except Exception as e:
+                    logger.warning(f"[API] Failed to reload scheduler after flow creation: {e}")
+
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -493,6 +507,46 @@ async def resume_scheduler():
         return {"success": False, "message": "Scheduler not available"}
     except Exception as e:
         logger.error(f"[API] Failed to resume scheduler: {e}", exc_info=True)
+
+
+@router.post("/scheduler/clear-queue/{device_id}")
+async def clear_device_queue(device_id: str):
+    """Clear all queued flows for a specific device"""
+    deps = get_deps()
+    try:
+        if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
+            cancelled = await deps.flow_scheduler.cancel_queued_flows_for_device(device_id)
+            return {
+                "success": True,
+                "message": f"Cleared {cancelled} queued flow(s) for {device_id}",
+                "cancelled": cancelled
+            }
+        return {"success": False, "message": "Scheduler not available"}
+    except Exception as e:
+        logger.error(f"[API] Failed to clear queue: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/scheduler/clear-queue")
+async def clear_all_queues():
+    """Clear all queued flows for all devices"""
+    deps = get_deps()
+    try:
+        if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
+            total_cancelled = 0
+            # Get all device IDs with queues
+            status = deps.flow_scheduler.get_status()
+            for device_id in status.get("devices", {}).keys():
+                cancelled = await deps.flow_scheduler.cancel_queued_flows_for_device(device_id)
+                total_cancelled += cancelled
+            return {
+                "success": True,
+                "message": f"Cleared {total_cancelled} queued flow(s) across all devices",
+                "cancelled": total_cancelled
+            }
+        return {"success": False, "message": "Scheduler not available"}
+    except Exception as e:
+        logger.error(f"[API] Failed to clear queues: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -544,6 +598,21 @@ async def set_wizard_active(device_id: str):
 
 @router.delete("/wizard/active/{device_id}")
 async def set_wizard_inactive(device_id: str):
+    """Mark wizard inactive for device (DELETE method)"""
+    return await _release_wizard(device_id)
+
+
+@router.post("/wizard/release/{device_id}")
+async def release_wizard_post(device_id: str):
+    """
+    Mark wizard inactive for device (POST method for sendBeacon compatibility).
+    sendBeacon only supports POST, so this endpoint allows reliable cleanup on page unload.
+    """
+    return await _release_wizard(device_id)
+
+
+async def _release_wizard(device_id: str):
+    """Internal helper to release wizard lock for a device"""
     import main  # Lazy import to avoid circular dependency
     deps = get_deps()
 
@@ -572,6 +641,7 @@ async def set_wizard_inactive(device_id: str):
 
     logger.info(f"[API] Wizard inactive for device(s): {removed_ids} ({len(main.wizard_active_devices)} remaining)")
     return {"success": True, "device_id": device_id, "removed_ids": removed_ids, "active": False}
+
 
 @router.get("/wizard/active/{device_id}")
 async def get_wizard_active(device_id: str):

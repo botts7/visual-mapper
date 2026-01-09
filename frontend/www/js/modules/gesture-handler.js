@@ -110,7 +110,11 @@ export async function onGestureEnd(wizard, e) {
     // CSS scale factor: canvas bitmap coords to display coords (accounts for zoom)
     const cssScale = canvasRect.width / wizard.canvas.width;
 
-    if (distance < wizard.MIN_SWIPE_DISTANCE) {
+    // Debug: Log distance and threshold
+    const minDistance = wizard.MIN_SWIPE_DISTANCE || 30;
+    console.log(`[GestureHandler] Gesture distance: ${distance.toFixed(1)}px (threshold: ${minDistance}px)`);
+
+    if (distance < minDistance) {
         // It's a tap
         console.log(`[GestureHandler] Tap at canvas (${wizard.dragStart.canvasX}, ${wizard.dragStart.canvasY})`);
 
@@ -160,9 +164,16 @@ export async function executeSwipeGesture(wizard, startCanvasX, startCanvasY, en
     if (wizard.captureMode === 'streaming' && wizard.liveStream) {
         startDevice = wizard.liveStream.canvasToDevice(startCanvasX, startCanvasY);
         endDevice = wizard.liveStream.canvasToDevice(endCanvasX, endCanvasY);
-    } else {
+    } else if (wizard.canvasRenderer) {
         startDevice = wizard.canvasRenderer.canvasToDevice(startCanvasX, startCanvasY);
         endDevice = wizard.canvasRenderer.canvasToDevice(endCanvasX, endCanvasY);
+    }
+
+    // Handle null coordinates (no image loaded yet)
+    if (!startDevice || !endDevice) {
+        console.warn('[GestureHandler] Cannot convert coordinates - no image loaded');
+        showToast('Swipe failed: wait for stream to load', 'warning');
+        return;
     }
 
     console.log(`[GestureHandler] Executing swipe: (${startDevice.x},${startDevice.y}) -> (${endDevice.x},${endDevice.y})`);
@@ -181,8 +192,11 @@ export async function executeSwipeGesture(wizard, startCanvasX, startCanvasY, en
             })
         });
 
+        const result = await response.json();
+        console.log('[GestureHandler] Swipe API response:', result);
+
         if (!response.ok) {
-            throw new Error('Failed to execute swipe');
+            throw new Error(result.detail || 'Failed to execute swipe');
         }
 
         // Build swipe step

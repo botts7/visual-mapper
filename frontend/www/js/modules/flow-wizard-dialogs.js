@@ -44,8 +44,12 @@ export async function createTextSensor(wizard, element, coords, elementIndex = 0
     console.log('[FlowWizard] Opening sensor creator for element:', element, 'index:', elementIndex);
 
     // Use full SensorCreator dialog (same as sensors.html page)
+    // Include screen activity for deduplication matching
+    const screenActivity = wizard.recorder?.currentScreenActivity || wizard.currentActivity || null;
     wizard.sensorCreator.show(wizard.selectedDevice, element, elementIndex, {
-        stableDeviceId: wizard.selectedDeviceStableId || wizard.selectedDevice
+        stableDeviceId: wizard.selectedDeviceStableId || wizard.selectedDevice,
+        screenActivity: screenActivity,
+        targetApp: wizard.selectedApp?.package || null
     });
 
     // Note: SensorCreator handles saving directly via API
@@ -75,8 +79,12 @@ export async function createImageSensor(wizard, element, coords, elementIndex = 
     console.log('[FlowWizard] Opening sensor creator for image element:', element, 'index:', elementIndex);
 
     // Use full SensorCreator dialog (same as sensors.html page)
+    // Include screen activity for deduplication matching
+    const screenActivity = wizard.recorder?.currentScreenActivity || wizard.currentActivity || null;
     wizard.sensorCreator.show(wizard.selectedDevice, element, elementIndex, {
-        stableDeviceId: wizard.selectedDeviceStableId || wizard.selectedDevice
+        stableDeviceId: wizard.selectedDeviceStableId || wizard.selectedDevice,
+        screenActivity: screenActivity,
+        targetApp: wizard.selectedApp?.package || null
     });
     // Callback will be triggered by onSensorCreated when sensor is created
 }

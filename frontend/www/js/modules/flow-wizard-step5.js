@@ -1,10 +1,11 @@
 /**
  * Flow Wizard Step 5 - Settings & Save
- * Visual Mapper v0.0.9
- * v0.0.6: Added headless mode options (auto_wake_before, auto_sleep_after, verify_screen_on)
- * v0.0.7: Use connection ID for device_id and include stable_device_id in saved flows
- * v0.0.8: Prevent duplicate save submissions
+ * Visual Mapper v0.0.10
+ * v0.0.10: Release wizard lock and resume scheduler BEFORE redirect to ensure flows run
  * v0.0.9: Include start-from-current-screen setting in saved flows
+ * v0.0.8: Prevent duplicate save submissions
+ * v0.0.7: Use connection ID for device_id and include stable_device_id in saved flows
+ * v0.0.6: Added headless mode options (auto_wake_before, auto_sleep_after, verify_screen_on)
  */
 
 import { showToast } from './toast.js?v=0.0.5';
@@ -136,6 +137,26 @@ export async function saveFlow(wizard) {
         showToast('Flow saved successfully!', 'success', 3000);
 
         const result = await showFlowSavedDialog(savedFlow);
+
+        // CRITICAL: Release wizard lock BEFORE redirect/reset to ensure scheduler can run flows
+        if (wizard._wizardActiveDevice) {
+            try {
+                console.log('[Step5] Releasing wizard lock before navigation...');
+                await fetch(`${getApiBase()}/wizard/release/${encodeURIComponent(wizard._wizardActiveDevice)}`, { method: 'POST' });
+                wizard._wizardActiveDevice = null;
+                console.log('[Step5] Wizard lock released');
+            } catch (e) {
+                console.warn('[Step5] Could not release wizard lock:', e);
+            }
+        }
+
+        // Also resume scheduler
+        try {
+            await fetch(`${getApiBase()}/scheduler/resume`, { method: 'POST' });
+            console.log('[Step5] Scheduler resumed');
+        } catch (e) {
+            console.warn('[Step5] Could not resume scheduler:', e);
+        }
 
         if (result === 'view') {
             window.location.href = 'flows.html';

@@ -1,6 +1,6 @@
 /**
  * Visual Mapper - Live Stream Module
- * Version: 0.0.34 (fix squashed orientation - update deviceWidth/Height from actual frame)
+ * Version: 0.0.36 (improved smart refresh - better hash, more debug logging)
  *
  * WebSocket-based live screenshot streaming with UI element overlays.
  * Supports two modes:
@@ -79,6 +79,7 @@ class LiveStream {
         this.onError = null;
         this.onMetricsUpdate = null;
         this.onConnectionStateChange = null; // New callback for connection state
+        this.onScreenChange = null;          // Smart refresh: fires when screen stabilizes after change
 
         // Overlay settings
         this.showOverlays = true;
@@ -93,9 +94,11 @@ class LiveStream {
         // Element staleness tracking - hide elements when screen content has changed significantly
         this.elementsTimestamp = 0;      // When elements were last fetched
         this.autoHideStaleElements = false; // DISABLED by default - too sensitive to compression artifacts
+        this.smartRefreshEnabled = true;  // Smart refresh: detect screen changes and fire onScreenChange callback
         this._lastFrameHash = 0;         // Simple hash of last frame for change detection
         this._screenChanged = false;     // True if screen content changed since last element refresh
         this._significantChangeThreshold = 3; // Require 3 consecutive different frames to trigger
+        this._lastScreenChangeCallback = 0;  // Rate limiting for screen change callback
 
         // OPTIMIZATION: Cache filtered elements to avoid re-filtering every frame
         this._filteredElements = [];
@@ -774,10 +777,10 @@ class LiveStream {
             }
         }
 
-        // Detect if screen content has changed (for stale element detection)
-        // Skip this expensive operation if autoHideStaleElements is disabled
-        // Saves 5-10ms per frame by avoiding canvas creation + getImageData()
-        if (this.autoHideStaleElements) {
+        // Detect if screen content has changed (for stale element detection or smart refresh)
+        // Enabled when: autoHideStaleElements OR smartRefreshEnabled with callback
+        // Note: Adds ~5-10ms per frame due to canvas sampling + hash
+        if (this.autoHideStaleElements || (this.smartRefreshEnabled && this.onScreenChange)) {
             this._detectScreenChange(img);
         }
 
@@ -985,23 +988,26 @@ class LiveStream {
 
     /**
      * Compute a simple hash of image data for change detection
-     * Samples pixels at regular intervals for performance
+     * Samples pixels in a grid pattern for better coverage of screen changes
      * @param {ImageData} imageData - Canvas image data
      * @returns {number} Simple hash value
      */
     _computeFrameHash(imageData) {
         const data = imageData.data;
         let hash = 0;
-        // Sample every 1000th pixel for performance (covers ~1000 samples on a 1M pixel image)
-        const step = Math.max(1, Math.floor(data.length / 4000)) * 4;
+        // Sample more densely for better change detection
+        // With 100x100 canvas (40000 bytes), sample every ~40 bytes = 1000 samples
+        const step = Math.max(4, Math.floor(data.length / 4000));
         for (let i = 0; i < data.length; i += step) {
-            hash = ((hash << 5) - hash + data[i]) | 0;
+            // Combine R, G, B channels (skip alpha) for better sensitivity
+            hash = ((hash << 5) - hash + data[i] + data[i+1] + data[i+2]) | 0;
         }
         return hash;
     }
 
     /**
      * Detect if screen content has changed significantly
+     * When screen changes and then stabilizes, fires onScreenChange callback
      * @param {Image} img - New frame image
      */
     _detectScreenChange(img) {
@@ -1018,10 +1024,32 @@ class LiveStream {
 
             // Compare with previous frame
             if (this._lastFrameHash !== 0 && newHash !== this._lastFrameHash) {
+                // Screen changed - track that we're in a "changing" state
+                if (!this._screenChanged) {
+                    console.log('[LiveStream] Smart: screen change detected');
+                }
                 this._screenChanged = true;
                 this._stableFrameCount = 0;
             } else {
                 this._stableFrameCount++;
+
+                // Screen stabilized after a change - fire callback
+                // Wait for 3 consecutive stable frames to avoid false positives from compression
+                if (this._screenChanged && this._stableFrameCount >= 3) {
+                    this._screenChanged = false;
+
+                    // Rate limit: don't fire more than once per second
+                    const now = Date.now();
+                    if (!this._lastScreenChangeCallback || now - this._lastScreenChangeCallback > 1000) {
+                        this._lastScreenChangeCallback = now;
+                        console.log('[LiveStream] Smart: screen stabilized, triggering refresh');
+                        if (this.onScreenChange) {
+                            this.onScreenChange();
+                        }
+                    } else {
+                        console.log('[LiveStream] Smart: screen stabilized but rate limited');
+                    }
+                }
             }
 
             this._lastFrameHash = newHash;
@@ -1038,7 +1066,7 @@ class LiveStream {
         this._screenChanged = false;
         this._framesSinceElements = 0;
         this._stableFrameCount = 0;
-        console.log('[LiveStream] Screen change tracking reset');
+        // Don't log - this is called frequently and creates noise
     }
 
     /**

@@ -328,23 +328,30 @@ class MQTTManager:
         # Reference: https://www.home-assistant.io/integrations/mqtt/#discovery-topic
         return device_id.replace(":", "_").replace(".", "_").replace("/", "_").replace("+", "_").replace("#", "_")
 
+    def _get_device_id_for_topic(self, sensor: SensorDefinition) -> str:
+        """Get the best device ID to use for MQTT topics (prefer stable_device_id)"""
+        # Use stable_device_id if available to prevent duplicates when IP changes
+        if sensor.stable_device_id:
+            return sensor.stable_device_id
+        return sensor.device_id
+
     def _get_discovery_topic(self, sensor: SensorDefinition) -> str:
         """Get MQTT discovery topic for sensor"""
         # homeassistant/sensor/{device_id}/{sensor_id}/config
         component = "binary_sensor" if sensor.sensor_type == "binary_sensor" else "sensor"
-        sanitized_device = self._sanitize_device_id(sensor.device_id)
+        sanitized_device = self._sanitize_device_id(self._get_device_id_for_topic(sensor))
         return f"{self.discovery_prefix}/{component}/{sanitized_device}/{sensor.sensor_id}/config"
 
     def _get_state_topic(self, sensor: SensorDefinition) -> str:
         """Get state topic for sensor"""
         # visual_mapper/{device_id}/{sensor_id}/state
-        sanitized_device = self._sanitize_device_id(sensor.device_id)
+        sanitized_device = self._sanitize_device_id(self._get_device_id_for_topic(sensor))
         return f"visual_mapper/{sanitized_device}/{sensor.sensor_id}/state"
 
     def _get_attributes_topic(self, sensor: SensorDefinition) -> str:
         """Get attributes topic for sensor"""
         # visual_mapper/{device_id}/{sensor_id}/attributes
-        sanitized_device = self._sanitize_device_id(sensor.device_id)
+        sanitized_device = self._sanitize_device_id(self._get_device_id_for_topic(sensor))
         return f"visual_mapper/{sanitized_device}/{sensor.sensor_id}/attributes"
 
     def _get_availability_topic(self, device_id: str) -> str:

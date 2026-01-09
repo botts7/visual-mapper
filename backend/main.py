@@ -573,6 +573,9 @@ async def lifespan(app: FastAPI):
         mqtt_manager.set_generated_flow_callback(on_generated_flow)
         logger.info("[Server] ✅ Subscribed to generated flows (Android exploration)")
 
+        # Track devices that have had discovery published to prevent duplicates
+        devices_with_discovery_published = set()
+
         # Register callback to publish MQTT discovery when devices are discovered
         async def on_device_discovered(device_id: str, model: str = None):
             """Callback triggered when ADB bridge auto-imports a device"""
@@ -596,24 +599,29 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     logger.warning(f"[Server] Device migration check failed for {device_id}: {e}")
 
-                # Publish sensor discoveries
-                sensors = sensor_manager.get_all_sensors(device_id)
-                if sensors:
-                    logger.info(f"[Server] Device discovered: {device_id} - Publishing MQTT discovery for {len(sensors)} sensors")
-                    for sensor in sensors:
-                        try:
-                            # Publish discovery config
-                            await mqtt_manager.publish_discovery(sensor)
-                            logger.debug(f"[Server] Published discovery for {sensor.sensor_id}")
-
-                            # Publish initial state if sensor has current_value
-                            if sensor.current_value:
-                                await mqtt_manager.publish_state(sensor, sensor.current_value)
-                                logger.info(f"[Server] Published initial state for {sensor.sensor_id}: {sensor.current_value}")
-                        except Exception as e:
-                            logger.error(f"[Server] Failed to publish discovery for {sensor.sensor_id}: {e}")
+                # Publish sensor discoveries (skip if already published for this device)
+                if device_id in devices_with_discovery_published:
+                    logger.info(f"[Server] Device {device_id} already had discovery published, skipping callback")
                 else:
-                    logger.debug(f"[Server] Device discovered: {device_id} - No sensors configured yet")
+                    sensors = sensor_manager.get_all_sensors(device_id)
+                    if sensors:
+                        logger.info(f"[Server] Device discovered: {device_id} - Publishing MQTT discovery for {len(sensors)} sensors")
+                        for sensor in sensors:
+                            try:
+                                # Publish discovery config
+                                await mqtt_manager.publish_discovery(sensor)
+                                logger.debug(f"[Server] Published discovery for {sensor.sensor_id}")
+
+                                # Publish initial state if sensor has current_value
+                                if sensor.current_value:
+                                    await mqtt_manager.publish_state(sensor, sensor.current_value)
+                                    logger.info(f"[Server] Published initial state for {sensor.sensor_id}: {sensor.current_value}")
+                            except Exception as e:
+                                logger.error(f"[Server] Failed to publish discovery for {sensor.sensor_id}: {e}")
+                        # Mark device as having discovery published
+                        devices_with_discovery_published.add(device_id)
+                    else:
+                        logger.debug(f"[Server] Device discovered: {device_id} - No sensors configured yet")
 
                 # Publish action discoveries
                 actions = action_manager.list_actions(device_id)
@@ -724,6 +732,11 @@ async def lifespan(app: FastAPI):
                 for device in devices:
                     device_id = device["id"]
 
+                    # Skip if already published via on_device_discovered callback
+                    if device_id in devices_with_discovery_published:
+                        logger.info(f"[Server] Device {device_id} already had discovery published, skipping delayed")
+                        continue
+
                     # Publish sensor discoveries
                     sensors = sensor_manager.get_all_sensors(device_id)
                     if sensors:
@@ -740,6 +753,8 @@ async def lifespan(app: FastAPI):
                                     logger.info(f"[Server] Published delayed state for {sensor.sensor_id}: {sensor.current_value}")
                             except Exception as e:
                                 logger.error(f"[Server] Failed delayed discovery for {sensor.sensor_id}: {e}")
+                        # Mark as published
+                        devices_with_discovery_published.add(device_id)
 
                     # Publish action discoveries
                     actions = action_manager.list_actions(device_id)
