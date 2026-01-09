@@ -18,6 +18,9 @@ import numpy as np
 import io
 from services.feature_manager import get_feature_manager
 
+# Initialize logger BEFORE conditional imports that may need it
+logger = logging.getLogger(__name__)
+
 # Conditional OpenCV import for basic mode
 feature_manager = get_feature_manager()
 CV2_AVAILABLE = False
@@ -53,8 +56,6 @@ from ss_modules.device import DeviceController
 from ss_modules.elements import ElementAnalyzer
 from ss_modules.overlap import OverlapDetector
 from ss_modules.compose import ImageComposer
-
-logger = logging.getLogger(__name__)
 
 
 class ScreenshotStitcher:
