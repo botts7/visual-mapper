@@ -368,8 +368,9 @@ class MQTTManager:
         # Use stable_device_id if available (survives IP/port changes), otherwise fall back to device_id
         stable_id = sensor.stable_device_id or sensor.device_id
 
-        # IMPORTANT: availability_topic must use same ID as where we publish availability
-        availability_topic = self._get_availability_topic(stable_id)
+        # IMPORTANT: availability_topic must use device_id to match where we publish availability
+        # We always publish availability to device_id (IP:port) for consistency
+        availability_topic = self._get_availability_topic(sensor.device_id)
         sanitized_stable_id = self._sanitize_device_id(stable_id)
         sanitized_device = self._sanitize_device_id(sensor.device_id)
 
@@ -665,28 +666,19 @@ class MQTTManager:
         Args:
             device_id: Connection ID (e.g., 192.168.86.2:46747)
             online: True for online, False for offline
-            stable_device_id: Optional stable ID (e.g., R9YT50J4S9D) - if not provided, will look up from sensor_manager
+            stable_device_id: Optional stable ID - IGNORED, always use device_id for consistency
         """
         if not self._connected or not self.client:
             logger.error("[MQTTManager] Not connected to broker")
             return False
 
         try:
-            # Use stable_device_id if available (matches sensor discovery topics)
-            # Otherwise try to look it up from sensors, fallback to device_id
-            effective_id = stable_device_id
-            if not effective_id and hasattr(self, 'sensor_manager') and self.sensor_manager:
-                # Try to find stable ID from any sensor for this device
-                sensors = self.sensor_manager.get_all_sensors(device_id)
-                if sensors and len(sensors) > 0:
-                    effective_id = sensors[0].stable_device_id
-            if not effective_id:
-                effective_id = device_id
-
-            topic = self._get_availability_topic(effective_id)
+            # ALWAYS use device_id for availability to match discovery config
+            # This ensures discovery availability_topic matches where we publish
+            topic = self._get_availability_topic(device_id)
             payload = "online" if online else "offline"
 
-            logger.debug(f"[MQTTManager] Publishing availability to {topic} (device_id={device_id}, stable_id={effective_id})")
+            logger.debug(f"[MQTTManager] Publishing availability to {topic} (device_id={device_id})")
 
             if IS_WINDOWS:
                 result = self.client.publish(topic, payload, retain=True)
