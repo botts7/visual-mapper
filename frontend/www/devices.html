@@ -245,6 +245,7 @@
                             <label for="connectionPort">Connection Port</label>
                             <input type="number" id="connectionPort" placeholder="45441" style="width: 100px;">
                         </div>
+                        <button id="pairBtn" class="btn btn-primary" style="align-self: flex-end;">Pair & Connect</button>
                     </div>
                 </div>
 
@@ -1320,7 +1321,8 @@
             }
         });
 
-        document.getElementById('connectBtn').addEventListener('click', async () => {
+        // Shared connection handler for both connectBtn and pairBtn
+        async function handleConnect() {
             const connectionType = document.getElementById('connectionType').value;
             const status = document.getElementById('connectionStatus');
 
@@ -1395,7 +1397,13 @@
                 status.textContent = `✗ Connection failed: ${error.message}`;
                 status.className = 'status error';
             }
-        });
+        }
+
+        // Connect button (for TCP/Wireless modes)
+        document.getElementById('connectBtn').addEventListener('click', handleConnect);
+
+        // Pair button (for Pairing mode)
+        document.getElementById('pairBtn').addEventListener('click', handleConnect);
 
         // Disconnect device handler (exposed globally for inline onclick)
         window.disconnectDeviceHandler = async (deviceId) => {
