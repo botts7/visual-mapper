@@ -209,26 +209,33 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         }
     )
 
+# Data Directory Configuration (HA Add-on Compatibility)
+# Standalone: ./data (relative to CWD)
+# HA Add-on: /config/visual_mapper (persistent storage mapped from Home Assistant)
+DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+logger.info(f"[Server] Data directory: {DATA_DIR.absolute()}")
+
 # Initialize ADB Bridge
 adb_bridge = ADBBridge()
 
 # Initialize Device Migrator (handles IP/port changes)
-device_migrator = DeviceMigrator()
+device_migrator = DeviceMigrator(data_dir=str(DATA_DIR), config_dir=str(DATA_DIR))
 
 # Initialize Sensor Manager and Text Extractor
-sensor_manager = SensorManager()
+sensor_manager = SensorManager(data_dir=str(DATA_DIR))
 text_extractor = TextExtractor()
 element_text_extractor = ElementTextExtractor(text_extractor)
 
 # Initialize Action Manager and Executor
-action_manager = ActionManager()
+action_manager = ActionManager(data_dir=str(DATA_DIR))
 action_executor = ActionExecutor(adb_bridge)
 
 # Initialize Device Security Manager
-device_security_manager = DeviceSecurityManager()
+device_security_manager = DeviceSecurityManager(data_dir=str(DATA_DIR))
 
 # Initialize Navigation Manager (learns app navigation hierarchy)
-navigation_manager = NavigationManager()
+navigation_manager = NavigationManager(config_dir=str(DATA_DIR / "navigation"))
 
 # Initialize MQTT Manager (will be configured on startup)
 mqtt_manager: Optional[MQTTManager] = None
@@ -249,15 +256,6 @@ stream_manager: Optional['StreamManager'] = None
 adb_maintenance: Optional['ADBMaintenance'] = None
 shell_pool: Optional['PersistentShellPool'] = None
 connection_monitor: Optional['ConnectionMonitor'] = None
-
-# Data Directory Configuration (HA Add-on Compatibility)
-# Standalone: ./data (relative to CWD)
-# HA Add-on: /data (persistent storage in Docker)
-DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
-
-# Ensure data directory exists on startup
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-logger.info(f"[Server] Data directory: {DATA_DIR.absolute()}")
 
 # MQTT Configuration (loaded from environment or config)
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
@@ -378,6 +376,7 @@ async def lifespan(app: FastAPI):
         username=MQTT_USERNAME if MQTT_USERNAME else None,
         password=MQTT_PASSWORD if MQTT_PASSWORD else None,
         discovery_prefix=MQTT_DISCOVERY_PREFIX,
+        data_dir=str(DATA_DIR),
         tls_config=mqtt_tls_config
     )
     # Link sensor_manager for stable_device_id lookup in availability publishing
@@ -435,8 +434,12 @@ async def lifespan(app: FastAPI):
     # Phase 8: Initialize Flow System (independent of MQTT)
     logger.info("[Server] Initializing Flow System (Phase 8)")
 
-    # Initialize components
-    flow_manager = FlowManager(data_dir=str(DATA_DIR))
+    # Initialize components - use DATA_DIR for persistent storage
+    flow_manager = FlowManager(
+        storage_dir=str(DATA_DIR / "flows"),
+        template_dir=str(DATA_DIR / "flow_templates"),
+        data_dir=str(DATA_DIR)
+    )
     execution_history = FlowExecutionHistory()  # Track detailed flow execution logs
 
     flow_executor = FlowExecutor(
