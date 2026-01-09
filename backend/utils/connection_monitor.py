@@ -283,9 +283,10 @@ class ConnectionMonitor:
                 status["retry_count"] = 0
                 status["retry_delay"] = 10
 
-                # Update MQTT availability
+                # Update MQTT availability (use stable_device_id if available)
                 if self.mqtt_manager:
-                    await self.mqtt_manager.publish_availability(device_id, "online")
+                    stable_id = status.get("stable_device_id")
+                    await self.mqtt_manager.publish_availability(device_id, online=True, stable_device_id=stable_id)
 
                 # Trigger reconnect callbacks
                 for callback in self._on_device_reconnected:
@@ -307,9 +308,10 @@ class ConnectionMonitor:
                 status["state"] = "offline"
                 status["retry_count"] = 0
 
-                # Update MQTT availability
+                # Update MQTT availability (use stable_device_id if available)
                 if self.mqtt_manager:
-                    await self.mqtt_manager.publish_availability(device_id, "offline")
+                    stable_id = status.get("stable_device_id")
+                    await self.mqtt_manager.publish_availability(device_id, online=False, stable_device_id=stable_id)
 
                 # Trigger disconnect callbacks
                 for callback in self._on_device_disconnected:
@@ -357,7 +359,8 @@ class ConnectionMonitor:
             status["retry_delay"] = 10
 
             if self.mqtt_manager:
-                await self.mqtt_manager.publish_availability(device_id, "online")
+                stable_id = status.get("stable_device_id")
+                await self.mqtt_manager.publish_availability(device_id, online=True, stable_device_id=stable_id)
 
             for callback in self._on_device_reconnected:
                 try:
