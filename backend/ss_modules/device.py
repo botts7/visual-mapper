@@ -18,7 +18,6 @@ import subprocess
 from typing import Optional
 from PIL import Image
 import numpy as np
-import cv2
 
 logger = logging.getLogger(__name__)
 
@@ -383,10 +382,10 @@ class DeviceController:
             if arr1.shape != arr2.shape:
                 return 0.0
 
-            # Convert to grayscale for comparison
+            # Convert to grayscale for comparison using PIL
             if len(arr1.shape) == 3:
-                gray1 = cv2.cvtColor(arr1, cv2.COLOR_RGB2GRAY)
-                gray2 = cv2.cvtColor(arr2, cv2.COLOR_RGB2GRAY)
+                gray1 = np.array(img1.convert('L'))
+                gray2 = np.array(img2.convert('L'))
             else:
                 gray1, gray2 = arr1, arr2
 
