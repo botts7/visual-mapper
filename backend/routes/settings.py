@@ -5,29 +5,47 @@ Handles user preferences and saved device persistence
 
 import json
 import os
+from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
+from routes import get_deps
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-# Settings file path
-SETTINGS_FILE = "data/settings.json"
-SAVED_DEVICES_FILE = "data/saved_devices.json"
+
+def _get_data_dir() -> Path:
+    """Get data directory from deps, fallback to ./data"""
+    try:
+        deps = get_deps()
+        if deps.data_dir:
+            return Path(deps.data_dir)
+    except Exception:
+        pass
+    return Path("data")
+
+
+def _get_settings_file() -> Path:
+    return _get_data_dir() / "settings.json"
+
+
+def _get_saved_devices_file() -> Path:
+    return _get_data_dir() / "saved_devices.json"
 
 
 def ensure_data_dir():
     """Ensure data directory exists"""
-    os.makedirs("data", exist_ok=True)
+    _get_data_dir().mkdir(parents=True, exist_ok=True)
 
 
 def load_settings() -> dict:
     """Load settings from file"""
     ensure_data_dir()
+    settings_file = _get_settings_file()
     try:
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, 'r') as f:
+        if settings_file.exists():
+            with open(settings_file, 'r') as f:
                 return json.load(f)
     except Exception as e:
         print(f"[Settings] Failed to load settings: {e}")
@@ -37,8 +55,9 @@ def load_settings() -> dict:
 def save_settings(settings: dict):
     """Save settings to file"""
     ensure_data_dir()
+    settings_file = _get_settings_file()
     try:
-        with open(SETTINGS_FILE, 'w') as f:
+        with open(settings_file, 'w') as f:
             json.dump(settings, f, indent=2)
     except Exception as e:
         print(f"[Settings] Failed to save settings: {e}")
@@ -48,9 +67,10 @@ def save_settings(settings: dict):
 def load_saved_devices() -> list:
     """Load saved devices from file"""
     ensure_data_dir()
+    devices_file = _get_saved_devices_file()
     try:
-        if os.path.exists(SAVED_DEVICES_FILE):
-            with open(SAVED_DEVICES_FILE, 'r') as f:
+        if devices_file.exists():
+            with open(devices_file, 'r') as f:
                 return json.load(f)
     except Exception as e:
         print(f"[Settings] Failed to load saved devices: {e}")
@@ -60,8 +80,9 @@ def load_saved_devices() -> list:
 def save_saved_devices(devices: list):
     """Save devices to file"""
     ensure_data_dir()
+    devices_file = _get_saved_devices_file()
     try:
-        with open(SAVED_DEVICES_FILE, 'w') as f:
+        with open(devices_file, 'w') as f:
             json.dump(devices, f, indent=2)
     except Exception as e:
         print(f"[Settings] Failed to save devices: {e}")
