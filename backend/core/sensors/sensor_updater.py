@@ -260,8 +260,9 @@ class SensorUpdater:
                 attributes
             )
 
-            # Update sensor's current_value in memory (for API)
+            # Update sensor's current_value and last_updated in memory (for API)
             sensor.current_value = str(extracted_value)
+            sensor.last_updated = datetime.now()
             self.sensor_manager.update_sensor(sensor)
 
             logger.debug(f"[SensorUpdater] Updated {sensor.sensor_id}: {extracted_value}")

@@ -3,32 +3,101 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.0.44" data-build="2025-12-28">
+    <meta name="version" content="0.0.51" data-build="2026-01-10">
     <title>Diagnostics - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.44">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.51">
     <style>
+        /* Tab Navigation */
+        .diag-tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 20px;
+            overflow-x: auto;
+            background: var(--card-background);
+            border-radius: 8px 8px 0 0;
+        }
+        .diag-tab {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+        .diag-tab:hover {
+            color: var(--text-color);
+            background: var(--background-color);
+        }
+        .diag-tab.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+        .tab-panel {
+            display: none;
+        }
+        .tab-panel.active {
+            display: block;
+        }
+        /* Section styling */
+        .section-card {
+            background: var(--card-background);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+        }
+        .section-card h3 {
+            margin: 0 0 12px 0;
+            font-size: 15px;
+            color: var(--text-color);
+        }
+        .section-desc {
+            color: var(--text-secondary);
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+        /* Benchmark cards */
+        .benchmark-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+        .benchmark-card {
+            background: var(--background-color);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+        .benchmark-card h4 {
+            margin: 0 0 8px 0;
+            color: var(--text-secondary);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .benchmark-value {
+            font-size: 22px;
+            font-weight: bold;
+        }
+        .benchmark-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        /* Pipeline steps */
         .pipeline-step {
             background: var(--card-background);
             border: 1px solid var(--border-color);
             padding: 10px;
             margin: 10px 0;
             border-radius: 4px;
-        }
-        .loading-spinner {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid var(--border-color);
-            border-top-color: var(--primary-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            vertical-align: middle;
-            margin-right: 8px;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
         }
         .pipeline-step-header {
             display: flex;
@@ -45,377 +114,410 @@
             cursor: pointer;
             font-size: 12px;
         }
+        /* Loading spinner */
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        /* Device selector */
+        .device-select-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .device-select-row select {
+            min-width: 200px;
+            padding: 8px;
+        }
+        /* Results area */
+        .result-area {
+            margin-top: 12px;
+            padding: 10px;
+            background: var(--background-color);
+            border-radius: 6px;
+            min-height: 40px;
+        }
+        /* Two column layout for testing */
+        .test-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 15px;
+        }
+        @media (max-width: 768px) {
+            .diag-tab {
+                padding: 10px 14px;
+                font-size: 12px;
+            }
+            .test-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.44"></script>
+    <script type="module" src="js/init.js?v=0.0.51"></script>
     <div class="container">
-        <div class="card">
-            <h1>System Diagnostics</h1>
-            <p>Test all backend capabilities with full parameter support</p>
+        <!-- Page Header -->
+        <div class="card" style="margin-bottom: 0;">
+            <h1 style="margin: 0;">System Diagnostics</h1>
+            <p style="margin: 5px 0 0 0; color: var(--text-secondary);">Test backend capabilities, benchmarks, and system health</p>
         </div>
 
-        <!-- API Health Check -->
-        <div class="card">
-            <h2>API Health Check</h2>
-            <button id="testHealth" class="btn">Test API Health</button>
-            <div id="healthResult" style="margin-top:10px"></div>
+        <!-- Tab Navigation -->
+        <div class="diag-tabs">
+            <button class="diag-tab active" data-tab="health">Health</button>
+            <button class="diag-tab" data-tab="benchmarks">Benchmarks</button>
+            <button class="diag-tab" data-tab="maintenance">Maintenance</button>
+            <button class="diag-tab" data-tab="testing">Testing</button>
+            <button class="diag-tab" data-tab="flows">Flows</button>
+            <button class="diag-tab" data-tab="logs">Logs</button>
         </div>
 
-        <!-- ADB Connection Test -->
-        <div class="card">
-            <h2>ADB Connection Test</h2>
-            <button id="testAdb" class="btn">Test ADB Devices</button>
-            <div id="adbResult" style="margin-top:10px"></div>
-        </div>
+        <!-- TAB: Health -->
+        <div id="tab-health" class="tab-panel active">
+            <div class="test-grid">
+                <div class="section-card">
+                    <h3>API Health</h3>
+                    <button id="testHealth" class="btn btn-primary">Test API Health</button>
+                    <div id="healthResult" class="result-area"></div>
+                </div>
 
-        <!-- ADB Performance Benchmark -->
-        <div class="card">
-            <h2>ADB Performance Benchmark</h2>
-            <p style="color: var(--text-secondary); font-size: 13px;">Run performance tests to diagnose ADB speed issues</p>
-            <select id="benchDev" class="form-select" style="margin:10px 0"></select>
-            <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
-                <button id="runBenchmark" class="btn">Run Full Benchmark</button>
-                <button id="runQuickBenchmark" class="btn btn-secondary">Quick Test (1 sample)</button>
+                <div class="section-card">
+                    <h3>ADB Connection</h3>
+                    <button id="testAdb" class="btn btn-primary">Test ADB Devices</button>
+                    <div id="adbResult" class="result-area"></div>
+                </div>
+
+                <div class="section-card">
+                    <h3>MQTT Status</h3>
+                    <button id="testMqtt" class="btn btn-primary">Test MQTT</button>
+                    <div id="mqttResult" class="result-area"></div>
+                </div>
+
+                <div class="section-card">
+                    <h3>System Status</h3>
+                    <p class="section-desc">Server resource usage and health</p>
+                    <button id="testSystem" class="btn btn-primary">Check System</button>
+                    <div id="systemResult" class="result-area"></div>
+                </div>
             </div>
-            <div id="benchmarkResult" style="margin-top:10px"></div>
+        </div>
 
-            <!-- Benchmark Results Grid -->
-            <div id="benchmarkGrid" style="display:none;margin-top:15px;">
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px;">
-                    <!-- Screenshot Timing -->
-                    <div class="benchmark-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
-                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">Screenshot Capture</h4>
-                        <div id="screenshotStats">
-                            <div style="font-size:24px;font-weight:bold;" id="scrAvgTime">--</div>
-                            <div style="font-size:12px;color:var(--text-secondary);">avg capture time</div>
-                            <div style="margin-top:8px;font-size:13px;">
-                                <span>Min: <span id="scrMinTime">--</span></span> |
-                                <span>Max: <span id="scrMaxTime">--</span></span>
+        <!-- TAB: Benchmarks -->
+        <div id="tab-benchmarks" class="tab-panel">
+            <div class="section-card">
+                <h3>ADB Performance Benchmark</h3>
+                <p class="section-desc">Run performance tests to diagnose ADB speed issues</p>
+                <div class="device-select-row">
+                    <select id="benchDev" class="form-select"></select>
+                    <button id="runBenchmark" class="btn btn-primary">Run Full Benchmark</button>
+                    <button id="runQuickBenchmark" class="btn btn-secondary">Quick Test</button>
+                </div>
+                <div id="benchmarkResult"></div>
+                <div id="benchmarkGrid" style="display:none;">
+                    <div class="benchmark-grid">
+                        <div class="benchmark-card">
+                            <h4>Screenshot Capture</h4>
+                            <div class="benchmark-value" id="scrAvgTime">--</div>
+                            <div class="benchmark-label">avg capture time</div>
+                            <div style="margin-top:6px;font-size:12px;">
+                                Min: <span id="scrMinTime">--</span> | Max: <span id="scrMaxTime">--</span>
                             </div>
                         </div>
-                    </div>
-
-                    <!-- UI Dump Timing -->
-                    <div class="benchmark-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
-                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">UI Hierarchy Dump</h4>
-                        <div id="uiDumpStats">
-                            <div style="font-size:24px;font-weight:bold;" id="uiDumpTime">--</div>
-                            <div style="font-size:12px;color:var(--text-secondary);">dump time</div>
+                        <div class="benchmark-card">
+                            <h4>UI Hierarchy Dump</h4>
+                            <div class="benchmark-value" id="uiDumpTime">--</div>
+                            <div class="benchmark-label">dump time</div>
+                        </div>
+                        <div class="benchmark-card">
+                            <h4>Connection</h4>
+                            <div class="benchmark-value" id="connType">--</div>
+                            <div class="benchmark-label">ADB: <span id="adbVersion">--</span></div>
+                        </div>
+                        <div class="benchmark-card">
+                            <h4>Performance Rating</h4>
+                            <div class="benchmark-value" id="perfRating">--</div>
+                            <div class="benchmark-label" id="perfAdvice">Run benchmark</div>
                         </div>
                     </div>
-
-                    <!-- Connection Info -->
-                    <div class="benchmark-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
-                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">Connection</h4>
-                        <div>
-                            <div style="font-size:18px;font-weight:bold;" id="connType">--</div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">ADB: <span id="adbVersion">--</span></div>
-                        </div>
+                    <div style="margin-top:12px;background:var(--background-color);padding:12px;border-radius:8px;">
+                        <h4 style="margin:0 0 8px 0;font-size:11px;color:var(--text-secondary);text-transform:uppercase;">Sample Times (ms)</h4>
+                        <div id="sampleTimesChart" style="display:flex;align-items:flex-end;height:60px;gap:6px;"></div>
                     </div>
-
-                    <!-- Performance Rating -->
-                    <div class="benchmark-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
-                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">Performance Rating</h4>
-                        <div>
-                            <div style="font-size:24px;font-weight:bold;" id="perfRating">--</div>
-                            <div style="font-size:12px;color:var(--text-secondary);" id="perfAdvice">Run benchmark to see rating</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sample Times Chart -->
-                <div style="margin-top:15px;background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
-                    <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">Sample Times (ms)</h4>
-                    <div id="sampleTimesChart" style="display:flex;align-items:flex-end;height:80px;gap:8px;"></div>
                 </div>
             </div>
-        </div>
 
-        <!-- Capture Backend Benchmark -->
-        <div class="card">
-            <h2>Capture Backend Benchmark</h2>
-            <p style="color: var(--text-secondary); font-size: 13px;">Compare capture speeds between different backends (adbutils vs adb_bridge)</p>
-            <select id="backendBenchDev" class="form-select" style="margin:10px 0"></select>
-            <button id="runBackendBenchmark" class="btn">Run Backend Comparison</button>
-            <div id="backendBenchResult" style="margin-top:10px"></div>
-
-            <!-- Backend Results Grid -->
-            <div id="backendGrid" style="display:none;margin-top:15px;">
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:15px;">
-                    <!-- adbutils Backend -->
-                    <div class="benchmark-card" id="adbutils-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
-                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">adbutils (Modern)</h4>
-                        <div id="adbutils-stats">
-                            <div style="font-size:20px;font-weight:bold;" id="adbutils-avg">--</div>
-                            <div style="font-size:12px;color:var(--text-secondary);">avg capture time</div>
-                            <div style="margin-top:8px;font-size:12px;" id="adbutils-range">Min: -- | Max: --</div>
+            <div class="section-card">
+                <h3>Capture Backend Comparison</h3>
+                <p class="section-desc">Compare capture speeds between backends (adbutils vs adb_bridge)</p>
+                <div class="device-select-row">
+                    <select id="backendBenchDev" class="form-select"></select>
+                    <button id="runBackendBenchmark" class="btn btn-primary">Run Comparison</button>
+                </div>
+                <div id="backendBenchResult"></div>
+                <div id="backendGrid" style="display:none;">
+                    <div class="benchmark-grid">
+                        <div class="benchmark-card" id="adbutils-card">
+                            <h4>adbutils (Modern)</h4>
+                            <div class="benchmark-value" id="adbutils-avg">--</div>
+                            <div class="benchmark-label">avg capture</div>
+                            <div style="margin-top:6px;font-size:11px;" id="adbutils-range">Min: -- | Max: --</div>
                         </div>
-                    </div>
-
-                    <!-- adb_bridge Backend -->
-                    <div class="benchmark-card" id="adb-bridge-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
-                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">adb_bridge (Subprocess)</h4>
-                        <div id="adb-bridge-stats">
-                            <div style="font-size:20px;font-weight:bold;" id="adb-bridge-avg">--</div>
-                            <div style="font-size:12px;color:var(--text-secondary);">avg capture time</div>
-                            <div style="margin-top:8px;font-size:12px;" id="adb-bridge-range">Min: -- | Max: --</div>
+                        <div class="benchmark-card" id="adb-bridge-card">
+                            <h4>adb_bridge (Subprocess)</h4>
+                            <div class="benchmark-value" id="adb-bridge-avg">--</div>
+                            <div class="benchmark-label">avg capture</div>
+                            <div style="margin-top:6px;font-size:11px;" id="adb-bridge-range">Min: -- | Max: --</div>
                         </div>
-                    </div>
-
-                    <!-- scrcpy Status -->
-                    <div class="benchmark-card" id="scrcpy-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:1px solid var(--border-color);">
-                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">scrcpy (High FPS)</h4>
-                        <div id="scrcpy-stats">
-                            <div style="font-size:16px;font-weight:bold;" id="scrcpy-status">--</div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;" id="scrcpy-note">Check availability</div>
+                        <div class="benchmark-card" id="scrcpy-card">
+                            <h4>scrcpy (High FPS)</h4>
+                            <div class="benchmark-value" id="scrcpy-status">--</div>
+                            <div class="benchmark-label" id="scrcpy-note">Check availability</div>
                         </div>
-                    </div>
-
-                    <!-- Recommendation -->
-                    <div class="benchmark-card" style="background:var(--preview-background);padding:15px;border-radius:8px;border:2px solid var(--primary-color);">
-                        <h4 style="margin:0 0 10px 0;color:var(--text-secondary);font-size:12px;text-transform:uppercase;">Recommended</h4>
-                        <div>
-                            <div style="font-size:18px;font-weight:bold;color:var(--primary-color);" id="recommended-backend">--</div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;" id="best-time">--</div>
+                        <div class="benchmark-card" style="border:2px solid var(--primary-color);">
+                            <h4>Recommended</h4>
+                            <div class="benchmark-value" style="color:var(--primary-color);" id="recommended-backend">--</div>
+                            <div class="benchmark-label" id="best-time">--</div>
                         </div>
                     </div>
                 </div>
             </div>
+
+            <div class="section-card">
+                <h3>Persistent Shell Pool</h3>
+                <p class="section-desc">Compare shell sessions vs regular ADB calls (50-70% faster)</p>
+                <div class="device-select-row">
+                    <select id="shellDev" class="form-select"></select>
+                    <input type="number" id="shellIterations" value="10" min="1" max="50" style="width:70px;padding:8px;" title="Iterations">
+                    <button id="runShellBenchmark" class="btn btn-primary">Run Benchmark</button>
+                    <button id="getShellStats" class="btn btn-secondary">Pool Stats</button>
+                </div>
+                <div id="shellBenchmarkResult" class="result-area"></div>
+            </div>
         </div>
 
-        <!-- System Diagnostics -->
-        <div class="card">
-            <h2>System Diagnostics</h2>
-            <p style="color: var(--text-secondary); font-size: 13px;">Server resource usage and overall system health</p>
-            <button id="testSystem" class="btn">Check System Status</button>
-            <div id="systemResult" style="margin-top:10px"></div>
-        </div>
-
-        <!-- ADB Maintenance & Optimization -->
-        <div class="card">
-            <h2>ADB Maintenance & Optimization</h2>
-            <p style="color: var(--text-secondary); font-size: 13px;">Device maintenance and performance optimization tools (2025 best practices)</p>
-
-            <!-- Server Controls -->
-            <div style="background: var(--preview-background); padding: 15px; border-radius: 8px; margin: 15px 0;">
-                <h4 style="margin: 0 0 10px 0; font-size: 14px;">ADB Server Controls</h4>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button id="restartAdbServer" class="btn">Restart ADB Server</button>
+        <!-- TAB: Maintenance -->
+        <div id="tab-maintenance" class="tab-panel">
+            <div class="section-card">
+                <h3>ADB Server Controls</h3>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                    <button id="restartAdbServer" class="btn btn-primary">Restart ADB Server</button>
                     <button id="checkServerStatus" class="btn btn-secondary">Check Status</button>
                 </div>
-                <div id="serverStatusResult" style="margin-top: 10px; font-size: 13px;"></div>
+                <div id="serverStatusResult" class="result-area"></div>
             </div>
 
-            <!-- Device Maintenance -->
-            <div style="background: var(--preview-background); padding: 15px; border-radius: 8px; margin: 15px 0;">
-                <h4 style="margin: 0 0 10px 0; font-size: 14px;">Device Maintenance</h4>
-                <select id="maintDev" class="form-select" style="margin-bottom: 10px;"></select>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
-                    <button id="trimCache" class="btn btn-secondary">Trim App Cache</button>
-                    <button id="optimizeUi" class="btn btn-secondary">Optimize UI</button>
-                    <button id="resetUi" class="btn btn-secondary">Reset UI Settings</button>
-                    <button id="fullOptimize" class="btn">Full Optimization</button>
+            <div class="section-card">
+                <h3>Device Maintenance</h3>
+                <div class="device-select-row">
+                    <select id="maintDev" class="form-select"></select>
                 </div>
-                <div id="maintResult" style="margin-top: 10px; font-size: 13px;"></div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
+                    <button id="trimCache" class="btn btn-secondary">Trim Cache</button>
+                    <button id="optimizeUi" class="btn btn-secondary">Optimize UI</button>
+                    <button id="resetUi" class="btn btn-secondary">Reset UI</button>
+                    <button id="fullOptimize" class="btn btn-primary">Full Optimize</button>
+                </div>
+                <div id="maintResult" class="result-area"></div>
             </div>
 
-            <!-- Connection Metrics -->
-            <div style="background: var(--preview-background); padding: 15px; border-radius: 8px; margin: 15px 0;">
-                <h4 style="margin: 0 0 10px 0; font-size: 14px;">Connection Health Metrics</h4>
+            <div class="section-card">
+                <h3>Connection Metrics</h3>
                 <button id="getConnMetrics" class="btn btn-secondary">Get Metrics</button>
-                <div id="metricsResult" style="margin-top: 10px;"></div>
+                <div id="metricsResult" class="result-area"></div>
             </div>
 
-            <!-- Advanced Options -->
-            <details style="margin-top: 15px;">
-                <summary style="cursor: pointer; font-weight: bold;">Advanced Optimization Options</summary>
-                <div style="padding: 15px; background: var(--preview-background); border-radius: 8px; margin-top: 10px;">
-                    <div style="margin-bottom: 15px;">
-                        <label style="font-size: 13px; color: var(--text-secondary);">ART Compilation (5-15 min):</label>
-                        <div style="display: flex; gap: 10px; margin-top: 5px;">
-                            <select id="compileMode" class="form-select" style="width: auto;">
-                                <option value="speed-profile">speed-profile (Recommended)</option>
-                                <option value="speed">speed (Max performance)</option>
+            <details class="section-card" style="padding:0;">
+                <summary style="padding:15px;cursor:pointer;font-weight:600;">Advanced Options</summary>
+                <div style="padding:0 15px 15px 15px;">
+                    <div style="margin-bottom:15px;">
+                        <label style="font-size:13px;color:var(--text-secondary);">ART Compilation (5-15 min):</label>
+                        <div style="display:flex;gap:10px;margin-top:5px;">
+                            <select id="compileMode" class="form-select" style="width:auto;">
+                                <option value="speed-profile">speed-profile</option>
+                                <option value="speed">speed (Max)</option>
                                 <option value="verify">verify (Minimal)</option>
                             </select>
-                            <button id="compileApps" class="btn btn-secondary">Compile Apps</button>
+                            <button id="compileApps" class="btn btn-secondary">Compile</button>
                         </div>
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="font-size: 13px; color: var(--text-secondary);">Background Process Limit:</label>
-                        <div style="display: flex; gap: 10px; margin-top: 5px;">
-                            <select id="bgLimit" class="form-select" style="width: auto;">
-                                <option value="-1">Default (System)</option>
+                    <div style="margin-bottom:15px;">
+                        <label style="font-size:13px;color:var(--text-secondary);">Background Process Limit:</label>
+                        <div style="display:flex;gap:10px;margin-top:5px;">
+                            <select id="bgLimit" class="form-select" style="width:auto;">
+                                <option value="-1">Default</option>
                                 <option value="4">4 (Standard)</option>
                                 <option value="2">2 (Aggressive)</option>
-                                <option value="0">0 (No background)</option>
+                                <option value="0">0 (None)</option>
                             </select>
                             <button id="setBgLimit" class="btn btn-secondary">Apply</button>
                         </div>
                     </div>
                     <div>
-                        <label style="font-size: 13px; color: var(--text-secondary);">Emergency Reset:</label>
-                        <div style="margin-top: 5px;">
-                            <button id="resetDisplay" class="btn" style="background: #dc3545; color: white;">Reset Display Settings</button>
+                        <label style="font-size:13px;color:var(--text-secondary);">Emergency Reset:</label>
+                        <div style="margin-top:5px;">
+                            <button id="resetDisplay" class="btn" style="background:#dc3545;color:white;">Reset Display</button>
                         </div>
                     </div>
                 </div>
             </details>
         </div>
 
-        <!-- Real-Time Log Viewer -->
-        <div class="card">
-            <h2>Real-Time Logs</h2>
-            <p style="color: var(--text-secondary); font-size: 13px;">Live server log stream via WebSocket</p>
-
-            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px; align-items: center;">
-                <button id="connectLogs" class="btn btn-primary">Connect</button>
-                <button id="disconnectLogs" class="btn btn-secondary" disabled>Disconnect</button>
-                <button id="clearLogs" class="btn">Clear</button>
-                <select id="logLevel" class="form-select" style="width: 120px;">
-                    <option value="all">All Levels</option>
-                    <option value="ERROR">Errors Only</option>
-                    <option value="WARNING">Warnings+</option>
-                    <option value="INFO" selected>Info+</option>
-                    <option value="DEBUG">Debug+</option>
-                </select>
-                <span id="logStatus" style="color: var(--text-secondary); font-size: 12px;">Disconnected</span>
-                <div style="margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                    <div style="display: flex; gap: 8px; font-size: 12px; background: var(--preview-background); padding: 4px 8px; border-radius: 4px;">
-                        <label style="cursor: pointer;"><input type="checkbox" id="expDebug"> DEBUG</label>
-                        <label style="cursor: pointer;"><input type="checkbox" id="expInfo" checked> INFO</label>
-                        <label style="cursor: pointer;"><input type="checkbox" id="expWarning" checked> WARN</label>
-                        <label style="cursor: pointer;"><input type="checkbox" id="expError" checked> ERROR</label>
+        <!-- TAB: Testing -->
+        <div id="tab-testing" class="tab-panel">
+            <div class="test-grid">
+                <div class="section-card">
+                    <h3>Screenshot Test</h3>
+                    <div class="device-select-row">
+                        <select id="scrDev" class="form-select"></select>
+                        <button id="testScr" class="btn btn-primary">Capture</button>
                     </div>
-                    <button id="copyLogs" class="btn btn-secondary" title="Copy to clipboard">Copy</button>
-                    <button id="exportLogsJson" class="btn btn-secondary" title="Download as JSON file">JSON</button>
-                    <button id="exportLogsTxt" class="btn btn-secondary" title="Download as TXT file">TXT</button>
-                </div>
-            </div>
-            <div style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
-                <span id="logCount">0</span> logs captured
-            </div>
-
-            <div id="logViewer" style="margin-top: 15px; background: #1a1a2e; border-radius: 8px; padding: 10px; height: 300px; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; line-height: 1.4;">
-                <div style="color: #666;">Click "Connect" to start viewing logs...</div>
-            </div>
-        </div>
-
-        <!-- Persistent Shell Pool Benchmark -->
-        <div class="card">
-            <h2>Persistent Shell Pool</h2>
-            <p style="color: var(--text-secondary); font-size: 13px;">Compare persistent shell sessions vs regular ADB calls (50-70% faster for batch operations)</p>
-
-            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px;">
-                <select id="shellDev" class="form-select" style="flex: 1; min-width: 200px;"></select>
-                <input type="number" id="shellIterations" value="10" min="1" max="50" style="width: 80px;" class="form-select" title="Number of iterations">
-                <button id="runShellBenchmark" class="btn">Run Benchmark</button>
-                <button id="getShellStats" class="btn btn-secondary">Pool Stats</button>
-            </div>
-
-            <div id="shellBenchmarkResult" style="margin-top: 15px;"></div>
-        </div>
-
-        <!-- Screenshot Test -->
-        <div class="card">
-            <h2>Screenshot Test</h2>
-            <select id="scrDev" class="form-select" style="margin:10px 0"></select>
-            <button id="testScr" class="btn">Capture Screenshot</button>
-            <div id="scrResult" style="margin-top:10px"></div>
-        </div>
-
-        <!-- Text Extraction Test with Pipeline Support -->
-        <div class="card">
-            <h2>Text Extraction Test (with Pipeline Support)</h2>
-            <p style="color: var(--text-secondary); font-size: 13px;">Test single or multi-step extraction pipelines</p>
-
-            <div style="display: grid; gap: 10px; margin-top: 10px;">
-                <div>
-                    <label>Text to extract from:</label>
-                    <input id="extText" class="form-input" value="Updated: 22/12/25 5:29 pm" placeholder="Enter text">
+                    <div id="scrResult" class="result-area"></div>
                 </div>
 
-                <!-- Pipeline Steps -->
+                <div class="section-card">
+                    <h3>Device Control Test</h3>
+                    <div class="device-select-row">
+                        <select id="ctrlDev" class="form-select"></select>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button id="testTap" class="btn btn-secondary">Tap (500,500)</button>
+                        <button id="testKey" class="btn btn-secondary">HOME Key</button>
+                        <button id="testSwipe" class="btn btn-secondary">Swipe Down</button>
+                    </div>
+                    <div id="ctrlResult" class="result-area"></div>
+                </div>
+            </div>
+
+            <div class="section-card">
+                <h3>Text Extraction Test</h3>
+                <p class="section-desc">Test single or multi-step extraction pipelines</p>
+                <div style="margin-bottom:10px;">
+                    <label style="font-size:13px;">Text to extract from:</label>
+                    <input id="extText" class="form-input" value="Updated: 22/12/25 5:29 pm" style="width:100%;margin-top:5px;padding:8px;">
+                </div>
                 <div id="pipelineSteps"></div>
-
-                <button id="addStep" class="btn btn-secondary">+ Add Extraction Step</button>
-
-                <!-- Post-processing Options -->
-                <div style="border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 10px;">
-                    <label style="font-weight: bold;">Post-Processing:</label>
-                    <div style="display: flex; gap: 15px; margin-top: 5px;">
-                        <label>
-                            <input type="checkbox" id="extractNumeric"> Extract numeric only
-                        </label>
-                        <label>
-                            <input type="checkbox" id="removeUnit"> Remove unit suffix
-                        </label>
+                <button id="addStep" class="btn btn-secondary" style="margin-bottom:10px;">+ Add Step</button>
+                <div style="border-top:1px solid var(--border-color);padding-top:10px;margin-top:5px;">
+                    <label style="font-size:13px;font-weight:500;">Post-Processing:</label>
+                    <div style="display:flex;gap:15px;margin:8px 0;flex-wrap:wrap;">
+                        <label style="font-size:13px;"><input type="checkbox" id="extractNumeric"> Numeric only</label>
+                        <label style="font-size:13px;"><input type="checkbox" id="removeUnit"> Remove unit</label>
                     </div>
-                    <div style="margin-top: 10px;">
-                        <label>Fallback Value (if extraction fails):</label>
-                        <input id="fallbackValue" class="form-input" placeholder="Optional fallback">
+                    <div style="margin-top:8px;">
+                        <label style="font-size:13px;">Fallback:</label>
+                        <input id="fallbackValue" class="form-input" placeholder="Optional" style="width:150px;margin-left:8px;padding:6px;">
                     </div>
                 </div>
-
-                <button id="testExt" class="btn">Test Extraction</button>
+                <button id="testExt" class="btn btn-primary" style="margin-top:12px;">Test Extraction</button>
+                <div id="extResult" class="result-area"></div>
             </div>
-
-            <div id="extResult" style="margin-top:10px"></div>
         </div>
 
-        <!-- Device Control Test -->
-        <div class="card">
-            <h2>Device Control Test</h2>
-            <select id="ctrlDev" class="form-select" style="margin:10px 0"></select>
-            <div style="display:flex;gap:10px;margin-top:10px">
-                <button id="testTap" class="btn btn-secondary">Tap (500,500)</button>
-                <button id="testKey" class="btn btn-secondary">HOME Key</button>
-                <button id="testSwipe" class="btn btn-secondary">Swipe Down</button>
+        <!-- TAB: Flows -->
+        <div id="tab-flows" class="tab-panel">
+            <div class="test-grid">
+                <div class="section-card">
+                    <h3>Flow Scheduler</h3>
+                    <p class="section-desc">Test scheduler status and controls</p>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button id="testSchedulerStatus" class="btn btn-primary">Get Status</button>
+                        <button id="testSchedulerPause" class="btn btn-secondary">Pause</button>
+                        <button id="testSchedulerResume" class="btn btn-secondary">Resume</button>
+                    </div>
+                    <div id="schedulerResult" class="result-area"></div>
+                </div>
+
+                <div class="section-card">
+                    <h3>Flow API</h3>
+                    <p class="section-desc">Test flow CRUD operations</p>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                        <button id="testListFlows" class="btn btn-primary">List Flows</button>
+                        <button id="testFlowQueue" class="btn btn-secondary">Get Queue</button>
+                    </div>
+                    <div class="device-select-row">
+                        <select id="flowDev" class="form-select"></select>
+                    </div>
+                    <div id="flowResult" class="result-area"></div>
+                </div>
             </div>
-            <div id="ctrlResult" style="margin-top:10px"></div>
         </div>
 
-        <!-- Scheduler Test -->
-        <div class="card">
-            <h2>Flow Scheduler Test</h2>
-            <p style="color: var(--text-secondary); font-size: 13px;">Test flow scheduler status and controls</p>
-            <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
-                <button id="testSchedulerStatus" class="btn">Get Status</button>
-                <button id="testSchedulerPause" class="btn btn-secondary">Pause Scheduler</button>
-                <button id="testSchedulerResume" class="btn btn-secondary">Resume Scheduler</button>
+        <!-- TAB: Logs -->
+        <div id="tab-logs" class="tab-panel">
+            <div class="section-card">
+                <h3>Real-Time Logs</h3>
+                <p class="section-desc">Live server log stream via WebSocket</p>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+                    <button id="connectLogs" class="btn btn-primary">Connect</button>
+                    <button id="disconnectLogs" class="btn btn-secondary" disabled>Disconnect</button>
+                    <button id="clearLogs" class="btn btn-secondary">Clear</button>
+                    <select id="logLevel" class="form-select" style="width:110px;">
+                        <option value="all">All</option>
+                        <option value="ERROR">Errors</option>
+                        <option value="WARNING">Warnings+</option>
+                        <option value="INFO" selected>Info+</option>
+                        <option value="DEBUG">Debug+</option>
+                    </select>
+                    <span id="logStatus" style="color:var(--text-secondary);font-size:12px;">Disconnected</span>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+                    <div style="display:flex;gap:8px;font-size:12px;background:var(--background-color);padding:4px 8px;border-radius:4px;">
+                        <label><input type="checkbox" id="expDebug"> DEBUG</label>
+                        <label><input type="checkbox" id="expInfo" checked> INFO</label>
+                        <label><input type="checkbox" id="expWarning" checked> WARN</label>
+                        <label><input type="checkbox" id="expError" checked> ERROR</label>
+                    </div>
+                    <button id="copyLogs" class="btn btn-secondary btn-sm">Copy</button>
+                    <button id="exportLogsJson" class="btn btn-secondary btn-sm">JSON</button>
+                    <button id="exportLogsTxt" class="btn btn-secondary btn-sm">TXT</button>
+                    <span style="font-size:12px;color:var(--text-secondary);"><span id="logCount">0</span> logs</span>
+                </div>
+                <div id="logViewer" style="background:#1a1a2e;border-radius:8px;padding:10px;height:400px;overflow-y:auto;font-family:'Consolas','Monaco',monospace;font-size:12px;line-height:1.4;">
+                    <div style="color:#666;">Click "Connect" to view logs...</div>
+                </div>
             </div>
-            <div id="schedulerResult" style="margin-top:10px"></div>
         </div>
 
-        <!-- Flow API Test -->
-        <div class="card">
-            <h2>Flow API Test</h2>
-            <p style="color: var(--text-secondary); font-size: 13px;">Test flow CRUD operations</p>
-            <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
-                <button id="testListFlows" class="btn">List Flows</button>
-                <button id="testFlowQueue" class="btn btn-secondary">Get Queue</button>
-            </div>
-            <select id="flowDev" class="form-select" style="margin:10px 0"></select>
-            <div id="flowResult" style="margin-top:10px"></div>
-        </div>
-
-        <!-- MQTT Test -->
-        <div class="card">
-            <h2>MQTT Connection Test</h2>
-            <p style="color: var(--text-secondary); font-size: 13px;">Test MQTT broker connectivity</p>
-            <button id="testMqtt" class="btn">Test MQTT Status</button>
-            <div id="mqttResult" style="margin-top:10px"></div>
-        </div>
     </div>
 
     <script type="module">
-        import APIClient from './js/modules/api-client.js?v=0.0.5';
-        // Note: ThemeToggle and MobileNav now handled by js/components/navbar.js
+        import APIClient from './js/modules/api-client.js?v=0.0.51';
 
         const api = new APIClient();
+
+        // === Tab Navigation ===
+        document.querySelectorAll('.diag-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.dataset.tab;
+                document.querySelectorAll('.diag-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+                document.getElementById(`tab-${tabId}`).classList.add('active');
+                localStorage.setItem('diag_active_tab', tabId);
+            });
+        });
+
+        // Restore last active tab
+        const savedTab = localStorage.getItem('diag_active_tab');
+        if (savedTab) {
+            const tabBtn = document.querySelector(`.diag-tab[data-tab="${savedTab}"]`);
+            if (tabBtn) tabBtn.click();
+        }
 
         // Pipeline state
         let pipelineSteps = [];
@@ -424,7 +526,7 @@
         async function loadDevs() {
             try {
                 const r = await api.get('/adb/devices');
-                ['scrDev', 'ctrlDev', 'benchDev', 'backendBenchDev', 'maintDev', 'shellDev'].forEach(id => {
+                ['scrDev', 'ctrlDev', 'benchDev', 'backendBenchDev', 'maintDev', 'shellDev', 'flowDev'].forEach(id => {
                     const s = document.getElementById(id);
                     if (!s) return;
                     s.innerHTML = '<option value="">Select device...</option>';
@@ -436,6 +538,7 @@
                 console.error('[Diagnostic] Failed to load devices:', e);
             }
         }
+
 
         // === ADB Benchmark Functions ===
         async function runBenchmark(quick = false) {

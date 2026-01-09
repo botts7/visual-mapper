@@ -3,168 +3,462 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.0.44" data-build="2025-12-28">
+    <meta name="version" content="0.0.51" data-build="2026-01-10">
     <title>Devices - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.44">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.51">
+    <style>
+        /* Tab Navigation Styles */
+        .device-tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 20px;
+            overflow-x: auto;
+        }
+        .device-tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+        .device-tab:hover {
+            color: var(--text-color);
+            background: var(--background-color);
+        }
+        .device-tab.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+        .tab-panel {
+            display: none;
+        }
+        .tab-panel.active {
+            display: block;
+        }
+        /* Device selector bar */
+        .device-selector-bar {
+            background: var(--card-background);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .device-selector-bar label {
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .device-selector-bar select {
+            flex: 1;
+            min-width: 200px;
+            max-width: 400px;
+            padding: 8px 12px;
+            font-size: 14px;
+        }
+        /* Form grid */
+        .form-row {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .form-group label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+        .form-group input, .form-group select {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .info-box {
+            background: #e3f2fd;
+            padding: 12px 15px;
+            border-left: 3px solid #2196f3;
+            border-radius: 0 6px 6px 0;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+        .info-box.warning {
+            background: #fff3cd;
+            border-left-color: #ffc107;
+        }
+        .section-card {
+            background: var(--card-background);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .section-card h3 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: var(--text-color);
+        }
+        .device-item {
+            padding: 12px 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 10px;
+            background: var(--background-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .device-item-info {
+            flex: 1;
+            min-width: 200px;
+        }
+        .device-item-name {
+            font-weight: 600;
+            color: var(--text-color);
+        }
+        .device-item-meta {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        .device-item-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        @media (max-width: 768px) {
+            .device-tab {
+                padding: 10px 16px;
+                font-size: 13px;
+            }
+            .control-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.44"></script>
+    <script type="module" src="js/init.js?v=0.0.51"></script>
 
     <div class="container">
-        <div class="card">
-            <h1>Device Management</h1>
-            <p>Manage Android devices connected via ADB</p>
-        </div>
-
-        <div class="card">
-            <h2>Connect Device</h2>
-
-            <div style="margin-bottom: 15px;">
-                <label for="connectionType" style="display: block; margin-bottom: 5px; font-weight: bold;">Connection Type:</label>
-                <select id="connectionType" style="padding: 8px; width: 300px;">
-                    <option value="tcp">TCP/IP - Legacy (Port 5555)</option>
-                    <option value="wireless">Wireless ADB - Android 11+ (Port 5555)</option>
-                    <option value="pairing">Wireless Pairing - Android 11+ (Port varies)</option>
-                    <option value="tls">TLS/Secure ADB (Custom Port)</option>
-                </select>
-            </div>
-
-            <div id="tcpConfig" style="margin-bottom: 20px;">
-                <label for="deviceHost">Device IP Address:</label>
-                <input type="text" id="deviceHost" placeholder="192.168.1.100" style="margin: 10px 0; padding: 8px; width: 200px;">
-
-                <label for="devicePort" style="margin-left: 20px;">Port:</label>
-                <input type="number" id="devicePort" value="5555" style="margin: 10px 0; padding: 8px; width: 80px;">
-            </div>
-
-            <div id="pairingConfig" style="margin-bottom: 20px; display: none;">
-                <p style="background: #e3f2fd; padding: 10px; border-left: 3px solid #2196f3; margin-bottom: 15px;">
-                    <strong>Android 11+ Wireless Pairing:</strong><br>
-                    1. Settings → Developer Options → Wireless debugging<br>
-                    2. Tap "Pair device with pairing code"<br>
-                    3. You'll see TWO ports - enter BOTH below along with the 6-digit code
-                </p>
-
-                <label for="pairingCode">Pairing Code (6-digit):</label>
-                <input type="text" id="pairingCode" placeholder="123456" maxlength="6" style="margin: 10px 0; padding: 8px; width: 100px;">
-
-                <label for="pairingHost" style="margin-left: 20px;">Device IP:</label>
-                <input type="text" id="pairingHost" placeholder="192.168.86.2" style="margin: 10px 0; padding: 8px; width: 150px;">
-
-                <br>
-
-                <label for="pairingPort">Pairing Port:</label>
-                <input type="number" id="pairingPort" placeholder="37899" style="margin: 10px 0; padding: 8px; width: 100px;">
-
-                <label for="connectionPort" style="margin-left: 20px;">Connection Port:</label>
-                <input type="number" id="connectionPort" placeholder="45441" style="margin: 10px 0; padding: 8px; width: 100px;">
-            </div>
-
-            <div id="wirelessConfig" style="margin-bottom: 20px; display: none;">
-                <p style="background: #e3f2fd; padding: 10px; border-left: 3px solid #2196f3;">
-                    <strong>Wireless ADB Setup (Android 11+):</strong><br>
-                    1. Enable Developer Options on your Android device<br>
-                    2. Go to Settings → Developer Options → Wireless debugging<br>
-                    3. Tap "Wireless debugging" to enable it<br>
-                    4. Note the IP address and port shown (e.g., 192.168.1.100:5555)<br>
-                    5. Enter them below
-                </p>
-            </div>
-
-            <div id="tlsConfig" style="margin-bottom: 20px; display: none;">
-                <p style="background: #fff3cd; padding: 10px; border-left: 3px solid #ffc107;">
-                    <strong>TLS/Secure ADB:</strong><br>
-                    Advanced secure connection with certificate authentication.<br>
-                    Requires pre-configured certificates on both client and device.
-                </p>
-            </div>
-
-            <button id="connectBtn" style="padding: 8px 16px;">Connect Device</button>
-            <p class="status" id="connectionStatus"></p>
-        </div>
-
-        <!-- Network Device Discovery -->
-        <div class="card">
-            <h2>Network Device Discovery</h2>
-            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">
-                Automatically scan your local network for Android devices with ADB enabled.
-                The system will detect Android version and recommend the optimal connection method.
-            </p>
-
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
-                <button id="scanNetworkBtn" class="btn" style="padding: 10px 20px;">
-                    🔍 Scan Network
-                </button>
-                <span id="scanStatus" style="color: var(--text-secondary); font-size: 13px;"></span>
-            </div>
-
-            <div id="discoveredDevicesContainer" style="display: none;">
-                <h3 style="margin: 20px 0 10px 0;">Discovered Devices</h3>
-                <div id="discoveredDevicesList"></div>
-            </div>
-
-            <div id="noDevicesFound" style="display: none; padding: 15px; background: var(--background-color); border-radius: 6px; color: var(--text-secondary);">
-                No devices found on the network. Make sure:
-                <ul style="margin: 10px 0 0 20px;">
-                    <li>Device is connected to the same network</li>
-                    <li>ADB debugging is enabled (Developer Options)</li>
-                    <li>For Android 10 and older: WiFi ADB is enabled (adb tcpip 5555)</li>
-                    <li>For Android 11+: Wireless debugging is enabled</li>
-                </ul>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2>Connected Devices</h2>
-            <div id="devicesList"></div>
-        </div>
-
-        <!-- Known Devices -->
-        <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
-                <h2 style="margin: 0;">Known Devices</h2>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <button id="reconnectAllBtn" class="btn btn-secondary btn-sm" title="Reconnect all devices with auto-reconnect enabled">
-                        🔄 Reconnect All
-                    </button>
-                </div>
-            </div>
-
-            <!-- Auto-reconnect setting -->
-            <div style="background: var(--background-color); padding: 12px 15px; border-radius: 8px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <!-- Page Header with Device Selector -->
+        <div class="card" style="margin-bottom: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
                 <div>
-                    <strong style="color: var(--text-color);">Auto-Reconnect on Startup</strong>
-                    <p style="margin: 5px 0 0 0; font-size: 12px; color: var(--text-secondary);">
-                        Automatically reconnect devices (with auto-reconnect enabled) when the server starts
-                    </p>
+                    <h1 style="margin: 0;">Device Management</h1>
+                    <p style="margin: 5px 0 0 0; color: var(--text-secondary);">Manage Android devices connected via ADB</p>
                 </div>
-                <label class="toggle-switch" style="margin: 0;">
-                    <input type="checkbox" id="autoReconnectToggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
-
-            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">
-                Previously connected devices (WiFi or USB). Enable auto-reconnect per device.
-            </p>
-            <div id="savedDevicesList"></div>
-            <div id="noSavedDevices" style="display: none; color: var(--text-secondary); font-style: italic;">
-                No known devices. Connect a device via WiFi or USB to add it here.
+                <div class="device-selector-bar" style="margin: 0; border: none; padding: 0; background: none;">
+                    <label for="deviceSelect">Active Device:</label>
+                    <select id="deviceSelect">
+                        <option value="">-- Select Device --</option>
+                    </select>
+                </div>
             </div>
         </div>
 
-        <!-- Device Selector - TOP LEVEL for all sections below -->
-        <div class="card">
-            <h2>Select Device</h2>
-            <p>Choose a device to control, view apps, and capture screenshots</p>
-            <div style="margin-top: 15px;">
-                <select id="deviceSelect" style="width: 100%; max-width: 500px; padding: 10px; font-size: 16px;">
-                    <option value="">-- Select Device --</option>
-                </select>
+        <!-- Tab Navigation -->
+        <div class="device-tabs">
+            <button class="device-tab active" data-tab="connect">Connect</button>
+            <button class="device-tab" data-tab="devices">Devices</button>
+            <button class="device-tab" data-tab="apps">Apps</button>
+            <button class="device-tab" data-tab="control">Control</button>
+        </div>
+
+        <!-- TAB: Connect -->
+        <div id="tab-connect" class="tab-panel active">
+            <div class="section-card">
+                <h3>Connect New Device</h3>
+
+                <div class="form-group" style="margin-bottom: 15px; max-width: 350px;">
+                    <label for="connectionType">Connection Type</label>
+                    <select id="connectionType">
+                        <option value="tcp">TCP/IP - Legacy (Port 5555)</option>
+                        <option value="wireless">Wireless ADB - Android 11+</option>
+                        <option value="pairing">Wireless Pairing - Android 11+</option>
+                        <option value="tls">TLS/Secure ADB (Advanced)</option>
+                    </select>
+                </div>
+
+                <div id="tcpConfig">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="deviceHost">Device IP Address</label>
+                            <input type="text" id="deviceHost" placeholder="192.168.1.100" style="width: 180px;">
+                        </div>
+                        <div class="form-group">
+                            <label for="devicePort">Port</label>
+                            <input type="number" id="devicePort" value="5555" style="width: 80px;">
+                        </div>
+                        <button id="connectBtn" class="btn btn-primary" style="align-self: flex-end;">Connect</button>
+                    </div>
+                </div>
+
+                <div id="pairingConfig" style="display: none;">
+                    <div class="info-box">
+                        <strong>Android 11+ Wireless Pairing:</strong><br>
+                        1. Settings → Developer Options → Wireless debugging<br>
+                        2. Tap "Pair device with pairing code"<br>
+                        3. Enter the pairing code and BOTH ports shown
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="pairingHost">Device IP</label>
+                            <input type="text" id="pairingHost" placeholder="192.168.86.2" style="width: 150px;">
+                        </div>
+                        <div class="form-group">
+                            <label for="pairingCode">Pairing Code</label>
+                            <input type="text" id="pairingCode" placeholder="123456" maxlength="6" style="width: 100px;">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="pairingPort">Pairing Port</label>
+                            <input type="number" id="pairingPort" placeholder="37899" style="width: 100px;">
+                        </div>
+                        <div class="form-group">
+                            <label for="connectionPort">Connection Port</label>
+                            <input type="number" id="connectionPort" placeholder="45441" style="width: 100px;">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="wirelessConfig" style="display: none;">
+                    <div class="info-box">
+                        <strong>Wireless ADB Setup (Android 11+):</strong><br>
+                        1. Enable Developer Options → Wireless debugging<br>
+                        2. Note the IP address and port shown<br>
+                        3. Enter them above
+                    </div>
+                </div>
+
+                <div id="tlsConfig" style="display: none;">
+                    <div class="info-box warning">
+                        <strong>TLS/Secure ADB:</strong><br>
+                        Advanced secure connection with certificate authentication.
+                        Requires pre-configured certificates on both client and device.
+                    </div>
+                </div>
+
+                <p class="status" id="connectionStatus"></p>
+            </div>
+
+            <div class="section-card">
+                <h3>Network Discovery</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">
+                    Scan your network for Android devices with ADB enabled.
+                </p>
+                <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
+                    <button id="scanNetworkBtn" class="btn btn-secondary">🔍 Scan Network</button>
+                    <span id="scanStatus" style="color: var(--text-secondary); font-size: 13px;"></span>
+                </div>
+                <div id="discoveredDevicesContainer" style="display: none;">
+                    <div id="discoveredDevicesList"></div>
+                </div>
+                <div id="noDevicesFound" style="display: none; padding: 15px; background: var(--background-color); border-radius: 6px; color: var(--text-secondary); font-size: 13px;">
+                    No devices found. Ensure ADB debugging is enabled on your device.
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Devices -->
+        <div id="tab-devices" class="tab-panel">
+            <div class="section-card">
+                <h3>Connected Devices</h3>
+                <div id="devicesList">
+                    <p style="color: var(--text-secondary); font-style: italic;">No devices connected</p>
+                </div>
+            </div>
+
+            <div class="section-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin: 0;">Known Devices</h3>
+                    <button id="reconnectAllBtn" class="btn btn-secondary btn-sm">🔄 Reconnect All</button>
+                </div>
+
+                <div style="background: var(--background-color); padding: 12px 15px; border-radius: 8px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                    <div>
+                        <strong>Auto-Reconnect on Startup</strong>
+                        <p style="margin: 3px 0 0 0; font-size: 12px; color: var(--text-secondary);">
+                            Automatically reconnect devices when server starts
+                        </p>
+                    </div>
+                    <label class="toggle-switch" style="margin: 0;">
+                        <input type="checkbox" id="autoReconnectToggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div id="savedDevicesList"></div>
+                <div id="noSavedDevices" style="display: none; color: var(--text-secondary); font-style: italic;">
+                    No known devices. Connect a device to add it here.
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Apps -->
+        <div id="tab-apps" class="tab-panel">
+            <div class="section-card">
+                <h3>App Launcher</h3>
+                <div class="form-row" style="margin-bottom: 15px;">
+                    <button id="refreshAppsBtn" class="btn btn-secondary">Load Apps</button>
+                    <label style="display: flex; align-items: center; gap: 5px;">
+                        <input type="checkbox" id="showSystemApps"> Show System Apps
+                    </label>
+                    <input type="text" id="appSearch" placeholder="Search apps..." style="flex: 1; max-width: 250px; padding: 8px;">
+                </div>
+                <div id="appSearchResults" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 10px; display: none; background: var(--card-background);"></div>
+                <div class="form-row">
+                    <select id="appSelect" style="flex: 1; min-width: 250px; padding: 8px;">
+                        <option value="">Select device first, then click 'Load Apps'</option>
+                    </select>
+                    <button id="launchAppBtn" class="btn btn-primary">Launch App</button>
+                </div>
+                <p class="status" id="appLauncherStatus"></p>
+            </div>
+
+            <div class="section-card">
+                <h3>App Icon Management</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">
+                    Scrape device-specific app icons for high-quality display.
+                </p>
+                <div id="iconCacheStatus" style="background: var(--background-color); padding: 15px; border-radius: 8px; margin-bottom: 15px; display: none;">
+                    <div style="display: flex; gap: 30px; flex-wrap: wrap;">
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Cached Icons</div>
+                            <div id="iconCount" style="font-size: 20px; font-weight: bold;">-</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Cache Size</div>
+                            <div id="cacheSize" style="font-size: 20px; font-weight: bold;">-</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">New Apps</div>
+                            <div id="newAppsCount" style="font-size: 20px; font-weight: bold;">-</div>
+                        </div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button id="checkIconCacheBtn" class="btn btn-secondary">Check Cache</button>
+                    <button id="scrapeIconsBtn" class="btn btn-primary">Scrape Icons</button>
+                    <button id="viewCacheStatsBtn" class="btn btn-secondary">View Stats</button>
+                </div>
+                <div id="iconScrapeProgress" style="background: var(--background-color); padding: 15px; border-radius: 8px; margin-top: 15px; display: none;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="spinner" style="width: 18px; height: 18px; border: 2px solid var(--border-color); border-top-color: var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                        <span id="scrapeProgressText">Scraping...</span>
+                    </div>
+                    <div id="scrapeProgressDetail" style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;"></div>
+                </div>
+                <p class="status" id="iconMgmtStatus"></p>
+            </div>
+        </div>
+
+        <!-- TAB: Control -->
+        <div id="tab-control" class="tab-panel">
+            <div class="control-grid">
+                <div class="section-card">
+                    <h3>Screenshot & Refresh</h3>
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+                        <button id="captureBtn" class="btn btn-primary">Capture Screenshot</button>
+                        <button id="refreshBtn" class="btn btn-secondary">Refresh Now</button>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="autoRefreshToggle"> Auto-refresh
+                        </label>
+                        <select id="refreshInterval" style="padding: 6px;">
+                            <option value="1000">1s</option>
+                            <option value="2000">2s</option>
+                            <option value="3000" selected>3s</option>
+                            <option value="5000">5s</option>
+                            <option value="10000">10s</option>
+                        </select>
+                        <label style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="smartRefreshToggle"> Smart
+                        </label>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <h3>Interaction Mode</h3>
+                    <div class="button-group-toggle" style="margin-bottom: 15px;">
+                        <input type="radio" name="interactionMode" id="modeTap" value="tap" checked>
+                        <label for="modeTap">Tap</label>
+                        <input type="radio" name="interactionMode" id="modeSwipe" value="swipe">
+                        <label for="modeSwipe">Swipe</label>
+                        <input type="radio" name="interactionMode" id="modeSensor" value="sensor">
+                        <label for="modeSensor">Sensor</label>
+                        <input type="radio" name="interactionMode" id="modeAction" value="action">
+                        <label for="modeAction">Action</label>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="textInput" placeholder="Type text..." style="flex: 1; padding: 8px;">
+                        <button id="sendTextBtn" class="btn btn-secondary">Send</button>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <h3>Hardware Keys</h3>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button id="homeBtn" class="btn btn-secondary btn-sm">Home</button>
+                        <button id="backBtn" class="btn btn-secondary btn-sm">Back</button>
+                        <button id="recentBtn" class="btn btn-secondary btn-sm">Recent</button>
+                        <button id="volumeUpBtn" class="btn btn-secondary btn-sm">Vol+</button>
+                        <button id="volumeDownBtn" class="btn btn-secondary btn-sm">Vol-</button>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <h3>Overlay Filters</h3>
+                    <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 13px;">
+                            <input type="checkbox" id="filterClickable" checked> Clickable
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 13px;">
+                            <input type="checkbox" id="filterNonClickable" checked> Non-Clickable
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 13px;">
+                            <input type="checkbox" id="filterTextLabels" checked> Text Labels
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 13px;">
+                            <input type="checkbox" id="filterMinSize"> Hide Small
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 13px;">
+                            <input type="checkbox" id="filterTextOnly"> Text Only
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-card">
+                <canvas id="screenshotCanvas" style="border: 1px solid var(--border-color); border-radius: 8px; max-width: 100%; display: block; cursor: crosshair;"></canvas>
+                <p class="status" id="screenshotStatus"></p>
             </div>
         </div>
 
@@ -214,176 +508,21 @@
                 </div>
             </div>
         </div>
-
-        <!-- App Launcher Section -->
-        <div class="card">
-            <h2>App Launcher</h2>
-            <p>Launch apps on the selected device above</p>
-
-            <div style="margin-top: 15px;">
-                <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
-                    <button id="refreshAppsBtn" class="btn btn-secondary" style="white-space: nowrap;">Load Apps</button>
-                    <label style="white-space: nowrap;">
-                        <input type="checkbox" id="showSystemApps"> Show System Apps
-                    </label>
-                    <input type="text" id="appSearch" placeholder="Type to search apps (auto-loads if needed)..." style="flex: 1; padding: 8px; max-width: 300px;">
-                </div>
-
-                <!-- Live search results preview -->
-                <div id="appSearchResults" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; margin-bottom: 10px; display: none; background: var(--card-background);"></div>
-
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <select id="appSelect" style="flex: 1; padding: 8px; min-width: 300px;">
-                        <option value="">Select device above and click 'Load Apps'...</option>
-                    </select>
-                    <button id="launchAppBtn" class="btn" style="white-space: nowrap;">Launch App</button>
-                </div>
-
-                <p class="status" id="appLauncherStatus"></p>
-            </div>
-        </div>
-
-        <!-- Icon Management Section (Phase 8 Enhancement) -->
-        <div class="card">
-            <h2>App Icon Management</h2>
-            <p>Scrape high-quality device-specific app icons (adaptive icons, themes, custom packs)</p>
-
-            <div style="margin-top: 15px;">
-                <!-- Cache Status -->
-                <div id="iconCacheStatus" style="background: var(--surface); padding: 15px; border-radius: 8px; margin-bottom: 15px; display: none;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-                        <div>
-                            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 5px;">Cached Icons</div>
-                            <div id="iconCount" style="font-size: 24px; font-weight: bold; color: var(--text-primary);">-</div>
-                        </div>
-                        <div>
-                            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 5px;">Cache Size</div>
-                            <div id="cacheSize" style="font-size: 24px; font-weight: bold; color: var(--text-primary);">-</div>
-                        </div>
-                        <div>
-                            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 5px;">New Apps</div>
-                            <div id="newAppsCount" style="font-size: 24px; font-weight: bold; color: var(--text-primary);">-</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Actions -->
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button id="checkIconCacheBtn" class="btn btn-secondary" style="white-space: nowrap;">Check Cache Status</button>
-                    <button id="scrapeIconsBtn" class="btn btn-primary" style="white-space: nowrap;">Scrape Device Icons</button>
-                    <button id="viewCacheStatsBtn" class="btn btn-secondary" style="white-space: nowrap;">View All Stats</button>
-                </div>
-                <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
-                    💡 <strong>Smart Auto-Caching:</strong> First time you view an app, it shows SVG placeholder and fetches real icon in background. Next time = instant load from persistent cache. No ADB blocking!
-                </p>
-
-                <!-- Progress -->
-                <div id="iconScrapeProgress" style="background: var(--surface); padding: 15px; border-radius: 8px; margin-top: 15px; display: none;">
-                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                        <div class="spinner" style="width: 20px; height: 20px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
-                        <div id="scrapeProgressText" style="color: var(--text-primary); font-weight: 500;">Scraping device icons...</div>
-                    </div>
-                    <div id="scrapeProgressDetail" style="font-size: 14px; color: var(--text-secondary);"></div>
-                </div>
-
-                <p class="status" id="iconMgmtStatus"></p>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2>Screenshot Capture & Device Control</h2>
-            <div style="margin-bottom: 20px;">
-                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
-                    <button id="captureBtn">Capture Screenshot</button>
-                    <button id="refreshBtn">Refresh Now</button>
-                </div>
-                <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
-                    <label>
-                        <input type="checkbox" id="autoRefreshToggle"> Auto-refresh
-                    </label>
-                    <select id="refreshInterval">
-                        <option value="1000">Every 1s</option>
-                        <option value="2000">Every 2s</option>
-                        <option value="3000" selected>Every 3s</option>
-                        <option value="5000">Every 5s</option>
-                        <option value="10000">Every 10s</option>
-                    </select>
-                    <label>
-                        <input type="checkbox" id="smartRefreshToggle"> Smart Refresh
-                    </label>
-                </div>
-            </div>
-
-            <div class="control-section">
-                <strong>Device Control:</strong>
-                <div style="margin-bottom: 12px;">
-                    <div class="button-group-toggle">
-                        <input type="radio" name="interactionMode" id="modeTap" value="tap" checked>
-                        <label for="modeTap">Tap</label>
-                        <input type="radio" name="interactionMode" id="modeSwipe" value="swipe">
-                        <label for="modeSwipe">Swipe</label>
-                        <input type="radio" name="interactionMode" id="modeSensor" value="sensor">
-                        <label for="modeSensor">Sensor</label>
-                        <input type="radio" name="interactionMode" id="modeAction" value="action">
-                        <label for="modeAction">Action</label>
-                    </div>
-                </div>
-                <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">
-                    <label for="textInput" style="white-space: nowrap;">Type Text:</label>
-                    <input type="text" id="textInput" placeholder="Enter text to type on device" style="flex: 1; max-width: 300px;">
-                    <button id="sendTextBtn">Send</button>
-                </div>
-                <div>
-                    <strong style="font-size: 14px;">Hardware Keys:</strong>
-                    <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
-                        <button id="homeBtn" style="padding: 6px 12px;">Home</button>
-                        <button id="backBtn" style="padding: 6px 12px;">Back</button>
-                        <button id="recentBtn" style="padding: 6px 12px;">Recent</button>
-                        <button id="volumeUpBtn" style="padding: 6px 12px;">Vol+</button>
-                        <button id="volumeDownBtn" style="padding: 6px 12px;">Vol-</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="overlay-section">
-                <strong>Overlay Filters:</strong>
-                <div style="display: flex; flex-wrap: wrap; gap: 15px; margin-top: 8px;">
-                    <label>
-                        <input type="checkbox" id="filterClickable" checked> Clickable
-                    </label>
-                    <label>
-                        <input type="checkbox" id="filterNonClickable" checked> Non-Clickable
-                    </label>
-                    <label>
-                        <input type="checkbox" id="filterTextLabels" checked> Text Labels
-                    </label>
-                    <label>
-                        <input type="checkbox" id="filterMinSize"> Hide Small (&lt;50px)
-                    </label>
-                    <label>
-                        <input type="checkbox" id="filterTextOnly"> Text Only
-                    </label>
-                </div>
-            </div>
-
-            <canvas id="screenshotCanvas" style="border: 1px solid #ccc; max-width: 100%; display: block; cursor: crosshair;"></canvas>
-            <p class="status" id="screenshotStatus"></p>
-        </div>
     </div>
 
     <script type="module">
-        import APIClient from './js/modules/api-client.js?v=0.0.6';
-        import ScreenshotCapture from './js/modules/screenshot-capture.js?v=0.0.6';
-        import DeviceControl from './js/modules/device-control.js?v=0.0.6';
-        import AutoRefresh from './js/modules/auto-refresh.js?v=0.0.6';
-        import ActivityMonitor from './js/modules/activity-monitor.js?v=0.0.6';
-        import DeviceManager from './js/modules/device-manager.js?v=0.0.6';
-        import OverlayFilters from './js/modules/overlay-filters.js?v=0.0.6';
-        import ElementSelector from './js/modules/element-selector.js?v=0.0.6';
-        import SensorCreator from './js/modules/sensor-creator.js?v=0.0.10';
-        import ActionManager from './js/modules/action-manager.js?v=0.0.6';
-        import IconRenderer from './js/modules/icon-renderer.js?v=0.0.6';
-        import DeviceSecurityUI from './js/modules/device-security.js?v=0.0.7';
+        import APIClient from './js/modules/api-client.js?v=0.0.51';
+        import ScreenshotCapture from './js/modules/screenshot-capture.js?v=0.0.51';
+        import DeviceControl from './js/modules/device-control.js?v=0.0.51';
+        import AutoRefresh from './js/modules/auto-refresh.js?v=0.0.51';
+        import ActivityMonitor from './js/modules/activity-monitor.js?v=0.0.51';
+        import DeviceManager from './js/modules/device-manager.js?v=0.0.51';
+        import OverlayFilters from './js/modules/overlay-filters.js?v=0.0.51';
+        import ElementSelector from './js/modules/element-selector.js?v=0.0.51';
+        import SensorCreator from './js/modules/sensor-creator.js?v=0.0.51';
+        import ActionManager from './js/modules/action-manager.js?v=0.0.51';
+        import IconRenderer from './js/modules/icon-renderer.js?v=0.0.51';
+        import DeviceSecurityUI from './js/modules/device-security.js?v=0.0.51';
         // Note: ThemeToggle and MobileNav now handled by js/components/navbar.js
 
         const apiClient = new APIClient();
@@ -400,6 +539,31 @@
         const deviceSecurityUI = new DeviceSecurityUI();
 
         // Theme and mobile nav now handled by js/components/navbar.js
+
+        // === Tab Navigation ===
+        document.querySelectorAll('.device-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.dataset.tab;
+
+                // Update tab buttons
+                document.querySelectorAll('.device-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                // Update tab panels
+                document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+                document.getElementById(`tab-${tabId}`).classList.add('active');
+
+                // Save active tab to localStorage
+                localStorage.setItem('devices_active_tab', tabId);
+            });
+        });
+
+        // Restore last active tab
+        const savedTab = localStorage.getItem('devices_active_tab');
+        if (savedTab) {
+            const tabBtn = document.querySelector(`.device-tab[data-tab="${savedTab}"]`);
+            if (tabBtn) tabBtn.click();
+        }
 
         // Enable interactive canvas
         deviceControl.enableInteractiveCanvas(canvas, (result) => {

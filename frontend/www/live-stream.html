@@ -3,144 +3,150 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.0.44" data-build="2026-01-01">
+    <meta name="version" content="0.0.51" data-build="2026-01-10">
     <title>Live Stream - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.44">
-    <link rel="stylesheet" href="css/live-stream.css?v=0.0.44">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.51">
+    <link rel="stylesheet" href="css/live-stream.css?v=0.0.51">
+    <style>
+        /* Compact controls styling */
+        .stream-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 0;
+        }
+        .stream-header h1 { margin: 0; }
+        .stream-header p { margin: 5px 0 0 0; color: var(--text-secondary); font-size: 13px; }
+        .controls-card {
+            background: var(--card-background);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .controls-card h3 {
+            margin: 0 0 12px 0;
+            font-size: 14px;
+            color: var(--text-color);
+        }
+        .compact-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .compact-row:last-child { margin-bottom: 0; }
+        .compact-row label {
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .compact-row select {
+            padding: 6px 10px;
+            font-size: 13px;
+            min-width: 140px;
+        }
+        .filter-row {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .filter-row label {
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+        .two-col-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        @media (max-width: 900px) {
+            .two-col-grid { grid-template-columns: 1fr; }
+        }
+    </style>
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.44"></script>
+    <script type="module" src="js/init.js?v=0.0.51"></script>
 
     <div class="container">
-        <div class="card">
-            <h1>Live Stream</h1>
-            <p>Real-time screen streaming with element overlays for creating sensors and actions.</p>
-            <p style="font-size: 0.9em; color: #666;">
-                Use lower quality settings for higher FPS (up to 25+ FPS at 360p/240p)
-            </p>
-        </div>
-
-        <div class="card">
-            <h2>Stream Controls</h2>
-
-            <div class="controls-row">
-                <div class="control-group">
-                    <label for="deviceSelect">Device:</label>
-                    <select id="deviceSelect">
+        <!-- Compact Header -->
+        <div class="card" style="margin-bottom: 15px;">
+            <div class="stream-header">
+                <div>
+                    <h1>Live Stream</h1>
+                    <p>Real-time screen streaming with element overlays</p>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <select id="deviceSelect" style="min-width: 180px; padding: 8px;">
                         <option value="">-- Select Device --</option>
                     </select>
-                </div>
-
-                <div class="control-group">
-                    <label for="streamMode">Mode:</label>
-                    <select id="streamMode">
-                        <option value="mjpeg" selected>MJPEG Binary (Recommended)</option>
-                        <option value="websocket">WebSocket Base64</option>
-                    </select>
-                </div>
-
-                <div class="control-group">
-                    <label for="streamQuality">Quality:</label>
-                    <select id="streamQuality">
-                        <option value="high">High (Native) ~5 FPS</option>
-                        <option value="medium" selected>Medium (720p) ~12 FPS</option>
-                        <option value="low">Low (480p) ~18 FPS</option>
-                        <option value="fast">Fast (360p) ~25 FPS</option>
-                        <option value="ultrafast">Ultra-Fast (240p) ~30 FPS - WiFi</option>
-                    </select>
-                </div>
-
-                <div class="control-group">
-                    <button id="startBtn" class="btn btn-primary">Start Stream</button>
-                    <button id="stopBtn" class="btn btn-secondary" disabled>Stop Stream</button>
-                    <button id="refreshDevicesBtn" class="btn">Refresh Devices</button>
-                </div>
-            </div>
-
-            <div class="controls-row">
-                <div class="control-group">
-                    <label>
-                        <input type="checkbox" id="showOverlays" checked>
-                        Show Element Overlays
-                    </label>
-                </div>
-                <div class="control-group">
-                    <label>
-                        <input type="checkbox" id="showLabels" checked>
-                        Show Text Labels
-                    </label>
+                    <button id="startBtn" class="btn btn-primary">Start</button>
+                    <button id="stopBtn" class="btn btn-secondary" disabled>Stop</button>
+                    <button id="refreshDevicesBtn" class="btn btn-secondary btn-sm" title="Refresh devices">↻</button>
                 </div>
             </div>
         </div>
 
-        <div class="card">
-            <h2>Element Overlay Controls</h2>
-            <div class="controls-row">
-                <div class="control-group">
-                    <button id="refreshElementsBtn" class="btn btn-primary">Refresh Elements</button>
-                    <label style="margin-left: 15px;">
-                        <input type="checkbox" id="autoRefreshElements">
-                        Auto-refresh every
+        <!-- Stream Settings Row -->
+        <div class="two-col-grid">
+            <div class="controls-card">
+                <h3>Stream Settings</h3>
+                <div class="compact-row">
+                    <label>Mode:
+                        <select id="streamMode">
+                            <option value="mjpeg" selected>MJPEG Binary</option>
+                            <option value="websocket">WebSocket</option>
+                        </select>
                     </label>
-                    <select id="autoRefreshInterval" style="margin-left: 5px;">
+                    <label>Quality:
+                        <select id="streamQuality">
+                            <option value="high">Native ~5fps</option>
+                            <option value="medium" selected>720p ~12fps</option>
+                            <option value="low">480p ~18fps</option>
+                            <option value="fast">360p ~25fps</option>
+                            <option value="ultrafast">240p ~30fps</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="compact-row">
+                    <label><input type="checkbox" id="showOverlays" checked> Show Overlays</label>
+                    <label><input type="checkbox" id="showLabels" checked> Show Labels</label>
+                </div>
+            </div>
+
+            <div class="controls-card">
+                <h3>Element Overlays</h3>
+                <div class="compact-row">
+                    <button id="refreshElementsBtn" class="btn btn-secondary btn-sm">Refresh Elements</button>
+                    <label><input type="checkbox" id="autoRefreshElements"> Auto</label>
+                    <select id="autoRefreshInterval" style="width: 70px; padding: 4px;">
                         <option value="2000">2s</option>
                         <option value="5000" selected>5s</option>
                         <option value="10000">10s</option>
-                        <option value="30000">30s</option>
                     </select>
+                    <span id="elementStatus" style="font-size: 12px; color: var(--text-secondary);">No elements</span>
                 </div>
-            </div>
-            <div class="controls-row">
-                <span id="elementStatus" class="element-status">No elements loaded</span>
-            </div>
-            <div class="controls-row">
-                <div class="control-group">
-                    <label>
-                        <input type="checkbox" id="filterClickable">
-                        Clickable Only
-                    </label>
+                <div class="filter-row">
+                    <label><input type="checkbox" id="filterClickable"> Clickable</label>
+                    <label><input type="checkbox" id="filterWithText"> With Text</label>
+                    <label><input type="checkbox" id="filterLargeElements" checked> Hide Small</label>
+                    <label><input type="checkbox" id="filterContainers" checked> Hide Containers</label>
+                    <label><input type="checkbox" id="filterDividers" checked> Hide Dividers</label>
+                    <label><input type="checkbox" id="filterEmpty" checked> Hide Empty</label>
                 </div>
-                <div class="control-group">
-                    <label>
-                        <input type="checkbox" id="filterWithText">
-                        With Text Only
-                    </label>
-                </div>
-                <div class="control-group">
-                    <label>
-                        <input type="checkbox" id="filterLargeElements" checked>
-                        Hide Small (&lt;20px)
-                    </label>
-                </div>
-                <div class="control-group">
-                    <label>
-                        <input type="checkbox" id="filterContainers" checked>
-                        Hide Containers
-                    </label>
-                </div>
-                <div class="control-group">
-                    <label>
-                        <input type="checkbox" id="filterDividers" checked>
-                        Hide Dividers
-                    </label>
-                </div>
-                <div class="control-group">
-                    <label>
-                        <input type="checkbox" id="filterEmpty" checked>
-                        Hide Empty
-                    </label>
-                </div>
-            </div>
-            <div class="controls-row">
-                <div class="control-group">
-                    <label>
-                        <input type="checkbox" id="autoHideStale">
-                        Auto-hide when screen changes (experimental)
-                    </label>
+                <div class="compact-row" style="margin-top: 8px;">
+                    <label style="font-size: 11px;"><input type="checkbox" id="autoHideStale"> Auto-hide on screen change</label>
                 </div>
             </div>
         </div>
@@ -339,53 +345,43 @@
             </div>
         </div>
 
-        <div class="card">
-            <h2>Touch Controls</h2>
-            <p>
-                <strong>Click</strong> = Tap &nbsp;|&nbsp;
-                <strong>Click + Drag</strong> = Swipe &nbsp;|&nbsp;
-                <strong>Ctrl + Scroll</strong> = Zoom
-            </p>
-            <p style="font-size: 0.85em; color: #666; margin-top: 5px;">
-                Use +/- buttons or Ctrl+scroll to zoom. Middle-click or right-click to pan when zoomed.
-            </p>
-            <div id="lastTap" class="tap-info">Last action: --</div>
-        </div>
+        <!-- Bottom Controls Grid -->
+        <div class="two-col-grid" style="margin-top: 15px;">
+            <div class="controls-card">
+                <h3>Navigation & Touch</h3>
+                <p style="font-size: 12px; color: var(--text-secondary); margin: 0 0 10px 0;">
+                    Click = Tap | Drag = Swipe | Ctrl+Scroll = Zoom
+                </p>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                    <button id="btnBack" class="btn btn-secondary btn-sm">← Back</button>
+                    <button id="btnHome" class="btn btn-secondary btn-sm">● Home</button>
+                    <button id="btnRecent" class="btn btn-secondary btn-sm">▢ Recent</button>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button id="btnSwipeUp" class="btn btn-secondary btn-sm">↑ Up</button>
+                    <button id="btnSwipeDown" class="btn btn-secondary btn-sm">↓ Down</button>
+                    <button id="btnSwipeLeft" class="btn btn-secondary btn-sm">← Left</button>
+                    <button id="btnSwipeRight" class="btn btn-secondary btn-sm">→ Right</button>
+                </div>
+                <div id="lastTap" class="tap-info" style="margin-top: 10px; font-size: 12px;">Last: --</div>
+                <div id="lastAction" class="tap-info" style="font-size: 12px;">Action: --</div>
+            </div>
 
-        <div class="card">
-            <h2>Gesture Recording</h2>
-            <div class="controls-row">
-                <button id="recordBtn" class="btn btn-record">Start Recording</button>
-                <button id="clearRecordingBtn" class="btn btn-secondary" disabled>Clear</button>
-                <button id="saveRecordingBtn" class="btn btn-primary" disabled>Save as Flow</button>
-            </div>
-            <div id="recordingStatus" class="recording-status">
-                <span id="recordingIndicator" class="recording-indicator"></span>
-                <span id="recordingText">Not recording</span>
-            </div>
-            <div id="recordedActions" class="recorded-actions">
-                <p class="empty-message">No actions recorded. Click "Start Recording" and interact with the device.</p>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2>Navigation Controls</h2>
-            <div class="nav-controls">
-                <div class="nav-row">
-                    <button id="btnBack" class="nav-btn" title="Back">&#x2190; Back</button>
-                    <button id="btnHome" class="nav-btn" title="Home">&#x25CF; Home</button>
-                    <button id="btnRecent" class="nav-btn" title="Recent Apps">&#x25A1; Recent</button>
+            <div class="controls-card">
+                <h3>Gesture Recording</h3>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                    <button id="recordBtn" class="btn btn-record">● Record</button>
+                    <button id="clearRecordingBtn" class="btn btn-secondary btn-sm" disabled>Clear</button>
+                    <button id="saveRecordingBtn" class="btn btn-primary btn-sm" disabled>Save Flow</button>
                 </div>
-                <div class="nav-row">
-                    <button id="btnSwipeUp" class="nav-btn" title="Swipe Up">&#x2191; Swipe Up</button>
-                    <button id="btnSwipeDown" class="nav-btn" title="Swipe Down">&#x2193; Swipe Down</button>
+                <div id="recordingStatus" class="recording-status" style="margin-bottom: 8px;">
+                    <span id="recordingIndicator" class="recording-indicator"></span>
+                    <span id="recordingText" style="font-size: 12px;">Not recording</span>
                 </div>
-                <div class="nav-row">
-                    <button id="btnSwipeLeft" class="nav-btn" title="Swipe Left">&#x2190; Swipe Left</button>
-                    <button id="btnSwipeRight" class="nav-btn" title="Swipe Right">&#x2192; Swipe Right</button>
+                <div id="recordedActions" class="recorded-actions" style="max-height: 120px; overflow-y: auto;">
+                    <p class="empty-message" style="font-size: 12px; margin: 0;">No actions recorded</p>
                 </div>
             </div>
-            <div id="lastAction" class="tap-info">Last action: --</div>
         </div>
     </div>
 

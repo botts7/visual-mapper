@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.0.44" data-build="2025-12-28">
+    <meta name="version" content="0.0.51" data-build="2026-01-10">
     <title>Dashboard - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.44">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.51">
     <style>
         /* Dashboard-specific styles */
         .stats-grid {
@@ -212,7 +212,7 @@
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.44"></script>
+    <script type="module" src="js/init.js?v=0.0.51"></script>
 
     <div class="container">
         <!-- Header with logo and status -->
@@ -329,14 +329,18 @@
 
     <script type="module">
         import APIClient from './js/modules/api-client.js?v=0.0.5';
+        import IconRenderer from './js/modules/icon-renderer.js?v=0.0.5';
         // Note: ThemeToggle and MobileNav now handled by js/components/navbar.js
 
         const apiClient = new APIClient();
+        const iconRenderer = new IconRenderer();
 
         // Format relative time
         function formatRelativeTime(timestamp) {
             if (!timestamp) return 'Never';
-            const date = new Date(timestamp);
+            // Backend returns UTC timestamps without 'Z' suffix - add it so JS parses correctly
+            const utcTimestamp = timestamp.endsWith('Z') ? timestamp : timestamp + 'Z';
+            const date = new Date(utcTimestamp);
             const now = new Date();
             const diffMs = now - date;
             const diffSec = Math.floor(diffMs / 1000);
@@ -595,11 +599,24 @@
                         : '--';
                     const updated = formatRelativeTime(sensor.last_updated);
 
+                    // Render icon using IconRenderer (mdi:icon-name format)
+                    const iconHtml = sensor.icon ? iconRenderer.render(sensor.icon, { size: '1.2em' }) : '';
+
+                    // Show target_app (cleaned up) or device IP as fallback
+                    let appDisplay = '';
+                    if (sensor.target_app) {
+                        // Extract last part of package name (e.g., "com.example.app" -> "app")
+                        appDisplay = sensor.target_app.split('.').pop();
+                    } else {
+                        // Fallback to device IP without port
+                        appDisplay = sensor.device_id.split(':')[0];
+                    }
+
                     html += `
                         <div class="sensor-row">
                             <div class="sensor-info">
-                                <div class="sensor-name">${sensor.icon || ''} ${sensor.friendly_name}</div>
-                                <div class="sensor-device">${sensor.device_id.split(':')[0]}</div>
+                                <div class="sensor-name">${iconHtml} ${sensor.friendly_name}</div>
+                                <div class="sensor-device">${appDisplay}</div>
                             </div>
                             <div style="text-align: right;">
                                 <div class="sensor-value">${value}</div>

@@ -550,13 +550,20 @@ class LiveStream {
         // Pause flow scheduler (if enabled)
         if (this._pauseSchedulerOnStart) {
             try {
-                const response = await fetch(`${apiBase}/scheduler/pause`, { method: 'POST' });
+                const response = await fetch(`${apiBase}/scheduler/pause`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
                 if (response.ok) {
                     const data = await response.json();
                     if (data.success) {
                         console.log('[LiveStream] Paused flow scheduler for streaming');
                         this._schedulerPaused = true;
+                    } else {
+                        console.warn('[LiveStream] Scheduler pause returned:', data);
                     }
+                } else {
+                    console.warn('[LiveStream] Scheduler pause failed:', response.status, response.statusText);
                 }
             } catch (e) {
                 console.warn('[LiveStream] Could not pause scheduler:', e);
@@ -568,14 +575,24 @@ class LiveStream {
         // Pause sensor updates for this device (if enabled)
         if (this._pauseSensorsOnStart && deviceId) {
             try {
-                const response = await fetch(`${apiBase}/sensors/pause/${encodeURIComponent(deviceId)}`, { method: 'POST' });
+                const response = await fetch(`${apiBase}/sensors/pause/${encodeURIComponent(deviceId)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
                 if (response.ok) {
                     const data = await response.json();
                     if (data.success && data.paused) {
                         console.log(`[LiveStream] Paused sensor updates for ${deviceId}`);
                         this._sensorsPaused = true;
                         this._pausedDeviceId = deviceId;
+                    } else if (data.message && data.message.includes('No sensor update loop')) {
+                        // This is fine - no active sensor polling to pause
+                        console.log(`[LiveStream] No active sensor polling for ${deviceId} (OK)`);
+                    } else {
+                        console.warn('[LiveStream] Sensor pause returned:', data);
                     }
+                } else {
+                    console.warn('[LiveStream] Sensor pause failed:', response.status, response.statusText);
                 }
             } catch (e) {
                 console.warn('[LiveStream] Could not pause sensor updates:', e);
@@ -594,7 +611,10 @@ class LiveStream {
         // Resume sensor updates first
         if (this._sensorsPaused && this._pausedDeviceId) {
             try {
-                await fetch(`${apiBase}/sensors/resume/${encodeURIComponent(this._pausedDeviceId)}`, { method: 'POST' });
+                await fetch(`${apiBase}/sensors/resume/${encodeURIComponent(this._pausedDeviceId)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
                 console.log(`[LiveStream] Resumed sensor updates for ${this._pausedDeviceId}`);
                 this._sensorsPaused = false;
                 this._pausedDeviceId = null;
@@ -606,7 +626,10 @@ class LiveStream {
         // Resume flow scheduler
         if (this._schedulerPaused) {
             try {
-                await fetch(`${apiBase}/scheduler/resume`, { method: 'POST' });
+                await fetch(`${apiBase}/scheduler/resume`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
                 console.log('[LiveStream] Resumed flow scheduler after streaming');
                 this._schedulerPaused = false;
             } catch (e) {
