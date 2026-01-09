@@ -227,10 +227,13 @@ export class FlowStepManager {
 
             // Steps that could navigate (make current screen unknown)
             if (['tap', 'swipe', 'go_back', 'go_home'].includes(step.step_type)) {
-                // After navigation action, screen becomes uncertain unless we know target
-                if (!step.screen_activity) {
-                    currentScreen = null;
-                }
+                // After navigation action, screen becomes uncertain regardless of pre-action screen
+                currentScreen = null;
+            }
+
+            // validate_screen asserts a target activity - treat as known screen
+            if (step.step_type === 'validate_screen' && step.expected_activity) {
+                currentScreen = step.expected_activity;
             }
 
             // Check capture_sensors and other screen-dependent steps

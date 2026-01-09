@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any
 from fastapi import HTTPException
 
 from core.flows import SensorCollectionFlow, FlowStep, FlowExecutionResult
+from services.device_identity import get_device_identity_resolver
 
 logger = logging.getLogger(__name__)
 
@@ -344,6 +345,13 @@ class FlowService:
             except Exception as e:
                 logger.warning(f"[FlowService] Failed to get stable ID for {flow_data.get('device_id')}: {e}")
 
+        if flow_data.get('device_id') and flow_data.get('stable_device_id'):
+            try:
+                resolver = get_device_identity_resolver(str(self.flow_manager.data_dir))
+                resolver.register_device(flow_data['device_id'], flow_data['stable_device_id'])
+            except Exception as e:
+                logger.warning(f"[FlowService] Failed to register device mapping: {e}")
+
         # Create flow object
         try:
             flow = SensorCollectionFlow(**flow_data)
@@ -356,7 +364,12 @@ class FlowService:
         # Save flow
         success = self.flow_manager.create_flow(flow)
         if not success:
-            raise HTTPException(status_code=400, detail="Flow already exists or could not be created")
+            existing = self.flow_manager.get_flow(flow.device_id, flow.flow_id)
+            if existing:
+                logger.warning(f"[FlowService] Duplicate flow_id: {flow.flow_id} for {flow.device_id}")
+                raise HTTPException(status_code=409, detail="Flow already exists")
+            logger.error(f"[FlowService] Failed to create flow {flow.flow_id} for {flow.device_id}")
+            raise HTTPException(status_code=500, detail="Failed to create flow (check server logs)")
 
         result = flow.dict()
         if warning:
@@ -443,6 +456,9 @@ class FlowService:
             execution_method: Execution routing method
             learn_mode: If True, capture UI elements at each screen to improve navigation graph
         """
+        if not self.flow_executor:
+            raise HTTPException(status_code=503, detail="Flow executor not initialized")
+
         flow = self.flow_manager.get_flow(device_id, flow_id)
         if not flow:
             raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")

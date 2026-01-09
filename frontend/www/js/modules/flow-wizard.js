@@ -21,7 +21,7 @@ import { showToast } from './toast.js?v=0.0.5';
 import FlowRecorder from './flow-recorder.js?v=0.0.12';
 import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.11';
 import FlowInteractions from './flow-interactions.js?v=0.0.15';
-import FlowStepManager from './flow-step-manager.js?v=0.0.7';
+import FlowStepManager from './flow-step-manager.js?v=0.0.9';
 import LiveStream from './live-stream.js?v=0.0.34';
 import ElementTree from './element-tree.js?v=0.0.5';
 import APIClient from './api-client.js?v=0.0.4';
@@ -29,13 +29,13 @@ import SensorCreator from './sensor-creator.js?v=0.0.10';
 
 // Step modules
 import * as Step1 from './flow-wizard-step1.js?v=0.0.6';
-import * as Step2 from './flow-wizard-step2.js?v=0.0.5';
-import * as Step3 from './flow-wizard-step3.js?v=0.0.36';
-import * as Step4 from './flow-wizard-step4.js?v=0.0.14';
-import * as Step5 from './flow-wizard-step5.js?v=0.0.6';
+import * as Step2 from './flow-wizard-step2.js?v=0.0.6';
+import * as Step3 from './flow-wizard-step3.js?v=0.0.60';
+import * as Step4 from './flow-wizard-step4.js?v=0.0.17';
+import * as Step5 from './flow-wizard-step5.js?v=0.0.9';
 
 // Dialog module
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.9';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.10';
 
 // Element actions module
 import * as ElementActions from './flow-wizard-element-actions.js?v=0.0.6';
@@ -52,6 +52,8 @@ class FlowWizard {
         this.selectedDevice = null;
         this.selectedApp = null;
         this.recordMode = 'execute';
+        const savedStartMode = localStorage.getItem('flowWizard.startFromCurrentScreen');
+        this.startFromCurrentScreen = savedStartMode === 'true';
         this.recorder = null;
         this.flowSteps = [];
         this.schedulerWasPaused = false;  // Track if we paused the scheduler
@@ -949,6 +951,9 @@ class FlowWizard {
     hideLoadingOverlay() { return Step3.hideLoadingOverlay(this); }
     updateElementCount(count) { return Step3.updateElementCount(this, count); }
     updateFlowStepsUI() { return Step3.updateFlowStepsUI(this); }
+    async addSensorWithNavigationCheck(sensorStep, skipCheck = false) {
+        return await Step3.addSensorWithNavigationCheck(this, sensorStep, skipCheck);
+    }
     showPreviewOverlay() { return Step3.showPreviewOverlay(this); }
     hidePreviewOverlay() { return Step3.hidePreviewOverlay(this); }
     async chooseRegularScreenshot() { return await Step3.chooseRegularScreenshot(this); }

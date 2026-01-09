@@ -7,7 +7,7 @@ Provides endpoints for registering Android companion app devices.
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import logging
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from routes import get_deps
 
@@ -31,8 +31,12 @@ class DeviceInfo(BaseModel):
     platform: str
     appVersion: str
     capabilities: List[str]
-    registeredAt: str
-    lastHeartbeat: str | None = None
+    registeredAt: Optional[str]
+    lastHeartbeat: Optional[str] = None
+    registered: bool = True
+    source: Optional[str] = "companion"
+    connectionType: Optional[str] = None
+    connected: Optional[bool] = None
 
 
 # In-memory device registry (for now)
@@ -58,7 +62,9 @@ async def register_device(device: DeviceRegistration):
             appVersion=device.appVersion,
             capabilities=device.capabilities,
             registeredAt=datetime.now().isoformat(),
-            lastHeartbeat=None
+            lastHeartbeat=None,
+            registered=True,
+            source="companion"
         )
 
         registered_devices[device.deviceId] = device_info
@@ -122,6 +128,27 @@ async def get_device_info(device_id: str):
     Get information about a specific registered device
     """
     if device_id not in registered_devices:
+        deps = get_deps()
+        if deps.adb_bridge:
+            try:
+                devices = await deps.adb_bridge.get_devices()
+                match = next((dev for dev in devices if dev.get("id") == device_id), None)
+                if match:
+                    return DeviceInfo(
+                        deviceId=device_id,
+                        deviceName=match.get("model") or device_id,
+                        platform="android",
+                        appVersion="unknown",
+                        capabilities=[],
+                        registeredAt=None,
+                        lastHeartbeat=None,
+                        registered=False,
+                        source="adb",
+                        connectionType=match.get("connection_type"),
+                        connected=match.get("connected")
+                    )
+            except Exception as e:
+                logger.warning(f"[Device Registration] ADB fallback lookup failed for {device_id}: {e}")
         raise HTTPException(status_code=404, detail="Device not found")
 
     return registered_devices[device_id]

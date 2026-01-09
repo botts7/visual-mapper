@@ -6,6 +6,7 @@ Refactored to use FlowService for business logic.
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional, List, Dict
+from dataclasses import asdict
 import logging
 from routes import get_deps
 from services.flow_service import FlowService
@@ -144,6 +145,154 @@ async def execute_flow_on_demand(
         raise
     except Exception as e:
         logger.error(f"[API] Failed to execute flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# FLOW IMPORT/EXPORT
+# =============================================================================
+
+@router.get("/flows/{device_id}/{flow_id}/export")
+async def export_flow(device_id: str, flow_id: str, service: FlowService = Depends(get_flow_service)):
+    """Export a single flow for backup/sharing"""
+    try:
+        flow = service.get_flow(device_id, flow_id)
+        return {
+            "flow_id": flow_id,
+            "flow_name": flow.get("name"),
+            "device_id": device_id,
+            "flow": flow
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to export flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/flows/import/{device_id}")
+async def import_flows(device_id: str, data: dict):
+    """Import flows for a device"""
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+        success = deps.flow_manager.import_flows(device_id, data)
+        if not success:
+            raise HTTPException(status_code=400, detail="Import failed")
+        return {"success": True, "message": "Flows imported successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to import flows: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# FLOW EXECUTION HISTORY
+# =============================================================================
+
+@router.get("/flows/{device_id}/{flow_id}/history")
+async def get_flow_execution_history(
+    device_id: str,
+    flow_id: str,
+    limit: int = Query(default=20, ge=1, le=200)
+):
+    deps = get_deps()
+    try:
+        if not deps.flow_executor or not getattr(deps.flow_executor, "execution_history", None):
+            raise HTTPException(status_code=503, detail="Execution history not initialized")
+        history = deps.flow_executor.execution_history.get_history(flow_id, limit=limit)
+        return {
+            "flow_id": flow_id,
+            "device_id": device_id,
+            "history": [asdict(log) for log in history]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to get execution history: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# FLOW TEMPLATES
+# =============================================================================
+
+@router.get("/flow-templates")
+async def list_flow_templates(category: Optional[str] = None, tags: Optional[str] = None):
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+        tag_list = [t.strip() for t in tags.split(",")] if tags else None
+        templates = deps.flow_manager.list_templates(category=category, tags=tag_list)
+        return {"templates": templates}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to list templates: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/flow-templates/{template_id}/create-flow")
+async def create_flow_from_template(template_id: str, request: dict):
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+        device_id = request.get("device_id")
+        flow_name = request.get("flow_name")
+        if not device_id:
+            raise HTTPException(status_code=400, detail="device_id required")
+        flow = deps.flow_manager.create_flow_from_template(
+            template_id=template_id,
+            device_id=device_id,
+            flow_name=flow_name
+        )
+        if not flow:
+            raise HTTPException(status_code=404, detail="Template not found or flow creation failed")
+
+        # Register stable ID mapping when possible
+        if deps.adb_bridge:
+            try:
+                stable_id = await deps.adb_bridge.get_device_serial(device_id)
+                if stable_id:
+                    flow.stable_device_id = stable_id
+                    from services.device_identity import get_device_identity_resolver
+                    resolver = get_device_identity_resolver(str(deps.flow_manager.data_dir))
+                    resolver.register_device(device_id, stable_id)
+            except Exception as e:
+                logger.warning(f"[API] Failed to register device mapping for template flow: {e}")
+
+        created = deps.flow_manager.create_flow(flow)
+        if not created:
+            raise HTTPException(status_code=409, detail="Flow already exists or could not be created")
+        return {"success": True, "flow": flow.dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to create flow from template: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/flows/{device_id}/{flow_id}/save-as-template")
+async def save_flow_as_template(device_id: str, flow_id: str, request: dict):
+    deps = get_deps()
+    try:
+        if not deps.flow_manager:
+            raise HTTPException(status_code=503, detail="Flow manager not initialized")
+        template_name = request.get("template_name")
+        tags = request.get("tags")
+        if not template_name:
+            raise HTTPException(status_code=400, detail="template_name required")
+        saved = deps.flow_manager.save_flow_as_template(
+            device_id=device_id,
+            flow_id=flow_id,
+            template_name=template_name,
+            tags=tags
+        )
+        if not saved:
+            raise HTTPException(status_code=400, detail="Failed to save template")
+        return {"success": True, "message": "Template saved"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to save template: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 # ... (Keep other specialized endpoints like metrics, alerts, templates, etc. if they are not yet in FlowService)

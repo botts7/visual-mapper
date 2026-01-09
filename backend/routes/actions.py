@@ -108,6 +108,80 @@ async def list_actions(device_id: str):
         return handle_api_error(e)
 
 
+# =============================================================================
+# IMPORT/EXPORT
+# =============================================================================
+
+@router.get("/export/{device_id}")
+async def export_actions(device_id: str):
+    """Export all actions for a device as JSON"""
+    deps = get_deps()
+    try:
+        logger.info(f"[API] Exporting actions for device {device_id}")
+        actions = deps.action_manager.list_actions(device_id)
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            "actions": [action.dict() for action in actions],
+            "count": len(actions)
+        }
+    except Exception as e:
+        logger.error(f"[API] Export actions failed: {e}")
+        return handle_api_error(e)
+
+
+@router.post("/import/{device_id}")
+async def import_actions(device_id: str, actions: list):
+    """Import actions from JSON
+
+    Request body:
+    {
+        "actions": [
+            {
+                "action": {...},
+                "tags": [...]
+            },
+            ...
+        ]
+    }
+    """
+    deps = get_deps()
+    try:
+        logger.info(f"[API] Importing {len(actions)} actions for device {device_id}")
+
+        imported_count = 0
+        failed_count = 0
+
+        for action_data in actions:
+            try:
+                action_def = deps.action_manager.create_action(
+                    device_id=device_id,
+                    action=action_data.get("action"),
+                    tags=action_data.get("tags", [])
+                )
+
+                # Publish MQTT discovery for imported action
+                if deps.mqtt_manager and deps.mqtt_manager.is_connected:
+                    await deps.mqtt_manager.publish_action_discovery(action_def)
+
+                imported_count += 1
+            except Exception as e:
+                logger.error(f"[API] Failed to import action: {e}")
+                failed_count += 1
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            "imported_count": imported_count,
+            "failed_count": failed_count,
+            "total": len(actions)
+        }
+    except Exception as e:
+        logger.error(f"[API] Import actions failed: {e}")
+        return handle_api_error(e)
+
+
 @router.get("/{device_id}/{action_id}")
 async def get_action(device_id: str, action_id: str):
     """Get a specific action"""
@@ -255,76 +329,3 @@ async def execute_action_endpoint(request: ActionExecutionRequest, device_id: st
         logger.error(f"[API] Execute action failed: {e}")
         return handle_api_error(e)
 
-
-# =============================================================================
-# IMPORT/EXPORT
-# =============================================================================
-
-@router.get("/export/{device_id}")
-async def export_actions(device_id: str):
-    """Export all actions for a device as JSON"""
-    deps = get_deps()
-    try:
-        logger.info(f"[API] Exporting actions for device {device_id}")
-        actions = deps.action_manager.list_actions(device_id)
-
-        return {
-            "success": True,
-            "device_id": device_id,
-            "actions": [action.dict() for action in actions],
-            "count": len(actions)
-        }
-    except Exception as e:
-        logger.error(f"[API] Export actions failed: {e}")
-        return handle_api_error(e)
-
-
-@router.post("/import/{device_id}")
-async def import_actions(device_id: str, actions: list):
-    """Import actions from JSON
-
-    Request body:
-    {
-        "actions": [
-            {
-                "action": {...},
-                "tags": [...]
-            },
-            ...
-        ]
-    }
-    """
-    deps = get_deps()
-    try:
-        logger.info(f"[API] Importing {len(actions)} actions for device {device_id}")
-
-        imported_count = 0
-        failed_count = 0
-
-        for action_data in actions:
-            try:
-                action_def = deps.action_manager.create_action(
-                    device_id=device_id,
-                    action=action_data.get("action"),
-                    tags=action_data.get("tags", [])
-                )
-
-                # Publish MQTT discovery for imported action
-                if deps.mqtt_manager and deps.mqtt_manager.is_connected:
-                    await deps.mqtt_manager.publish_action_discovery(action_def)
-
-                imported_count += 1
-            except Exception as e:
-                logger.error(f"[API] Failed to import action: {e}")
-                failed_count += 1
-
-        return {
-            "success": True,
-            "device_id": device_id,
-            "imported_count": imported_count,
-            "failed_count": failed_count,
-            "total": len(actions)
-        }
-    except Exception as e:
-        logger.error(f"[API] Import actions failed: {e}")
-        return handle_api_error(e)

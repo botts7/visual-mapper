@@ -176,15 +176,36 @@ async def remove_sensor_discovery(device_id: str, sensor_id: str):
 
 
 @router.post("/publish-discovery-all/{device_id}")
-async def publish_all_sensor_discoveries(device_id: str):
-    """Publish MQTT discovery for ALL sensors on a device"""
+async def publish_all_sensor_discoveries(device_id: str, in_flows_only: bool = True):
+    """
+    Publish MQTT discovery for sensors on a device.
+
+    Args:
+        device_id: The device ID
+        in_flows_only: If True (default), only publish sensors that are referenced in enabled flows.
+                      If False, publish ALL sensors on the device.
+    """
     deps = get_deps()
     if not deps.mqtt_manager:
         raise HTTPException(status_code=503, detail="MQTT not initialized")
 
     try:
-        logger.info(f"[API] Publishing discovery for all sensors on {device_id}")
+        logger.info(f"[API] Publishing discovery for sensors on {device_id} (in_flows_only={in_flows_only})")
         sensors = deps.sensor_manager.get_all_sensors(device_id)
+
+        # Filter to only sensors in enabled flows if requested
+        if in_flows_only and deps.flow_manager:
+            sensors_in_flows = set()
+            all_flows = deps.flow_manager.get_all_flows()
+            for flow in all_flows:
+                if flow.enabled:  # Only consider enabled flows
+                    for step in flow.steps:
+                        if step.step_type.value == 'capture_sensors':
+                            sensors_in_flows.update(step.sensor_ids or [])
+
+            original_count = len(sensors)
+            sensors = [s for s in sensors if s.sensor_id in sensors_in_flows]
+            logger.info(f"[API] Filtered to {len(sensors)}/{original_count} sensors in enabled flows")
 
         if not sensors:
             return {

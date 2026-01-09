@@ -24,7 +24,12 @@ class FlowManager:
     Supports both simple mode (auto-generated) and advanced mode (user-created)
     """
 
-    def __init__(self, storage_dir: str = "config/flows", template_dir: str = "config/flow_templates"):
+    def __init__(
+        self,
+        storage_dir: str = "config/flows",
+        template_dir: str = "config/flow_templates",
+        data_dir: str = "data"
+    ):
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
@@ -32,13 +37,20 @@ class FlowManager:
         self.template_dir = Path(template_dir)
         self.template_dir.mkdir(parents=True, exist_ok=True)
 
+        # Data directory for device identity mapping
+        self.data_dir = Path(data_dir)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+
         # In-memory cache: device_id -> FlowList
         self._flows: Dict[str, FlowList] = {}
 
         # Template cache: template_id -> template data
         self._templates: Dict[str, Dict] = {}
 
-        logger.info(f"[FlowManager] Initialized with storage: {self.storage_dir}, templates: {self.template_dir}")
+        logger.info(
+            f"[FlowManager] Initialized with storage: {self.storage_dir}, "
+            f"templates: {self.template_dir}, data_dir: {self.data_dir}"
+        )
 
     def _get_flow_file(self, device_id: str) -> Path:
         """

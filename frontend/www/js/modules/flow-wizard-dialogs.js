@@ -88,7 +88,7 @@ export async function createImageSensor(wizard, element, coords, elementIndex = 
  * @param {Object} response - API response
  * @param {Object} sensorData - Sensor data
  */
-export function handleSensorCreated(wizard, response, sensorData) {
+export async function handleSensorCreated(wizard, response, sensorData) {
     console.log('[FlowWizard] Sensor created, adding capture step:', response, sensorData);
 
     // Only add to flow if we have an active recorder (step 3)
@@ -114,8 +114,15 @@ export function handleSensorCreated(wizard, response, sensorData) {
         sensor_ids: [sensorId]
     };
 
-    wizard.recorder.addStep(step);
-    console.log('[FlowWizard] Added capture_sensors step for:', sensorId);
+    if (wizard.addSensorWithNavigationCheck) {
+        const added = await wizard.addSensorWithNavigationCheck(step);
+        if (added !== false) {
+            console.log('[FlowWizard] Added capture_sensors step for:', sensorId);
+        }
+    } else {
+        wizard.recorder.addStep(step);
+        console.log('[FlowWizard] Added capture_sensors step for:', sensorId);
+    }
 }
 
 /**

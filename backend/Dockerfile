@@ -1,7 +1,8 @@
 FROM python:3.11-slim
 
-# Set version
-ENV VERSION=0.0.44
+# Set version via build argument
+ARG APP_VERSION=latest
+ENV VERSION=$APP_VERSION
 
 # Set working directory
 WORKDIR /app
@@ -47,7 +48,7 @@ EXPOSE 8080 8099 8100
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/health || exit 1
 
 # Start services
 CMD ["python", "main.py"]

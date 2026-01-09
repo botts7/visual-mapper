@@ -1,7 +1,10 @@
 /**
  * Flow Wizard Step 5 - Settings & Save
- * Visual Mapper v0.0.6
+ * Visual Mapper v0.0.9
  * v0.0.6: Added headless mode options (auto_wake_before, auto_sleep_after, verify_screen_on)
+ * v0.0.7: Use connection ID for device_id and include stable_device_id in saved flows
+ * v0.0.8: Prevent duplicate save submissions
+ * v0.0.9: Include start-from-current-screen setting in saved flows
  */
 
 import { showToast } from './toast.js?v=0.0.5';
@@ -22,6 +25,15 @@ export async function loadStep(wizard) {
     const flowNameInput = document.getElementById('flowName');
     if (flowNameInput && !flowNameInput.value) {
         flowNameInput.value = `${appName}_flow`;
+    }
+
+    const startFromCurrent = document.getElementById('startFromCurrentScreen');
+    if (startFromCurrent) {
+        startFromCurrent.checked = !!wizard.startFromCurrentScreen;
+        startFromCurrent.addEventListener('change', () => {
+            wizard.startFromCurrentScreen = startFromCurrent.checked;
+            localStorage.setItem('flowWizard.startFromCurrentScreen', String(wizard.startFromCurrentScreen));
+        });
     }
 
     // Setup quick interval buttons
@@ -46,14 +58,27 @@ export async function loadStep(wizard) {
  * Exported so it can be called by wizard.nextStep() on final step
  */
 export async function saveFlow(wizard) {
+    if (wizard._savingFlow) {
+        showToast('Save already in progress...', 'info');
+        return;
+    }
+    wizard._savingFlow = true;
+
     console.log('[Step5] Saving flow...');
     showToast('Saving flow...', 'info');
+
+    const btnSave = document.getElementById('btnSaveFlow');
+    if (btnSave) {
+        btnSave.disabled = true;
+        btnSave.textContent = 'Saving...';
+    }
 
     try {
         const flowName = document.getElementById('flowName')?.value.trim();
         const flowDescription = document.getElementById('flowDescription')?.value.trim();
         const intervalValue = parseInt(document.getElementById('intervalValue')?.value || '60');
         const intervalUnit = parseInt(document.getElementById('intervalUnit')?.value || '60');
+        const startFromCurrent = document.getElementById('startFromCurrentScreen')?.checked ?? false;
 
         if (!flowName) {
             showToast('Please enter a flow name', 'error');
@@ -62,8 +87,9 @@ export async function saveFlow(wizard) {
 
         const updateIntervalSeconds = intervalValue * intervalUnit;
 
-        // Use stable device ID for storage
-        const stableDeviceId = wizard.selectedDeviceStableId || wizard.selectedDevice;
+        // Use connection ID for execution, stable ID for storage
+        const deviceId = wizard.selectedDevice;
+        const stableDeviceId = wizard.selectedDeviceStableId || deviceId;
         const flowId = `flow_${stableDeviceId.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
 
         // Headless mode options
@@ -73,7 +99,8 @@ export async function saveFlow(wizard) {
 
         const flowPayload = {
             flow_id: flowId,
-            device_id: stableDeviceId,
+            device_id: deviceId,
+            stable_device_id: stableDeviceId,
             name: flowName,
             description: flowDescription || '',
             steps: wizard.flowSteps,
@@ -82,6 +109,7 @@ export async function saveFlow(wizard) {
             stop_on_error: false,
             max_flow_retries: 3,
             flow_timeout: 60,
+            start_from_current_screen: startFromCurrent,
             // Headless mode settings
             auto_wake_before: autoWakeBefore,
             auto_sleep_after: autoSleepAfter,
@@ -118,6 +146,12 @@ export async function saveFlow(wizard) {
     } catch (error) {
         console.error('[Step5] Save failed:', error);
         showToast(`Failed to save flow: ${error.message}`, 'error', 5000);
+    } finally {
+        wizard._savingFlow = false;
+        if (btnSave) {
+            btnSave.disabled = false;
+            btnSave.textContent = 'Save Flow';
+        }
     }
 }
 

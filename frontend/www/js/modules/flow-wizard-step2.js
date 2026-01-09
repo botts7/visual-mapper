@@ -175,7 +175,7 @@ async function loadNavigationData(wizard, packageName) {
     navPanel.style.display = 'block';
 
     try {
-        const response = await fetch(`${getApiBase()}/navigation/${encodeURIComponent(packageName)}/stats`);
+        const response = await fetch(`${getApiBase()}/navigation/${encodeURIComponent(packageName)}/stats?allow_missing=1`);
 
         if (!response.ok) {
             // No navigation data for this app
@@ -192,6 +192,17 @@ async function loadNavigationData(wizard, packageName) {
 
         const data = await response.json();
         const stats = data.stats;
+        if (!stats) {
+            navPanel.innerHTML = `
+                <div class="nav-no-data">
+                    <span class="nav-icon">📱</span>
+                    <span class="nav-text">No navigation data yet</span>
+                    <span class="nav-hint">The Android app will learn navigation as you create flows</span>
+                </div>
+            `;
+            wizard.navigationGraph = null;
+            return;
+        }
 
         // Store navigation data for use in Step 3
         wizard.navigationStats = stats;

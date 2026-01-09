@@ -47,7 +47,8 @@ class MQTTManager:
         username: Optional[str] = None,
         password: Optional[str] = None,
         discovery_prefix: str = "homeassistant",
-        data_dir: str = "data"
+        data_dir: str = "data",
+        tls_config: Optional[Dict[str, Any]] = None
     ):
         self.broker = broker
         self.port = port
@@ -55,6 +56,7 @@ class MQTTManager:
         self.password = password
         self.discovery_prefix = discovery_prefix
         self.data_dir = Path(data_dir)
+        self.tls_config = tls_config
         self.client = None
         self._connected = False
         self._event_loop = None  # Store event loop for thread-safe async calls
@@ -214,6 +216,16 @@ class MQTTManager:
             if self.username and self.password:
                 self.client.username_pw_set(self.username, self.password)
 
+            # Set SSL if configured
+            if self.tls_config:
+                import ssl
+                self.client.tls_set(
+                    ca_certs=self.tls_config.get("ca_cert"),
+                    cert_reqs=ssl.CERT_NONE if self.tls_config.get("insecure") else ssl.CERT_REQUIRED
+                )
+                if self.tls_config.get("insecure"):
+                    self.client.tls_insecure_set(True)
+
             # Set callbacks
             def on_connect(client, userdata, flags, rc):
                 if rc == 0:
@@ -251,19 +263,31 @@ class MQTTManager:
     async def _connect_linux(self) -> bool:
         """Linux connection using aiomqtt"""
         try:
-            # Create client with authentication if provided
+            # Prepare client arguments
+            client_kwargs = {
+                "hostname": self.broker,
+                "port": self.port
+            }
+
             if self.username and self.password:
-                self.client = Client(
-                    hostname=self.broker,
-                    port=self.port,
-                    username=self.username,
-                    password=self.password
-                )
-            else:
-                self.client = Client(
-                    hostname=self.broker,
-                    port=self.port
-                )
+                client_kwargs["username"] = self.username
+                client_kwargs["password"] = self.password
+
+            # Configure SSL/TLS
+            if self.tls_config:
+                import ssl
+                tls_context = ssl.create_default_context()
+
+                if self.tls_config.get("insecure"):
+                    tls_context.check_hostname = False
+                    tls_context.verify_mode = ssl.CERT_NONE
+
+                if self.tls_config.get("ca_cert"):
+                    tls_context.load_verify_locations(cafile=self.tls_config.get("ca_cert"))
+
+                client_kwargs["tls_context"] = tls_context
+
+            self.client = Client(**client_kwargs)
 
             await self.client.__aenter__()
             self._connected = True
@@ -644,7 +668,7 @@ class MQTTManager:
             effective_id = stable_device_id
             if not effective_id and hasattr(self, 'sensor_manager') and self.sensor_manager:
                 # Try to find stable ID from any sensor for this device
-                sensors = self.sensor_manager.get_sensors_for_device(device_id)
+                sensors = self.sensor_manager.get_all_sensors(device_id)
                 if sensors and len(sensors) > 0:
                     effective_id = sensors[0].stable_device_id
             if not effective_id:

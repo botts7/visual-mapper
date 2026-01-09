@@ -17,7 +17,7 @@ from routes import get_deps
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/devices", tags=["suggestions"])
+router = APIRouter(tags=["suggestions"])
 
 
 # Request models
@@ -35,8 +35,10 @@ class SuggestActionsRequest(BaseModel):
 # SMART SENSOR SUGGESTIONS
 # =============================================================================
 
-@router.get("/suggest-sensors")
-@router.post("/suggest-sensors")
+@router.get("/api/devices/suggest-sensors")
+@router.post("/api/devices/suggest-sensors")
+@router.get("/api/suggestions/sensors")
+@router.post("/api/suggestions/sensors")
 async def suggest_sensors(request: Optional[SuggestSensorsRequest] = None, device_id: Optional[str] = None):
     """
     Analyze current screen and suggest Home Assistant sensors.
@@ -63,16 +65,18 @@ async def suggest_sensors(request: Optional[SuggestSensorsRequest] = None, devic
         suggester = get_sensor_suggester()
         suggestions = suggester.suggest_sensors(elements)
 
-        logger.info(f"[API] Generated {len(suggestions)} sensor suggestions for {request.device_id}")
+        logger.info(f"[API] Generated {len(suggestions)} sensor suggestions for {did}")
 
         return {
             "success": True,
-            "device_id": request.device_id,
+            "device_id": did,
             "suggestions": suggestions,
             "count": len(suggestions),
             "timestamp": datetime.now().isoformat()
         }
 
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.warning(f"[API] Sensor suggestion failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -85,8 +89,10 @@ async def suggest_sensors(request: Optional[SuggestSensorsRequest] = None, devic
 # SMART ACTION SUGGESTIONS
 # =============================================================================
 
-@router.get("/suggest-actions")
-@router.post("/suggest-actions")
+@router.get("/api/devices/suggest-actions")
+@router.post("/api/devices/suggest-actions")
+@router.get("/api/suggestions/actions")
+@router.post("/api/suggestions/actions")
 async def suggest_actions(request: Optional[SuggestActionsRequest] = None, device_id: Optional[str] = None):
     """
     Analyze current screen and suggest Home Assistant actions.
@@ -113,16 +119,18 @@ async def suggest_actions(request: Optional[SuggestActionsRequest] = None, devic
         suggester = get_action_suggester()
         suggestions = suggester.suggest_actions(elements)
 
-        logger.info(f"[API] Generated {len(suggestions)} action suggestions for {request.device_id}")
+        logger.info(f"[API] Generated {len(suggestions)} action suggestions for {did}")
 
         return {
             "success": True,
-            "device_id": request.device_id,
+            "device_id": did,
             "suggestions": suggestions,
             "count": len(suggestions),
             "timestamp": datetime.now().isoformat()
         }
 
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.warning(f"[API] Action suggestion failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))

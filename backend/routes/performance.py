@@ -43,18 +43,18 @@ async def get_performance_metrics():
 
     # Screenshot cache statistics
     if deps.adb_bridge:
-        cache_stats = deps.adb_bridge.get_cache_stats()
+        cache_stats = deps.adb_bridge.get_screenshot_cache_stats()
         metrics["screenshot_cache"] = cache_stats
 
     # ADB connection pool stats (if available)
     if deps.adb_bridge:
         try:
             # Get connected devices count
-            devices = await deps.adb_bridge.list_devices()
+            devices = await deps.adb_bridge.get_devices()
             metrics["adb_connections"] = {
                 "total_devices": len(devices),
                 "connected_devices": len([d for d in devices if d.get("connected", False)]),
-                "device_ids": [d["id"] for d in devices]
+                "device_ids": [d.get("id") for d in devices if d.get("id")]
             }
         except Exception as e:
             logger.error(f"[API] Failed to get ADB stats: {e}")
@@ -91,7 +91,7 @@ async def get_cache_stats():
     if not deps.adb_bridge:
         raise HTTPException(status_code=503, detail="ADB bridge not initialized")
 
-    return deps.adb_bridge.get_cache_stats()
+    return deps.adb_bridge.get_screenshot_cache_stats()
 
 
 @router.post("/performance/cache/clear")
@@ -133,7 +133,7 @@ async def get_adb_performance():
         raise HTTPException(status_code=503, detail="ADB bridge not initialized")
 
     try:
-        devices = await deps.adb_bridge.list_devices()
+        devices = await deps.adb_bridge.get_devices()
 
         return {
             "timestamp": time.time(),
@@ -142,7 +142,7 @@ async def get_adb_performance():
                 "connected": len([d for d in devices if d.get("connected", False)]),
                 "models": [d.get("model", "Unknown") for d in devices]
             },
-            "cache": deps.adb_bridge.get_cache_stats(),
+            "cache": deps.adb_bridge.get_screenshot_cache_stats(),
             "optimizations": {
                 "screenshot_cache_enabled": deps.adb_bridge._screenshot_cache_enabled,
                 "cache_ttl_ms": deps.adb_bridge._screenshot_cache_ttl_ms,

@@ -1,20 +1,25 @@
 /**
  * Flow Wizard Step 4 - Review & Test
- * Visual Mapper v0.0.14
+ * Visual Mapper v0.0.17
  *
  * Handles flow review, testing, and step management
  * v0.0.12: Added step_results with sensor values display
  * v0.0.13: Added navigation issue detection - warns when sensors are on different screens without navigation steps
  * v0.0.14: Extended navigation detection to also check tap/swipe/text actions on wrong screens
+ * v0.0.15: Use connection ID for device_id and include stable_device_id in test flows
+ * v0.0.16: Prevent duplicate test flow submissions
+ * v0.0.17: Pass start-from-current-screen setting to test flow payload
  */
 
 import { showToast } from './toast.js?v=0.0.5';
-import FlowStepManager from './flow-step-manager.js?v=0.0.7';
+import FlowStepManager from './flow-step-manager.js?v=0.0.9';
 import { groupStepsByScreen, validateMove, moveStep } from './step-reorganizer.js?v=0.0.1';
 
 function getApiBase() {
     return window.API_BASE || '/api';
 }
+
+let testingFlow = false;
 
 /**
  * Escape HTML to prevent XSS
@@ -100,6 +105,15 @@ function buildStepResultsHtml(flowSteps, stepResults, result) {
 export async function loadStep(wizard) {
     console.log('[Step4] Loading Review & Test');
     const reviewContainer = document.getElementById('flowStepsReview');
+    const startModeToggle = document.getElementById('startFromCurrentScreenToggle');
+
+    if (startModeToggle) {
+        startModeToggle.checked = !!wizard.startFromCurrentScreen;
+        startModeToggle.onchange = () => {
+            wizard.startFromCurrentScreen = startModeToggle.checked;
+            localStorage.setItem('flowWizard.startFromCurrentScreen', String(wizard.startFromCurrentScreen));
+        };
+    }
 
     if (wizard.flowSteps.length === 0) {
         reviewContainer.innerHTML = `
@@ -405,6 +419,12 @@ export function removeStepAt(wizard, index) {
  * Test the flow execution
  */
 export async function testFlow(wizard) {
+    if (testingFlow) {
+        showToast('Flow test already running...', 'info');
+        return;
+    }
+    testingFlow = true;
+
     console.log('[Step4] Testing flow...');
     showToast('Running flow test...', 'info');
 
@@ -420,17 +440,20 @@ export async function testFlow(wizard) {
     testResultsContent.innerHTML = '<div class="loading">Executing flow...</div>';
 
     try {
-        // Build flow payload - use stable device ID for storage
-        const stableDeviceId = wizard.selectedDeviceStableId || wizard.selectedDevice;
+        // Build flow payload - use connection ID for execution, stable ID for storage
+        const deviceId = wizard.selectedDevice;
+        const stableDeviceId = wizard.selectedDeviceStableId || deviceId;
         const flowPayload = {
             flow_id: `test_${Date.now()}`,
-            device_id: stableDeviceId,
+            device_id: deviceId,
+            stable_device_id: stableDeviceId,
             name: 'Test Flow',
             description: 'Flow test execution',
             steps: wizard.flowSteps,
             update_interval_seconds: 60,
             enabled: false, // Don't enable test flows
-            stop_on_error: true
+            stop_on_error: true,
+            start_from_current_screen: !!wizard.startFromCurrentScreen
         };
 
         console.log('[Step4] Testing flow:', flowPayload);
@@ -451,7 +474,7 @@ export async function testFlow(wizard) {
         console.log('[Step4] Test flow created:', createdFlow);
 
         // Execute the flow
-        const executeResponse = await fetch(`${getApiBase()}/flows/${stableDeviceId}/${createdFlow.flow_id}/execute`, {
+        const executeResponse = await fetch(`${getApiBase()}/flows/${deviceId}/${createdFlow.flow_id}/execute`, {
             method: 'POST'
         });
 
@@ -508,7 +531,7 @@ export async function testFlow(wizard) {
         }
 
         // Clean up test flow
-        await fetch(`${getApiBase()}/flows/${stableDeviceId}/${createdFlow.flow_id}`, {
+        await fetch(`${getApiBase()}/flows/${deviceId}/${createdFlow.flow_id}`, {
             method: 'DELETE'
         });
 
@@ -521,6 +544,8 @@ export async function testFlow(wizard) {
             </div>
         `;
         showToast(`Test error: ${error.message}`, 'error');
+    } finally {
+        testingFlow = false;
     }
 }
 

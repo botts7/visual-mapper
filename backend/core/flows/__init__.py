@@ -8,6 +8,7 @@ from .flow_execution_history import FlowExecutionHistory
 from .flow_models import (
     SensorCollectionFlow,
     FlowStep,
+    FlowStepType,
     FlowList,
     FlowExecutionResult,
     sensor_to_simple_flow
@@ -20,6 +21,7 @@ __all__ = [
     'FlowExecutionHistory',
     'SensorCollectionFlow',
     'FlowStep',
+    'FlowStepType',
     'FlowList',
     'FlowExecutionResult',
     'sensor_to_simple_flow',

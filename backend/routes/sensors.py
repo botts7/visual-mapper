@@ -144,6 +144,42 @@ async def create_sensor(sensor: SensorDefinition):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/sensors/status/{device_id}")
+async def get_sensor_update_status(device_id: str):
+    """Get the status of sensor updates for a device (running, paused, stopped)"""
+    deps = get_deps()
+    try:
+        if not deps.sensor_updater:
+            return {
+                "success": True,
+                "device_id": device_id,
+                "running": False,
+                "paused": False,
+                "status": "disabled"
+            }
+
+        is_running = deps.sensor_updater.is_running(device_id)
+        is_paused = deps.sensor_updater.is_paused(device_id)
+
+        if not is_running:
+            status = "stopped"
+        elif is_paused:
+            status = "paused"
+        else:
+            status = "running"
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            "running": is_running,
+            "paused": is_paused,
+            "status": status
+        }
+    except Exception as e:
+        logger.error(f"[API] Failed to get sensor update status for {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/sensors/{device_id}")
 async def get_sensors(device_id: str):
     """Get all sensors for a device"""
@@ -554,40 +590,4 @@ async def resume_sensor_updates(device_id: str):
         raise
     except Exception as e:
         logger.error(f"[API] Failed to resume sensor updates for {device_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/sensors/status/{device_id}")
-async def get_sensor_update_status(device_id: str):
-    """Get the status of sensor updates for a device (running, paused, stopped)"""
-    deps = get_deps()
-    try:
-        if not deps.sensor_updater:
-            return {
-                "success": True,
-                "device_id": device_id,
-                "running": False,
-                "paused": False,
-                "status": "disabled"
-            }
-
-        is_running = deps.sensor_updater.is_running(device_id)
-        is_paused = deps.sensor_updater.is_paused(device_id)
-
-        if not is_running:
-            status = "stopped"
-        elif is_paused:
-            status = "paused"
-        else:
-            status = "running"
-
-        return {
-            "success": True,
-            "device_id": device_id,
-            "running": is_running,
-            "paused": is_paused,
-            "status": status
-        }
-    except Exception as e:
-        logger.error(f"[API] Failed to get sensor update status for {device_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -262,9 +262,16 @@
             <h2>All Actions</h2>
 
             <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-                <select id="deviceFilter" style="flex: 1; min-width: 200px; max-width: 400px;">
+                <select id="deviceFilter" style="flex: 1; min-width: 180px; max-width: 320px;">
                     <option value="">All Devices</option>
                 </select>
+                <select id="appFilter" style="flex: 1; min-width: 180px; max-width: 320px;">
+                    <option value="">All Apps</option>
+                </select>
+                <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; white-space: nowrap;">
+                    <input type="checkbox" id="notInFlowFilter">
+                    Not in flow
+                </label>
                 <input type="text" id="actionSearch" placeholder="Search actions..." style="flex: 1; min-width: 200px; max-width: 400px;">
                 <button id="refreshBtn">Refresh</button>
                 <button id="exportBtn">Export</button>
@@ -636,6 +643,7 @@
                 });
 
                 updateDeviceFilter();
+                updateAppFilter();
                 renderActions();
                 updateDisconnectedAlert();
 
@@ -686,9 +694,36 @@
             updateDisconnectedAlert();
         }
 
+        function updateAppFilter() {
+            const appFilter = document.getElementById('appFilter');
+            const currentValue = appFilter.value;
+            const appCounts = new Map();
+
+            for (const action of allActions) {
+                const appPackage = extractAppFromAction(action) || '__unknown__';
+                appCounts.set(appPackage, (appCounts.get(appPackage) || 0) + 1);
+            }
+
+            appFilter.innerHTML = '<option value="">All Apps</option>';
+            const sorted = Array.from(appCounts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+            for (const [appPackage, count] of sorted) {
+                const option = document.createElement('option');
+                option.value = appPackage;
+                const label = appPackage === '__unknown__' ? 'Unknown' : (getAppDisplayName(appPackage) || appPackage);
+                option.textContent = `${label} (${count})`;
+                appFilter.appendChild(option);
+            }
+
+            if (currentValue && Array.from(appFilter.options).some(opt => opt.value === currentValue)) {
+                appFilter.value = currentValue;
+            }
+        }
+
         // Filter and render actions
         function renderActions() {
             const deviceFilter = document.getElementById('deviceFilter');
+            const appFilter = document.getElementById('appFilter').value;
+            const notInFlowOnly = document.getElementById('notInFlowFilter').checked;
             const search = document.getElementById('actionSearch').value.toLowerCase();
             const selectedDevice = deviceFilter.value;
 
@@ -698,6 +733,14 @@
             // Filter by device
             if (selectedDevice) {
                 filteredActions = filteredActions.filter(a => a.device_id === selectedDevice);
+            }
+
+            if (appFilter) {
+                filteredActions = filteredActions.filter(action => (extractAppFromAction(action) || '__unknown__') === appFilter);
+            }
+
+            if (notInFlowOnly) {
+                filteredActions = filteredActions.filter(action => !actionsInFlows.has(action.id));
             }
 
             // Filter by search
@@ -1232,6 +1275,8 @@
 
         // Event listeners
         document.getElementById('deviceFilter').addEventListener('change', renderActions);
+        document.getElementById('appFilter').addEventListener('change', renderActions);
+        document.getElementById('notInFlowFilter').addEventListener('change', renderActions);
         document.getElementById('actionSearch').addEventListener('input', renderActions);
         document.getElementById('refreshBtn').addEventListener('click', loadActions);
         document.getElementById('exportBtn').addEventListener('click', exportActions);

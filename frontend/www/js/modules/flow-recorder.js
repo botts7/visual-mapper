@@ -36,6 +36,7 @@ class FlowRecorder {
         // Navigation context from the wizard (set by FlowWizard)
         this.currentScreenId = null;
         this.navigationGraph = null;
+        this.currentScreenSignature = null;
 
         console.log(`[FlowRecorder] Initialized for ${deviceId} - ${appPackage} (mode: ${recordMode})`);
     }
@@ -52,6 +53,15 @@ class FlowRecorder {
             this.navigationGraph = graph;
         }
         console.log(`[FlowRecorder] Navigation context updated: screenId=${screenId}`);
+    }
+
+    /**
+     * Set the current screen signature (activity + landmarks hash)
+     * @param {string|null} signature - Current screen signature
+     */
+    setScreenSignature(signature) {
+        this.currentScreenSignature = signature;
+        console.log(`[FlowRecorder] Screen signature updated: ${signature}`);
     }
 
     /**
@@ -1047,6 +1057,9 @@ class FlowRecorder {
         if (this.currentScreenId) {
             step.expected_screen_id = this.currentScreenId;
         }
+        if (this.currentScreenSignature) {
+            step.screen_signature = this.currentScreenSignature;
+        }
 
         // Insert at the specified index
         if (index >= 0 && index <= this.steps.length) {
@@ -1107,6 +1120,10 @@ class FlowRecorder {
         if (this.currentScreenId) {
             step.expected_screen_id = this.currentScreenId;
             console.log(`[FlowRecorder] Added navigation screen ID: ${this.currentScreenId}`);
+        }
+        if (this.currentScreenSignature) {
+            step.screen_signature = this.currentScreenSignature;
+            console.log(`[FlowRecorder] Added screen signature: ${this.currentScreenSignature}`);
         }
 
         // Check if we're in insert mode

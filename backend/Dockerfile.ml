@@ -3,8 +3,9 @@
 
 FROM python:3.11-slim
 
-# Set version
-ENV VERSION=0.0.1
+# Set version via build argument
+ARG APP_VERSION=latest
+ENV VERSION=$APP_VERSION
 
 # Set working directory
 WORKDIR /app
@@ -21,6 +22,12 @@ RUN pip install --no-cache-dir -r requirements-ml.txt
 # Copy ML training server and related files
 COPY ml_components/ml_training_server.py .
 COPY ml_components/model_exporter.py .
+
+# Copy services (needed for FeatureManager)
+COPY services/ /app/services/
+
+# Set PYTHONPATH
+ENV PYTHONPATH=/app
 
 # Create data directory
 RUN mkdir -p /app/data

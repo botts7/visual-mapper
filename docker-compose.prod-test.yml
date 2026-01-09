@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  app-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - MQTT_BROKER_HOST=mqtt-broker
+      - MQTT_BROKER_PORT=1883
+      - MQTT_USE_SSL=false
+    volumes:
+      # Mount data for persistence
+      - ./data:/data
+    depends_on:
+      - mqtt-broker
+    restart: unless-stopped
+
+  mqtt-broker:
+    image: eclipse-mosquitto:latest
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./tests/artifacts/certs:/mosquitto/config/certs
+    restart: unless-stopped
+
+  ml-server:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.ml
+    environment:
+      - MQTT_BROKER=mqtt-broker
+      - MQTT_PORT=1883
+      - DATA_DIR=/app/data
+      - ML_ENABLED=true
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - mqtt-broker
+    restart: unless-stopped

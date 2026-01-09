@@ -40,6 +40,7 @@ class SmartElementFinder:
 
     # Confidence scores for different match methods
     CONFIDENCE_RESOURCE_ID = 1.0  # Exact resource_id match
+    CONFIDENCE_PATH = 0.95  # Exact hierarchy path match
     CONFIDENCE_TEXT_CLASS = 0.9   # Text + class match
     CONFIDENCE_TEXT_ONLY = 0.7    # Text match only
     CONFIDENCE_CLASS_BOUNDS = 0.5  # Class + approximate bounds
@@ -54,7 +55,9 @@ class SmartElementFinder:
         resource_id: Optional[str] = None,
         element_text: Optional[str] = None,
         element_class: Optional[str] = None,
-        stored_bounds: Optional[Dict] = None
+        stored_bounds: Optional[Dict] = None,
+        element_path: Optional[str] = None,
+        parent_path: Optional[str] = None
     ) -> ElementMatch:
         """
         Find element using multiple strategies.
@@ -75,21 +78,27 @@ class SmartElementFinder:
                 message="No UI elements available"
             )
 
+        # Strategy 0: Match by hierarchy path (most reliable when available)
+        if element_path:
+            match = self._find_by_path(ui_elements, element_path)
+            if match.found:
+                return match
+
         # Strategy 1: Match by resource_id (most reliable)
         if resource_id:
-            match = self._find_by_resource_id(ui_elements, resource_id)
+            match = self._find_by_resource_id(ui_elements, resource_id, stored_bounds, parent_path)
             if match.found:
                 return match
 
         # Strategy 2: Match by text + class
         if element_text and element_class:
-            match = self._find_by_text_and_class(ui_elements, element_text, element_class)
+            match = self._find_by_text_and_class(ui_elements, element_text, element_class, stored_bounds, parent_path)
             if match.found:
                 return match
 
         # Strategy 3: Match by text only
         if element_text:
-            match = self._find_by_text(ui_elements, element_text)
+            match = self._find_by_text(ui_elements, element_text, stored_bounds, parent_path)
             if match.found:
                 return match
 
@@ -119,85 +128,182 @@ class SmartElementFinder:
     def _find_by_resource_id(
         self,
         ui_elements: List[Dict],
-        resource_id: str
+        resource_id: str,
+        stored_bounds: Optional[Dict] = None,
+        parent_path: Optional[str] = None
     ) -> ElementMatch:
-        """Find element by exact resource_id match"""
+        """Find element by exact resource_id match (prefer closest to stored bounds if ambiguous)"""
+        matches = []
         for elem in ui_elements:
             if elem.get('resource_id') == resource_id:
                 bounds = self._extract_bounds(elem)
-                logger.debug(f"[ElementFinder] Found by resource_id: {resource_id}")
-                return ElementMatch(
-                    found=True,
-                    element=elem,
-                    bounds=bounds,
-                    confidence=self.CONFIDENCE_RESOURCE_ID,
-                    method="resource_id",
-                    message=f"Matched resource_id: {resource_id}"
-                )
-        return ElementMatch(found=False)
+                matches.append((elem, bounds))
+
+        if not matches:
+            return ElementMatch(found=False)
+
+        if parent_path:
+            parent_matches = [
+                (elem, bounds) for elem, bounds in matches
+                if elem.get('parent_path') == parent_path
+            ]
+            if parent_matches:
+                matches = parent_matches
+
+        if len(matches) == 1 or not stored_bounds:
+            elem, bounds = matches[0]
+            if len(matches) > 1:
+                logger.warning(f"[ElementFinder] Multiple resource_id matches for '{resource_id}', using first")
+            logger.debug(f"[ElementFinder] Found by resource_id: {resource_id}")
+            return ElementMatch(
+                found=True,
+                element=elem,
+                bounds=bounds,
+                confidence=self.CONFIDENCE_RESOURCE_ID,
+                method="resource_id",
+                message=f"Matched resource_id: {resource_id}"
+            )
+
+        best = self._pick_closest_by_bounds(matches, stored_bounds)
+        logger.debug(f"[ElementFinder] Found by resource_id+bounds: {resource_id}")
+        return ElementMatch(
+            found=True,
+            element=best[0],
+            bounds=best[1],
+            confidence=self.CONFIDENCE_RESOURCE_ID,
+            method="resource_id_bounds",
+            message=f"Matched resource_id '{resource_id}' using stored bounds"
+        )
 
     def _find_by_text_and_class(
         self,
         ui_elements: List[Dict],
         text: str,
-        element_class: str
+        element_class: str,
+        stored_bounds: Optional[Dict] = None,
+        parent_path: Optional[str] = None
     ) -> ElementMatch:
-        """Find element by text content and class name"""
+        """Find element by text content and class name (prefer closest to stored bounds if ambiguous)"""
+        matches = []
         for elem in ui_elements:
             elem_text = elem.get('text', '')
-            elem_class = elem.get('class', '')
+            elem_class_value = elem.get('class', '')
 
-            if elem_text == text and elem_class == element_class:
+            if elem_text == text and elem_class_value == element_class:
                 bounds = self._extract_bounds(elem)
-                logger.debug(f"[ElementFinder] Found by text+class: '{text}' / {element_class}")
-                return ElementMatch(
-                    found=True,
-                    element=elem,
-                    bounds=bounds,
-                    confidence=self.CONFIDENCE_TEXT_CLASS,
-                    method="text_class",
-                    message=f"Matched text '{text}' with class {element_class}"
-                )
-        return ElementMatch(found=False)
+                matches.append((elem, bounds))
+
+        if not matches:
+            return ElementMatch(found=False)
+
+        if parent_path:
+            parent_matches = [
+                (elem, bounds) for elem, bounds in matches
+                if elem.get('parent_path') == parent_path
+            ]
+            if parent_matches:
+                matches = parent_matches
+
+        if len(matches) == 1 or not stored_bounds:
+            elem, bounds = matches[0]
+            if len(matches) > 1:
+                logger.warning(f"[ElementFinder] Multiple text+class matches for '{text}', using first")
+            logger.debug(f"[ElementFinder] Found by text+class: '{text}' / {element_class}")
+            return ElementMatch(
+                found=True,
+                element=elem,
+                bounds=bounds,
+                confidence=self.CONFIDENCE_TEXT_CLASS,
+                method="text_class",
+                message=f"Matched text '{text}' with class {element_class}"
+            )
+
+        best = self._pick_closest_by_bounds(matches, stored_bounds)
+        logger.debug(f"[ElementFinder] Found by text+class+bounds: '{text}' / {element_class}")
+        return ElementMatch(
+            found=True,
+            element=best[0],
+            bounds=best[1],
+            confidence=self.CONFIDENCE_TEXT_CLASS,
+            method="text_class_bounds",
+            message=f"Matched text '{text}' with class {element_class} using stored bounds"
+        )
 
     def _find_by_text(
         self,
         ui_elements: List[Dict],
-        text: str
+        text: str,
+        stored_bounds: Optional[Dict] = None,
+        parent_path: Optional[str] = None
     ) -> ElementMatch:
-        """Find element by text content only"""
+        """Find element by text content only (prefer closest to stored bounds if ambiguous)"""
         matches = []
         for elem in ui_elements:
             elem_text = elem.get('text', '')
             if elem_text == text:
-                matches.append(elem)
+                bounds = self._extract_bounds(elem)
+                matches.append((elem, bounds))
 
-        if len(matches) == 1:
-            # Unique match
-            bounds = self._extract_bounds(matches[0])
+        if not matches:
+            return ElementMatch(found=False)
+
+        if parent_path:
+            parent_matches = [
+                (elem, bounds) for elem, bounds in matches
+                if elem.get('parent_path') == parent_path
+            ]
+            if parent_matches:
+                matches = parent_matches
+
+        if len(matches) == 1 or not stored_bounds:
+            elem, bounds = matches[0]
+            if len(matches) > 1:
+                logger.warning(f"[ElementFinder] Multiple text matches for '{text}', using first")
             logger.debug(f"[ElementFinder] Found by text: '{text}'")
             return ElementMatch(
                 found=True,
-                element=matches[0],
+                element=elem,
                 bounds=bounds,
                 confidence=self.CONFIDENCE_TEXT_ONLY,
                 method="text",
                 message=f"Matched text '{text}'"
             )
-        elif len(matches) > 1:
-            # Multiple matches - use first but lower confidence
-            bounds = self._extract_bounds(matches[0])
-            logger.warning(f"[ElementFinder] Multiple text matches for '{text}', using first")
-            return ElementMatch(
-                found=True,
-                element=matches[0],
-                bounds=bounds,
-                confidence=self.CONFIDENCE_TEXT_ONLY * 0.7,  # Lower confidence
-                method="text_ambiguous",
-                message=f"Multiple matches for '{text}', using first of {len(matches)}"
-            )
 
-        return ElementMatch(found=False)
+        best = self._pick_closest_by_bounds(matches, stored_bounds)
+        logger.debug(f"[ElementFinder] Found by text+bounds: '{text}'")
+        return ElementMatch(
+            found=True,
+            element=best[0],
+            bounds=best[1],
+            confidence=self.CONFIDENCE_TEXT_ONLY,
+            method="text_bounds",
+            message=f"Matched text '{text}' using stored bounds"
+        )
+
+    def _pick_closest_by_bounds(
+        self,
+        matches: List[Tuple[Dict, Optional[Dict]]],
+        stored_bounds: Dict
+    ) -> Tuple[Dict, Optional[Dict]]:
+        """Pick the match closest to stored bounds center."""
+        best_match = matches[0]
+        best_distance = float('inf')
+        for elem, bounds in matches:
+            distance = self._bounds_center_distance(bounds, stored_bounds)
+            if distance < best_distance:
+                best_distance = distance
+                best_match = (elem, bounds)
+        return best_match
+
+    def _bounds_center_distance(self, bounds1: Optional[Dict], bounds2: Dict) -> float:
+        """Compute center-to-center distance between bounds."""
+        if not bounds1 or not bounds2:
+            return float('inf')
+        x1 = bounds1.get('x', 0) + (bounds1.get('width', 0) / 2)
+        y1 = bounds1.get('y', 0) + (bounds1.get('height', 0) / 2)
+        x2 = bounds2.get('x', 0) + (bounds2.get('width', 0) / 2)
+        y2 = bounds2.get('y', 0) + (bounds2.get('height', 0) / 2)
+        return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
 
     def _find_by_class_and_bounds(
         self,
@@ -243,6 +349,26 @@ class SmartElementFinder:
 
         return ElementMatch(found=False)
 
+    def _find_by_path(
+        self,
+        ui_elements: List[Dict],
+        element_path: str
+    ) -> ElementMatch:
+        """Find element by exact hierarchy path"""
+        for elem in ui_elements:
+            if elem.get('path') == element_path:
+                bounds = self._extract_bounds(elem)
+                logger.debug(f"[ElementFinder] Found by path: {element_path}")
+                return ElementMatch(
+                    found=True,
+                    element=elem,
+                    bounds=bounds,
+                    confidence=self.CONFIDENCE_PATH,
+                    method="path",
+                    message=f"Matched hierarchy path: {element_path}"
+                )
+        return ElementMatch(found=False)
+
     def _extract_bounds(self, element: Dict) -> Optional[Dict]:
         """Extract bounds dict from element"""
         bounds = element.get('bounds')
@@ -265,6 +391,29 @@ class SmartElementFinder:
                 'width': bounds[2] - bounds[0],
                 'height': bounds[3] - bounds[1]
             }
+        elif isinstance(bounds, str):
+            # Android-style "[x1,y1][x2,y2]" or "(x,y) WxH" formats
+            try:
+                import re
+                if '[' in bounds and ']' in bounds:
+                    nums = [int(n) for n in re.findall(r"\d+", bounds)]
+                    if len(nums) >= 4:
+                        return {
+                            'x': nums[0],
+                            'y': nums[1],
+                            'width': nums[2] - nums[0],
+                            'height': nums[3] - nums[1]
+                        }
+                nums = [int(n) for n in re.findall(r"\d+", bounds)]
+                if len(nums) == 4:
+                    return {
+                        'x': nums[0],
+                        'y': nums[1],
+                        'width': nums[2],
+                        'height': nums[3]
+                    }
+            except Exception:
+                return None
 
         return None
 

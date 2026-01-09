@@ -11,6 +11,7 @@ import io
 import asyncio
 from datetime import datetime
 from typing import Optional
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse
@@ -265,6 +266,9 @@ MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 MQTT_DISCOVERY_PREFIX = os.getenv("MQTT_DISCOVERY_PREFIX", "homeassistant")
 AUTO_START_UPDATES = os.getenv("AUTO_START_UPDATES", "true").lower() == "true"
+MQTT_USE_SSL = os.getenv("MQTT_USE_SSL", "false").lower() == "true"
+MQTT_TLS_INSECURE = os.getenv("MQTT_TLS_INSECURE", "false").lower() == "true"
+MQTT_CA_CERT = os.getenv("MQTT_CA_CERT", "")
 
 # App Icon Configuration (Phase 8 Enhancement)
 # Set to "true" to extract real icons from device (requires ADB access)
@@ -349,13 +353,23 @@ class ShellBatchRequest(BaseModel):
 
 
 # Startup and Shutdown Events
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """Initialize MQTT connection on startup"""
     global mqtt_manager, sensor_updater, flow_manager, flow_executor, flow_scheduler, performance_monitor, screenshot_stitcher, app_icon_extractor, playstore_icon_scraper, device_icon_scraper, icon_background_fetcher, app_name_background_fetcher, stream_manager, adb_maintenance, shell_pool, connection_monitor
 
     logger.info("[Server] Starting Visual Mapper v0.0.12")
     logger.info(f"[Server] MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
+    if MQTT_USE_SSL:
+        logger.info(f"[Server] MQTT SSL Enabled (Insecure: {MQTT_TLS_INSECURE})")
+
+    # Prepare TLS config
+    mqtt_tls_config = None
+    if MQTT_USE_SSL:
+        mqtt_tls_config = {
+            "insecure": MQTT_TLS_INSECURE,
+            "ca_cert": MQTT_CA_CERT if MQTT_CA_CERT else None
+        }
 
     # Initialize MQTT Manager
     mqtt_manager = MQTTManager(
@@ -363,7 +377,8 @@ async def startup_event():
         port=MQTT_PORT,
         username=MQTT_USERNAME if MQTT_USERNAME else None,
         password=MQTT_PASSWORD if MQTT_PASSWORD else None,
-        discovery_prefix=MQTT_DISCOVERY_PREFIX
+        discovery_prefix=MQTT_DISCOVERY_PREFIX,
+        tls_config=mqtt_tls_config
     )
     # Link sensor_manager for stable_device_id lookup in availability publishing
     mqtt_manager.sensor_manager = sensor_manager
@@ -421,7 +436,7 @@ async def startup_event():
     logger.info("[Server] Initializing Flow System (Phase 8)")
 
     # Initialize components
-    flow_manager = FlowManager()
+    flow_manager = FlowManager(data_dir=str(DATA_DIR))
     execution_history = FlowExecutionHistory()  # Track detailed flow execution logs
 
     flow_executor = FlowExecutor(
@@ -775,10 +790,8 @@ async def startup_event():
     # Initialize route dependencies (modular architecture)
     _init_route_dependencies()
 
+    yield
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
     logger.info("[Server] Shutting down Visual Mapper...")
 
     # Stop all sensor updates
@@ -794,6 +807,12 @@ async def shutdown_event():
         await mqtt_manager.disconnect()
 
     logger.info("[Server] Shutdown complete")
+
+# Register lifespan
+app.router.lifespan_context = lifespan
+
+
+
 
 
 # ============================================================================
@@ -1020,11 +1039,23 @@ class NoCacheStaticFiles(StaticFiles):
 
 
 # Mount static files LAST (catch-all route)
-# Use relative path for development, check environment for production
-STATIC_DIR = Path(__file__).parent.parent / "frontend" / "www"
-if not STATIC_DIR.exists():
-    # Fallback to absolute path for Docker if relative fails
-    STATIC_DIR = Path("/app/frontend/www")
+# Prefer explicit env override or mounted frontend directory in Docker.
+static_dir_env = os.getenv("STATIC_DIR")
+STATIC_DIR = None
+
+if static_dir_env:
+    candidate = Path(static_dir_env)
+    if candidate.exists():
+        STATIC_DIR = candidate
+
+if STATIC_DIR is None:
+    docker_frontend = Path("/app/frontend/www")
+    if docker_frontend.exists():
+        STATIC_DIR = docker_frontend
+    else:
+        STATIC_DIR = Path(__file__).parent.parent / "frontend" / "www"
+        if not STATIC_DIR.exists():
+            STATIC_DIR = Path("/frontend/www")
 
 logger.info(f"[Server] Static files directory: {STATIC_DIR.absolute()}")
 app.mount("/", NoCacheStaticFiles(directory=str(STATIC_DIR), html=True), name="www")

@@ -199,6 +199,31 @@ body.dark-mode {
             gap: 10px;
         }
 
+        .flow-filters {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .flow-filters select,
+        .flow-filters input[type="text"] {
+            min-width: 180px;
+            max-width: 320px;
+            flex: 1;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--background-color);
+            color: var(--text-color);
+            font-size: 14px;
+        }
+
+        .flow-filters .btn {
+            padding: 10px 16px;
+        }
+
         .flow-table {
             width: 100%;
             border-collapse: collapse;
@@ -383,6 +408,26 @@ body.dark-mode {
             color: var(--text-color);
         }
 
+        .flow-edit-modal {
+            display: flex;
+            flex-direction: column;
+            max-height: 85vh;
+            overflow: hidden;
+        }
+
+        .flow-edit-modal .modal-body {
+            flex: 1 1 auto;
+            overflow-y: auto;
+            padding-bottom: 16px;
+        }
+
+        .flow-edit-modal .modal-footer {
+            background: var(--card-background);
+            border-top: 1px solid var(--border-color);
+            margin-top: 0;
+            padding-top: 16px;
+        }
+
         .modal-header {
             margin-bottom: 20px;
         }
@@ -480,12 +525,47 @@ body.dark-mode {
             min-height: 500px;
             height: 60vh;
             max-height: none;
+            width: 100%;
+            box-sizing: border-box;
             overflow-y: auto;
             background: #1e1e1e;
             color: #d4d4d4;
             border: 1px solid #e2e8f0;
             border-radius: 4px;
             white-space: pre;
+        }
+
+        .json-editor-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .json-editor-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .json-validation-status {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #f1f5f9;
+            color: #64748b;
+        }
+
+        .json-validation-status.ok {
+            background: #ecfdf3;
+            color: #047857;
+        }
+
+        .json-validation-status.error {
+            background: #fef2f2;
+            color: #b91c1c;
         }
 
         .json-editor-warning {

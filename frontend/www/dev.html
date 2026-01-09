@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.0.44" data-build="2025-12-28">
+    <meta name="version" content="0.0.60" data-build="2026-01-09">
     <title>Dev Tools - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.44">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.60">
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
@@ -24,8 +24,8 @@
             <p><strong>App Version:</strong> <span id="app-version"></span></p>
             <p><strong>Meta Version:</strong> <span id="meta-version"></span></p>
             <p><strong>API Base:</strong> <span id="api-base"></span></p>
-            <p class="mt-1 status success" id="cache-status">
-                ✅ Cache busting is working! All versions match 0.0.5
+            <p class="mt-1 status" id="cache-status">
+                Cache busting status pending...
             </p>
         </div>
 
@@ -171,7 +171,7 @@
         </div>
     </div>
 
-    <script type="module" src="js/init.js?v=0.0.44"></script>
+    <script type="module" src="js/init.js?v=0.0.60"></script>
     <!-- Note: ThemeToggle and MobileNav now handled by js/components/navbar.js -->
     <script>
         // Wait for init.js to load before checking versions
@@ -184,12 +184,15 @@
             document.getElementById('api-base').textContent = window.API_BASE || 'Not set';
 
             // Verify cache busting
-            const expectedVersion = '0.0.5';
-            if (window.APP_VERSION === expectedVersion && metaVersion === expectedVersion) {
-                console.log('[Dev Tools] ✅ Cache busting verified');
+            const expectedVersion = metaVersion || window.APP_VERSION;
+            const statusEl = document.getElementById('cache-status');
+            if (expectedVersion && window.APP_VERSION === expectedVersion && metaVersion === expectedVersion) {
+                statusEl.textContent = 'OK. Cache busting is working! All versions match ' + expectedVersion;
+                statusEl.className = 'mt-1 status success';
+                console.log('[Dev Tools] Cache busting verified');
             } else {
-                document.getElementById('cache-status').textContent = '❌ Cache busting mismatch!';
-                document.getElementById('cache-status').className = 'mt-1 status error';
+                statusEl.textContent = 'Cache busting mismatch! App=' + (window.APP_VERSION || 'n/a') + ' Meta=' + (metaVersion || 'n/a');
+                statusEl.className = 'mt-1 status error';
             }
         }
 
@@ -203,3 +206,4 @@
     </script>
 </body>
 </html>
+

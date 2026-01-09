@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.0.44" data-build="2026-01-01">
+    <meta name="version" content="0.0.45" data-build="2026-01-01">
     <title>Flow Wizard - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="stylesheet" href="css/styles.css?v=0.0.44">
-    <link rel="stylesheet" href="css/flow-wizard.css?v=0.0.44">
+    <link rel="stylesheet" href="css/flow-wizard.css?v=0.0.45">
     <link rel="stylesheet" href="css/smart-suggestions.css?v=0.0.44">
 </head>
 <body>
@@ -112,6 +112,13 @@
             <div class="recording-layout">
                 <!-- Screenshot Panel (Main) -->
                 <div class="screenshot-panel">
+                    <div id="step3SetupStatus" class="setup-status hidden">
+                        <div class="setup-status-left">
+                            <div class="setup-status-title">Preparing to record</div>
+                            <div id="step3SetupMessage" class="setup-status-message">Starting...</div>
+                        </div>
+                        <div id="step3SetupMode" class="setup-status-mode">Start mode: Restart app</div>
+                    </div>
                     <!-- Quick Actions Toolbar -->
                     <div class="quick-actions-bar">
                         <!-- App Info -->
@@ -217,6 +224,9 @@
                                 <option value="5000">5s</option>
                                 <option value="10000">10s</option>
                             </select>
+                        </label>
+                        <label title="Learn navigation screens while recording">
+                            <input type="checkbox" id="autoLearnScreens" checked> Learn Screens
                         </label>
                     </div>
 
@@ -324,6 +334,10 @@
             <div class="review-controls">
                 <button class="btn btn-primary" id="btnTestFlow">▶️ Test Flow Now</button>
                 <p>Run this flow on your device to verify it works correctly</p>
+                <label class="execution-start-toggle">
+                    <input type="checkbox" id="startFromCurrentScreenToggle">
+                    <span>Start from current screen (skip app restart)</span>
+                </label>
             </div>
 
             <div id="flowStepsReview" class="flow-steps-review"></div>
@@ -342,6 +356,17 @@
                 <div class="form-group">
                     <label for="flowDescription">Description (optional)</label>
                     <textarea id="flowDescription" rows="3" class="form-control" placeholder="What does this flow do?"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label style="font-weight: 600;">Execution Start</label>
+                    <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 10px;">
+                        Restarting the app ensures the flow always begins from a known state.
+                    </p>
+                    <label class="execution-start-toggle">
+                        <input type="checkbox" id="startFromCurrentScreen">
+                        <span>Start from current screen (skip app restart)</span>
+                    </label>
                 </div>
 
                 <div class="form-group">
@@ -394,6 +419,6 @@
     </div>
 
     <!-- Note: ThemeToggle and MobileNav now handled by js/components/navbar.js -->
-    <script type="module" src="js/modules/flow-wizard.js?v=0.0.44"></script>
+    <script type="module" src="js/modules/flow-wizard.js?v=0.0.60"></script>
 </body>
 </html>

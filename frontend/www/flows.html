@@ -3,17 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.0.44" data-build="2026-01-03">
+    <meta name="version" content="0.0.60" data-build="2026-01-03">
     <title>Flow Management - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.0.44">
-    <link rel="stylesheet" href="css/flows.css?v=0.0.44">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.60">
+    <link rel="stylesheet" href="css/flows.css?v=0.0.61">
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.44"></script>
+    <script type="module" src="js/init.js?v=0.0.60"></script>
 
     <div class="flow-container">
         <div class="flow-header">
@@ -113,6 +113,17 @@
             </div>
         </div>
 
+        <div class="flow-filters">
+            <select id="flowDeviceFilter">
+                <option value="">All Devices</option>
+            </select>
+            <select id="flowAppFilter">
+                <option value="">All Apps</option>
+            </select>
+            <input type="text" id="flowSearch" placeholder="Search flows...">
+            <button class="btn btn-secondary" id="flowFilterReset">Reset</button>
+        </div>
+
         <!-- Flow Table -->
         <div class="flow-table-container">
             <table class="flow-table">
@@ -148,8 +159,8 @@
             </div>
 
             <div class="edit-tabs">
-                <button class="tab active" id="tabBasic" onclick="switchEditTab('basic')">Basic Editor</button>
-                <button class="tab" id="tabJSON" onclick="switchEditTab('json')">JSON</button>
+                <button class="tab active" id="tabBasic" onclick="switchEditTab('basic', event)">Basic Editor</button>
+                <button class="tab" id="tabJSON" onclick="switchEditTab('json', event)">JSON</button>
             </div>
 
             <div class="modal-body">
@@ -195,7 +206,15 @@
 
                 <!-- JSON Editor -->
                 <div id="jsonEditor" style="display: none;">
-                    <textarea id="editFlowJSON" class="form-control" rows="20"></textarea>
+                    <div class="json-editor-toolbar">
+                        <div class="json-editor-actions">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="formatFlowJSON()">Format JSON</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="validateFlowJSON()">Validate JSON</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="copyFlowJSON()">Copy JSON</button>
+                        </div>
+                        <span id="jsonValidationStatus" class="json-validation-status"></span>
+                    </div>
+                    <textarea id="editFlowJSON" class="form-control json-editor" rows="20" oninput="queueValidateFlowJSON()"></textarea>
                     <p class="help-text">Edit the raw JSON definition. Changes will sync with the basic editor when you switch tabs.</p>
                 </div>
             </div>
@@ -600,7 +619,6 @@
         </div>
     </div>
 
-    <script src="js/init.js?v=0.0.44"></script>
     <script type="module">
         import FlowManager from './js/modules/flow-manager.js?v=0.0.6.1';
 
@@ -767,6 +785,7 @@
                 // Load device info first (for device names)
                 await loadDeviceInfo();
                 flows = await window.flowManager.getFlows();
+                updateFlowFilters();
                 renderFlowTable();
                 updateStats();
                 updateDisconnectedAlert(); // Show alert if devices are disconnected
@@ -1210,8 +1229,91 @@
             }
         }
 
+        function updateFlowFilters() {
+            const deviceSelect = document.getElementById('flowDeviceFilter');
+            const appSelect = document.getElementById('flowAppFilter');
+            if (!deviceSelect || !appSelect) {
+                return;
+            }
+
+            const currentDevice = deviceSelect.value;
+            const currentApp = appSelect.value;
+
+            const deviceCounts = new Map();
+            const appCounts = new Map();
+
+            flows.forEach(flow => {
+                deviceCounts.set(flow.device_id, (deviceCounts.get(flow.device_id) || 0) + 1);
+                const apps = getFlowApps(flow);
+                if (!apps.length) {
+                    appCounts.set('__unknown__', (appCounts.get('__unknown__') || 0) + 1);
+                } else {
+                    apps.forEach(app => appCounts.set(app, (appCounts.get(app) || 0) + 1));
+                }
+            });
+
+            deviceSelect.innerHTML = '<option value="">All Devices</option>';
+            Array.from(deviceCounts.entries()).sort((a, b) => a[0].localeCompare(b[0])).forEach(([deviceId, count]) => {
+                const option = document.createElement('option');
+                option.value = deviceId;
+                const { deviceName } = parseDeviceId(deviceId);
+                option.textContent = `${deviceName} (${count})`;
+                deviceSelect.appendChild(option);
+            });
+
+            appSelect.innerHTML = '<option value="">All Apps</option>';
+            Array.from(appCounts.entries()).sort((a, b) => a[0].localeCompare(b[0])).forEach(([app, count]) => {
+                const option = document.createElement('option');
+                option.value = app;
+                const label = app === '__unknown__' ? 'Unknown' : app;
+                option.textContent = `${label} (${count})`;
+                appSelect.appendChild(option);
+            });
+
+            if (currentDevice && Array.from(deviceSelect.options).some(opt => opt.value === currentDevice)) {
+                deviceSelect.value = currentDevice;
+            }
+            if (currentApp && Array.from(appSelect.options).some(opt => opt.value === currentApp)) {
+                appSelect.value = currentApp;
+            }
+        }
+
+        function applyFlowFilters(flowList) {
+            const deviceValue = document.getElementById('flowDeviceFilter')?.value || '';
+            const appValue = document.getElementById('flowAppFilter')?.value || '';
+            const searchValue = document.getElementById('flowSearch')?.value?.toLowerCase() || '';
+
+            let filtered = flowList;
+            if (deviceValue) {
+                filtered = filtered.filter(flow => flow.device_id === deviceValue);
+            }
+            if (appValue) {
+                filtered = filtered.filter(flow => {
+                    const apps = getFlowApps(flow);
+                    if (!apps.length) {
+                        return appValue === '__unknown__';
+                    }
+                    return apps.includes(appValue);
+                });
+            }
+            if (searchValue) {
+                filtered = filtered.filter(flow => {
+                    const apps = getFlowApps(flow);
+                    const appText = apps.join(' ').toLowerCase();
+                    return (
+                        (flow.name || '').toLowerCase().includes(searchValue) ||
+                        (flow.flow_id || '').toLowerCase().includes(searchValue) ||
+                        (flow.device_id || '').toLowerCase().includes(searchValue) ||
+                        appText.includes(searchValue)
+                    );
+                });
+            }
+            return filtered;
+        }
+
         function renderFlowTable() {
             const tbody = document.getElementById('flowTableBody');
+            const filteredFlows = applyFlowFilters(flows);
 
             if (flows.length === 0) {
                 tbody.innerHTML = `
@@ -1225,7 +1327,19 @@
                 return;
             }
 
-            tbody.innerHTML = flows.map(flow => {
+            if (filteredFlows.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="11" class="empty-state">
+                            <p>No flows match the current filters.</p>
+                            <p>Try clearing the filters or adjusting your search.</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = filteredFlows.map(flow => {
                 const flowKey = `${flow.device_id}:${flow.flow_id}`;
                 const isRunning = runningFlows.has(flowKey);
                 const isConnected = isDeviceConnected(flow.device_id);
@@ -1749,30 +1863,36 @@
         let editingFlow = null;
         let currentEditTab = 'basic';
 
-        function switchEditTab(tabName) {
+        function switchEditTab(tabName, ev) {
             currentEditTab = tabName;
 
-            // Update tab buttons
-            document.querySelectorAll('.modal-tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            event.target.classList.add('active');
+            const tabBasic = document.getElementById('tabBasic');
+            const tabJSON = document.getElementById('tabJSON');
+            const basicEditor = document.getElementById('basicEditor');
+            const jsonEditorPanel = document.getElementById('jsonEditor');
 
-            // Update tab content
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
+            if (tabBasic) tabBasic.classList.remove('active');
+            if (tabJSON) tabJSON.classList.remove('active');
 
-            if (tabName === 'basic') {
-                document.getElementById('tabBasic').classList.add('active');
-                syncBasicFormFromJSON();
-            } else if (tabName === 'steps') {
-                document.getElementById('tabSteps').classList.add('active');
-                renderFlowSteps();
-            } else if (tabName === 'advanced') {
-                document.getElementById('tabAdvanced').classList.add('active');
+            if (tabName === 'json') {
+                if (tabJSON) tabJSON.classList.add('active');
+                if (basicEditor) basicEditor.style.display = 'none';
+                if (jsonEditorPanel) jsonEditorPanel.style.display = 'block';
                 syncJSONFromBasicForm();
+                return;
             }
+
+            if (!syncBasicFormFromJSON()) {
+                currentEditTab = 'json';
+                if (tabJSON) tabJSON.classList.add('active');
+                if (basicEditor) basicEditor.style.display = 'none';
+                if (jsonEditorPanel) jsonEditorPanel.style.display = 'block';
+                return;
+            }
+
+            if (tabBasic) tabBasic.classList.add('active');
+            if (basicEditor) basicEditor.style.display = 'block';
+            if (jsonEditorPanel) jsonEditorPanel.style.display = 'none';
         }
 
         async function toggleFlowEnabled(deviceId, flowId, enabled) {
@@ -2219,6 +2339,7 @@
             // Update JSON editor
             const jsonEditor = document.getElementById('editFlowJSON');
             if (jsonEditor) jsonEditor.value = JSON.stringify(updatedFlow, null, 2);
+            setJsonValidationStatus(true, 'Synced from basic editor');
         }
 
         function syncBasicFormFromJSON() {
@@ -2237,9 +2358,73 @@
                 if (nameSpan) nameSpan.textContent = flowData.name || '';
                 if (nameInput) nameInput.value = flowData.name || '';
                 if (intervalInput) intervalInput.value = flowData.update_interval_seconds || 60;
+                setJsonValidationStatus(true, 'Valid JSON');
+                return true;
             } catch (error) {
                 console.warn('Failed to sync basic form from JSON:', error);
+                setJsonValidationStatus(false, `Invalid JSON: ${error.message}`);
+                showToast('Invalid JSON. Fix it before switching tabs.', 'error', 4000);
+                return false;
             }
+        }
+
+        function setJsonValidationStatus(isValid, message) {
+            const statusEl = document.getElementById('jsonValidationStatus');
+            if (!statusEl) return;
+            statusEl.textContent = message || '';
+            statusEl.classList.toggle('ok', !!isValid);
+            statusEl.classList.toggle('error', !isValid);
+        }
+
+        function formatFlowJSON() {
+            const jsonEditor = document.getElementById('editFlowJSON');
+            if (!jsonEditor) return;
+
+            try {
+                const parsed = JSON.parse(jsonEditor.value);
+                jsonEditor.value = JSON.stringify(parsed, null, 2);
+                setJsonValidationStatus(true, 'Formatted JSON');
+                showToast('JSON formatted', 'success', 2000);
+            } catch (error) {
+                setJsonValidationStatus(false, `Invalid JSON: ${error.message}`);
+                showToast('Invalid JSON: ' + error.message, 'error', 4000);
+            }
+        }
+
+        function validateFlowJSON(silent = false) {
+            const jsonEditor = document.getElementById('editFlowJSON');
+            if (!jsonEditor) return;
+
+            try {
+                JSON.parse(jsonEditor.value);
+                setJsonValidationStatus(true, 'Valid JSON');
+                if (!silent) showToast('JSON is valid', 'success', 2000);
+            } catch (error) {
+                setJsonValidationStatus(false, `Invalid JSON: ${error.message}`);
+                if (!silent) showToast('Invalid JSON: ' + error.message, 'error', 4000);
+            }
+        }
+
+        async function copyFlowJSON() {
+            const jsonEditor = document.getElementById('editFlowJSON');
+            if (!jsonEditor) return;
+
+            try {
+                if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(jsonEditor.value);
+                } else {
+                    jsonEditor.select();
+                    document.execCommand('copy');
+                }
+                showToast('JSON copied to clipboard', 'success', 2000);
+            } catch (error) {
+                showToast('Failed to copy JSON: ' + error.message, 'error', 4000);
+            }
+        }
+
+        function queueValidateFlowJSON() {
+            clearTimeout(window.__jsonValidateTimer);
+            window.__jsonValidateTimer = setTimeout(() => validateFlowJSON(true), 300);
         }
 
         function editFlow(deviceId, flowId) {
@@ -2266,15 +2451,19 @@
             // Populate JSON editor
             const jsonEditor = document.getElementById('editFlowJSON');
             if (jsonEditor) jsonEditor.value = JSON.stringify(flow, null, 2);
+            setJsonValidationStatus(true, 'Loaded');
 
             // Reset to basic tab
             currentEditTab = 'basic';
-            document.querySelectorAll('.modal-tab').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-            const firstTab = document.querySelector('.modal-tab:first-child');
-            if (firstTab) firstTab.classList.add('active');
             const tabBasic = document.getElementById('tabBasic');
+            const tabJSON = document.getElementById('tabJSON');
+            const basicEditor = document.getElementById('basicEditor');
+            const jsonEditorPanel = document.getElementById('jsonEditor');
+
             if (tabBasic) tabBasic.classList.add('active');
+            if (tabJSON) tabJSON.classList.remove('active');
+            if (basicEditor) basicEditor.style.display = 'block';
+            if (jsonEditorPanel) jsonEditorPanel.style.display = 'none';
 
             // Render the flow steps in the basic editor
             renderFlowSteps();
@@ -2363,6 +2552,10 @@
         window.showInsertSensorDialog = showInsertSensorDialog;
         window.showInsertActionDialog = showInsertActionDialog;
         window.saveFlowEdit = saveFlowEdit;
+        window.formatFlowJSON = formatFlowJSON;
+        window.validateFlowJSON = validateFlowJSON;
+        window.copyFlowJSON = copyFlowJSON;
+        window.queueValidateFlowJSON = queueValidateFlowJSON;
 
         // ==========================================================================
         // Template Picker Functions

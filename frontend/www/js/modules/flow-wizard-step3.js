@@ -1,6 +1,6 @@
 /**
  * Flow Wizard Step 3 Module - Recording Mode
- * Visual Mapper v0.0.37
+ * Visual Mapper v0.0.55
  *
  * v0.0.37: Fix screen mismatch detection - ignore mismatch if last step was navigation (tap/swipe)
  * v0.0.36: Fix tap/swipe recording - capture screen context BEFORE executing action to ensure correct step metadata
@@ -15,6 +15,8 @@
  *          - step3-controller.js: Orchestrator for all modules
  * v0.0.30: Fixed elementIndex passthrough for sensor creation, consolidate unlock logic
  * v0.0.29: Add screen mismatch detection - warn user when adding sensors to different screen, offer to add navigation step
+ * v0.0.55: Add setup status banner so users can see preparation steps
+ * v0.0.54: Treat matching activity names as same screen even when signatures differ
  * v0.0.28: Fix sensor/action creation - remove redundant dynamic import, add error handling, guard timeout
  * v0.0.27: Fix flicker - batch canvas ops, add refreshElements guard, remove duplicate calls
  * v0.0.26: Simplify loading overlay - show once at start, remove from onConnect entirely
@@ -44,10 +46,10 @@
 import { showToast } from './toast.js?v=0.0.5';
 import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.0.11';
 import FlowInteractions from './flow-interactions.js?v=0.0.15';
-import FlowStepManager from './flow-step-manager.js?v=0.0.7';
+import FlowStepManager from './flow-step-manager.js?v=0.0.9';
 import FlowRecorder from './flow-recorder.js?v=0.0.12';
 import LiveStream from './live-stream.js?v=0.0.32';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.9';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.10';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
@@ -64,12 +66,44 @@ function getApiBase() {
     return window.API_BASE || '/api';
 }
 
+function updateSetupMode(wizard) {
+    const modeEl = document.getElementById('step3SetupMode');
+    if (!modeEl) return;
+    modeEl.textContent = wizard.startFromCurrentScreen
+        ? 'Start mode: Current screen'
+        : 'Start mode: Restart app';
+}
+
+function setSetupStatus(wizard, message, state = 'working') {
+    const statusEl = document.getElementById('step3SetupStatus');
+    const messageEl = document.getElementById('step3SetupMessage');
+    if (!statusEl || !messageEl) return;
+
+    updateSetupMode(wizard);
+    statusEl.classList.remove('hidden', 'ready', 'error');
+    if (state === 'ready') statusEl.classList.add('ready');
+    if (state === 'error') statusEl.classList.add('error');
+    messageEl.textContent = message;
+}
+
+function setSetupStatusReady(wizard, message = 'Ready to record') {
+    setSetupStatus(wizard, message, 'ready');
+    if (wizard._setupStatusTimeout) {
+        clearTimeout(wizard._setupStatusTimeout);
+    }
+    wizard._setupStatusTimeout = setTimeout(() => {
+        const statusEl = document.getElementById('step3SetupStatus');
+        if (statusEl) statusEl.classList.add('hidden');
+    }, 1500);
+}
+
 /**
  * Load Step 3: Recording Mode
  */
 export async function loadStep3(wizard) {
     console.log('Loading Step 3: Recording Mode');
     showToast(`Starting recording session...`, 'info');
+    setSetupStatus(wizard, 'Registering session...');
 
     // CRITICAL: Mark wizard as active FIRST before anything else
     // This tells server to not lock this device and cancels any queued flows
@@ -81,6 +115,7 @@ export async function loadStep3(wizard) {
 
     // THEN start keep-awake to prevent device screen from sleeping
     if (wizard.selectedDevice) {
+        setSetupStatus(wizard, 'Keeping device awake...');
         await startKeepAwake(wizard);
     }
 
@@ -89,6 +124,7 @@ export async function loadStep3(wizard) {
     if (wizard.selectedDevice) {
         showToast('Preparing device...', 'info', 3000);
         console.log('[FlowWizard] Unlocking device before setup...');
+        setSetupStatus(wizard, 'Unlocking device...');
         const apiBase = getApiBase();
         const unlockResult = await sharedEnsureUnlocked(wizard.selectedDevice, apiBase, {
             onStatus: (msg) => {
@@ -195,6 +231,7 @@ export async function loadStep3(wizard) {
 
     if (shouldStartFresh) {
         console.log('[FlowWizard] Starting fresh recording session');
+        setSetupStatus(wizard, 'Starting capture...');
         const started = await wizard.recorder.start();
 
         if (started) {
@@ -207,16 +244,20 @@ export async function loadStep3(wizard) {
                 refreshElements(wizard).then(() => {
                     wizard.updateScreenshotDisplay();
                 }).catch(e => console.warn('[FlowWizard] Auto-refresh failed:', e));
+                setSetupStatusReady(wizard);
             }
         }
     } else {
         // When returning or editing, just refresh the screenshot without re-launching
         console.log('[FlowWizard] Edit/Return mode - refreshing screenshot without re-launching app');
+        setSetupStatus(wizard, 'Restoring session...');
         try {
             await wizard.recorder.captureScreenshot();
             await wizard.updateScreenshotDisplay();
+            setSetupStatusReady(wizard, 'Session ready');
         } catch (e) {
             console.warn('[FlowWizard] Failed to refresh screenshot:', e);
+            setSetupStatus(wizard, 'Failed to refresh screen', 'error');
         }
     }
 }
@@ -457,7 +498,200 @@ function populateKnownScreens(wizard) {
  * Update navigation context with current screen
  * Called when screen info is updated
  */
-export function updateNavigationContext(wizard, activityInfo) {
+function getCurrentScreenElements(wizard, elementsOverride = null) {
+    if (Array.isArray(elementsOverride)) {
+        return elementsOverride;
+    }
+    if (wizard.captureMode === 'streaming') {
+        return wizard.liveStream?.elements || [];
+    }
+    return wizard.recorder?.screenshotMetadata?.elements || [];
+}
+
+function extractUiLandmarks(elements) {
+    const landmarks = [];
+
+    for (const el of elements || []) {
+        const resourceId = el.resource_id || el['resource-id'] || '';
+        const className = el.class || '';
+        const text = el.text || '';
+        const contentDesc = el.content_desc || el['content-desc'] || '';
+
+        if (!text && !contentDesc) {
+            continue;
+        }
+
+        const resourceLower = resourceId.toLowerCase();
+        const classLower = className.toLowerCase();
+
+        if (resourceLower.includes('toolbar') || resourceLower.includes('action_bar')) {
+            landmarks.push({
+                type: 'toolbar',
+                text: text,
+                resource_id: resourceId,
+                content_desc: contentDesc
+            });
+            continue;
+        }
+
+        if (resourceLower.includes('tab') || classLower.includes('tablayout')) {
+            landmarks.push({
+                type: 'tab',
+                text: text,
+                resource_id: resourceId,
+                content_desc: contentDesc
+            });
+            continue;
+        }
+
+        if (className.includes('TextView') && text) {
+            if (text.length < 50 && !text.includes('\n')) {
+                if (['title', 'header', 'name', 'label'].some((kw) => resourceLower.includes(kw))) {
+                    landmarks.push({
+                        type: 'title',
+                        text: text,
+                        resource_id: resourceId,
+                        content_desc: contentDesc
+                    });
+                }
+            }
+        }
+    }
+
+    const seen = new Set();
+    const unique = [];
+    for (const lm of landmarks) {
+        const key = `${lm.text || ''}|${lm.resource_id || ''}|${lm.content_desc || ''}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            unique.push(lm);
+        }
+    }
+
+    return unique;
+}
+
+async function computeScreenId(activity, elements) {
+    if (!activity || !elements || elements.length === 0) {
+        return null;
+    }
+
+    if (!window.crypto || !window.crypto.subtle || !window.TextEncoder) {
+        return null;
+    }
+
+    const landmarkStrs = [];
+    const landmarks = extractUiLandmarks(elements);
+
+    for (const landmark of landmarks) {
+        const text = landmark.text || '';
+        const resourceId = landmark.resource_id || '';
+        const contentDesc = landmark.content_desc || '';
+
+        if (text) {
+            landmarkStrs.push(`text:${text}`);
+        } else if (resourceId) {
+            landmarkStrs.push(`id:${resourceId}`);
+        } else if (contentDesc) {
+            landmarkStrs.push(`desc:${contentDesc}`);
+        }
+    }
+
+    landmarkStrs.sort();
+    const hashInput = `${activity}|${landmarkStrs.join(',')}`;
+
+    try {
+        const encoder = new TextEncoder();
+        const hashBuffer = await window.crypto.subtle.digest('SHA-256', encoder.encode(hashInput));
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+        return hex.slice(0, 16);
+    } catch (e) {
+        console.warn('[FlowWizard] Failed to compute screen id:', e);
+        return null;
+    }
+}
+
+function resolveScreenLabel(wizard, screenSignature, activityName) {
+    if (screenSignature && wizard.navigationGraph?.screens?.[screenSignature]) {
+        const screen = wizard.navigationGraph.screens[screenSignature];
+        return screen.display_name || screen.activity?.split('.').pop() || screenSignature;
+    }
+    if (activityName) {
+        const shortName = activityName.split('.').pop();
+        return screenSignature ? `${shortName} (${screenSignature.slice(0, 6)})` : shortName;
+    }
+    return screenSignature ? screenSignature.slice(0, 6) : 'Unknown';
+}
+
+function normalizeScreenLabel(label) {
+    if (!label) return null;
+    return label.replace(/\s*\([0-9a-fA-F]{4,}\)\s*$/, '').trim();
+}
+
+function getActivityShortName(wizard, screenSignature, activityName) {
+    if (activityName) {
+        return activityName.split('.').pop();
+    }
+    if (screenSignature && wizard.navigationGraph?.screens?.[screenSignature]?.activity) {
+        return wizard.navigationGraph.screens[screenSignature].activity.split('.').pop();
+    }
+    return null;
+}
+
+async function maybeLearnScreen(wizard, activityInfo, elements) {
+    if (!wizard.autoLearnScreens) return;
+    if (!activityInfo?.activity || !activityInfo?.package) return;
+    if (!elements || elements.length === 0) return;
+
+    const signature = await computeScreenId(activityInfo.activity, elements);
+    if (!signature) return;
+
+    const now = Date.now();
+    const lastSignature = wizard._lastLearnedSignature;
+    const lastTime = wizard._lastLearnedAt || 0;
+
+    if (signature === lastSignature && (now - lastTime) < 5000) {
+        return;
+    }
+
+    wizard._lastLearnedSignature = signature;
+    wizard._lastLearnedAt = now;
+
+    const packageName = activityInfo.package || wizard.selectedApp?.package || wizard.selectedApp;
+    if (!packageName) return;
+
+    try {
+        const response = await fetch(
+            `${getApiBase()}/navigation/${encodeURIComponent(packageName)}/screens`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    activity: activityInfo.activity,
+                    ui_elements: elements,
+                    display_name: activityInfo.activity.split('.').pop()
+                })
+            }
+        );
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            console.warn('[FlowWizard] Screen learn failed:', error.detail || response.statusText);
+            return;
+        }
+
+        const data = await response.json();
+        if (data?.screen?.screen_id) {
+            wizard.lastLearnedScreenId = data.screen.screen_id;
+        }
+        console.log('[FlowWizard] Learned screen:', activityInfo.activity);
+    } catch (error) {
+        console.warn('[FlowWizard] Screen learn error:', error);
+    }
+}
+
+export async function updateNavigationContext(wizard, activityInfo, elementsOverride = null) {
     const navCurrentScreen = document.getElementById('navCurrentScreen');
     const navScreenName = document.getElementById('navScreenName');
     const screensList = document.getElementById('navScreensList');
@@ -467,6 +701,14 @@ export function updateNavigationContext(wizard, activityInfo) {
     if (!activityInfo?.activity) {
         navCurrentScreen.textContent = '--';
         navScreenName.textContent = 'Unknown screen';
+        wizard.currentScreenId = null;
+        wizard.currentScreenSignature = null;
+        if (wizard.recorder) {
+            wizard.recorder.setNavigationContext(null);
+            if (wizard.recorder.setScreenSignature) {
+                wizard.recorder.setScreenSignature(null);
+            }
+        }
         return;
     }
 
@@ -476,13 +718,21 @@ export function updateNavigationContext(wizard, activityInfo) {
     // Check if this screen is in our navigation graph
     let screenInfo = null;
     let screenId = null;
+    let ambiguousActivity = false;
+    const elements = getCurrentScreenElements(wizard, elementsOverride);
+    const screenSignature = await computeScreenId(currentActivity, elements);
 
     if (wizard.navigationGraph?.screens) {
-        for (const [id, screen] of Object.entries(wizard.navigationGraph.screens)) {
-            if (screen.activity === currentActivity) {
-                screenInfo = screen;
-                screenId = id;
-                break;
+        if (screenSignature && wizard.navigationGraph.screens[screenSignature]) {
+            screenInfo = wizard.navigationGraph.screens[screenSignature];
+            screenId = screenSignature;
+        } else {
+            const matches = Object.entries(wizard.navigationGraph.screens)
+                .filter(([, screen]) => screen.activity === currentActivity);
+            if (matches.length === 1) {
+                [screenId, screenInfo] = matches[0];
+            } else if (matches.length > 1) {
+                ambiguousActivity = true;
             }
         }
     }
@@ -500,18 +750,24 @@ export function updateNavigationContext(wizard, activityInfo) {
 
         // Sync with recorder so new steps include this screen ID
         if (wizard.recorder) {
-            wizard.recorder.setNavigationContext(screenId);
-        }
+        wizard.recorder.setNavigationContext(screenId);
+    }
 
         // Highlight current screen in dropdown
         if (screensList) {
             screensList.querySelectorAll('.nav-screen-item').forEach(item => {
-                item.classList.toggle('current', item.dataset.activity === currentActivity);
+                if (screenId) {
+                    item.classList.toggle('current', item.dataset.screenId === screenId);
+                } else {
+                    item.classList.toggle('current', item.dataset.activity === currentActivity);
+                }
             });
         }
     } else {
         navCurrentScreen.textContent = shortName;
-        navScreenName.textContent = 'New screen (will be learned)';
+        navScreenName.textContent = ambiguousActivity
+            ? 'Multiple screens detected (need landmarks)'
+            : 'New screen (will be learned)';
         navCurrentScreen.style.color = '#fbbf24';
         navCurrentScreen.style.borderColor = 'rgba(251, 191, 36, 0.3)';
         wizard.currentScreenId = null;
@@ -520,6 +776,11 @@ export function updateNavigationContext(wizard, activityInfo) {
         if (wizard.recorder) {
             wizard.recorder.setNavigationContext(null);
         }
+    }
+
+    wizard.currentScreenSignature = screenSignature || null;
+    if (wizard.recorder?.setScreenSignature) {
+        wizard.recorder.setScreenSignature(screenSignature || null);
     }
 }
 
@@ -550,15 +811,15 @@ export async function updateScreenInfo(wizard) {
             console.log(`[FlowWizard] Screen: ${shortName} (${activityInfo.package})`);
 
             // Update navigation context panel if available
-            updateNavigationContext(wizard, activityInfo);
+            await updateNavigationContext(wizard, activityInfo);
         } else {
             activityEl.textContent = '--';
-            updateNavigationContext(wizard, null);
+            await updateNavigationContext(wizard, null);
         }
     } catch (e) {
         console.warn('[FlowWizard] Error updating screen info:', e);
         activityEl.textContent = '--';
-        updateNavigationContext(wizard, null);
+        await updateNavigationContext(wizard, null);
     }
 }
 
@@ -945,6 +1206,20 @@ export function setupOverlayFilters(wizard) {
         });
     }
 
+    const learnCheckbox = document.getElementById('autoLearnScreens');
+    if (learnCheckbox) {
+        const savedLearn = localStorage.getItem('flowWizard.autoLearnScreens');
+        wizard.autoLearnScreens = savedLearn === null ? true : savedLearn === 'true';
+        learnCheckbox.checked = wizard.autoLearnScreens;
+        learnCheckbox.addEventListener('change', () => {
+            wizard.autoLearnScreens = learnCheckbox.checked;
+            localStorage.setItem('flowWizard.autoLearnScreens', String(wizard.autoLearnScreens));
+            console.log(`[FlowWizard] autoLearnScreens = ${wizard.autoLearnScreens}`);
+        });
+    } else {
+        wizard.autoLearnScreens = true;
+    }
+
     console.log('[FlowWizard] Overlay filters initialized');
 }
 
@@ -1213,6 +1488,8 @@ export async function startStreaming(wizard) {
         return;
     }
 
+    setSetupStatus(wizard, 'Connecting to live stream...');
+
     // Reset stream session flags
     wizard._streamLoadingHidden = false;
     wizard._streamConnectedOnce = false;
@@ -1314,6 +1591,7 @@ export async function startStreaming(wizard) {
                     });
                 });
             }
+            setSetupStatusReady(wizard);
         }
     };
 
@@ -1379,6 +1657,7 @@ export async function startStreaming(wizard) {
 
     wizard.liveStream.onError = (error) => {
         console.error('[FlowWizard] Stream error:', error);
+        setSetupStatus(wizard, 'Stream error - check device connection', 'error');
         showToast(`Stream error: ${error.message || 'Connection failed'}`, 'error', 3000);
     };
 
@@ -1632,6 +1911,14 @@ export async function refreshElements(wizard) {
             wizard.currentElementsPackage = currentPackage;
             wizard.currentElementsActivity = currentActivity;
 
+            if (currentActivity) {
+                await updateNavigationContext(
+                    wizard,
+                    { activity: currentActivity, package: currentPackage },
+                    elements
+                );
+            }
+
             // Update device dimensions for proper overlay scaling
             if (data.device_width && data.device_height && wizard.liveStream) {
                 const oldWidth = wizard.liveStream.deviceWidth;
@@ -1720,6 +2007,8 @@ export async function refreshElements(wizard) {
                         appNameEl.textContent = appName.charAt(0).toUpperCase() + appName.slice(1);
                         console.log(`[FlowWizard] Updated app name: ${appName}`);
                     }
+                    await updateNavigationContext(wizard, screenData.activity, elements);
+                    await maybeLearnScreen(wizard, screenData.activity, elements);
                 }
             }
         } catch (appInfoError) {
@@ -2506,6 +2795,24 @@ export function toggleTreeView(wizard, show = null) {
 /**
  * Handle tap action from tree
  */
+function buildElementMetadata(element) {
+    if (!element) return null;
+
+    return {
+        text: element.text || null,
+        resource_id: element.resource_id || null,
+        class: element.class || null,
+        content_desc: element.content_desc || null,
+        clickable: element.clickable || false,
+        bounds: element.bounds || null,
+        path: element.path || null,
+        parent_path: element.parent_path || null,
+        depth: element.depth ?? null,
+        sibling_index: element.sibling_index ?? null,
+        element_index: element.element_index ?? null
+    };
+}
+
 export function handleTreeTap(wizard, element) {
     if (!element?.bounds) return;
 
@@ -2523,7 +2830,8 @@ export function handleTreeTap(wizard, element) {
         step_type: 'tap',
         x: Math.round(x),
         y: Math.round(y),
-        description: `Tap "${element.text || element.class}"`
+        description: `Tap "${element.text || element.class}"`,
+        element: buildElementMetadata(element)
     });
 
     // Clear stale elements and hover highlight immediately (video updates faster than elements API)
@@ -2549,7 +2857,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.9');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.10');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -2583,7 +2891,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.9');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.10');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -2690,7 +2998,7 @@ async function loadSuggestions(wizard) {
 
     try {
         // Load sensor suggestions
-        const sensorResponse = await fetch(`${getApiBase()}/suggestions/sensors`, {
+        const sensorResponse = await fetch(`${getApiBase()}/devices/suggest-sensors`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2706,7 +3014,7 @@ async function loadSuggestions(wizard) {
         }
 
         // Load action suggestions
-        const actionResponse = await fetch(`${getApiBase()}/suggestions/actions`, {
+        const actionResponse = await fetch(`${getApiBase()}/devices/suggest-actions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2910,7 +3218,8 @@ async function handleQuickAddSuggestion(wizard, index) {
                 step_type: 'tap',
                 x: Math.round(suggestion.element.bounds.x + suggestion.element.bounds.width / 2),
                 y: Math.round(suggestion.element.bounds.y + suggestion.element.bounds.height / 2),
-                description: suggestion.name || suggestion.suggested_name || 'Tap action'
+                description: suggestion.name || suggestion.suggested_name || 'Tap action',
+                element: buildElementMetadata(suggestion.element)
             };
             wizard.recorder.addStep(tapStep);
             showToast(`Added action: ${suggestion.name || 'Tap'}`, 'success');
@@ -3115,7 +3424,8 @@ async function addSelectedSuggestions(wizard) {
                     step_type: 'tap',
                     x: Math.round(action.element.bounds.x + action.element.bounds.width / 2),
                     y: Math.round(action.element.bounds.y + action.element.bounds.height / 2),
-                    description: action.name || action.suggested_name || 'Tap action'
+                    description: action.name || action.suggested_name || 'Tap action',
+                    element: buildElementMetadata(action.element)
                 };
                 wizard.recorder.addStep(tapStep);
             }
@@ -3555,14 +3865,7 @@ export async function executeTap(wizard, x, y, element = null) {
 
     // Include element metadata if available
     if (element) {
-        step.element = {
-            text: element.text || null,
-            resource_id: element.resource_id || null,
-            class: element.class || null,
-            content_desc: element.content_desc || null,
-            clickable: element.clickable || false,
-            bounds: element.bounds || null
-        };
+        step.element = buildElementMetadata(element);
     }
 
     // Track last executed action (even when paused) for navigation step insertion
@@ -4105,7 +4408,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.9');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.0.10');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -4371,28 +4674,67 @@ export function setupFlowStepsListener(wizard) {
 // ==========================================
 
 /**
- * Get the current flow's expected screen activity
- * Returns the screen_activity from the last step that set it
+ * Get the current flow's expected screen context
+ * Returns the screen_id/activity from the last step that set it
  */
-function getFlowCurrentActivity(wizard) {
-    const steps = wizard.flowSteps || [];
+function getFlowCurrentScreenContext(wizard) {
+    const steps = wizard.recorder?.getSteps?.() || wizard.flowSteps || [];
 
-    // Walk backwards through steps to find the last known activity
+    // Walk backwards through steps to find the last known context
     for (let i = steps.length - 1; i >= 0; i--) {
         const step = steps[i];
+        const screenId = step.expected_screen_id || null;
+        const signature = step.screen_signature || null;
+        const activity = step.screen_activity || step.expected_activity || null;
 
         // launch_app sets the initial screen
         if (step.step_type === 'launch_app') {
-            return step.screen_activity || step.expected_activity || null;
+            return { screenId, signature, activity };
         }
 
-        // capture_sensors has screen_activity
-        if (step.screen_activity) {
-            return step.screen_activity;
+        if (screenId || signature || activity) {
+            return { screenId, signature, activity };
         }
     }
 
-    return null;
+    return { screenId: null, signature: null, activity: null };
+}
+
+function annotateNavigationTarget(wizard, deviceActivity, deviceScreenId) {
+    const steps = wizard.recorder?.getSteps?.() || wizard.flowSteps || [];
+    if (!steps.length) return false;
+
+    const lastStep = steps[steps.length - 1];
+    if (!lastStep || !['tap', 'swipe', 'go_back', 'go_home'].includes(lastStep.step_type)) {
+        return false;
+    }
+
+    let updated = false;
+    if (deviceActivity && lastStep.expected_activity !== deviceActivity) {
+        lastStep.expected_activity = deviceActivity;
+        updated = true;
+    }
+    if (deviceScreenId && lastStep.expected_screen_id !== deviceScreenId) {
+        lastStep.expected_screen_id = deviceScreenId;
+        updated = true;
+    }
+    if (deviceScreenId && !lastStep.screen_signature) {
+        lastStep.screen_signature = deviceScreenId;
+        updated = true;
+    }
+
+    if (updated) {
+        console.log('[FlowWizard] Annotated navigation target on last step', {
+            step_type: lastStep.step_type,
+            expected_activity: lastStep.expected_activity,
+            expected_screen_id: lastStep.expected_screen_id
+        });
+        if (typeof wizard.updateFlowStepsUI === 'function') {
+            wizard.updateFlowStepsUI();
+        }
+    }
+
+    return updated;
 }
 
 /**
@@ -4400,7 +4742,7 @@ function getFlowCurrentActivity(wizard) {
  * Returns: { mismatch: boolean, currentActivity: string, sensorActivity: string }
  */
 export async function checkScreenMismatch(wizard, sensorElement) {
-    const flowActivity = getFlowCurrentActivity(wizard);
+    const flowContext = getFlowCurrentScreenContext(wizard);
 
     // Get current device screen
     let currentScreen = null;
@@ -4414,39 +4756,95 @@ export async function checkScreenMismatch(wizard, sensorElement) {
     }
 
     const deviceActivity = currentScreen?.activity?.activity || null;
+    const deviceElements = getCurrentScreenElements(wizard);
+    const deviceScreenId = await computeScreenId(deviceActivity, deviceElements);
+    const flowScreenId = flowContext.screenId || null;
+    const flowSignature = flowContext.signature || null;
+    const lastStep = wizard.recorder?.getSteps?.().slice(-1)[0] || null;
+    const lastStepIsNavigation = lastStep && ['tap', 'swipe', 'go_back', 'go_home'].includes(lastStep.step_type);
+
+    console.log('[FlowWizard] checkScreenMismatch', {
+        flowContext,
+        deviceActivity,
+        deviceScreenId,
+        lastStepType: lastStep?.step_type || null
+    });
 
     // If flow has no activity yet (first sensor), no mismatch
-    if (!flowActivity) {
-        return { mismatch: false, currentActivity: deviceActivity, sensorActivity: deviceActivity };
+    if (!flowContext.activity && !flowScreenId && !flowSignature) {
+        return {
+            mismatch: false,
+            currentActivity: resolveScreenLabel(wizard, deviceScreenId, deviceActivity),
+            sensorActivity: resolveScreenLabel(wizard, deviceScreenId, deviceActivity)
+        };
     }
 
-    // Compare activities (use simple name comparison)
-    const flowActName = flowActivity.split('.').pop();
-    const deviceActName = deviceActivity ? deviceActivity.split('.').pop() : null;
+    const flowSignatureId = flowScreenId || flowSignature;
+    const flowLabel = resolveScreenLabel(wizard, flowSignatureId, flowContext.activity);
+    const deviceLabel = resolveScreenLabel(wizard, deviceScreenId, deviceActivity);
+    const flowActName = getActivityShortName(wizard, flowSignatureId, flowContext.activity);
+    const deviceActName = getActivityShortName(wizard, deviceScreenId, deviceActivity);
 
-    if (deviceActName && flowActName !== deviceActName) {
+    if (flowActName && deviceActName && flowActName === deviceActName) {
+        return { mismatch: false, currentActivity: flowLabel, sensorActivity: deviceLabel };
+    }
+
+    const normalizedFlowLabel = normalizeScreenLabel(flowLabel);
+    const normalizedDeviceLabel = normalizeScreenLabel(deviceLabel);
+    if (normalizedFlowLabel && normalizedDeviceLabel && normalizedFlowLabel === normalizedDeviceLabel) {
+        return { mismatch: false, currentActivity: flowLabel, sensorActivity: deviceLabel };
+    }
+
+    if (flowScreenId && deviceScreenId && flowScreenId !== deviceScreenId) {
         // Check if the screen change was caused by the last recorded navigation step
-        if (wizard.recorder) {
-            const steps = wizard.recorder.getSteps();
-            const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
-
-            // If the last step was a tap or swipe, the screen change is likely the intended result
-            if (lastStep && (lastStep.step_type === 'tap' || lastStep.step_type === 'swipe')) {
-                console.log(`[FlowWizard] Screen changed after ${lastStep.step_type} (${flowActName} -> ${deviceActName}) - valid transition`);
-                return { mismatch: false, currentActivity: flowActName, sensorActivity: deviceActName };
-            }
+        if (lastStepIsNavigation) {
+            annotateNavigationTarget(wizard, deviceActivity, deviceScreenId);
+            console.log(`[FlowWizard] Screen changed after ${lastStep.step_type} (${flowLabel} -> ${deviceLabel}) - valid transition`);
+            return { mismatch: false, currentActivity: flowLabel, sensorActivity: deviceLabel };
         }
 
         return {
             mismatch: true,
-            currentActivity: flowActName,
-            sensorActivity: deviceActName,
-            fullCurrentActivity: flowActivity,
+            currentActivity: flowLabel,
+            sensorActivity: deviceLabel,
+            fullCurrentActivity: flowContext.activity,
             fullSensorActivity: deviceActivity
         };
     }
 
-    return { mismatch: false, currentActivity: flowActName, sensorActivity: deviceActName };
+    if (flowSignature && deviceScreenId && flowSignature !== deviceScreenId) {
+        if (lastStepIsNavigation) {
+            annotateNavigationTarget(wizard, deviceActivity, deviceScreenId);
+            console.log(`[FlowWizard] Screen changed after ${lastStep.step_type} (${flowLabel} -> ${deviceLabel}) - valid transition`);
+            return { mismatch: false, currentActivity: flowLabel, sensorActivity: deviceLabel };
+        }
+        return {
+            mismatch: true,
+            currentActivity: flowLabel,
+            sensorActivity: deviceLabel,
+            fullCurrentActivity: flowContext.activity,
+            fullSensorActivity: deviceActivity
+        };
+    }
+
+    // Fallback to activity name comparison when screen ids are unavailable
+    if (flowContext.activity && deviceActivity) {
+        if (flowActName !== deviceActName) {
+            if (lastStepIsNavigation) {
+                console.log(`[FlowWizard] Screen changed after ${lastStep.step_type} (${flowLabel} -> ${deviceLabel}) - valid transition`);
+                return { mismatch: false, currentActivity: flowLabel, sensorActivity: deviceLabel };
+            }
+            return {
+                mismatch: true,
+                currentActivity: flowLabel,
+                sensorActivity: deviceLabel,
+                fullCurrentActivity: flowContext.activity,
+                fullSensorActivity: deviceActivity
+            };
+        }
+    }
+
+    return { mismatch: false, currentActivity: flowLabel, sensorActivity: deviceLabel };
 }
 
 /**
@@ -4485,6 +4883,11 @@ export function showNavigationMismatchDialog(wizard, mismatchInfo) {
                     </button>
                     ` : ''}
 
+                    <button id="btnSetCurrent" class="btn btn-secondary" style="padding: 12px; font-size: 1em; background: #22c55e; color: white; border: none;">
+                        ✅ Use Current Screen
+                        <span style="display: block; font-size: 0.8em; opacity: 0.8;">Insert a screen check before the sensor</span>
+                    </button>
+
                     <button id="btnAddAnyway" class="btn btn-secondary" style="padding: 12px; font-size: 1em; background: #f59e0b; color: white; border: none;">
                         ⚠️ Add Sensor Anyway
                         <span style="display: block; font-size: 0.8em; opacity: 0.8;">I'll add navigation steps manually</span>
@@ -4501,6 +4904,7 @@ export function showNavigationMismatchDialog(wizard, mismatchInfo) {
 
         // Event handlers
         const btnAddNav = overlay.querySelector('#btnAddNav');
+        const btnSetCurrent = overlay.querySelector('#btnSetCurrent');
         const btnAddAnyway = overlay.querySelector('#btnAddAnyway');
         const btnCancel = overlay.querySelector('#btnCancel');
 
@@ -4510,6 +4914,11 @@ export function showNavigationMismatchDialog(wizard, mismatchInfo) {
                 resolve('add_nav');
             };
         }
+
+        btnSetCurrent.onclick = () => {
+            overlay.remove();
+            resolve('set_current');
+        };
 
         btnAddAnyway.onclick = () => {
             overlay.remove();
@@ -4540,7 +4949,9 @@ export async function addSensorWithNavigationCheck(wizard, sensorStep, skipCheck
         const mismatchInfo = await checkScreenMismatch(wizard, sensorStep);
 
         if (mismatchInfo.mismatch) {
+            console.log('[FlowWizard] Screen mismatch detected:', mismatchInfo);
             const choice = await showNavigationMismatchDialog(wizard, mismatchInfo);
+            console.log('[FlowWizard] Screen mismatch choice:', choice);
 
             if (choice === 'cancel') {
                 showToast('Sensor not added', 'info');
@@ -4563,8 +4974,42 @@ export async function addSensorWithNavigationCheck(wizard, sensorStep, skipCheck
                     console.warn('[FlowWizard] Could not get screen info for nav step:', e);
                 }
 
-                wizard.recorder.addStep(navStep);
-                showToast(`Added navigation: ${navStep.description}`, 'info');
+                const existingStep = wizard.recorder?.getSteps?.().slice(-1)[0];
+                const isDuplicateTap = existingStep?.step_type === 'tap' &&
+                    navStep.step_type === 'tap' &&
+                    existingStep.x === navStep.x && existingStep.y === navStep.y;
+                const isDuplicateSwipe = existingStep?.step_type === 'swipe' &&
+                    navStep.step_type === 'swipe' &&
+                    existingStep.start_x === navStep.start_x &&
+                    existingStep.start_y === navStep.start_y &&
+                    existingStep.end_x === navStep.end_x &&
+                    existingStep.end_y === navStep.end_y;
+
+                if (isDuplicateTap || isDuplicateSwipe) {
+                    showToast('Navigation already recorded', 'info');
+                } else {
+                    wizard.recorder.addStep(navStep);
+                    showToast(`Added navigation: ${navStep.description}`, 'info');
+                }
+            } else if (choice === 'set_current') {
+                const expectedActivity = mismatchInfo.fullSensorActivity || null;
+                if (expectedActivity) {
+                    const existingStep = wizard.recorder?.getSteps?.().slice(-1)[0];
+                    const alreadySet = existingStep?.step_type === 'validate_screen' &&
+                        existingStep.expected_activity === expectedActivity;
+                    if (!alreadySet) {
+                        wizard.recorder.addStep({
+                            step_type: 'validate_screen',
+                            expected_activity: expectedActivity,
+                            description: `Validate screen: ${mismatchInfo.sensorActivity}`
+                        });
+                        showToast(`Set current screen: ${mismatchInfo.sensorActivity}`, 'info');
+                    } else {
+                        showToast('Current screen already set', 'info');
+                    }
+                } else {
+                    showToast('Could not detect current screen', 'warning');
+                }
             }
         }
     }

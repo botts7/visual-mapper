@@ -341,6 +341,60 @@ img.app-icon {
     overflow: hidden;
 }
 
+.setup-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-color);
+    background: #f8fafc;
+    color: var(--text-color);
+    font-size: 12px;
+}
+
+.setup-status.hidden {
+    display: none;
+}
+
+.setup-status-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.setup-status-message {
+    color: var(--text-secondary);
+}
+
+.setup-status-mode {
+    color: var(--text-secondary);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.setup-status.ready {
+    background: #ecfdf3;
+    border-color: #86efac;
+}
+
+.setup-status.error {
+    background: #fef2f2;
+    border-color: #fecaca;
+}
+
+.execution-start-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 0.95em;
+    color: var(--text-secondary);
+}
+
+.execution-start-toggle input {
+    transform: translateY(1px);
+}
+
 /* ==========================================
    Quick Actions Toolbar
    ========================================== */

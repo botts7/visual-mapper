@@ -206,20 +206,23 @@ class FlowExecutor:
             # Go to home screen and relaunch app for consistent flow execution
             target_package = self._get_target_package(flow)
             first_expected_activity = self._get_first_expected_activity(flow)
+            start_from_current = getattr(flow, "start_from_current_screen", False)
 
             # Check if first step is LAUNCH_APP
             first_step = flow.steps[0] if flow.steps else None
             first_step_is_launch = first_step and first_step.step_type == FlowStepType.LAUNCH_APP
 
-            if first_step_is_launch:
-                # First step is LAUNCH_APP - go HOME to reset app state, but skip the launch
-                # (the LAUNCH_APP step will handle launching the app fresh)
-                logger.info(f"[FlowExecutor] First step is LAUNCH_APP - going HOME to reset app state")
-                try:
-                    await self.adb_bridge.go_home(flow.device_id)
-                    await asyncio.sleep(0.5)  # Wait for home screen
-                except Exception as e:
-                    logger.warning(f"[FlowExecutor] Failed to go home: {e}")
+            if start_from_current:
+                logger.info("[FlowExecutor] start_from_current_screen enabled - skipping app reset")
+            elif first_step_is_launch:
+                # First step is LAUNCH_APP - reset app state, then let LAUNCH_APP handle launch
+                if target_package:
+                    logger.info("[FlowExecutor] Resetting app state before launch_app step")
+                    reset_success = await self._reset_app_state(flow.device_id, target_package)
+                    if not reset_success:
+                        logger.warning("[FlowExecutor] Failed to reset app state, continuing anyway...")
+                else:
+                    logger.debug("[FlowExecutor] No target package found, skipping app reset")
             elif target_package:
                 logger.info(f"[FlowExecutor] Ensuring known starting point for: {target_package}")
                 if first_expected_activity:
@@ -259,6 +262,13 @@ class FlowExecutor:
 
                 # Track sensors captured before this step (to find new ones)
                 sensors_before = set(result.captured_sensors.keys())
+
+                # If a tap leads to a different screen, set expected_activity to help navigation
+                if step.step_type == FlowStepType.TAP and not step.expected_activity:
+                    next_step = flow.steps[i + 1] if i + 1 < len(flow.steps) else None
+                    if next_step and next_step.screen_activity and step.screen_activity:
+                        if next_step.screen_activity != step.screen_activity:
+                            step.expected_activity = next_step.screen_activity
 
                 # Execute step with retry
                 try:
@@ -305,6 +315,8 @@ class FlowExecutor:
                         step_log.error = f"Step failed: {step.step_type}"
                         step_result.error_message = f"Step failed: {step.step_type}"
                         result.failed_step = i
+                        if not result.error_message:
+                            result.error_message = f"Step {i+1} failed: {step.step_type}"
                         logger.warning(f"  Step {i+1} failed: {step.step_type}")
 
                         if flow.stop_on_error:
@@ -565,6 +577,16 @@ class FlowExecutor:
                 # Normalize step_type for comparison (lowercase, stripped)
                 normalized_step_type = step.step_type.lower().strip() if step.step_type else ''
                 step_type_in_skip = normalized_step_type in skip_validation_steps
+
+                # Skip validation for navigation taps/swipes that should transition screens
+                is_navigation_transition = (
+                    normalized_step_type in {'tap', 'swipe'} and
+                    step.expected_activity and
+                    step.screen_activity and
+                    step.expected_activity != step.screen_activity
+                )
+                if is_navigation_transition:
+                    step_type_in_skip = True
                 should_validate = step.validate_state and not step_type_in_skip
 
                 # Debug logging to diagnose validation issues
@@ -699,7 +721,8 @@ class FlowExecutor:
             logger.debug(f"  Current activity: {current}, Target package: {package}")
 
             # Already on correct screen (activity match)?
-            if expected_activity and self._activity_matches(current, expected_activity):
+            activity_match = expected_activity and self._activity_matches(current, expected_activity)
+            if activity_match:
                 logger.info(f"  App already on correct screen: {expected_activity}")
                 return True
 
@@ -708,11 +731,11 @@ class FlowExecutor:
                 logger.info(f"  App already in foreground: {package}")
                 return True
 
-            # Same app but wrong screen? Force restart to get clean state
-            if current_pkg == package and expected_activity:
-                logger.info(f"  App open but wrong screen ({current}), force restarting...")
+            # If we expect a specific activity and aren't on it, force-stop before launch
+            if expected_activity and not activity_match:
+                logger.info(f"  App not on expected screen ({current}), force stopping before launch...")
                 await self.adb_bridge.stop_app(device_id, package)
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
 
             # Different app in foreground? May need to force-stop target first for clean launch
             if current_pkg and current_pkg != package:
@@ -739,9 +762,33 @@ class FlowExecutor:
             # Check activity match (if specified)
             if expected_activity:
                 if not self._activity_matches(new_current, expected_activity):
-                    logger.warning(f"  Launched to {new_current} instead of {expected_activity}")
-                else:
-                    logger.debug(f"  Successfully launched to expected screen: {expected_activity}")
+                    logger.warning(f"  Launched to {new_current} instead of {expected_activity} - waiting for expected screen")
+
+                    # Poll for expected activity (up to 8 seconds with 500ms intervals)
+                    poll_interval = 0.5
+                    max_polls = 16
+                    for poll in range(max_polls):
+                        await asyncio.sleep(poll_interval)
+                        new_current = await self.adb_bridge.get_current_activity(device_id)
+                        if self._activity_matches(new_current, expected_activity):
+                            logger.info(f"  Expected screen appeared after {(poll + 1) * poll_interval:.1f}s")
+                            return True
+
+                    logger.warning("  Expected screen still not visible, attempting navigation")
+                    navigation_success = await self._navigate_to_expected_screen(
+                        device_id, package, new_current, expected_activity
+                    )
+                    if navigation_success:
+                        logger.info(f"  Reached expected screen after navigation: {expected_activity}")
+                        return True
+
+                    result.error_message = (
+                        f"Launch failed: expected '{expected_activity}', but current is '{new_current}'. "
+                        "Ensure the app opens to the correct screen or add navigation steps."
+                    )
+                    logger.error(f"  Could not reach expected screen: {expected_activity}")
+                    return False
+                logger.debug(f"  Successfully launched to expected screen: {expected_activity}")
             # At minimum check package match
             elif new_pkg != package:
                 logger.warning(f"  Launch may have failed: foreground is {new_pkg} (expected {package})")
@@ -863,12 +910,47 @@ class FlowExecutor:
         If step description suggests navigation (contains 'Navigate to'),
         verifies the screen changed after tap.
         """
-        if step.x is None or step.y is None:
+        tap_x = step.x
+        tap_y = step.y
+        element_meta = getattr(step, "element", None)
+
+        if element_meta:
+            resource_id = element_meta.get("resource_id") or element_meta.get("resource-id")
+            element_text = element_meta.get("text") or element_meta.get("content_desc") or element_meta.get("content-desc")
+            element_class = element_meta.get("class") or element_meta.get("class_name")
+            stored_bounds = element_meta.get("bounds")
+            element_path = element_meta.get("path") or element_meta.get("element_path")
+            parent_path = element_meta.get("parent_path")
+
+            try:
+                elements_response = await self.adb_bridge.get_ui_elements(device_id, bounds_only=False)
+                ui_elements = elements_response.get("elements", elements_response) if isinstance(elements_response, dict) else elements_response
+                match = self.element_finder.find_element(
+                    ui_elements=ui_elements,
+                    resource_id=resource_id,
+                    element_text=element_text,
+                    element_class=element_class,
+                    stored_bounds=stored_bounds,
+                    element_path=element_path,
+                    parent_path=parent_path
+                )
+                if match.found and match.bounds:
+                    tap_x = int(match.bounds["x"] + (match.bounds["width"] / 2))
+                    tap_y = int(match.bounds["y"] + (match.bounds["height"] / 2))
+                    logger.info(
+                        f"  [Tap] Resolved element via {match.method} "
+                        f"(confidence={match.confidence:.2f}) -> ({tap_x}, {tap_y})"
+                    )
+            except Exception as e:
+                logger.debug(f"  [Tap] Element resolution skipped: {e}")
+
+        if tap_x is None or tap_y is None:
             logger.error("  tap step missing x/y coordinates")
             return False
 
         description = step.description or ""
-        is_navigation = "navigate" in description.lower() or "nav to" in description.lower()
+        expected_activity = step.expected_activity
+        is_navigation = bool(expected_activity) or "navigate" in description.lower() or "nav to" in description.lower()
 
         # Get current activity before tap (for navigation verification)
         activity_before = None
@@ -879,24 +961,37 @@ class FlowExecutor:
                 pass
 
         # Execute tap
-        logger.debug(f"  Tapping at ({step.x}, {step.y})")
-        await self.adb_bridge.tap(device_id, step.x, step.y)
+        logger.debug(f"  Tapping at ({tap_x}, {tap_y})")
+        await self.adb_bridge.tap(device_id, tap_x, tap_y)
 
-        # For navigation taps, verify screen changed
+        # For navigation taps, verify screen changed or expected activity appears
         if is_navigation and activity_before:
             await asyncio.sleep(0.8)  # Wait for screen transition
 
             try:
                 activity_after = await self.adb_bridge.get_current_activity(device_id)
+                if expected_activity:
+                    expected_name = expected_activity.split('/')[-1] if '/' in expected_activity else expected_activity
+                    if self._activity_matches(activity_after, expected_activity):
+                        logger.info(f"  Activity {expected_name} detected after tap")
+                        return True
+                elif activity_after and activity_after != activity_before:
+                    logger.debug(
+                        f"  Screen changed: {activity_before.split('/')[-1] if activity_before else '?'} -> "
+                        f"{activity_after.split('/')[-1] if activity_after else '?'}"
+                    )
 
-                if activity_after and activity_after != activity_before:
-                    logger.debug(f"  Screen changed: {activity_before.split('/')[-1] if activity_before else '?'} -> {activity_after.split('/')[-1] if activity_after else '?'}")
-                elif activity_after == activity_before:
-                    # Screen didn't change - retry tap once
-                    logger.warning(f"  Screen didn't change after tap, retrying...")
-                    await asyncio.sleep(0.3)
-                    await self.adb_bridge.tap(device_id, step.x, step.y)
-                    await asyncio.sleep(0.8)
+                # Screen didn't change or expected activity not reached - retry tap once
+                logger.warning("  Screen didn't change after tap, retrying...")
+                await asyncio.sleep(0.3)
+                await self.adb_bridge.tap(device_id, step.x, step.y)
+                await asyncio.sleep(0.8)
+
+                if expected_activity:
+                    activity_after = await self.adb_bridge.get_current_activity(device_id)
+                    if self._activity_matches(activity_after, expected_activity):
+                        logger.info(f"  Activity {expected_name} detected after retry tap")
+                        return True
             except Exception as e:
                 logger.debug(f"  Could not verify navigation: {e}")
 
@@ -1250,8 +1345,14 @@ class FlowExecutor:
 
                 if not activity_match:
                     # Screen mismatch - poll for expected activity (app may still be loading)
-                    logger.info(f"  Screen mismatch: Current={current_activity_name}, Expected={expected_activity_name}")
-                    logger.info(f"  Waiting for {expected_activity_name} to appear...")
+                    logger.warning(
+                        f"Screen mismatch during sensor capture. "
+                        f"Expected activity: '{expected_activity_name}', "
+                        f"but the current activity is: '{current_activity_name}'. "
+                        f"Full expected: '{expected_activity}', "
+                        f"Full current: '{current_activity}'."
+                    )
+                    logger.info(f"  Waiting for '{expected_activity_name}' to appear...")
 
                     # Poll for expected activity (up to 8 seconds with 500ms intervals)
                     poll_interval = 0.5
@@ -1287,9 +1388,13 @@ class FlowExecutor:
 
                         if not activity_found:
                             current_activity_name = current_activity.split('/')[-1] if current_activity and '/' in current_activity else current_activity
-                            logger.warning(f"  Timeout waiting for {expected_activity_name}")
-                            logger.warning(f"  Still on {current_activity_name} - sensors may not be found")
-                            logger.warning(f"  Hint: Add navigation steps (tap/swipe) in Flow Wizard or add a longer WAIT step")
+                            logger.error(
+                                f"Timeout waiting for expected screen '{expected_activity_name}'. "
+                                f"The current screen is still '{current_activity_name}'. "
+                                f"Sensors may not be found. Please check the flow sequence. "
+                                f"Hint: Ensure navigation steps (taps, swipes) correctly lead to this screen, "
+                                f"or add a longer WAIT step."
+                            )
                 else:
                     logger.debug(f"  Correct screen: {current_activity_name}")
 
@@ -1437,6 +1542,7 @@ class FlowExecutor:
                 logger.info(f"  Session cache: {cached_count}/{total_sensors} from cache, {fresh_count} freshly captured")
             if fresh_count == 0 and cached_count == 0:
                 logger.warning(f"  No sensors captured (0/{total_sensors})")
+                return False
 
             return True
 
@@ -2447,7 +2553,14 @@ class FlowExecutor:
             await self.adb_bridge.keyevent(device_id, "KEYCODE_HOME")
             await asyncio.sleep(0.8)  # Wait for home screen to settle
 
-            # Step 2: Launch the app fresh
+            # Step 2: Force stop to avoid resuming stale state
+            try:
+                await self.adb_bridge.stop_app(device_id, package_name)
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                logger.debug(f"  [Init] Could not force-stop {package_name}: {e}")
+
+            # Step 3: Launch the app fresh
             logger.debug(f"  [Init] Launching {package_name}...")
             success = await self.adb_bridge.launch_app(device_id, package_name)
 
@@ -2457,7 +2570,7 @@ class FlowExecutor:
 
             await asyncio.sleep(2.5)  # Wait for app to fully load
 
-            # Step 3: Verify we're in the right app
+            # Step 4: Verify we're in the right app
             current_activity = await self.adb_bridge.get_current_activity(device_id)
             current_package = current_activity.split('/')[0] if current_activity and '/' in current_activity else current_activity
 
@@ -2467,7 +2580,7 @@ class FlowExecutor:
 
             logger.info(f"  [Init] Successfully launched {package_name} (activity: {current_activity})")
 
-            # Step 4: If specific activity expected, check and navigate if needed
+            # Step 5: If specific activity expected, check and navigate if needed
             if expected_first_activity:
                 expected_name = expected_first_activity.split('/')[-1] if '/' in expected_first_activity else expected_first_activity
                 current_name = current_activity.split('/')[-1] if '/' in current_activity else current_activity
@@ -2488,6 +2601,27 @@ class FlowExecutor:
 
         except Exception as e:
             logger.error(f"  [Init] Failed to ensure starting point: {e}")
+            return False
+
+    async def _reset_app_state(self, device_id: str, package_name: str) -> bool:
+        """
+        Reset app state without launching the app.
+        Used before a launch_app step to ensure a clean start.
+        """
+        try:
+            logger.debug("  [Init] Going to home screen...")
+            await self.adb_bridge.keyevent(device_id, "KEYCODE_HOME")
+            await asyncio.sleep(0.8)
+
+            try:
+                await self.adb_bridge.stop_app(device_id, package_name)
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                logger.debug(f"  [Init] Could not force-stop {package_name}: {e}")
+
+            return True
+        except Exception as e:
+            logger.warning(f"  [Init] Failed to reset app state: {e}")
             return False
 
     async def _navigate_to_expected_screen(

@@ -1355,9 +1355,15 @@ class ADBBridge:
                 elements = []
 
                 # Helper function to recursively parse nodes and propagate clickable from parents
-                def parse_node(node, parent_clickable=False):
+                def parse_node(node, parent_clickable=False, path=None):
                     """Parse a node and its children, inheriting clickable from parent"""
+                    if path is None:
+                        path = []
                     node_clickable = node.get('clickable') == 'true'
+                    path_str = "/".join(str(i) for i in path) if path else "0"
+                    parent_path = "/".join(str(i) for i in path[:-1]) if len(path) > 1 else None
+                    sibling_index = path[-1] if path else 0
+                    element_index = len(elements)
 
                     if bounds_only:
                         # Minimal parsing for sensor extraction (30-40% faster)
@@ -1366,6 +1372,11 @@ class ADBBridge:
                             'resource_id': node.get('resource-id', ''),
                             'class': node.get('class', ''),
                             'bounds': self._parse_bounds(node.get('bounds', '')),
+                            'path': path_str,
+                            'parent_path': parent_path,
+                            'depth': len(path),
+                            'sibling_index': sibling_index,
+                            'element_index': element_index,
                         }
                     else:
                         # Full parsing for UI interaction
@@ -1385,18 +1396,27 @@ class ADBBridge:
                             # Added for height estimation
                             'content_desc': node.get('content-desc', ''),
                             'scrollable': node.get('scrollable') == 'true',
+                            'path': path_str,
+                            'parent_path': parent_path,
+                            'depth': len(path),
+                            'sibling_index': sibling_index,
+                            'element_index': element_index,
                         }
                     elements.append(element)
 
                     # Recursively parse children, passing down clickable status
+                    child_index = 0
                     for child in node:
                         if child.tag == 'node':
-                            parse_node(child, node_clickable or parent_clickable)
+                            parse_node(child, node_clickable or parent_clickable, path + [child_index])
+                            child_index += 1
 
                 # Start parsing from root hierarchy
+                root_index = 0
                 for node in root:
                     if node.tag == 'node':
-                        parse_node(node, False)
+                        parse_node(node, False, [root_index])
+                        root_index += 1
 
                 logger.debug(f"[ADBBridge] Extracted {len(elements)} UI elements")
 

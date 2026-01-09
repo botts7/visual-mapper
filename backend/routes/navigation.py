@@ -145,7 +145,7 @@ async def delete_navigation_graph(package: str) -> Dict[str, Any]:
 
 
 @router.get("/{package}/stats")
-async def get_graph_stats(package: str) -> Dict[str, Any]:
+async def get_graph_stats(package: str, allow_missing: bool = False) -> Dict[str, Any]:
     """
     Get statistics about a navigation graph
 
@@ -159,6 +159,12 @@ async def get_graph_stats(package: str) -> Dict[str, Any]:
     stats = manager.get_graph_stats(package)
 
     if not stats:
+        if allow_missing:
+            return {
+                "success": False,
+                "stats": None,
+                "message": f"No navigation graph found for {package}"
+            }
         raise HTTPException(status_code=404, detail=f"No navigation graph found for {package}")
 
     return {

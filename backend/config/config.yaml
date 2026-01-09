@@ -46,6 +46,10 @@ options:
   adb_device_port: 5555
   mqtt_broker: "core-mosquitto"
   mqtt_port: 1883
+  mqtt_security:
+    use_ssl: true
+    tls_insecure: true
+    ca_cert: ""
   mqtt_username: ""
   mqtt_password: ""
   mqtt_discovery_prefix: "homeassistant"
@@ -61,6 +65,11 @@ schema:
   adb_device_port: port
   mqtt_broker: str
   mqtt_port: port
+  mqtt_security:
+    schema:
+      use_ssl: bool
+      tls_insecure: bool
+      ca_cert: str?
   mqtt_username: str?
   mqtt_password: password?
   mqtt_discovery_prefix: str

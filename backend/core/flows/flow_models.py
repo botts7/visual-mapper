@@ -51,6 +51,10 @@ class FlowStep(BaseModel):
     # Tap
     x: Optional[int] = Field(None, description="X coordinate for tap")
     y: Optional[int] = Field(None, description="Y coordinate for tap")
+    element: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Element metadata for tap actions (text, resource_id, class, bounds)"
+    )
 
     # Swipe
     start_x: Optional[int] = None
@@ -144,6 +148,12 @@ class SensorCollectionFlow(BaseModel):
     stop_on_error: bool = Field(False, description="Stop flow if any step fails")
     max_flow_retries: int = Field(3, ge=1, le=10, description="Retry entire flow on failure")
     flow_timeout: int = Field(60, ge=10, le=300, description="Max seconds for entire flow")
+
+    # Execution Start
+    start_from_current_screen: bool = Field(
+        False,
+        description="If true, skip app restart and begin from current screen"
+    )
 
     # Execution Method (Phase 1 - Execution Routing)
     execution_method: Literal["server", "android", "auto"] = Field(

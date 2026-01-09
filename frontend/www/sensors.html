@@ -24,9 +24,16 @@
             <h2>All Sensors</h2>
 
             <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-                <select id="deviceFilter" style="flex: 1; min-width: 200px; max-width: 400px;">
+                <select id="deviceFilter" style="flex: 1; min-width: 180px; max-width: 320px;">
                     <option value="">All Devices</option>
                 </select>
+                <select id="appFilter" style="flex: 1; min-width: 180px; max-width: 320px;">
+                    <option value="">All Apps</option>
+                </select>
+                <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; white-space: nowrap;">
+                    <input type="checkbox" id="notInFlowFilter">
+                    Not in flow
+                </label>
                 <input type="text" id="sensorSearch" placeholder="Search sensors..." style="flex: 1; min-width: 200px; max-width: 400px;">
                 <button id="refreshBtn">Refresh</button>
             </div>
@@ -213,6 +220,7 @@
                 });
 
                 updateDeviceFilter();
+                updateAppFilter();
                 renderSensors();
 
             } catch (error) {
@@ -369,10 +377,37 @@
             updateDisconnectedAlert();
         }
 
+        function updateAppFilter() {
+            const appFilter = document.getElementById('appFilter');
+            const currentValue = appFilter.value;
+            const appCounts = new Map();
+
+            for (const sensor of allSensors) {
+                const appPackage = extractAppFromSensor(sensor) || '__unknown__';
+                appCounts.set(appPackage, (appCounts.get(appPackage) || 0) + 1);
+            }
+
+            appFilter.innerHTML = '<option value="">All Apps</option>';
+            const sorted = Array.from(appCounts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+            for (const [appPackage, count] of sorted) {
+                const option = document.createElement('option');
+                option.value = appPackage;
+                const label = appPackage === '__unknown__' ? 'Unknown' : (getAppDisplayName(appPackage) || appPackage);
+                option.textContent = `${label} (${count})`;
+                appFilter.appendChild(option);
+            }
+
+            if (currentValue && Array.from(appFilter.options).some(opt => opt.value === currentValue)) {
+                appFilter.value = currentValue;
+            }
+        }
+
         // Render sensors list
         function renderSensors() {
             const container = document.getElementById('sensorsContainer');
             const deviceFilter = document.getElementById('deviceFilter').value;
+            const appFilter = document.getElementById('appFilter').value;
+            const notInFlowOnly = document.getElementById('notInFlowFilter').checked;
             const searchTerm = document.getElementById('sensorSearch').value.toLowerCase();
 
             // Filter sensors
@@ -380,6 +415,14 @@
 
             if (deviceFilter) {
                 filteredSensors = filteredSensors.filter(s => s.device_id === deviceFilter);
+            }
+
+            if (appFilter) {
+                filteredSensors = filteredSensors.filter(s => (extractAppFromSensor(s) || '__unknown__') === appFilter);
+            }
+
+            if (notInFlowOnly) {
+                filteredSensors = filteredSensors.filter(s => !sensorsInFlows.has(s.sensor_id));
             }
 
             if (searchTerm) {
@@ -660,6 +703,8 @@
 
         // Event listeners
         document.getElementById('deviceFilter').addEventListener('change', renderSensors);
+        document.getElementById('appFilter').addEventListener('change', renderSensors);
+        document.getElementById('notInFlowFilter').addEventListener('change', renderSensors);
         document.getElementById('sensorSearch').addEventListener('input', renderSensors);
         document.getElementById('refreshBtn').addEventListener('click', loadSensors);
 
