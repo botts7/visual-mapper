@@ -13,11 +13,18 @@ Contains overlap detection and image comparison methods:
 
 import logging
 import numpy as np
-import cv2
 from typing import Tuple, Optional
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+# Optional cv2 import - fall back to PIL-only methods if not available
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    logger.warning("OpenCV not available in overlap module, using PIL-only methods")
 
 
 class OverlapDetector:
@@ -227,7 +234,8 @@ class OverlapDetector:
     ) -> Tuple[Optional[int], Optional[float]]:
         """
         Find Y-offset where template appears in img2
-        Uses OpenCV template matching with TM_CCOEFF_NORMED
+        Uses OpenCV template matching with TM_CCOEFF_NORMED (if available)
+        Falls back to simple sliding window comparison without cv2
 
         Args:
             template: Pre-cropped template strip to search for
@@ -249,59 +257,67 @@ class OverlapDetector:
             template_np = np.array(template.convert('RGB'))
             search_np = np.array(search_region.convert('RGB'))
 
-            # Convert to grayscale for better matching
-            template_gray = cv2.cvtColor(template_np, cv2.COLOR_RGB2GRAY)
-            search_gray = cv2.cvtColor(search_np, cv2.COLOR_RGB2GRAY)
+            # Convert to grayscale for better matching (using PIL)
+            template_gray = np.array(template.convert('L'))
+            search_gray = np.array(search_region.convert('L'))
 
-            # Template matching (grayscale) - FORWARD direction
-            result = cv2.matchTemplate(search_gray, template_gray, cv2.TM_CCOEFF_NORMED)
-            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-            offset_y = max_loc[1]
+            if CV2_AVAILABLE:
+                # Use OpenCV template matching
+                result = cv2.matchTemplate(search_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+                min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+                offset_y = max_loc[1]
 
-            # Try REVERSE direction - swap template and search
-            # This can work better when gradient goes the opposite direction
-            if max_val < 0.9 and template_height < search_gray.shape[0]:
-                # Use top of search as template, search in full template region
-                reverse_template = search_gray[:template_height, :]
-                # We need to search in the original template's source area
-                # For now, just try matching reverse in search region
-                result_rev = cv2.matchTemplate(search_gray, reverse_template, cv2.TM_CCOEFF_NORMED)
-                _, rev_max_val, _, rev_max_loc = cv2.minMaxLoc(result_rev)
+                # Try REVERSE direction - swap template and search
+                if max_val < 0.9 and template_height < search_gray.shape[0]:
+                    reverse_template = search_gray[:template_height, :]
+                    result_rev = cv2.matchTemplate(search_gray, reverse_template, cv2.TM_CCOEFF_NORMED)
+                    _, rev_max_val, _, rev_max_loc = cv2.minMaxLoc(result_rev)
 
-                logger.info(f"  Reverse match: y={rev_max_loc[1]}, conf={rev_max_val:.3f} (forward was {max_val:.3f})")
+                    logger.info(f"  Reverse match: y={rev_max_loc[1]}, conf={rev_max_val:.3f} (forward was {max_val:.3f})")
 
-                # If reverse is significantly better and not at boundary
-                if rev_max_val > max_val + 0.1 and rev_max_loc[1] > 50:
-                    # Calculate equivalent forward position
-                    # If reverse found match at Y, forward position would be similar
-                    offset_y = rev_max_loc[1]
-                    max_val = rev_max_val
-                    logger.info(f"  Using reverse match (gradient-compensated)")
+                    if rev_max_val > max_val + 0.1 and rev_max_loc[1] > 50:
+                        offset_y = rev_max_loc[1]
+                        max_val = rev_max_val
+                        logger.info(f"  Using reverse match (gradient-compensated)")
 
-            # If still weak, try EDGE-BASED matching
-            # Edges are immune to gradient background changes
-            if max_val < 0.85:
-                # Apply Canny edge detection
-                template_edges = cv2.Canny(template_gray, 50, 150)
-                search_edges = cv2.Canny(search_gray, 50, 150)
+                # Try EDGE-BASED matching if still weak
+                if max_val < 0.85:
+                    template_edges = cv2.Canny(template_gray, 50, 150)
+                    search_edges = cv2.Canny(search_gray, 50, 150)
+                    result_edges = cv2.matchTemplate(search_edges, template_edges, cv2.TM_CCOEFF_NORMED)
+                    _, edge_max_val, _, edge_max_loc = cv2.minMaxLoc(result_edges)
+                    edge_y = edge_max_loc[1]
 
-                # Match on edges
-                result_edges = cv2.matchTemplate(search_edges, template_edges, cv2.TM_CCOEFF_NORMED)
-                _, edge_max_val, _, edge_max_loc = cv2.minMaxLoc(result_edges)
-                edge_y = edge_max_loc[1]
+                    logger.info(f"  Edge-based match: y={edge_y}, conf={edge_max_val:.3f} (grayscale was {max_val:.3f})")
 
-                logger.info(f"  Edge-based match: y={edge_y}, conf={edge_max_val:.3f} (grayscale was {max_val:.3f})")
+                    if edge_y > 50 and abs(edge_y - offset_y) < 200:
+                        if edge_max_val > max_val or max_val < 0.7:
+                            offset_y = edge_y
+                            max_val = edge_max_val
+                            logger.info(f"  Using edge-based detection (better for gradient backgrounds)")
+                    else:
+                        logger.info(f"  Edge result rejected (y={edge_y} too close to 0 or too different from grayscale={offset_y})")
+            else:
+                # PIL-only fallback: simple sliding window comparison
+                logger.info("  Using PIL-only template matching (cv2 not available)")
+                best_y = 0
+                max_val = 0.0
 
-                # Sanity check: edge match at y=0 or very close is usually wrong
-                # Also edge match should be reasonably close to grayscale match
-                if edge_y > 50 and abs(edge_y - offset_y) < 200:
-                    # Use edge result if it's better and passes sanity checks
-                    if edge_max_val > max_val or max_val < 0.7:
-                        offset_y = edge_y
-                        max_val = edge_max_val
-                        logger.info(f"  Using edge-based detection (better for gradient backgrounds)")
-                else:
-                    logger.info(f"  Edge result rejected (y={edge_y} too close to 0 or too different from grayscale={offset_y})")
+                # Slide template down search region
+                for y in range(0, actual_search_height - template_height, 5):
+                    region = search_gray[y:y + template_height, :]
+                    if region.shape != template_gray.shape:
+                        continue
+
+                    # Calculate normalized correlation
+                    diff = np.abs(template_gray.astype(float) - region.astype(float))
+                    similarity = 1.0 - (np.mean(diff) / 255.0)
+
+                    if similarity > max_val:
+                        max_val = similarity
+                        best_y = y
+
+                offset_y = best_y
 
             # Quality check
             if max_val < self.match_threshold:
@@ -619,8 +635,9 @@ class OverlapDetector:
 
             # Convert to grayscale for comparison
             if len(arr1.shape) == 3:
-                gray1 = cv2.cvtColor(arr1, cv2.COLOR_RGB2GRAY)
-                gray2 = cv2.cvtColor(arr2, cv2.COLOR_RGB2GRAY)
+                # Use PIL for grayscale conversion (works without cv2)
+                gray1 = np.array(img1.convert('L'))
+                gray2 = np.array(img2.convert('L'))
             else:
                 gray1, gray2 = arr1, arr2
 
