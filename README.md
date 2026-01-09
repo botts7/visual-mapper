@@ -2,7 +2,6 @@
 
 **Transform any Android device into a Home Assistant-integrated automation platform.**
 
-[![Tests](https://img.shields.io/badge/tests-128%20passing-brightgreen.svg)](https://github.com/YOUR_USERNAME/visual-mapper/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
 [![Android](https://img.shields.io/badge/android-11%2B-green.svg)](https://developer.android.com)
@@ -12,7 +11,7 @@
 
 ## What is Visual Mapper?
 
-Visual Mapper is an open-source system that lets you **monitor, control, and automate** Android devices directly from Home Assistant. Think of it as an open-source alternative to Vysor or AirDroid, but designed specifically for home automation.
+Visual Mapper is an open-source system that lets you **monitor, control, and automate** Android devices directly from Home Assistant. Create sensors from any app's UI, automate device interactions, and integrate legacy Android-only devices into your smart home.
 
 **Use Cases:**
 - Create Home Assistant sensors from any Android app's UI (battery, media status, notifications)
@@ -22,9 +21,9 @@ Visual Mapper is an open-source system that lets you **monitor, control, and aut
 
 ---
 
-## The Hybrid Architecture
+## Architecture
 
-Visual Mapper uses a **three-component hybrid architecture** for maximum flexibility and power:
+Visual Mapper uses a **hybrid architecture** with three components:
 
 ```
 +-------------------+      HTTP/MQTT      +-------------------+
@@ -32,145 +31,77 @@ Visual Mapper uses a **three-component hybrid architecture** for maximum flexibi
 | (Companion App)   |                    |    (FastAPI)      |
 +-------------------+                    +-------------------+
         |                                         |
-        | Accessibility                           | ML Training
-        | Service                                 | (Optional)
+        | Accessibility                           | MQTT
+        | Service                                 |
         v                                         v
 +-------------------+                    +-------------------+
-|  Android Device   |                    |   ML Service      |
-|   UI Elements     |                    |  (TensorFlow)     |
+|  Android Device   |                    |  Home Assistant   |
+|   UI Elements     |                    |                   |
 +-------------------+                    +-------------------+
 ```
 
 | Component | Role | Technology |
 |-----------|------|------------|
-| **Android Companion App** | Captures UI state, executes actions, streams data | Kotlin, Accessibility Service |
 | **Python Server** | Orchestrates flows, manages sensors, serves web UI | FastAPI, ADB, MQTT |
-| **ML Service** (Optional) | Learns UI patterns for robust element detection | TensorFlow, scikit-learn |
-
-**Why Hybrid?**
-- **Android App** provides real-time access to UI elements via Accessibility Service
-- **Python Server** handles complex logic, persistence, and Home Assistant integration
-- **ML Service** improves reliability by learning to identify UI elements across app updates
+| **Android Companion App** | Captures UI state, executes actions locally | Kotlin, Accessibility Service |
+| **Home Assistant Add-on** | Easy deployment and integration | Docker |
 
 ---
 
 ## Quick Start
 
 ### Prerequisites
-- Python 3.11 or higher
+- Python 3.11+
 - Android device with Developer Options enabled
 - Both devices on the same network
 
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/visual-mapper.git
-cd visual-mapper
+git clone https://github.com/botts7/visual-mapper.git
+cd visual-mapper/backend
 pip install -r requirements.txt
 ```
 
 ### 2. Start the Server
 
 ```bash
-python server.py
+python main.py
 ```
 
-The web UI is now available at `http://localhost:8080`
+Web UI available at `http://localhost:8080`
 
 ### 3. Connect Your Android Device
 
-**Option A: Install the Companion App (Recommended)**
-1. Build the APK: `cd android-companion && ./gradlew assembleDebug`
-2. Install: `adb install -r app/build/outputs/apk/debug/app-debug.apk`
-3. Open the app and enter your server URL: `http://YOUR_COMPUTER_IP:8080`
-
-**Option B: ADB Connection (No App Required)**
-1. Enable USB Debugging on your Android device
-2. Connect via USB or enable Wireless ADB
+**Option A: WiFi ADB (Recommended)**
+1. Enable Developer Options on your Android device
+2. Enable Wireless Debugging (Android 11+)
 3. Navigate to `http://localhost:8080/devices.html`
-4. Click "Add Device" and follow the prompts
+4. Use Network Discovery or enter device IP manually
 
----
-
-## Running Tests
-
-Visual Mapper has comprehensive test coverage with **128 automated tests** across:
-- Python backend (FastAPI, ADB, MQTT)
-- Frontend E2E (Playwright)
-- JavaScript unit tests (Jest)
-
-### Run the Full Test Suite
-
-```bash
-# Install Playwright browsers (first time only)
-playwright install chromium
-
-# Start the server in background (required for E2E tests)
-python server.py &
-
-# Run all tests
-python -m pytest tests/ -v
-```
-
-### Run Specific Test Categories
-
-```bash
-# Backend unit tests only
-python -m pytest tests/unit/ -v
-
-# E2E tests only
-python -m pytest tests/e2e/ -v
-
-# With coverage report
-python -m pytest tests/ -v --cov=. --cov-report=html
-```
+**Option B: USB ADB**
+1. Enable USB Debugging on your Android device
+2. Connect via USB cable
+3. Device will appear automatically in the web UI
 
 ---
 
 ## Features
 
-### Implemented
-
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **Screenshot Capture** | Real-time device screenshots with element detection | Stable |
-| **Device Control** | Tap, swipe, type, scroll on devices | Stable |
-| **Sensor Creation** | Create HA sensors from any UI element | Stable |
-| **MQTT Integration** | Auto-discovery and state publishing | Stable |
-| **Flow Automation** | Record and replay multi-step interactions | Stable |
-| **Multi-Device** | Manage multiple Android devices | Stable |
-| **WiFi ADB** | Wireless connection (Android 11+) | Stable |
-| **Network Discovery** | Auto-scan for Android devices | Stable |
-| **Dark Mode** | Theme toggle with system preference | Stable |
-
-### Coming Soon
-
-- Live device streaming with interactive overlays
-- Plugin system for custom sensors and actions
-- Official Home Assistant Add-on packaging
-- Voice assistant integration
-
----
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Complete project context and architecture |
-| [CONTRIBUTING.md](docs/architecture/61_CONTRIBUTING.md) | How to contribute |
-| [MANUAL_RELEASE_TEST.md](MANUAL_RELEASE_TEST.md) | Manual testing checklist |
-| [docs/](docs/) | Full documentation directory |
-
-### For Developers
-
-```
-docs/
-├── essential/          # Quick start guides
-├── architecture/       # System design and patterns
-├── guides/            # User and developer guides
-├── reference/         # API reference
-└── planning/          # Roadmap and plans
-```
+| Feature | Description |
+|---------|-------------|
+| **Screenshot Capture** | Real-time device screenshots with element detection |
+| **Device Control** | Tap, swipe, type, scroll on devices |
+| **Sensor Creation** | Create HA sensors from any UI element |
+| **MQTT Integration** | Auto-discovery and state publishing to Home Assistant |
+| **Flow Automation** | Record and replay multi-step interactions |
+| **Flow Wizard** | Visual step-by-step flow creation |
+| **Smart Flows** | AI-assisted flow generation from app screens |
+| **Multi-Device** | Manage multiple Android devices |
+| **WiFi ADB** | Wireless connection (Android 11+) |
+| **Network Discovery** | Auto-scan for Android devices |
+| **Live Streaming** | Real-time device screen streaming |
+| **Dark Mode** | Theme toggle with system preference |
 
 ---
 
@@ -178,18 +109,28 @@ docs/
 
 ```
 visual-mapper/
-├── server.py              # Main FastAPI server
-├── www/                   # Web UI (HTML, CSS, JS)
-├── android-companion/     # Android app (Kotlin)
-├── tests/                 # Test suite (128 tests)
-│   ├── unit/             # Unit tests
-│   ├── e2e/              # End-to-end tests
-│   └── integration/      # Integration tests
-├── routes/               # API route handlers
-├── utils/                # Utility modules
-├── services/             # Business logic services
-└── docs/                 # Documentation
+├── backend/
+│   ├── main.py            # FastAPI server entry point
+│   ├── core/              # Core modules (ADB, MQTT, sensors, flows)
+│   ├── routes/            # API route handlers
+│   ├── services/          # Business logic
+│   ├── utils/             # Utility modules
+│   └── Dockerfile         # Container build
+├── frontend/
+│   └── www/               # Web UI (HTML, CSS, JS)
+├── config/                # Configuration files
+└── README.md
 ```
+
+---
+
+## Related Repositories
+
+| Repository | Description |
+|------------|-------------|
+| [visual-mapper](https://github.com/botts7/visual-mapper) | Main server application (this repo) |
+| [visual-mapper-android](https://github.com/botts7/visual-mapper-android) | Android companion app |
+| [visual-mapper-addon](https://github.com/botts7/visual-mapper-addon) | Home Assistant add-on |
 
 ---
 
@@ -203,24 +144,30 @@ cp .env.example .env
 
 Key settings:
 ```ini
-# Connection monitoring
-CONNECTION_CHECK_INTERVAL=30      # Health check frequency (seconds)
-CONNECTION_MAX_RETRY_DELAY=300    # Max reconnection delay (seconds)
-CONNECTION_RETRY_ENABLED=true     # Auto-reconnect on disconnect
+MQTT_BROKER=localhost
+MQTT_PORT=1883
+CONNECTION_CHECK_INTERVAL=30
+CONNECTION_RETRY_ENABLED=true
+```
+
+---
+
+## Docker
+
+```bash
+cd backend
+docker build -t visual-mapper .
+docker run -p 8080:8080 --network host visual-mapper
 ```
 
 ---
 
 ## Contributing
 
-We welcome contributions! Please read our [Contributing Guide](docs/architecture/61_CONTRIBUTING.md) before submitting a pull request.
-
-**Quick contribution checklist:**
-- [ ] Fork the repository
-- [ ] Create a feature branch
-- [ ] Write tests for your changes
-- [ ] Ensure all tests pass: `python -m pytest tests/ -v`
-- [ ] Submit a pull request
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request
 
 ---
 
@@ -230,19 +177,10 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-## Acknowledgments
-
-- [Home Assistant](https://www.home-assistant.io/) community
-- [scrcpy](https://github.com/Genymobile/scrcpy) for inspiration
-- Android Debug Bridge (ADB) developers
-
----
-
 ## Support
 
-- **Issues:** [GitHub Issues](https://github.com/YOUR_USERNAME/visual-mapper/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/YOUR_USERNAME/visual-mapper/discussions)
+- **Issues:** [GitHub Issues](https://github.com/botts7/visual-mapper/issues)
 
 ---
 
-**Version:** 1.0.0 | **Tests:** 128 Passing | **License:** MIT
+**Version:** 0.0.52 | **License:** MIT
