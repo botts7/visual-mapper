@@ -364,10 +364,12 @@ class MQTTManager:
         """Build Home Assistant MQTT discovery payload"""
         state_topic = self._get_state_topic(sensor)
         attributes_topic = self._get_attributes_topic(sensor)
-        availability_topic = self._get_availability_topic(sensor.device_id)
 
         # Use stable_device_id if available (survives IP/port changes), otherwise fall back to device_id
         stable_id = sensor.stable_device_id or sensor.device_id
+
+        # IMPORTANT: availability_topic must use same ID as where we publish availability
+        availability_topic = self._get_availability_topic(stable_id)
         sanitized_stable_id = self._sanitize_device_id(stable_id)
         sanitized_device = self._sanitize_device_id(sensor.device_id)
 
