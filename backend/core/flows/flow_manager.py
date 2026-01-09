@@ -48,8 +48,8 @@ class FlowManager:
         self._templates: Dict[str, Dict] = {}
 
         logger.info(
-            f"[FlowManager] Initialized with storage: {self.storage_dir}, "
-            f"templates: {self.template_dir}, data_dir: {self.data_dir}"
+            f"[FlowManager] Initialized with storage: {self.storage_dir.absolute()}, "
+            f"templates: {self.template_dir.absolute()}, data_dir: {self.data_dir.absolute()}"
         )
 
     def _get_flow_file(self, device_id: str) -> Path:
@@ -83,9 +83,11 @@ class FlowManager:
         flow_file = self._get_flow_file(device_id)
 
         try:
+            # Ensure parent directory exists
+            flow_file.parent.mkdir(parents=True, exist_ok=True)
             with open(flow_file, 'w') as f:
                 json.dump(flow_list.dict(), f, indent=2, default=str)
-            logger.debug(f"[FlowManager] Saved {len(flow_list.flows)} flows for {device_id}")
+            logger.info(f"[FlowManager] Saved {len(flow_list.flows)} flows to {flow_file.absolute()}")
         except Exception as e:
             logger.error(f"[FlowManager] Failed to save flows for {device_id}: {e}")
 

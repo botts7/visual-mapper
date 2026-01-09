@@ -83,6 +83,11 @@ export async function saveFlow(wizard) {
 
         if (!flowName) {
             showToast('Please enter a flow name', 'error');
+            wizard._savingFlow = false;
+            if (btnSave) {
+                btnSave.disabled = false;
+                btnSave.textContent = 'Save Flow';
+            }
             return;
         }
 
