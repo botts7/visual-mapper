@@ -45,6 +45,17 @@ class SensorUpdater:
 
         logger.info("[SensorUpdater] Initialized")
 
+    def _get_stable_device_id(self, device_id: str) -> Optional[str]:
+        """
+        Get stable_device_id from sensors for this device.
+        Returns the stable_device_id if any sensor has it, else None.
+        """
+        sensors = self.sensor_manager.get_all_sensors(device_id)
+        for sensor in sensors:
+            if sensor.stable_device_id:
+                return sensor.stable_device_id
+        return None
+
     async def start_device_updates(self, device_id: str) -> bool:
         """Start sensor update loop for a device"""
         if device_id in self._running_devices:
@@ -52,8 +63,11 @@ class SensorUpdater:
             return False
 
         try:
+            # Get stable_device_id from sensors if available (survives IP/port changes)
+            stable_device_id = self._get_stable_device_id(device_id)
+
             # Publish device online status
-            await self.mqtt_manager.publish_availability(device_id, online=True)
+            await self.mqtt_manager.publish_availability(device_id, online=True, stable_device_id=stable_device_id)
 
             # Start background task
             task = asyncio.create_task(self._device_update_loop(device_id))
@@ -87,8 +101,11 @@ class SensorUpdater:
             self._update_tasks.pop(device_id, None)
             self._running_devices.discard(device_id)
 
+            # Get stable_device_id from sensors if available
+            stable_device_id = self._get_stable_device_id(device_id)
+
             # Publish device offline status
-            await self.mqtt_manager.publish_availability(device_id, online=False)
+            await self.mqtt_manager.publish_availability(device_id, online=False, stable_device_id=stable_device_id)
 
             logger.info(f"[SensorUpdater] Stopped update loop for {device_id}")
             return True

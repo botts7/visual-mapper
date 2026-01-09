@@ -366,12 +366,12 @@ class MQTTManager:
         attributes_topic = self._get_attributes_topic(sensor)
 
         # Use stable_device_id if available (survives IP/port changes), otherwise fall back to device_id
-        stable_id = sensor.stable_device_id or sensor.device_id
+        # CRITICAL: Use same ID for availability as we use for everything else
+        effective_device_id = sensor.stable_device_id or sensor.device_id
 
-        # IMPORTANT: availability_topic must use device_id to match where we publish availability
-        # We always publish availability to device_id (IP:port) for consistency
-        availability_topic = self._get_availability_topic(sensor.device_id)
-        sanitized_stable_id = self._sanitize_device_id(stable_id)
+        # availability_topic must use effective_device_id to match where we publish
+        availability_topic = self._get_availability_topic(effective_device_id)
+        sanitized_effective_id = self._sanitize_device_id(effective_device_id)
         sanitized_device = self._sanitize_device_id(sensor.device_id)
 
         # Extract app name from target_app or element_resource_id
@@ -403,16 +403,16 @@ class MQTTManager:
 
         # Create device identifier: include app to create separate devices per device+app combo
         if app_identifier:
-            device_identifier = f"visual_mapper_{sanitized_stable_id}_{app_identifier}"
+            device_identifier = f"visual_mapper_{sanitized_effective_id}_{app_identifier}"
         else:
-            device_identifier = f"visual_mapper_{sanitized_stable_id}_default"
+            device_identifier = f"visual_mapper_{sanitized_effective_id}_default"
 
         logger.info(f"[MQTTManager] Discovery device identifier: {device_identifier} (app: {app_name or 'none'}, package: {app_package or 'none'})")
 
         payload = {
             "name": sensor.friendly_name,
             # Use stable ID + app for unique_id so HA doesn't create duplicates
-            "unique_id": f"visual_mapper_{sanitized_stable_id}_{sensor.sensor_id}",
+            "unique_id": f"visual_mapper_{sanitized_effective_id}_{sensor.sensor_id}",
             "state_topic": state_topic,
             "availability_topic": availability_topic,
             "json_attributes_topic": attributes_topic,
@@ -666,19 +666,21 @@ class MQTTManager:
         Args:
             device_id: Connection ID (e.g., 192.168.86.2:46747)
             online: True for online, False for offline
-            stable_device_id: Optional stable ID - IGNORED, always use device_id for consistency
+            stable_device_id: Optional stable ID - if provided, use this instead of device_id
+                              to match what's used in sensor discovery (prevents duplicates when IP changes)
         """
         if not self._connected or not self.client:
             logger.error("[MQTTManager] Not connected to broker")
             return False
 
         try:
-            # ALWAYS use device_id for availability to match discovery config
-            # This ensures discovery availability_topic matches where we publish
-            topic = self._get_availability_topic(device_id)
+            # Use stable_device_id if provided, otherwise fall back to device_id
+            # This MUST match what we use in _build_discovery_payload for availability_topic
+            effective_id = stable_device_id or device_id
+            topic = self._get_availability_topic(effective_id)
             payload = "online" if online else "offline"
 
-            logger.debug(f"[MQTTManager] Publishing availability to {topic} (device_id={device_id})")
+            logger.debug(f"[MQTTManager] Publishing availability to {topic} (effective_id={effective_id}, stable={stable_device_id}, device={device_id})")
 
             if IS_WINDOWS:
                 result = self.client.publish(topic, payload, retain=True)
@@ -688,11 +690,11 @@ class MQTTManager:
                 success = True
 
             if success:
-                logger.info(f"[MQTTManager] Published availability for {device_id}: {payload}")
+                logger.info(f"[MQTTManager] Published availability for {effective_id}: {payload}")
             return success
 
         except Exception as e:
-            logger.error(f"[MQTTManager] Failed to publish availability for {device_id}: {e}")
+            logger.error(f"[MQTTManager] Failed to publish availability for {effective_id}: {e}")
             return False
 
     async def publish_sensor_update(
