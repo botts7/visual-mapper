@@ -200,7 +200,7 @@ async def publish_all_sensor_discoveries(device_id: str, in_flows_only: bool = T
             for flow in all_flows:
                 if flow.enabled:  # Only consider enabled flows
                     for step in flow.steps:
-                        if step.step_type.value == 'capture_sensors':
+                        if step.step_type == 'capture_sensors':
                             sensors_in_flows.update(step.sensor_ids or [])
 
             original_count = len(sensors)
