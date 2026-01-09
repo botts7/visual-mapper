@@ -74,9 +74,17 @@ _BACKUP/
 # =============================================================================
 # Runtime Data & Logs
 # =============================================================================
-# Ignore all content in config/ and data/ by default
+# Ignore all content in config/ and data/ by default (root level)
 config/*
 data/*
+
+# Backend runtime data (device-specific, test data)
+backend/data/
+backend/config/flows/
+backend/config/navigation/
+
+# HA test configuration (local testing only)
+deployments/ha-test-config/
 
 # Allow directory structures but keep contents ignored
 !config/flows/
