@@ -2614,11 +2614,21 @@ class ADBBridge:
                     except:
                         pass
 
-                # Method 3: Send BACK and HOME to dismiss overlays
-                await conn.shell("input keyevent 4")  # BACK
+                # Method 3: Close system dialogs first (prevents NotificationShade on Samsung)
+                await conn.shell("am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS")
                 await asyncio.sleep(0.2)
+
+                # Method 4: Collapse status bar explicitly
+                await conn.shell("cmd statusbar collapse")
+                await asyncio.sleep(0.2)
+
+                # Method 5: HOME key to return to launcher
                 await conn.shell("input keyevent 3")  # HOME
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
+
+                # Method 6: Final cleanup - collapse again in case HOME triggered notifications
+                await conn.shell("cmd statusbar collapse")
+                await asyncio.sleep(0.2)
 
                 return True
             return True
