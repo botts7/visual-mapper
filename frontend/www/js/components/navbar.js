@@ -15,6 +15,7 @@ const NavBar = {
         { href: 'flows.html', label: 'Flows', priority: 'med' },
         { href: 'performance.html', label: 'Performance', priority: 'med' },
         { href: 'diagnostic.html', label: 'Diagnostics', priority: 'med' },
+        { href: 'services.html', label: 'Services', priority: 'med' },
         // Low priority - hidden on tablet
         { href: 'navigation-learn.html', label: 'Learn Nav', priority: 'med' },
         { href: 'live-stream.html', label: 'Live Stream', priority: 'low' },
