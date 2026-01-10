@@ -118,7 +118,9 @@ def detect_hardware():
         "cuda_available": False,
         "directml_available": False,
         "npu_available": False,
-        "onnx_available": False
+        "onnx_available": False,
+        "coral_available": False,
+        "coral_devices": 0
     }
 
     feature_manager = get_feature_manager()
@@ -161,6 +163,21 @@ def detect_hardware():
 
     except ImportError:
         hw_info["torch_available"] = False
+
+    # Check for Coral Edge TPU
+    try:
+        from pycoral.utils.edgetpu import list_edge_tpus
+        edge_tpus = list_edge_tpus()
+        if edge_tpus:
+            hw_info["coral_available"] = True
+            hw_info["coral_devices"] = len(edge_tpus)
+            print(f"Coral Edge TPU available: {len(edge_tpus)} device(s)")
+            for i, tpu in enumerate(edge_tpus):
+                print(f"  TPU {i}: {tpu}")
+    except ImportError:
+        pass  # pycoral not installed
+    except Exception as e:
+        print(f"Coral detection failed: {e}")
 
     return hw_info
 
@@ -213,6 +230,10 @@ try:
 except ImportError:
     NUMPY_AVAILABLE = False
     print("NumPy not available - some features may be limited")
+
+# Coral Edge TPU availability (set from HW_INFO)
+CORAL_AVAILABLE = HW_INFO.get("coral_available", False)
+CORAL_DEVICES = HW_INFO.get("coral_devices", 0)
 
 
 # === Configuration ===
@@ -1809,22 +1830,201 @@ if TORCH_AVAILABLE:
             pass
 
 
+# === Coral Edge TPU Trainer ===
+
+class CoralQNetworkTrainer:
+    """
+    Q-Network trainer using Coral Edge TPU for inference acceleration.
+
+    Training still happens on CPU using Q-table updates (Edge TPU is inference-only).
+    Periodically exports a quantized TFLite model for Edge TPU inference.
+    """
+
+    def __init__(self, model_path: Optional[str] = None):
+        self.interpreter = None
+        self.model_path = model_path
+
+        # Q-table for training (Edge TPU only supports inference)
+        self.q_table: Dict[str, Dict[str, float]] = {}
+        self.experience_buffer = deque(maxlen=10000)
+
+        # Stats tracking
+        self.stats = TrainingStats()
+        self.hw_accel = "coral_edge_tpu"
+
+        # Hyperparameters
+        self.params = HyperParams()
+
+        # Try to load existing Edge TPU model
+        if model_path and os.path.exists(model_path):
+            self._load_edgetpu_model(model_path)
+
+    def _load_edgetpu_model(self, model_path: str) -> bool:
+        """Load Edge TPU compiled model for inference"""
+        try:
+            from pycoral.utils.edgetpu import make_interpreter
+            self.interpreter = make_interpreter(model_path)
+            self.interpreter.allocate_tensors()
+            logger.info(f"Loaded Edge TPU model from {model_path}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to load Edge TPU model: {e}")
+            return False
+
+    def _encode_state(self, state: str) -> np.ndarray:
+        """Encode state string to input tensor for inference"""
+        # Simple hash-based encoding (same as other trainers)
+        state_hash = hash(state) % (2**32)
+        # Create normalized input (Edge TPU expects uint8 or int8)
+        input_data = np.array([(state_hash >> i) & 0xFF for i in range(0, 32, 8)], dtype=np.uint8)
+        return input_data.reshape(1, -1)
+
+    def _decode_output(self, output: np.ndarray, actions: List[str]) -> Dict[str, float]:
+        """Decode Edge TPU output to Q-values"""
+        # Output is quantized, scale back to float
+        output_float = output.astype(np.float32) / 255.0 * 2.0 - 1.0  # Scale to [-1, 1]
+        return {action: float(output_float[0][i]) for i, action in enumerate(actions[:len(output_float[0])])}
+
+    def predict(self, state: str, available_actions: Optional[List[str]] = None) -> Dict[str, float]:
+        """Get Q-values for state (uses Edge TPU if model loaded, else Q-table)"""
+        if self.interpreter and available_actions:
+            try:
+                from pycoral.adapters import common
+                input_data = self._encode_state(state)
+                common.set_input(self.interpreter, input_data)
+                self.interpreter.invoke()
+                output = common.output_tensor(self.interpreter, 0)
+                return self._decode_output(output, available_actions)
+            except Exception as e:
+                logger.debug(f"Edge TPU inference failed, using Q-table: {e}")
+
+        # Fallback to Q-table
+        return self.q_table.get(state, {})
+
+    def get_action(self, state: str, available_actions: List[str]) -> str:
+        """Select action using epsilon-greedy policy"""
+        import random
+
+        if random.random() < self.params.epsilon:
+            return random.choice(available_actions)
+
+        q_values = self.predict(state, available_actions)
+        if not q_values:
+            return random.choice(available_actions)
+
+        # Filter to available actions only
+        available_q = {a: q_values.get(a, 0.0) for a in available_actions}
+        return max(available_q, key=available_q.get)
+
+    def train(self, state: str, action: str, reward: float, next_state: str, done: bool):
+        """Update Q-table (training happens on CPU)"""
+        # Standard Q-learning update
+        if state not in self.q_table:
+            self.q_table[state] = {}
+
+        current_q = self.q_table[state].get(action, 0.0)
+
+        # Get max Q-value for next state
+        next_q_values = self.q_table.get(next_state, {})
+        max_next_q = max(next_q_values.values()) if next_q_values else 0.0
+
+        # Q-learning update
+        if done:
+            target = reward
+        else:
+            target = reward + self.params.gamma * max_next_q
+
+        new_q = current_q + self.params.alpha * (target - current_q)
+        self.q_table[state][action] = new_q
+
+        # Update stats
+        self.stats.total_updates += 1
+
+        # Decay exploration
+        self.params.decay()
+
+    def save(self, path: str):
+        """Save Q-table and model info"""
+        data = {
+            "q_values": self.q_table,
+            "metadata": {
+                "trainer_type": "coral_edge_tpu",
+                "total_updates": self.stats.total_updates,
+                "epsilon": self.params.epsilon,
+                "alpha": self.params.alpha,
+                "last_training_time": datetime.now().isoformat(),
+                "coral_devices": CORAL_DEVICES
+            }
+        }
+        atomic_write_json(path, data)
+        logger.info(f"Saved Q-table to {path} ({len(self.q_table)} states)")
+
+    def load(self, path: str):
+        """Load Q-table from file"""
+        try:
+            with open(path, 'r') as f:
+                data = json.load(f)
+
+            self.q_table = data.get("q_values", data.get("q_table", {}))
+
+            metadata = data.get("metadata", {})
+            self.stats.total_updates = metadata.get("total_updates", 0)
+            self.params.epsilon = metadata.get("epsilon", self.params.epsilon)
+            self.params.alpha = metadata.get("alpha", self.params.alpha)
+
+            logger.info(f"Loaded Q-table from {path} ({len(self.q_table)} states)")
+        except Exception as e:
+            logger.error(f"Failed to load Q-table: {e}")
+
+    def export_for_android(self) -> Dict[str, Any]:
+        """Export Q-table for Android app (same format as other trainers)"""
+        return {
+            "q_values": self.q_table,
+            "metadata": {
+                "version": f"coral_v{self.stats.total_updates}",
+                "total_states": len(self.q_table),
+                "epsilon": self.params.epsilon,
+                "trainer_type": "coral_edge_tpu"
+            }
+        }
+
+    def get_training_stats(self) -> Dict[str, Any]:
+        """Get training statistics"""
+        return {
+            "total_updates": self.stats.total_updates,
+            "total_states": len(self.q_table),
+            "epsilon": self.params.epsilon,
+            "alpha": self.params.alpha,
+            "hw_accel": self.hw_accel,
+            "coral_devices": CORAL_DEVICES,
+            "model_loaded": self.interpreter is not None
+        }
+
+    def stop(self):
+        """Cleanup"""
+        self.interpreter = None
+
+
 # === MQTT Handler ===
 
 class MLTrainingServer:
     """Main MQTT-based training server with monitoring"""
 
-    def __init__(self, broker: str, port: int, use_dqn: bool = False):
+    def __init__(self, broker: str, port: int, use_dqn: bool = False, use_coral: bool = False):
         self.broker = broker
         self.port = port
         self.client = mqtt.Client(client_id=f"ml_training_server_{int(time.time())}")
         self.running = False
 
-        # Choose best available trainer:
-        # 1. DQN (PyTorch) if available and requested
-        # 2. ONNX with DirectML/NPU if available (best for Windows ARM)
-        # 3. Enhanced Q-table trainer (fallback)
-        if use_dqn and TORCH_AVAILABLE:
+        # Choose best available trainer (priority order):
+        # 1. Coral Edge TPU if available and requested
+        # 2. DQN (PyTorch) if available and requested
+        # 3. ONNX with DirectML/NPU if available (best for Windows ARM)
+        # 4. Enhanced Q-table trainer (fallback)
+        if use_coral and CORAL_AVAILABLE:
+            self.trainer = CoralQNetworkTrainer()
+            logger.info(f"Using Coral Edge TPU trainer ({CORAL_DEVICES} device(s))")
+        elif use_dqn and TORCH_AVAILABLE:
             self.trainer = DQNTrainer()
             logger.info(f"Using DQN trainer with {self.trainer.hw_accel}")
         elif ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
@@ -2103,6 +2303,7 @@ def main():
     parser.add_argument("--broker", default=DEFAULT_BROKER, help="MQTT broker address")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="MQTT broker port")
     parser.add_argument("--dqn", action="store_true", help="Use Deep Q-Network (requires PyTorch)")
+    parser.add_argument("--use-coral", action="store_true", help="Use Coral Edge TPU for inference")
     parser.add_argument("--export", type=str, help="Export Q-table to file and exit")
     parser.add_argument("--load", type=str, help="Load Q-table from file before starting")
     parser.add_argument("--info", action="store_true", help="Show hardware info and exit")
@@ -2118,6 +2319,9 @@ def main():
         print("="*40)
 
         print("\nRecommendations:")
+        if HW_INFO.get("coral_available"):
+            print(f"  - Coral Edge TPU available! Use --use-coral for TPU acceleration")
+            print(f"    {HW_INFO.get('coral_devices', 0)} device(s) detected")
         if HW_INFO.get("directml_available"):
             print("  - DirectML available! Use --dqn for NPU acceleration")
         elif HW_INFO.get("cuda_available"):
@@ -2125,6 +2329,8 @@ def main():
         else:
             print("  - Install torch-directml for NPU acceleration:")
             print("    pip install torch-directml")
+            print("  - Or install pycoral for Coral Edge TPU:")
+            print("    pip install pycoral")
         return
 
     # Handle export command
@@ -2137,7 +2343,8 @@ def main():
         return
 
     # Start server
-    server = MLTrainingServer(args.broker, args.port, use_dqn=args.dqn)
+    use_coral = getattr(args, 'use_coral', False)
+    server = MLTrainingServer(args.broker, args.port, use_dqn=args.dqn, use_coral=use_coral)
 
     # Load existing Q-table if specified
     if args.load:

@@ -95,6 +95,9 @@ cd scripts
 
 # Use NPU acceleration (DirectML)
 .\run_ml_dev.ps1 -Broker 192.168.86.66 -DQN -UseNPU
+
+# Use Coral Edge TPU (USB Coral accelerator)
+.\run_ml_dev.ps1 -Broker 192.168.86.66 -UseCoral
 ```
 
 #### Linux/Mac (Bash)
@@ -113,6 +116,9 @@ chmod +x run_ml_dev.sh
 
 # Use NPU acceleration
 ./run_ml_dev.sh --broker 192.168.86.66 --dqn --use-npu
+
+# Use Coral Edge TPU (USB Coral accelerator)
+./run_ml_dev.sh --broker 192.168.86.66 --use-coral
 ```
 
 **Command Line Options:**
@@ -125,6 +131,7 @@ chmod +x run_ml_dev.sh
 | `--password` | MQTT password | (none) |
 | `--dqn` | Use Deep Q-Network training | false |
 | `--use-npu` | Use NPU acceleration (DirectML) | false |
+| `--use-coral` | Use Coral Edge TPU acceleration | false |
 
 ---
 
@@ -166,6 +173,86 @@ If you've set up MQTT authentication:
 1. Go to **Settings** → **Add-ons** → **Mosquitto broker** → **Configuration**
 2. Look for your username/password settings
 3. Or check your `secrets.yaml` for `mqtt_username` and `mqtt_password`
+
+---
+
+## Hardware Accelerators
+
+The ML Training Server supports multiple hardware accelerators for faster inference:
+
+| Accelerator | Platform | Use Case |
+|-------------|----------|----------|
+| **Coral Edge TPU** | USB/M.2/PCIe | Raspberry Pi, Linux servers |
+| **DirectML (NPU)** | Windows ARM/x64 | Windows laptops with NPU |
+| **CUDA (GPU)** | NVIDIA GPUs | High-performance servers |
+| **CPU** | All platforms | Fallback, always available |
+
+### Coral Edge TPU Setup
+
+Google Coral Edge TPU provides fast, low-power inference acceleration. Works great on Raspberry Pi with USB Coral.
+
+**1. Install libedgetpu (Linux/Raspberry Pi):**
+
+```bash
+# Add Coral repository
+echo "deb https://packages.cloud.google.com/apt coral-edgetpu-stable main" | sudo tee /etc/apt/sources.list.d/coral-edgetpu.list
+curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+sudo apt update
+
+# Install runtime (choose one):
+sudo apt install libedgetpu1-std    # Standard performance
+# OR
+sudo apt install libedgetpu1-max    # Max performance (higher power)
+```
+
+**2. Install pycoral:**
+
+```bash
+pip install pycoral
+```
+
+**3. Connect USB Coral and verify:**
+
+```bash
+# Check USB device detected
+lsusb | grep Google
+# Should show: Google Inc. Coral USB Accelerator
+
+# Test detection
+python -c "from pycoral.utils.edgetpu import list_edge_tpus; print(list_edge_tpus())"
+```
+
+**4. Run ML Training with Coral:**
+
+```bash
+./run_ml_dev.sh --broker 192.168.86.66 --use-coral
+```
+
+**Note:** Coral Edge TPU only supports inference, not training. The ML server trains on CPU and uses Coral for fast inference during exploration.
+
+### DirectML (Windows NPU)
+
+For Windows devices with NPU (Neural Processing Unit) support:
+
+```powershell
+# Install onnxruntime with DirectML
+pip install onnxruntime-directml
+
+# Run with DirectML acceleration
+.\run_ml_dev.ps1 -Broker 192.168.86.66 -UseNPU
+```
+
+### CUDA (NVIDIA GPU)
+
+For NVIDIA GPUs:
+
+```bash
+# Install PyTorch with CUDA support
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+
+# Run with DQN (automatically uses CUDA if available)
+./run_ml_dev.sh --broker 192.168.86.66 --dqn
+```
 
 ---
 
@@ -284,3 +371,9 @@ For advanced configuration:
 - RAM: 4GB+
 - GPU/NPU: CUDA, DirectML, or Metal
 - Storage: 500MB for models and checkpoints
+
+### With Coral Edge TPU
+- RAM: 1GB additional
+- USB: Coral USB Accelerator connected
+- Storage: 100MB for quantized models
+- Inference: ~10-50x faster than CPU

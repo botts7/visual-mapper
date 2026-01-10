@@ -6,6 +6,7 @@ Provides endpoints for:
 - Exporting trained Q-table/model
 - Resetting learning data
 - Viewing training statistics
+- Hardware accelerator detection
 """
 
 import json
@@ -27,16 +28,83 @@ router = APIRouter(prefix="/api/ml", tags=["ml"])
 DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
 
 
+def detect_accelerators() -> dict:
+    """Detect available hardware accelerators"""
+    accelerators = {
+        "coral_available": False,
+        "coral_devices": 0,
+        "coral_device_info": [],
+        "directml_available": False,
+        "cuda_available": False,
+        "cuda_device": None,
+        "onnx_available": False,
+    }
+
+    # Check for Coral Edge TPU
+    try:
+        from pycoral.utils.edgetpu import list_edge_tpus
+        edge_tpus = list_edge_tpus()
+        if edge_tpus:
+            accelerators["coral_available"] = True
+            accelerators["coral_devices"] = len(edge_tpus)
+            accelerators["coral_device_info"] = [str(tpu) for tpu in edge_tpus]
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.debug(f"Coral detection error: {e}")
+
+    # Check for CUDA (PyTorch)
+    try:
+        import torch
+        if torch.cuda.is_available():
+            accelerators["cuda_available"] = True
+            accelerators["cuda_device"] = torch.cuda.get_device_name(0)
+    except ImportError:
+        pass
+
+    # Check for DirectML
+    try:
+        import torch_directml
+        accelerators["directml_available"] = True
+    except ImportError:
+        pass
+
+    # Check for ONNX Runtime with DirectML
+    try:
+        import onnxruntime as ort
+        providers = ort.get_available_providers()
+        accelerators["onnx_available"] = True
+        if "DmlExecutionProvider" in providers:
+            accelerators["directml_available"] = True
+    except ImportError:
+        pass
+
+    return accelerators
+
+
+class AcceleratorStatus(BaseModel):
+    """Hardware accelerator status"""
+    coral_available: bool
+    coral_devices: int
+    coral_device_info: list
+    directml_available: bool
+    cuda_available: bool
+    cuda_device: Optional[str]
+    onnx_available: bool
+
+
 class MLStatus(BaseModel):
     """ML Training status response"""
     enabled: bool
     mode: str  # disabled, local, remote
     training_active: bool
+    trainer_type: Optional[str]
     q_table_exists: bool
     q_table_size: int
     q_table_path: str
     last_updated: Optional[str]
     remote_host: Optional[str]
+    accelerators: AcceleratorStatus
 
 
 class MLStats(BaseModel):
@@ -85,6 +153,8 @@ async def get_ml_status() -> MLStatus:
     """Get current ML training status"""
     mode = os.getenv("ML_TRAINING_MODE", "disabled")
     remote_host = os.getenv("ML_REMOTE_HOST", "")
+    use_dqn = os.getenv("ML_USE_DQN", "false").lower() == "true"
+    use_coral = os.getenv("ML_USE_CORAL", "false").lower() == "true"
 
     q_table_path = get_q_table_path()
     q_table_exists = q_table_path.exists()
@@ -100,15 +170,34 @@ async def get_ml_status() -> MLStatus:
         except Exception as e:
             logger.error(f"Error reading Q-table stats: {e}")
 
+    # Detect available accelerators
+    accel = detect_accelerators()
+
+    # Determine trainer type based on config and available hardware
+    trainer_type = "Q-Table"
+    if use_coral and accel["coral_available"]:
+        trainer_type = "Coral Edge TPU"
+    elif use_dqn:
+        if accel["cuda_available"]:
+            trainer_type = "DQN (CUDA)"
+        elif accel["directml_available"]:
+            trainer_type = "DQN (DirectML)"
+        else:
+            trainer_type = "DQN (CPU)"
+    elif accel["onnx_available"] and accel["directml_available"]:
+        trainer_type = "ONNX (DirectML)"
+
     return MLStatus(
         enabled=mode != "disabled",
         mode=mode,
-        training_active=mode == "local",  # TODO: Check actual training thread
+        training_active=mode == "local",
+        trainer_type=trainer_type if mode != "disabled" else None,
         q_table_exists=q_table_exists,
         q_table_size=q_table_size,
         q_table_path=str(q_table_path),
         last_updated=last_updated,
-        remote_host=remote_host if mode == "remote" else None
+        remote_host=remote_host if mode == "remote" else None,
+        accelerators=AcceleratorStatus(**accel)
     )
 
 
@@ -161,6 +250,13 @@ async def get_ml_stats() -> MLStats:
         exploration_rate=round(exploration_rate, 4),
         last_training_time=last_training
     )
+
+
+@router.get("/accelerators")
+async def get_accelerators() -> AcceleratorStatus:
+    """Get available hardware accelerators"""
+    accel = detect_accelerators()
+    return AcceleratorStatus(**accel)
 
 
 @router.get("/export")

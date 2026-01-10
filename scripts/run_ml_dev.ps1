@@ -12,7 +12,8 @@ param(
     [string]$Username = "",
     [string]$Password = "",
     [switch]$DQN,
-    [switch]$UseNPU
+    [switch]$UseNPU,
+    [switch]$UseCoral
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,6 +40,9 @@ if ($DQN) {
 if ($UseNPU) {
     Write-Host "Acceleration: NPU (DirectML)" -ForegroundColor Green
 }
+if ($UseCoral) {
+    Write-Host "Acceleration: Coral Edge TPU" -ForegroundColor Green
+}
 Write-Host ""
 
 # Build command arguments
@@ -59,6 +63,9 @@ if ($DQN) {
 }
 if ($UseNPU) {
     $Args += "--use-npu"
+}
+if ($UseCoral) {
+    $Args += "--use-coral"
 }
 
 # Set PYTHONPATH and run

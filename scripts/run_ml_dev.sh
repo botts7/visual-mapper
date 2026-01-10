@@ -16,6 +16,7 @@ USERNAME=""
 PASSWORD=""
 DQN=""
 USE_NPU=""
+USE_CORAL=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -44,6 +45,10 @@ while [[ $# -gt 0 ]]; do
             USE_NPU="--use-npu"
             shift
             ;;
+        --use-coral|--coral)
+            USE_CORAL="--use-coral"
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -54,6 +59,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --password      MQTT password"
             echo "  --dqn           Use Deep Q-Network training"
             echo "  --use-npu       Use NPU acceleration (DirectML)"
+            echo "  --use-coral     Use Coral Edge TPU acceleration"
             echo "  -h, --help      Show this help message"
             exit 0
             ;;
@@ -86,6 +92,9 @@ fi
 if [ -n "$USE_NPU" ]; then
     echo "Acceleration: NPU (DirectML)"
 fi
+if [ -n "$USE_CORAL" ]; then
+    echo "Acceleration: Coral Edge TPU"
+fi
 echo ""
 
 # Build command
@@ -102,6 +111,9 @@ if [ -n "$DQN" ]; then
 fi
 if [ -n "$USE_NPU" ]; then
     CMD="$CMD $USE_NPU"
+fi
+if [ -n "$USE_CORAL" ]; then
+    CMD="$CMD $USE_CORAL"
 fi
 
 # Set environment and run

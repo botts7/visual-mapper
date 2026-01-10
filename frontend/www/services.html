@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.2.0" data-build="2026-01-02">
+    <meta name="version" content="0.2.1" data-build="2026-01-02">
     <title>Services - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.2.0">
+    <link rel="stylesheet" href="css/styles.css?v=0.2.1">
     <style>
         .service-card {
             background: var(--card-background);
@@ -242,12 +242,60 @@
             border-radius: 3px;
             font-family: monospace;
         }
+
+        /* Accelerator Status */
+        .accelerator-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .accelerator-card {
+            background: var(--card-background);
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .accelerator-card.available {
+            border-color: rgba(76, 175, 80, 0.5);
+            background: rgba(76, 175, 80, 0.05);
+        }
+        .accelerator-card.unavailable {
+            opacity: 0.6;
+        }
+        .accelerator-name {
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 5px;
+        }
+        .accelerator-name .icon {
+            font-size: 1.3em;
+        }
+        .accelerator-status {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+        }
+        .accelerator-status.active {
+            color: #4CAF50;
+            font-weight: 500;
+        }
+        .trainer-badge {
+            display: inline-block;
+            background: var(--primary-color);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.2.0"></script>
+    <script type="module" src="js/init.js?v=0.2.1"></script>
 
     <div class="container">
         <div class="card">
@@ -309,6 +357,47 @@
                     <button class="btn-start" id="ml-start" onclick="startMl()">Start</button>
                     <button class="btn-stop" id="ml-stop" onclick="stopMl()">Stop</button>
                     <button class="btn-restart" id="ml-restart" onclick="restartMl()">Restart</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hardware Accelerators Section -->
+        <div class="ml-data-section">
+            <div class="card">
+                <h2>Hardware Accelerators</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 15px;">
+                    Available hardware for ML acceleration. Currently using: <span id="trainer-type" class="trainer-badge">Loading...</span>
+                </p>
+
+                <div class="accelerator-grid" id="accelerator-grid">
+                    <div class="accelerator-card unavailable" id="accel-coral">
+                        <div class="accelerator-name">
+                            <span class="icon">USB</span>
+                            Coral Edge TPU
+                        </div>
+                        <div class="accelerator-status" id="coral-status">Checking...</div>
+                    </div>
+                    <div class="accelerator-card unavailable" id="accel-cuda">
+                        <div class="accelerator-name">
+                            <span class="icon">GPU</span>
+                            NVIDIA CUDA
+                        </div>
+                        <div class="accelerator-status" id="cuda-status">Checking...</div>
+                    </div>
+                    <div class="accelerator-card unavailable" id="accel-directml">
+                        <div class="accelerator-name">
+                            <span class="icon">NPU</span>
+                            DirectML
+                        </div>
+                        <div class="accelerator-status" id="directml-status">Checking...</div>
+                    </div>
+                    <div class="accelerator-card available" id="accel-cpu">
+                        <div class="accelerator-name">
+                            <span class="icon">CPU</span>
+                            CPU (Fallback)
+                        </div>
+                        <div class="accelerator-status active">Always available</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -473,9 +562,35 @@
 
         async function loadMlStats() {
             try {
-                // Load status
+                // Load status (includes accelerator info)
                 const statusRes = await fetch(`${API_BASE}/api/ml/status`);
                 const status = await statusRes.json();
+
+                // Update trainer type badge
+                const trainerEl = document.getElementById('trainer-type');
+                if (status.trainer_type) {
+                    trainerEl.textContent = status.trainer_type;
+                } else {
+                    trainerEl.textContent = 'Disabled';
+                }
+
+                // Update accelerator cards
+                if (status.accelerators) {
+                    updateAcceleratorCard('coral', status.accelerators.coral_available,
+                        status.accelerators.coral_available
+                            ? `${status.accelerators.coral_devices} device(s) detected`
+                            : 'Not detected');
+
+                    updateAcceleratorCard('cuda', status.accelerators.cuda_available,
+                        status.accelerators.cuda_available
+                            ? status.accelerators.cuda_device || 'Available'
+                            : 'Not available');
+
+                    updateAcceleratorCard('directml', status.accelerators.directml_available,
+                        status.accelerators.directml_available
+                            ? 'Available (NPU/GPU)'
+                            : 'Not available');
+                }
 
                 // Update size
                 if (status.q_table_size) {
@@ -507,6 +622,19 @@
 
             } catch (error) {
                 console.error('Failed to load ML stats:', error);
+            }
+        }
+
+        function updateAcceleratorCard(id, available, statusText) {
+            const card = document.getElementById(`accel-${id}`);
+            const statusEl = document.getElementById(`${id}-status`);
+
+            if (card) {
+                card.className = `accelerator-card ${available ? 'available' : 'unavailable'}`;
+            }
+            if (statusEl) {
+                statusEl.textContent = statusText;
+                statusEl.className = `accelerator-status ${available ? 'active' : ''}`;
             }
         }
 

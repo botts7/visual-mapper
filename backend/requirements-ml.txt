@@ -7,9 +7,11 @@ paho-mqtt>=2.0.0
 numpy>=1.24.0
 onnxruntime>=1.16.0
 
-# Optional GPU/NPU acceleration (uncomment as needed)
+# Optional GPU/NPU/TPU acceleration (uncomment as needed)
 # onnxruntime-directml  # Windows NPU (DirectML)
 # onnxruntime-gpu       # NVIDIA CUDA
+# pycoral               # Coral Edge TPU (requires libedgetpu installed)
+# tflite-runtime        # TensorFlow Lite runtime for Coral
 
 # Utilities
 python-json-logger>=2.0.0
