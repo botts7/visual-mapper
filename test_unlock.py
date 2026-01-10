@@ -1,235 +1,211 @@
 #!/usr/bin/env python3
 """
-Samsung Unlock Test Script
-Tests different unlock methods to find what works for the Samsung tablet.
+Test script for Samsung device unlock flow.
+Run this directly to test unlock without rebuilding Docker.
+
+Usage:
+    python test_unlock.py <device_ip:port> <pin>
+    python test_unlock.py 192.168.86.2:46747 1109
 """
 
-import requests
-import time
+import subprocess
 import sys
+import time
 
-# Configuration
-BASE_URL = "http://192.168.86.68:8080/api"
-DEVICE_ID = "192.168.86.2:46747"
-PIN = "1109"
+# Device settings
+DEVICE_ID = sys.argv[1] if len(sys.argv) > 1 else "192.168.86.2:46747"
+PIN = sys.argv[2] if len(sys.argv) > 2 else "1109"
 
-def log(msg):
-    print(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
-def get_device_status():
-    """Get current device status"""
-    try:
-        r = requests.get(f"{BASE_URL}/adb/devices", timeout=5)
-        if r.ok:
-            devices = r.json().get("devices", [])
-            for d in devices:
-                if d["id"] == DEVICE_ID:
-                    return d.get("current_activity", "unknown")
-        return "not_found"
-    except Exception as e:
-        return f"error: {e}"
+def adb(cmd: str) -> str:
+    """Run ADB command and return output."""
+    full_cmd = f"adb -s {DEVICE_ID} {cmd}"
+    print(f"  > {full_cmd}")
+    result = subprocess.run(full_cmd, shell=True, capture_output=True, text=True)
+    output = result.stdout.strip()
+    if output:
+        print(f"    {output[:200]}")
+    return output
 
-def send_keyevent(keycode, desc=""):
-    """Send a keyevent to device"""
-    try:
-        r = requests.post(f"{BASE_URL}/adb/keyevent",
-                         json={"device_id": DEVICE_ID, "keycode": keycode},
-                         timeout=5)
-        success = r.ok
-        log(f"  Keyevent {keycode} ({desc}): {'OK' if success else 'FAILED'}")
-        return success
-    except Exception as e:
-        log(f"  Keyevent {keycode} ({desc}): ERROR - {e}")
+
+def is_screen_on() -> bool:
+    """Check if screen is on."""
+    result = adb("shell dumpsys power | grep 'mWakefulness='")
+    return "Awake" in result
+
+
+def is_locked() -> bool:
+    """Check if device is locked."""
+    result = adb("shell dumpsys window")
+
+    if "mShowingLockscreen=true" in result:
+        print("    -> LOCKED (mShowingLockscreen=true)")
+        return True
+    if "mDreamingLockscreen=true" in result:
+        print("    -> LOCKED (mDreamingLockscreen=true)")
+        return True
+    if "mShowingLockscreen=false" in result:
+        print("    -> UNLOCKED (mShowingLockscreen=false)")
         return False
 
-def send_swipe(start_x, start_y, end_x, end_y, duration=300, desc=""):
-    """Send swipe to device"""
-    try:
-        r = requests.post(f"{BASE_URL}/adb/swipe",
-                         json={
-                             "device_id": DEVICE_ID,
-                             "start_x": start_x, "start_y": start_y,
-                             "end_x": end_x, "end_y": end_y,
-                             "duration": duration
-                         },
-                         timeout=10)
-        success = r.ok
-        log(f"  Swipe ({start_x},{start_y})->({end_x},{end_y}) {desc}: {'OK' if success else 'FAILED'}")
-        return success
-    except Exception as e:
-        log(f"  Swipe {desc}: ERROR - {e}")
+    # Check keyguard
+    kg_result = adb("shell dumpsys window policy | grep -E 'mKeyguardShowing|isKeyguardShowing'")
+    if "mKeyguardShowing=true" in kg_result or "isKeyguardShowing=true" in kg_result:
+        print("    -> LOCKED (keyguard showing)")
+        return True
+    if "mKeyguardShowing=false" in kg_result or "isKeyguardShowing=false" in kg_result:
+        print("    -> UNLOCKED (keyguard not showing)")
         return False
 
-def send_text(text, desc=""):
-    """Send text input to device"""
-    try:
-        r = requests.post(f"{BASE_URL}/adb/text",
-                         json={"device_id": DEVICE_ID, "text": text},
-                         timeout=5)
-        success = r.ok
-        log(f"  Text '{text}' ({desc}): {'OK' if success else 'FAILED'}")
-        return success
-    except Exception as e:
-        log(f"  Text {desc}: ERROR - {e}")
-        return False
+    print("    -> UNKNOWN (assuming unlocked)")
+    return False
 
-def test_wake_methods():
-    """Test different wake methods"""
-    log("\n=== Testing WAKE Methods ===")
-    status_before = get_device_status()
-    log(f"Status before: {status_before}")
 
-    methods = [
-        (224, "KEYCODE_WAKEUP"),
-        (26, "KEYCODE_POWER"),
-        (82, "KEYCODE_MENU"),
-        (3, "KEYCODE_HOME"),
-    ]
+def get_current_activity() -> str:
+    """Get current foreground activity."""
+    result = adb("shell dumpsys activity activities | grep mCurrentFocus")
+    return result
 
-    for keycode, name in methods:
-        send_keyevent(keycode, name)
-        time.sleep(0.3)
 
-    time.sleep(0.5)
-    status_after = get_device_status()
-    log(f"Status after: {status_after}")
-    return status_after
+def get_manufacturer() -> str:
+    """Get device manufacturer."""
+    result = adb("shell getprop ro.product.manufacturer")
+    return result.lower()
 
-def test_swipe_patterns():
-    """Test different swipe patterns"""
-    log("\n=== Testing SWIPE Patterns ===")
 
-    # Samsung tablet is 1920x1200 (landscape) or 1200x1920 (portrait)
-    patterns = [
-        # (start_x, start_y, end_x, end_y, desc)
-        (600, 1800, 600, 400, "Center bottom-to-top"),
-        (600, 1000, 600, 200, "Center middle-to-top"),
-        (960, 1800, 960, 200, "Wide center up"),
-        (100, 1000, 900, 1000, "Left-to-right"),
-    ]
+def unlock_samsung(pin: str):
+    """Samsung-specific unlock sequence."""
+    print("\n=== SAMSUNG UNLOCK SEQUENCE ===")
 
-    for start_x, start_y, end_x, end_y, desc in patterns:
-        status_before = get_device_status()
-        log(f"\nTrying: {desc}")
-        log(f"  Before: {status_before}")
-        send_swipe(start_x, start_y, end_x, end_y, 300, desc)
-        time.sleep(1)
-        status_after = get_device_status()
-        log(f"  After: {status_after}")
+    # Step 1: Wake screen
+    print("\n[Step 1] Checking screen state...")
+    if not is_screen_on():
+        print("  Screen is OFF, sending POWER key...")
+        adb("shell input keyevent 26")  # POWER
+        time.sleep(0.5)
+    else:
+        print("  Screen is already ON")
 
-        if status_after != status_before and status_after != "NotificationShade":
-            log(f"  >>> SUCCESS! Swipe pattern worked!")
-            return True, desc
+    # Step 2: Check if locked
+    print("\n[Step 2] Checking lock status...")
+    if not is_locked():
+        print("  Device is already UNLOCKED!")
+        return True
 
-    return False, None
-
-def test_pin_entry():
-    """Test PIN entry methods"""
-    log("\n=== Testing PIN Entry ===")
-
-    # Method 1: Using text input
-    log("\nMethod 1: Text input")
-    send_text(PIN, "PIN via text")
-    time.sleep(0.5)
-    send_keyevent(66, "ENTER")
-    time.sleep(1)
-
-    status = get_device_status()
-    log(f"Status after text input: {status}")
-    if status not in ["NotificationShade", "com.android.systemui"]:
-        return True, "text_input"
-
-    # Method 2: Individual keyevents
-    log("\nMethod 2: Individual keyevents")
-    # Android keycodes: 0=7, 1=8, 2=9, 3=10, 4=11, 5=12, 6=13, 7=14, 8=15, 9=16
-    keycode_map = {'0': 7, '1': 8, '2': 9, '3': 10, '4': 11,
-                   '5': 12, '6': 13, '7': 14, '8': 15, '9': 16}
-
-    for digit in PIN:
-        keycode = keycode_map.get(digit)
-        if keycode:
-            send_keyevent(keycode, f"Digit {digit}")
-            time.sleep(0.2)
-
-    send_keyevent(66, "ENTER")
-    time.sleep(1)
-
-    status = get_device_status()
-    log(f"Status after keyevents: {status}")
-    if status not in ["NotificationShade", "com.android.systemui"]:
-        return True, "keyevents"
-
-    return False, None
-
-def test_full_unlock_sequence():
-    """Test full unlock sequence"""
-    log("\n=== Full Unlock Sequence Test ===")
-
-    # Step 1: Wake
-    log("\nStep 1: Wake screen")
-    send_keyevent(224, "WAKEUP")
-    time.sleep(0.3)
-    send_keyevent(26, "POWER")
+    # Step 3: Press MENU to go to PIN screen (Samsung One UI)
+    print("\n[Step 3] Pressing MENU key to show PIN screen...")
+    adb("shell input keyevent 82")  # MENU
     time.sleep(0.5)
 
-    status = get_device_status()
-    log(f"After wake: {status}")
-
-    # Step 2: Dismiss keyguard
-    log("\nStep 2: Dismiss keyguard")
-    send_keyevent(82, "MENU")
+    # Step 4: Enter PIN
+    print(f"\n[Step 4] Entering PIN: {pin}")
+    adb(f"shell input text {pin}")
     time.sleep(0.3)
 
-    status = get_device_status()
-    log(f"After MENU: {status}")
+    # Step 5: Press ENTER to confirm
+    print("\n[Step 5] Pressing ENTER to confirm...")
+    adb("shell input keyevent 66")  # ENTER
+    time.sleep(1.0)
 
-    # Step 3: Swipe
-    log("\nStep 3: Swipe up")
-    send_swipe(600, 1800, 600, 400, 300, "unlock swipe")
-    time.sleep(1)
+    # Step 6: Verify unlock
+    print("\n[Step 6] Verifying unlock status...")
+    if is_locked():
+        print("  FAILED - Device is still locked!")
+        return False
+    else:
+        print("  SUCCESS - Device is now UNLOCKED!")
+        return True
 
-    status = get_device_status()
-    log(f"After swipe: {status}")
 
-    # Step 4: Enter PIN if needed
-    if "NotificationShade" not in status and "systemui" in status.lower():
-        log("\nStep 4: Enter PIN")
-        send_text(PIN, "PIN")
-        time.sleep(0.3)
-        send_keyevent(66, "ENTER")
-        time.sleep(1)
+def test_sleep_and_unlock():
+    """Full test: sleep device, then unlock."""
+    print("\n" + "="*60)
+    print("FULL TEST: Sleep -> Lock -> Unlock")
+    print("="*60)
 
-        status = get_device_status()
-        log(f"After PIN: {status}")
+    # Sleep the device first
+    print("\n[PREP] Sleeping device...")
+    adb("shell input keyevent 223")  # SLEEP
+    time.sleep(2)
 
-    return status
+    # Verify it's locked
+    print("\n[VERIFY] Checking lock status after sleep...")
+    adb("shell input keyevent 26")  # Brief wake to check
+    time.sleep(0.5)
+
+    locked = is_locked()
+    print(f"  Device locked: {locked}")
+
+    if not locked:
+        print("  WARNING: Device didn't lock! Check lock settings.")
+        return False
+
+    # Now try unlock
+    manufacturer = get_manufacturer()
+    print(f"\n[INFO] Manufacturer: {manufacturer}")
+
+    success = unlock_samsung(PIN)
+
+    # Final status
+    print("\n" + "="*60)
+    if success:
+        print("TEST PASSED - Unlock successful!")
+    else:
+        print("TEST FAILED - Could not unlock device")
+    print("="*60)
+
+    # Show current activity
+    print(f"\nCurrent activity: {get_current_activity()}")
+
+    return success
+
 
 def main():
-    log("=" * 60)
-    log("Samsung Unlock Test Script")
-    log("=" * 60)
-    log(f"Device: {DEVICE_ID}")
-    log(f"PIN: {PIN}")
+    print("="*60)
+    print("VISUAL MAPPER - UNLOCK TEST SCRIPT")
+    print("="*60)
+    print(f"Device: {DEVICE_ID}")
+    print(f"PIN: {PIN}")
 
-    # Initial status
-    log(f"\nInitial status: {get_device_status()}")
+    # Check connection
+    print("\n[CHECK] Testing ADB connection...")
+    result = adb("shell echo connected")
+    if "connected" not in result:
+        print("ERROR: Cannot connect to device!")
+        sys.exit(1)
+    print("  Connected!")
 
-    # Run tests
-    input("\nPress Enter to test WAKE methods...")
-    test_wake_methods()
+    # Get device info
+    print("\n[INFO] Device info:")
+    print(f"  Manufacturer: {get_manufacturer()}")
 
-    input("\nPress Enter to test SWIPE patterns...")
-    test_swipe_patterns()
+    # Current state
+    print("\n[STATE] Current device state:")
+    print(f"  Screen on: {is_screen_on()}")
+    print(f"  Locked: {is_locked()}")
 
-    input("\nPress Enter to test PIN entry...")
-    test_pin_entry()
+    # Menu
+    print("\n" + "-"*60)
+    print("OPTIONS:")
+    print("  1. Test unlock now")
+    print("  2. Full test (sleep -> unlock)")
+    print("  3. Manual ADB commands")
+    print("-"*60)
 
-    input("\nPress Enter to test FULL unlock sequence...")
-    final_status = test_full_unlock_sequence()
+    choice = input("\nSelect (1-3): ").strip()
 
-    log("\n" + "=" * 60)
-    log(f"Final status: {final_status}")
-    log("=" * 60)
+    if choice == "1":
+        unlock_samsung(PIN)
+    elif choice == "2":
+        test_sleep_and_unlock()
+    elif choice == "3":
+        print("\nEnter ADB shell commands (type 'exit' to quit):")
+        while True:
+            cmd = input("adb> ").strip()
+            if cmd == "exit":
+                break
+            adb(cmd)
+
 
 if __name__ == "__main__":
     main()

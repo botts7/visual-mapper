@@ -548,8 +548,12 @@ class FlowService:
         Returns False if device is locked and couldn't be unlocked.
         """
         from utils.device_security import DeviceSecurityManager, LockStrategy
+        from pathlib import Path
+        import os
 
-        security_manager = DeviceSecurityManager()
+        # Use same DATA_DIR as main.py
+        data_dir = Path(os.getenv("DATA_DIR", "./data"))
+        security_manager = DeviceSecurityManager(data_dir=str(data_dir))
 
         # STEP 1: Check if device is locked (do this FIRST, before config check)
         try:

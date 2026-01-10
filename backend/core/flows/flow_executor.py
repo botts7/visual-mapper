@@ -7,6 +7,8 @@ import logging
 import asyncio
 import time
 import uuid
+import os
+from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
 from PIL import Image
@@ -73,7 +75,9 @@ class FlowExecutor:
         self.performance_monitor = performance_monitor
         self.execution_history = execution_history or FlowExecutionHistory()
         self.element_finder = SmartElementFinder()
-        self.security_manager = DeviceSecurityManager()
+        # Use same DATA_DIR as main.py for security configs
+        data_dir = Path(os.getenv("DATA_DIR", "./data"))
+        self.security_manager = DeviceSecurityManager(data_dir=str(data_dir))
         self.navigation_manager = navigation_manager or NavigationManager()
         self.action_manager = action_manager
         self.action_executor = action_executor
