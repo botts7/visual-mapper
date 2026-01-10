@@ -1794,7 +1794,7 @@ class ADBBridge:
         """
         Attempt to unlock the screen (works for swipe-to-unlock, not PIN/pattern).
 
-        Tries multiple unlock methods in sequence, including Samsung-specific approaches.
+        Uses wm dismiss-keyguard (Android 8+) for maximum reliability.
 
         Args:
             device_id: Device identifier
@@ -1809,94 +1809,36 @@ class ADBBridge:
         try:
             logger.info(f"[ADBBridge] Unlocking screen on {resolved_id}")
 
-            # Get screen dimensions for swipe calculations
-            width, height = 1920, 1200  # Samsung tablet defaults
-            try:
-                wm_output = await conn.shell("wm size")
-                match = re.search(r'(\d+)x(\d+)', wm_output)
-                if match:
-                    width, height = int(match.group(1)), int(match.group(2))
-                    logger.debug(f"[ADBBridge] Screen size: {width}x{height}")
-            except:
-                pass
-            center_x = width // 2
-
-            # Ensure screen is awake first
-            await conn.shell("input keyevent 224")  # WAKEUP
-            await asyncio.sleep(0.2)
-
             # Method 1: wm dismiss-keyguard (most reliable on Android 8+)
             try:
                 await conn.shell("wm dismiss-keyguard")
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.3)
+                # Check if unlocked
                 if not await self.is_locked(device_id):
                     logger.info(f"[ADBBridge] Screen unlocked via wm dismiss-keyguard")
                     return True
             except Exception as e:
                 logger.debug(f"[ADBBridge] wm dismiss-keyguard failed: {e}")
 
-            # Method 2: Samsung swipe - from bottom center upward (fast swipe)
-            # Samsung tablets need swipe from very bottom to middle
-            try:
-                start_y = int(height * 0.95)  # Near bottom
-                end_y = int(height * 0.3)     # To upper-middle
-                logger.debug(f"[ADBBridge] Samsung swipe: {center_x},{start_y} -> {center_x},{end_y}")
-                await conn.shell(f"input touchscreen swipe {center_x} {start_y} {center_x} {end_y} 150")
-                await asyncio.sleep(0.5)
-                if not await self.is_locked(device_id):
-                    logger.info(f"[ADBBridge] Screen unlocked via Samsung swipe")
-                    return True
-            except Exception as e:
-                logger.debug(f"[ADBBridge] Samsung swipe failed: {e}")
+            # Method 2: MENU key (often dismisses lock screen on swipe-to-unlock)
+            await conn.shell("input keyevent 82")  # KEYCODE_MENU
+            await asyncio.sleep(0.3)
 
-            # Method 3: Double-tap then swipe (Samsung sometimes needs this)
+            # Method 3: Swipe up (fallback for older devices)
             try:
-                await conn.shell(f"input tap {center_x} {int(height * 0.7)}")
-                await asyncio.sleep(0.1)
-                await conn.shell(f"input touchscreen swipe {center_x} {int(height * 0.9)} {center_x} {int(height * 0.2)} 200")
-                await asyncio.sleep(0.5)
-                if not await self.is_locked(device_id):
-                    logger.info(f"[ADBBridge] Screen unlocked via tap+swipe")
-                    return True
-            except Exception as e:
-                logger.debug(f"[ADBBridge] Tap+swipe failed: {e}")
+                wm_output = await conn.shell("wm size")
+                match = re.search(r'(\d+)x(\d+)', wm_output)
+                if match:
+                    width, height = int(match.group(1)), int(match.group(2))
+                else:
+                    width, height = 1080, 1920
+                center_x = width // 2
+                await conn.shell(f"input swipe {center_x} {int(height * 0.8)} {center_x} {int(height * 0.3)} 300")
+            except:
+                # Fallback with hardcoded coordinates
+                await conn.shell("input swipe 540 1800 540 800 300")
 
-            # Method 4: MENU key
-            try:
-                await conn.shell("input keyevent 82")  # KEYCODE_MENU
-                await asyncio.sleep(0.3)
-                if not await self.is_locked(device_id):
-                    logger.info(f"[ADBBridge] Screen unlocked via MENU key")
-                    return True
-            except Exception as e:
-                logger.debug(f"[ADBBridge] MENU key failed: {e}")
-
-            # Method 5: HOME key (sometimes helps on Samsung)
-            try:
-                await conn.shell("input keyevent 3")  # HOME
-                await asyncio.sleep(0.3)
-                if not await self.is_locked(device_id):
-                    logger.info(f"[ADBBridge] Screen unlocked via HOME key")
-                    return True
-            except Exception as e:
-                logger.debug(f"[ADBBridge] HOME key failed: {e}")
-
-            # Method 6: Multiple rapid swipes (aggressive unlock)
-            try:
-                for i in range(3):
-                    await conn.shell(f"input touchscreen swipe {center_x} {int(height * 0.9)} {center_x} {int(height * 0.1)} 100")
-                    await asyncio.sleep(0.15)
-                await asyncio.sleep(0.3)
-                if not await self.is_locked(device_id):
-                    logger.info(f"[ADBBridge] Screen unlocked via rapid swipes")
-                    return True
-            except Exception as e:
-                logger.debug(f"[ADBBridge] Rapid swipes failed: {e}")
-
-            # Final return - we tried our best
-            logger.warning(f"[ADBBridge] All swipe-unlock methods attempted for {device_id} - may still be locked")
             return True
-
         except Exception as e:
             logger.error(f"[ADBBridge] Failed to unlock screen: {e}")
             return False
@@ -2209,11 +2151,9 @@ class ADBBridge:
             except Exception as kg_err:
                 logger.debug(f"[ADBBridge] Keyguard check failed: {kg_err}")
 
-            # Cannot determine - assume UNLOCKED if no positive lock indicators found
-            # False negatives (missing a lock) are less harmful than false positives
-            # (which cause flows to repeatedly fail thinking device is locked)
-            logger.debug(f"[ADBBridge] No lock indicators found for {device_id}, assuming UNLOCKED")
-            return False
+            # Cannot determine - assume LOCKED to be safe (prevents false success)
+            logger.warning(f"[ADBBridge] Cannot determine lock status for {device_id}, assuming LOCKED for safety")
+            return True
 
         except Exception as e:
             logger.error(f"[ADBBridge] Error checking lock status for {device_id}: {e} - assuming LOCKED for safety")
