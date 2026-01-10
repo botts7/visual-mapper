@@ -2637,10 +2637,27 @@ class ADBBridge:
                         logger.info(f"[ADBBridge] Clean UI state achieved after {attempt + 1} attempts")
                     return True
 
-                logger.debug(f"[ADBBridge] UI overlay detected ({current}), clearing with BACK... (attempt {attempt + 1})")
+                logger.debug(f"[ADBBridge] UI overlay detected ({current}), clearing... (attempt {attempt + 1})")
 
-                # Press BACK to dismiss notification shade (user confirmed this works)
-                await conn.shell("input keyevent 4")  # BACK
+                # Try different dismissal strategies based on attempt number
+                if attempt == 0:
+                    # First try: HOME key (most reliable for NotificationShade)
+                    await conn.shell("input keyevent 3")  # HOME
+                elif attempt == 1:
+                    # Second try: BACK key
+                    await conn.shell("input keyevent 4")  # BACK
+                elif attempt == 2:
+                    # Third try: Swipe up from bottom (dismisses notification panel)
+                    await conn.shell("input swipe 540 1800 540 500 200")
+                elif attempt == 3:
+                    # Fourth try: Double HOME then wait
+                    await conn.shell("input keyevent 3")
+                    await asyncio.sleep(0.2)
+                    await conn.shell("input keyevent 3")
+                else:
+                    # Final tries: BACK repeatedly
+                    await conn.shell("input keyevent 4")
+
                 await asyncio.sleep(0.5)  # Give time for UI to update
 
             except Exception as e:
