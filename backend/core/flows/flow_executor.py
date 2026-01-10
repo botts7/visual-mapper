@@ -562,10 +562,25 @@ class FlowExecutor:
             current_package = activity_info.get('package', package or 'unknown')
             current_activity = activity_info.get('activity', 'unknown')
 
+            # Skip system overlays (NotificationShade = Samsung lock screen, StatusBar, etc.)
+            skip_activities = {'NotificationShade', 'StatusBar', 'Keyguard', 'LockScreen', 'BiometricPrompt'}
+            for skip_activity in skip_activities:
+                if skip_activity in current_activity:
+                    logger.debug(f"  [Learn Mode] Skipping system overlay: {current_activity}")
+                    return None
+
             # Skip system/launcher screens
-            skip_packages = {'com.android.launcher', 'com.samsung.android.launcher', 'com.google.android.apps.nexuslauncher'}
+            skip_packages = {
+                'com.android.launcher', 'com.samsung.android.launcher', 'com.google.android.apps.nexuslauncher',
+                'com.android.systemui', 'com.samsung.android.app.cocktailbarservice'
+            }
             if current_package in skip_packages:
-                logger.debug(f"  [Learn Mode] Skipping launcher screen: {current_package}")
+                logger.debug(f"  [Learn Mode] Skipping system/launcher screen: {current_package}")
+                return None
+
+            # If expected package is provided, verify we're on the right app
+            if package and current_package != package:
+                logger.debug(f"  [Learn Mode] Wrong app - expected {package}, got {current_package}")
                 return None
 
             # Capture UI elements (full mode for learning)
