@@ -6,6 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
 [![Android](https://img.shields.io/badge/android-11%2B-green.svg)](https://developer.android.com)
 [![Home Assistant](https://img.shields.io/badge/home%20assistant-ready-41BDF5.svg)](https://www.home-assistant.io/)
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa.svg?logo=github)](https://github.com/sponsors/botts7)
 
 ---
 
