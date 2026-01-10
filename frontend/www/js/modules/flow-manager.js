@@ -28,11 +28,15 @@ class FlowManager {
      * @returns {Promise<Array>} List of flows
      */
     async getFlows(deviceId = null) {
+        // Add cache-busting parameter to prevent stale data
+        const cacheBust = `_=${Date.now()}`;
         const url = deviceId
-            ? `${this.apiBase}/flows?device_id=${encodeURIComponent(deviceId)}`
-            : `${this.apiBase}/flows`;
+            ? `${this.apiBase}/flows?device_id=${encodeURIComponent(deviceId)}&${cacheBust}`
+            : `${this.apiBase}/flows?${cacheBust}`;
 
-        const response = await fetch(url);
+        const response = await fetch(url, {
+            cache: 'no-store'  // Disable browser caching
+        });
         if (!response.ok) {
             throw new Error(`Failed to fetch flows: ${response.statusText}`);
         }
