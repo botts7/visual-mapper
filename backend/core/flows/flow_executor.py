@@ -215,12 +215,28 @@ class FlowExecutor:
             if start_from_current:
                 logger.info("[FlowExecutor] start_from_current_screen enabled - skipping app reset")
             elif first_step_is_launch:
-                # First step is LAUNCH_APP - reset app state, then let LAUNCH_APP handle launch
+                # First step is LAUNCH_APP - check if already on correct screen before resetting
                 if target_package:
-                    logger.info("[FlowExecutor] Resetting app state before launch_app step")
-                    reset_success = await self._reset_app_state(flow.device_id, target_package)
-                    if not reset_success:
-                        logger.warning("[FlowExecutor] Failed to reset app state, continuing anyway...")
+                    # Smart check: skip reset if already on correct screen
+                    try:
+                        current_activity = await self.adb_bridge.get_current_activity(flow.device_id)
+                        current_pkg = current_activity.split('/')[0] if current_activity and '/' in current_activity else current_activity
+                        expected_activity = first_step.expected_activity or first_step.screen_activity
+
+                        # Skip reset if already on correct screen
+                        if expected_activity and self._activity_matches(current_activity, expected_activity):
+                            logger.info(f"[FlowExecutor] Already on correct screen - skipping app reset")
+                        elif current_pkg == target_package and not expected_activity:
+                            logger.info(f"[FlowExecutor] Already on target app - skipping app reset")
+                        else:
+                            logger.info("[FlowExecutor] Resetting app state before launch_app step")
+                            reset_success = await self._reset_app_state(flow.device_id, target_package)
+                            if not reset_success:
+                                logger.warning("[FlowExecutor] Failed to reset app state, continuing anyway...")
+                    except Exception as e:
+                        logger.debug(f"[FlowExecutor] Could not check current state: {e}")
+                        # Fall back to reset on error
+                        reset_success = await self._reset_app_state(flow.device_id, target_package)
                 else:
                     logger.debug("[FlowExecutor] No target package found, skipping app reset")
             elif target_package:
