@@ -173,6 +173,13 @@ const NavBar = {
 
     // Inject navbar into page
     inject(targetSelector = 'nav') {
+        // Skip navbar on onboarding page (standalone full-screen wizard)
+        const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+        if (currentPage === 'onboarding.html') {
+            console.log('[NavBar] Skipping navbar on onboarding page');
+            return;
+        }
+
         let nav = document.querySelector(targetSelector);
 
         // If no nav element, create one at start of body
