@@ -115,6 +115,45 @@ async def get_all_settings():
     return load_settings()
 
 
+@router.post("")
+async def update_settings(new_settings: dict):
+    """
+    Update settings (partial update - merges with existing)
+
+    Common settings:
+        - mqtt_broker: MQTT broker hostname
+        - mqtt_port: MQTT broker port
+        - mqtt_username: MQTT username (optional)
+        - mqtt_password: MQTT password (optional)
+        - auto_reconnect: Auto-reconnect to devices on startup
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Load existing settings
+        settings = load_settings()
+
+        # Merge new settings
+        for key, value in new_settings.items():
+            if value is not None:  # Don't overwrite with None
+                settings[key] = value
+
+        # Save updated settings
+        save_settings(settings)
+
+        logger.info(f"[Settings] Updated settings: {list(new_settings.keys())}")
+
+        return {
+            "success": True,
+            "message": "Settings updated",
+            "updated_keys": list(new_settings.keys())
+        }
+    except Exception as e:
+        logger.error(f"[Settings] Failed to update settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/auto-reconnect")
 async def get_auto_reconnect():
     """Get auto-reconnect preference"""

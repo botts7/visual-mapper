@@ -1,6 +1,8 @@
 /**
  * Flow Wizard Step 5 - Settings & Save
- * Visual Mapper v0.0.10
+ * Visual Mapper v0.0.12
+ * v0.0.12: Resume scheduler IMMEDIATELY after save (before dialog), with finally block safety
+ * v0.0.11: Added timeout safety net for _savingFlow flag (60s auto-reset)
  * v0.0.10: Release wizard lock and resume scheduler BEFORE redirect to ensure flows run
  * v0.0.9: Include start-from-current-screen setting in saved flows
  * v0.0.8: Prevent duplicate save submissions
@@ -64,6 +66,20 @@ export async function saveFlow(wizard) {
         return;
     }
     wizard._savingFlow = true;
+
+    // Safety net: auto-reset flag after 60 seconds in case of hung save
+    const saveTimeout = setTimeout(() => {
+        if (wizard._savingFlow) {
+            console.warn('[Step5] Save flow timeout after 60s - resetting flag');
+            wizard._savingFlow = false;
+            const btnSave = document.getElementById('btnSaveFlow');
+            if (btnSave) {
+                btnSave.disabled = false;
+                btnSave.textContent = 'Save Flow';
+            }
+            showToast('Save operation timed out. Please try again.', 'error');
+        }
+    }, 60000);
 
     console.log('[Step5] Saving flow...');
     showToast('Saving flow...', 'info');
@@ -154,27 +170,12 @@ export async function saveFlow(wizard) {
 
         showToast(`Flow ${isEditing ? 'updated' : 'saved'} successfully!`, 'success', 3000);
 
+        // CRITICAL: Release wizard lock and resume scheduler IMMEDIATELY after save
+        // This ensures the flow can start running even if the dialog has issues
+        await releaseWizardAndResumeScheduler(wizard);
+
+        // Show dialog for user to choose next action (non-blocking for scheduler)
         const result = await showFlowSavedDialog(savedFlow);
-
-        // CRITICAL: Release wizard lock BEFORE redirect/reset to ensure scheduler can run flows
-        if (wizard._wizardActiveDevice) {
-            try {
-                console.log('[Step5] Releasing wizard lock before navigation...');
-                await fetch(`${getApiBase()}/wizard/release/${encodeURIComponent(wizard._wizardActiveDevice)}`, { method: 'POST' });
-                wizard._wizardActiveDevice = null;
-                console.log('[Step5] Wizard lock released');
-            } catch (e) {
-                console.warn('[Step5] Could not release wizard lock:', e);
-            }
-        }
-
-        // Also resume scheduler
-        try {
-            await fetch(`${getApiBase()}/scheduler/resume`, { method: 'POST' });
-            console.log('[Step5] Scheduler resumed');
-        } catch (e) {
-            console.warn('[Step5] Could not resume scheduler:', e);
-        }
 
         if (result === 'view') {
             // Add cache-busting parameter to force fresh page load
@@ -187,11 +188,40 @@ export async function saveFlow(wizard) {
         console.error('[Step5] Save failed:', error);
         showToast(`Failed to save flow: ${error.message}`, 'error', 5000);
     } finally {
+        clearTimeout(saveTimeout);
         wizard._savingFlow = false;
         if (btnSave) {
             btnSave.disabled = false;
             btnSave.textContent = 'Save Flow';
         }
+        // Safety: Always try to release wizard and resume scheduler in finally block
+        await releaseWizardAndResumeScheduler(wizard);
+    }
+}
+
+/**
+ * Release wizard lock and resume scheduler
+ * Safe to call multiple times - operations are idempotent
+ */
+async function releaseWizardAndResumeScheduler(wizard) {
+    // Release wizard lock
+    if (wizard._wizardActiveDevice) {
+        try {
+            console.log('[Step5] Releasing wizard lock...');
+            await fetch(`${getApiBase()}/wizard/release/${encodeURIComponent(wizard._wizardActiveDevice)}`, { method: 'POST' });
+            wizard._wizardActiveDevice = null;
+            console.log('[Step5] Wizard lock released');
+        } catch (e) {
+            console.warn('[Step5] Could not release wizard lock:', e);
+        }
+    }
+
+    // Resume scheduler (safe to call even if not paused)
+    try {
+        await fetch(`${getApiBase()}/scheduler/resume`, { method: 'POST' });
+        console.log('[Step5] Scheduler resumed');
+    } catch (e) {
+        console.warn('[Step5] Could not resume scheduler:', e);
     }
 }
 
