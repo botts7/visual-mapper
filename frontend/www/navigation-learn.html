@@ -650,6 +650,34 @@
                     return;
                 }
 
+                this.updateStatus('learning', 'Preparing...');
+
+                try {
+                    // Step 1: Pause the flow scheduler to prevent interference
+                    console.log('[NavigationLearner] Pausing flow scheduler...');
+                    await this.apiClient.post('/scheduler/pause');
+                    this.schedulerWasPaused = true;
+
+                    // Step 2: Unlock the device if locked
+                    console.log('[NavigationLearner] Unlocking device...');
+                    try {
+                        await this.apiClient.post('/adb/unlock', { device_id: this.deviceId });
+                        await new Promise(r => setTimeout(r, 500));
+                    } catch (e) {
+                        console.warn('[NavigationLearner] Unlock attempt:', e);
+                    }
+
+                    // Step 3: Launch the selected app (if one is selected)
+                    const selectedApp = document.getElementById('appSelect').value;
+                    if (selectedApp) {
+                        console.log('[NavigationLearner] Launching app:', selectedApp);
+                        await this.launchApp(selectedApp);
+                        this.targetPackage = selectedApp;
+                    }
+                } catch (e) {
+                    console.error('[NavigationLearner] Preparation error:', e);
+                }
+
                 this.isLearning = true;
                 document.getElementById('startLearningBtn').style.display = 'none';
                 document.getElementById('stopLearningBtn').style.display = 'inline-block';
@@ -667,7 +695,7 @@
                 }
             }
 
-            stopLearning() {
+            async stopLearning() {
                 this.isLearning = false;
                 document.getElementById('startLearningBtn').style.display = 'inline-block';
                 document.getElementById('stopLearningBtn').style.display = 'none';
@@ -678,6 +706,18 @@
                     this.refreshInterval = null;
                 }
 
+                // Resume the flow scheduler if we paused it
+                if (this.schedulerWasPaused) {
+                    try {
+                        console.log('[NavigationLearner] Resuming flow scheduler...');
+                        await this.apiClient.post('/scheduler/resume');
+                        this.schedulerWasPaused = false;
+                    } catch (e) {
+                        console.error('[NavigationLearner] Failed to resume scheduler:', e);
+                    }
+                }
+
+                this.targetPackage = null;
                 this.updateStatus('connected', 'Stopped');
             }
 
@@ -728,6 +768,28 @@
             }
 
             async recordScreen(packageName, activity) {
+                // Skip system overlays (NotificationShade = Samsung lock screen, StatusBar, etc.)
+                const skipActivities = ['NotificationShade', 'StatusBar', 'Keyguard', 'LockScreen', 'BiometricPrompt'];
+                for (const skip of skipActivities) {
+                    if (activity.includes(skip)) {
+                        console.log(`[NavigationLearner] Skipping system overlay: ${activity}`);
+                        return;
+                    }
+                }
+
+                // Skip system packages
+                const skipPackages = ['com.android.systemui', 'com.samsung.android.app.cocktailbarservice'];
+                if (skipPackages.includes(packageName)) {
+                    console.log(`[NavigationLearner] Skipping system package: ${packageName}`);
+                    return;
+                }
+
+                // If we have a target app, only record screens from that app
+                if (this.targetPackage && packageName !== this.targetPackage) {
+                    console.log(`[NavigationLearner] Wrong app - expected ${this.targetPackage}, got ${packageName}`);
+                    return;
+                }
+
                 // Check if we already know this screen
                 const screenId = this.computeScreenId(activity);
                 const existingScreen = this.screens.find(s => s.screen_id === screenId);
