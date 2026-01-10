@@ -506,64 +506,46 @@ class OnboardingWizard {
 
     /**
      * Handle pairing connection (Android 11+)
+     * The /api/adb/pair endpoint does both pairing AND connecting in one call
      */
     async pairAndConnect() {
         this.showStatus('step3Status', 'Pairing with device...', 'info');
 
-        // Step 1: Pair with device
+        // The pair endpoint handles both pairing and connecting
+        // Must include connection_port so it connects on the right port after pairing
         const pairResponse = await fetch(`${window.API_BASE}/adb/pair`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 ip: this.selectedDevice.ip,
                 pairing_port: this.selectedDevice.pairing_port,
-                pairing_code: this.selectedDevice.pairing_code
+                pairing_code: this.selectedDevice.pairing_code,
+                connection_port: this.selectedDevice.port  // Port to connect on after pairing
             })
         });
 
         if (!pairResponse.ok) {
-            throw new Error(`Pairing failed: ${pairResponse.statusText}`);
+            const errorText = await pairResponse.text();
+            throw new Error(`Pairing failed: ${pairResponse.statusText} - ${errorText}`);
         }
 
         const pairData = await pairResponse.json();
 
-        if (!pairData.success) {
-            throw new Error(pairData.message || 'Pairing failed');
-        }
-
-        this.showStatus('step3Status', 'Paired! Now connecting...', 'info');
-
-        // Step 2: Connect to device
-        const connectResponse = await fetch(`${window.API_BASE}/adb/connect`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                ip: this.selectedDevice.ip,
-                port: this.selectedDevice.port
-            })
-        });
-
-        if (!connectResponse.ok) {
-            throw new Error(`Connection failed: ${connectResponse.statusText}`);
-        }
-
-        const connectData = await connectResponse.json();
-
-        if (connectData.success) {
-            // Update device_id if returned from server
-            if (connectData.device_id) {
-                this.selectedDevice.device_id = connectData.device_id;
+        if (pairData.success) {
+            // Update device_id from pair response (pair endpoint already connected)
+            if (pairData.device_id) {
+                this.selectedDevice.device_id = pairData.device_id;
             }
 
             this.showStatus('step3Status', 'Pairing and connection successful!', 'success');
-            console.log('[Onboarding] Pairing connection test passed');
+            console.log('[Onboarding] Pairing connection test passed, device_id:', this.selectedDevice.device_id);
 
             // Auto-advance to next step after delay
             setTimeout(() => {
                 this.nextStep();
             }, 1500);
         } else {
-            throw new Error(connectData.message || 'Connection failed');
+            throw new Error(pairData.message || 'Pairing failed');
         }
     }
 
