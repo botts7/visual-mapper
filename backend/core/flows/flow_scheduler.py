@@ -1030,6 +1030,12 @@ class FlowScheduler:
 
         has_auto_unlock = security_config and security_config.get('strategy') == LockStrategy.AUTO_UNLOCK.value
 
+        # DEBUG: Log security config status
+        if security_config:
+            logger.info(f"[FlowScheduler] Security config found: strategy={security_config.get('strategy')}, has_auto_unlock={has_auto_unlock}")
+        else:
+            logger.warning(f"[FlowScheduler] No security config found for device {device_id}")
+
         # Check debounce - prevent rapid unlock attempts (matches frontend 30s debounce)
         import time
         last_attempt = self._last_unlock_attempt.get(device_id, 0)
@@ -1080,13 +1086,18 @@ class FlowScheduler:
             logger.debug(f"[FlowScheduler] No AUTO_UNLOCK config - skipping PIN attempt")
 
         if passcode:
+            logger.info(f"[FlowScheduler] Found passcode, attempting PIN unlock for {device_id}")
             try:
                 unlock_success = await self.flow_executor.adb_bridge.unlock_device(device_id, passcode)
                 if unlock_success:
                     logger.info(f"[FlowScheduler] Device unlocked with passcode")
                     return True
+                else:
+                    logger.warning(f"[FlowScheduler] unlock_device returned False")
             except Exception as e:
                 logger.error(f"[FlowScheduler] Passcode unlock error: {e}")
+        else:
+            logger.warning(f"[FlowScheduler] No passcode found for {device_id} (has_auto_unlock={has_auto_unlock})")
 
         # Final check
         is_locked = await self.flow_executor.adb_bridge.is_locked(device_id)
