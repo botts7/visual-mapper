@@ -1977,7 +1977,15 @@ class ADBBridge:
 
     async def unlock_device(self, device_id: str, passcode: str) -> bool:
         """
-        Unlock device with passcode/PIN - simplified approach.
+        Unlock device with passcode/PIN - universal multi-device approach.
+
+        Supports: Samsung (One UI 6+), Google Pixel, OnePlus, Xiaomi, and generic Android.
+
+        Device-specific behaviors:
+        - Samsung: Often doesn't need swipe, just POWER → PIN → ENTER
+        - OnePlus: Often auto-unlocks after last PIN digit (no ENTER needed)
+        - Pixel 7+: Supports POWER/ENTER key aliases
+        - Xiaomi: May require "USB Debugging (Security settings)" enabled
 
         Args:
             device_id: Device identifier
@@ -1991,11 +1999,9 @@ class ADBBridge:
             logger.warning(f"[ADBBridge] Cannot unlock - device {device_id} not found")
             return False
 
-        # Use resolved_id for all failure tracking to ensure consistency
-        # This prevents tracking issues when WiFi IP changes or USB/WiFi switching
         tracking_id = resolved_id or device_id
 
-        # Check cooldown status using resolved ID
+        # Check cooldown status
         status = self.get_unlock_status(tracking_id)
         if status["in_cooldown"]:
             logger.warning(f"[ADBBridge] Device {tracking_id} is in unlock cooldown ({status['cooldown_remaining_seconds']}s remaining)")
@@ -2008,9 +2014,22 @@ class ADBBridge:
         try:
             logger.info(f"[ADBBridge] Unlocking device {device_id} (tracking as {tracking_id})")
 
-            # Step 1: Wake screen and dismiss screensaver
-            await self.wake_screen(device_id)
-            await asyncio.sleep(0.5)
+            # Detect device manufacturer
+            manufacturer = "unknown"
+            try:
+                mfr_output = await conn.shell("getprop ro.product.manufacturer")
+                manufacturer = mfr_output.strip().lower()
+                logger.info(f"[ADBBridge] Device manufacturer: {manufacturer}")
+            except:
+                pass
+
+            # Check screen state: dumpsys power | grep mWakefulness or mScreenOn
+            async def is_screen_on():
+                try:
+                    power_state = await conn.shell("dumpsys power | grep -E 'mWakefulness|mScreenOn'")
+                    return "Awake" in power_state or "mScreenOn=true" in power_state
+                except:
+                    return False
 
             # Check if already unlocked
             if not await self.is_locked(device_id):
@@ -2018,69 +2037,82 @@ class ADBBridge:
                 self.reset_unlock_failures(tracking_id)
                 return True
 
-            # Step 2: Swipe up to reveal PIN entry (with retry for aggressive screen timeout)
-            logger.info(f"[ADBBridge] Swiping to reveal PIN entry...")
-
-            # Get screen dimensions once
+            # Get screen dimensions
             try:
                 wm_output = await conn.shell("wm size")
                 match = re.search(r'(\d+)x(\d+)', wm_output)
-                if match:
-                    width, height = int(match.group(1)), int(match.group(2))
-                else:
-                    width, height = 1920, 1200  # Default for Samsung tablet landscape
+                width, height = (int(match.group(1)), int(match.group(2))) if match else (1920, 1200)
             except:
                 width, height = 1920, 1200
-
+            center_x = width // 2
             logger.debug(f"[ADBBridge] Screen dimensions: {width}x{height}")
 
-            # Try swipe up to 3 times (screen may timeout quickly on lock screen)
-            for swipe_attempt in range(3):
-                # Keep screen awake before each swipe
-                await conn.shell("input keyevent 224")  # WAKEUP
-                await asyncio.sleep(0.1)
+            # STEP 1: Wake screen if off
+            if not await is_screen_on():
+                logger.info(f"[ADBBridge] Screen off - waking device...")
+                await conn.shell("input keyevent 26")  # POWER
+                await asyncio.sleep(0.5)
 
-                # Use touchscreen swipe which works better on Samsung lock screen
-                # Swipe from bottom-center to top-center
-                center_x = width // 2
-                start_y = int(height * 0.85)  # Near bottom
-                end_y = int(height * 0.15)    # Near top
+            # STEP 2: Reveal PIN entry (device-specific)
+            if "samsung" in manufacturer:
+                # Samsung One UI 6+: Often doesn't need swipe, but try MENU key first
+                logger.info(f"[ADBBridge] Samsung device - trying direct PIN entry...")
+                await conn.shell("input keyevent 82")  # MENU to trigger PIN screen
+                await asyncio.sleep(0.3)
+            elif "oneplus" in manufacturer:
+                # OnePlus: Standard swipe
+                logger.info(f"[ADBBridge] OnePlus device - swiping to reveal PIN...")
+                await conn.shell(f"input swipe {center_x} {int(height * 0.8)} {center_x} {int(height * 0.2)} 300")
+                await asyncio.sleep(0.5)
+            elif "google" in manufacturer or "pixel" in manufacturer.lower():
+                # Pixel: Supports POWER alias, use swipe
+                logger.info(f"[ADBBridge] Pixel device - swiping to reveal PIN...")
+                await conn.shell(f"input swipe {center_x} {int(height * 0.8)} {center_x} {int(height * 0.2)} 300")
+                await asyncio.sleep(0.5)
+            else:
+                # Generic Android: Try both MENU key and swipe
+                logger.info(f"[ADBBridge] Generic device - trying MENU key then swipe...")
+                await conn.shell("input keyevent 82")  # MENU
+                await asyncio.sleep(0.3)
+                # Also try swipe as fallback
+                await conn.shell(f"input swipe {center_x} {int(height * 0.8)} {center_x} {int(height * 0.2)} 300")
+                await asyncio.sleep(0.5)
 
-                logger.debug(f"[ADBBridge] Swipe attempt {swipe_attempt + 1}: ({center_x}, {start_y}) -> ({center_x}, {end_y})")
-
-                try:
-                    # Try touchscreen swipe first (more reliable on lock screens)
-                    await conn.shell(f"input touchscreen swipe {center_x} {start_y} {center_x} {end_y} 200")
-                except:
-                    # Fallback to regular swipe
-                    await conn.shell(f"input swipe {center_x} {start_y} {center_x} {end_y} 200")
-
-                await asyncio.sleep(0.4)
-
-                # Check if PIN entry appeared (lock screen bouncer)
-                try:
-                    result = await conn.shell("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'")
-                    if "Bouncer" in result or "KeyguardBouncer" in result or "keyguard" in result.lower():
-                        logger.info(f"[ADBBridge] PIN entry screen detected after swipe")
-                        break
-                except:
-                    pass
-
-            await asyncio.sleep(0.3)
-
-            # Step 3: Enter PIN using input text (simple and reliable)
+            # STEP 3: Enter PIN
             logger.info(f"[ADBBridge] Entering PIN...")
             await conn.shell(f"input text {passcode}")
             await asyncio.sleep(0.3)
 
-            # Step 4: Press Enter to confirm
-            await conn.shell("input keyevent 66")  # KEYCODE_ENTER
-            await asyncio.sleep(1.0)
+            # STEP 4: Confirm PIN (device-specific)
+            if "oneplus" in manufacturer:
+                # OnePlus often auto-unlocks, but send ENTER anyway as fallback
+                logger.info(f"[ADBBridge] OnePlus - checking if auto-unlocked...")
+                await asyncio.sleep(0.5)
+                if await self.is_locked(device_id):
+                    await conn.shell("input keyevent 66")  # ENTER
+                    await asyncio.sleep(0.5)
+            else:
+                # All other devices: press ENTER
+                await conn.shell("input keyevent 66")  # ENTER
+                await asyncio.sleep(1.0)
 
-            # Step 5: Verify unlock
+            # STEP 5: Verify unlock - if still locked, try alternative methods
+            if await self.is_locked(device_id):
+                logger.warning(f"[ADBBridge] Primary unlock failed, trying fallback methods...")
+
+                # Fallback 1: Try swipe then PIN again (Samsung sometimes needs this)
+                await conn.shell("input keyevent 26")  # Wake
+                await asyncio.sleep(0.3)
+                await conn.shell(f"input swipe {center_x} {int(height * 0.9)} {center_x} {int(height * 0.2)} 300")
+                await asyncio.sleep(0.8)
+                await conn.shell(f"input text {passcode}")
+                await asyncio.sleep(0.3)
+                await conn.shell("input keyevent 66")
+                await asyncio.sleep(1.0)
+
+            # Final verification
             still_locked = await self.is_locked(device_id)
             if still_locked:
-                # Record failure using tracking_id for consistent tracking
                 failure_info = self._unlock_failures.get(tracking_id, {"count": 0, "last_attempt": 0, "locked_out": False})
                 failure_info["count"] = failure_info.get("count", 0) + 1
                 failure_info["last_attempt"] = time.time()
@@ -2088,15 +2120,11 @@ class ADBBridge:
 
                 remaining = self._max_unlock_attempts - failure_info["count"]
                 if remaining <= 0:
-                    logger.error(f"[ADBBridge] UNLOCK FAILED for {tracking_id} - Max attempts reached! "
-                                f"Entering {self._unlock_cooldown_seconds}s cooldown to prevent device lockout. "
-                                f"Please unlock device manually and call reset_unlock_failures().")
+                    logger.error(f"[ADBBridge] UNLOCK FAILED for {tracking_id} - Max attempts reached!")
                 else:
-                    logger.warning(f"[ADBBridge] Unlock failed for {tracking_id} - {remaining} attempts remaining before cooldown")
-
+                    logger.warning(f"[ADBBridge] Unlock failed for {tracking_id} - {remaining} attempts remaining")
                 return False
 
-            # Success - reset failure count
             logger.info(f"[ADBBridge] Device {tracking_id} unlocked successfully")
             self.reset_unlock_failures(tracking_id)
             return True
