@@ -175,6 +175,16 @@ class SensorCollectionFlow(BaseModel):
     verify_screen_on: bool = Field(True, description="Fail flow if screen fails to wake")
     wake_timeout_ms: int = Field(3000, ge=1000, le=10000, description="Max time to wait for screen wake")
 
+    # Backtrack (Return to Start) - For faster subsequent runs
+    backtrack_after: bool = Field(
+        True,
+        description="Navigate back to starting screen after flow completes (enables faster next run)"
+    )
+    backtrack_to_app_home: bool = Field(
+        False,
+        description="If true, backtrack to app home instead of first capture screen"
+    )
+
     # Metadata
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
