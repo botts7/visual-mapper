@@ -69,6 +69,7 @@ class DeviceSecurityUI {
         const currentStrategy = this.currentConfig?.strategy || 'manual_only';
         const hasPasscode = this.currentConfig?.has_passcode || false;
         const notes = this.currentConfig?.notes || '';
+        const sleepGracePeriod = this.currentConfig?.sleep_grace_period || 300;
 
         this.container.innerHTML = `
             <div class="security-config">
@@ -161,6 +162,17 @@ class DeviceSecurityUI {
                     <textarea id="security-notes" class="form-control" rows="2" placeholder="Add notes about this configuration">${notes}</textarea>
                 </div>
 
+                <div class="form-group" id="grace-period-section" style="display: ${currentStrategy === 'auto_unlock' ? 'block' : 'none'};">
+                    <label for="sleep-grace-period">Sleep Grace Period:</label>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <input type="range" id="sleep-grace-period" class="form-range"
+                               min="60" max="600" step="30" value="${sleepGracePeriod}"
+                               style="flex: 1;">
+                        <span id="grace-period-value" style="min-width: 60px;">${Math.round(sleepGracePeriod / 60)} min</span>
+                    </div>
+                    <small class="form-text">Don't sleep screen if another flow is scheduled within this time</small>
+                </div>
+
                 <div class="security-actions">
                     <button type="button" class="btn btn-primary" id="save-security">
                         Save Configuration
@@ -212,6 +224,16 @@ class DeviceSecurityUI {
         if (cancelBtn) {
             cancelBtn.addEventListener('click', () => this.cancel());
         }
+
+        // Grace period slider
+        const gracePeriodSlider = this.container.querySelector('#sleep-grace-period');
+        const gracePeriodValue = this.container.querySelector('#grace-period-value');
+        if (gracePeriodSlider && gracePeriodValue) {
+            gracePeriodSlider.addEventListener('input', () => {
+                const minutes = Math.round(gracePeriodSlider.value / 60);
+                gracePeriodValue.textContent = `${minutes} min`;
+            });
+        }
     }
 
     /**
@@ -220,11 +242,14 @@ class DeviceSecurityUI {
     onStrategyChange() {
         const selectedStrategy = this.container.querySelector('input[name="lock-strategy"]:checked')?.value;
         const passcodeSection = this.container.querySelector('#passcode-section');
+        const gracePeriodSection = this.container.querySelector('#grace-period-section');
 
         if (selectedStrategy === 'auto_unlock') {
             passcodeSection.style.display = 'block';
+            gracePeriodSection.style.display = 'block';
         } else {
             passcodeSection.style.display = 'none';
+            gracePeriodSection.style.display = 'none';
         }
     }
 
@@ -311,6 +336,8 @@ class DeviceSecurityUI {
         const passcode = passcodeInput?.value;
         const notesInput = this.container.querySelector('#security-notes');
         const notes = notesInput?.value;
+        const gracePeriodSlider = this.container.querySelector('#sleep-grace-period');
+        const sleepGracePeriod = gracePeriodSlider ? parseInt(gracePeriodSlider.value) : 300;
 
         // Validate
         if (!selectedStrategy) {
@@ -324,11 +351,12 @@ class DeviceSecurityUI {
         }
 
         try {
-            console.log('[DeviceSecurity] Saving configuration:', { strategy: selectedStrategy });
+            console.log('[DeviceSecurity] Saving configuration:', { strategy: selectedStrategy, sleepGracePeriod });
 
             const payload = {
                 strategy: selectedStrategy,
-                notes: notes
+                notes: notes,
+                sleep_grace_period: sleepGracePeriod
             };
 
             // Only include passcode if it's entered (for auto_unlock or updating existing)
