@@ -1,32 +1,44 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
     <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#3DDC84;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#2eb86e;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2563eb;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="deviceGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e5e7eb;stop-opacity:1" />
     </linearGradient>
   </defs>
 
-  <!-- Background rounded square - Android green -->
-  <rect width="64" height="64" rx="8" fill="url(#bgGradient)"/>
+  <!-- Background rounded square -->
+  <rect width="64" height="64" rx="12" fill="url(#bgGradient)"/>
 
-  <!-- Android robot head -->
-  <g transform="translate(32, 32)">
-    <!-- Head -->
-    <rect x="-16" y="-8" width="32" height="26" rx="4" fill="#ffffff"/>
+  <!-- Device outline (smartphone) -->
+  <rect x="20" y="12" width="24" height="40" rx="2" fill="url(#deviceGradient)" stroke="#1e40af" stroke-width="1.5"/>
 
-    <!-- Eyes -->
-    <circle cx="-7" cy="0" r="2.5" fill="#3DDC84"/>
-    <circle cx="7" cy="0" r="2.5" fill="#3DDC84"/>
+  <!-- Device screen -->
+  <rect x="22" y="16" width="20" height="32" rx="1" fill="#1e3a8a"/>
 
-    <!-- Antennas -->
-    <line x1="-8" y1="-8" x2="-12" y2="-16" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
-    <line x1="8" y1="-8" x2="12" y2="-16" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+  <!-- Grid/mapping overlay on screen -->
+  <g opacity="0.7">
+    <!-- Vertical lines -->
+    <line x1="28" y1="16" x2="28" y2="48" stroke="#60a5fa" stroke-width="0.5"/>
+    <line x1="32" y1="16" x2="32" y2="48" stroke="#60a5fa" stroke-width="0.5"/>
+    <line x1="36" y1="16" x2="36" y2="48" stroke="#60a5fa" stroke-width="0.5"/>
 
-    <!-- Phone screen overlay (blue) -->
-    <rect x="-10" y="6" width="20" height="12" rx="2" fill="#2196F3" opacity="0.9"/>
-
-    <!-- Screen lines -->
-    <rect x="-8" y="8" width="16" height="2" rx="1" fill="#ffffff" opacity="0.6"/>
-    <rect x="-8" y="12" width="10" height="2" rx="1" fill="#ffffff" opacity="0.6"/>
+    <!-- Horizontal lines -->
+    <line x1="22" y1="24" x2="42" y2="24" stroke="#60a5fa" stroke-width="0.5"/>
+    <line x1="22" y1="32" x2="42" y2="32" stroke="#60a5fa" stroke-width="0.5"/>
+    <line x1="22" y1="40" x2="42" y2="40" stroke="#60a5fa" stroke-width="0.5"/>
   </g>
+
+  <!-- Highlighted element (shows visual mapping feature) -->
+  <rect x="28" y="24" width="8" height="8" rx="1" fill="#ec4899" opacity="0.8"/>
+
+  <!-- Crosshair/target indicator -->
+  <circle cx="32" cy="28" r="3" fill="none" stroke="#fff" stroke-width="1"/>
+  <line x1="32" y1="25" x2="32" y2="27" stroke="#fff" stroke-width="1"/>
+  <line x1="32" y1="29" x2="32" y2="31" stroke="#fff" stroke-width="1"/>
+  <line x1="29" y1="28" x2="31" y2="28" stroke="#fff" stroke-width="1"/>
+  <line x1="33" y1="28" x2="35" y2="28" stroke="#fff" stroke-width="1"/>
 </svg>
