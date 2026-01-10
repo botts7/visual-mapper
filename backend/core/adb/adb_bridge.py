@@ -2700,24 +2700,27 @@ class ADBBridge:
                     # First try: Collapse status bar via system command (most direct)
                     await conn.shell("cmd statusbar collapse")
                 elif attempt == 1:
-                    # Second try: HOME key
-                    await conn.shell("input keyevent 3")  # HOME
+                    # Second try: Broadcast to close system dialogs (Samsung-friendly)
+                    await conn.shell("am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS")
                 elif attempt == 2:
-                    # Third try: Swipe up aggressively from very bottom
-                    await conn.shell("input swipe 540 2200 540 200 150")
+                    # Third try: HOME key
+                    await conn.shell("input keyevent 3")  # HOME
                 elif attempt == 3:
-                    # Fourth try: BACK key
-                    await conn.shell("input keyevent 4")  # BACK
+                    # Fourth try: Swipe up aggressively from very bottom
+                    await conn.shell("input swipe 540 2200 540 200 150")
                 elif attempt == 4:
-                    # Fifth try: Tap in center of screen (dismiss by touch)
-                    await conn.shell("input tap 540 1200")
+                    # Fifth try: BACK key
+                    await conn.shell("input keyevent 4")  # BACK
                 elif attempt == 5:
-                    # Sixth try: Double HOME
+                    # Sixth try: Tap in center of screen (dismiss by touch)
+                    await conn.shell("input tap 540 1200")
+                elif attempt == 6:
+                    # Seventh try: Double HOME
                     await conn.shell("input keyevent 3")
                     await asyncio.sleep(0.2)
                     await conn.shell("input keyevent 3")
-                elif attempt == 6:
-                    # Seventh try: Multiple rapid swipes up
+                elif attempt == 7:
+                    # Eighth try: Multiple rapid swipes up
                     await conn.shell("input swipe 540 1900 540 400 100")
                     await asyncio.sleep(0.1)
                     await conn.shell("input swipe 540 1900 540 400 100")
@@ -2738,6 +2741,11 @@ class ADBBridge:
             if current and "NotificationShade" not in current:
                 return True
             logger.warning(f"[ADBBridge] Could not clear UI overlay after {max_attempts} attempts: {current}")
+            logger.warning(f"[ADBBridge] TIP: If NotificationShade keeps appearing on Samsung devices:")
+            logger.warning(f"[ADBBridge]   1. Swipe up on the tablet to dismiss notifications")
+            logger.warning(f"[ADBBridge]   2. Disable edge panel gestures: Settings > Display > Edge panels")
+            logger.warning(f"[ADBBridge]   3. Disable notification reminder: Settings > Notifications > Advanced")
+            logger.warning(f"[ADBBridge]   4. The flow will retry on next schedule")
         except:
             pass
 
