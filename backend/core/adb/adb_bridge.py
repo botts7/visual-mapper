@@ -2738,7 +2738,21 @@ class ADBBridge:
 
             # Aggressively clear any UI overlays before launching app
             # Samsung tablets often have persistent notification shade issues
-            await self._ensure_clean_ui_state(device_id, conn, resolved_id)
+            ui_clean = await self._ensure_clean_ui_state(device_id, conn, resolved_id)
+
+            # If UI state couldn't be cleared, device might be locked
+            if not ui_clean:
+                # Check if device is locked and try to unlock
+                if await self.is_locked(device_id):
+                    logger.info(f"[ADBBridge] Device locked before app launch - attempting unlock")
+                    await self.unlock_screen(device_id)
+                    await asyncio.sleep(0.5)
+
+                    # Check if still locked after unlock attempt
+                    if await self.is_locked(device_id):
+                        logger.warning(f"[ADBBridge] Device still locked - app launch may fail. PIN unlock may be required.")
+                    else:
+                        logger.info(f"[ADBBridge] Device unlocked - proceeding with app launch")
 
             logger.info(f"[ADBBridge] Launching app {package_name} on {device_id}")
 
