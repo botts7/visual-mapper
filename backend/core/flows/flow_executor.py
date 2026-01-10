@@ -252,6 +252,16 @@ class FlowExecutor:
                 logger.debug("[FlowExecutor] No target package found, skipping initialization")
             # ==================================================
 
+            # Track starting activity for backtrack
+            starting_activity = None
+            navigation_depth = 0  # Count of screen-changing taps
+            if flow.backtrack_after:
+                try:
+                    starting_activity = await self.adb_bridge.get_current_activity(flow.device_id)
+                    logger.debug(f"[FlowExecutor] Tracking start activity for backtrack: {starting_activity}")
+                except Exception as e:
+                    logger.debug(f"[FlowExecutor] Could not get starting activity: {e}")
+
             # Execute steps sequentially
             for i, step in enumerate(flow.steps):
                 # Timeout check
@@ -285,6 +295,14 @@ class FlowExecutor:
                     if next_step and next_step.screen_activity and step.screen_activity:
                         if next_step.screen_activity != step.screen_activity:
                             step.expected_activity = next_step.screen_activity
+
+                # Track activity before step for backtrack counting
+                activity_before_step = None
+                if flow.backtrack_after and step.step_type == FlowStepType.TAP:
+                    try:
+                        activity_before_step = await self.adb_bridge.get_current_activity(flow.device_id)
+                    except:
+                        pass
 
                 # Execute step with retry
                 try:
@@ -345,6 +363,17 @@ class FlowExecutor:
 
                     result.executed_steps += 1
 
+                    # Track navigation depth for backtrack (count screen-changing taps)
+                    if flow.backtrack_after and step.step_type == FlowStepType.TAP and success and activity_before_step:
+                        try:
+                            activity_after_step = await self.adb_bridge.get_current_activity(flow.device_id)
+                            if activity_after_step and activity_after_step != activity_before_step:
+                                # Screen changed - increment navigation depth
+                                navigation_depth += 1
+                                logger.debug(f"  [Backtrack] Navigation depth now: {navigation_depth}")
+                        except:
+                            pass
+
                     # Learn Mode: Capture UI elements after screen-changing steps
                     if learn_mode and success:
                         learn_step_types = {
@@ -399,6 +428,27 @@ class FlowExecutor:
                 flow.last_success = True
                 flow.last_error = None
                 logger.info(f"[FlowExecutor] Flow {flow.flow_id} completed successfully")
+
+                # Backtrack: Navigate back to starting screen for faster next run
+                if flow.backtrack_after and navigation_depth > 0:
+                    logger.info(f"  [Backtrack] Navigating back {navigation_depth} screen(s) to starting position")
+                    try:
+                        for back_step in range(navigation_depth):
+                            await self.adb_bridge.keyevent(flow.device_id, "KEYCODE_BACK")
+                            await asyncio.sleep(0.4)  # Brief wait between backs
+
+                        # Verify we're back at starting activity
+                        if starting_activity:
+                            await asyncio.sleep(0.3)
+                            current = await self.adb_bridge.get_current_activity(flow.device_id)
+                            if current and self._activity_matches(current, starting_activity):
+                                logger.info(f"  [Backtrack] Successfully returned to starting screen")
+                            else:
+                                logger.debug(f"  [Backtrack] Ended on {current}, started on {starting_activity}")
+                    except Exception as e:
+                        logger.warning(f"  [Backtrack] Failed to navigate back: {e}")
+                elif flow.backtrack_after:
+                    logger.debug(f"  [Backtrack] No navigation to backtrack (depth=0)")
             else:
                 flow.failure_count += 1
                 flow.last_success = False
