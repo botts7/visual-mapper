@@ -9,7 +9,7 @@
  * - Global initialization
  */
 
-const APP_VERSION = '0.0.51';
+const APP_VERSION = '0.0.70';
 
 // API Base Detection (for Home Assistant ingress)
 function getApiBase() {
@@ -39,25 +39,46 @@ console.log(`[Init] Visual Mapper v${APP_VERSION}`);
 console.log(`[Init] API Base: ${window.API_BASE}`);
 
 // Onboarding check - redirect to onboarding.html if not completed
-// NOTE: Disabled for existing projects - set localStorage.setItem('onboarding_complete', 'true') to skip
-function checkOnboarding() {
+// To reset onboarding for testing: localStorage.removeItem('onboarding_complete')
+async function checkOnboarding() {
     // Don't check if we're already on onboarding page
     const currentPage = window.location.pathname.split('/').pop();
     if (currentPage === 'onboarding.html') {
         return false; // Don't redirect
     }
 
-    // For existing projects, auto-complete onboarding (one-time migration)
-    // This allows existing users to continue without seeing onboarding again
-    if (!localStorage.getItem('onboarding_complete')) {
-        // Check if user has any existing data (devices, sensors, flows configured)
-        // For now, just auto-complete to not break existing workflows
-        console.log('[Init] Auto-completing onboarding for existing project');
-        localStorage.setItem('onboarding_complete', 'true');
+    // If onboarding already marked complete, skip
+    if (localStorage.getItem('onboarding_complete') === 'true') {
+        console.log('[Init] Onboarding already complete');
+        return false;
     }
 
-    console.log('[Init] Onboarding complete');
-    return false; // Not redirecting
+    // Check if there are existing devices (indicates existing user)
+    try {
+        const response = await fetch(`${window.API_BASE}/devices`, {
+            method: 'GET',
+            cache: 'no-store'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            const devices = data.devices || data || [];
+            if (Array.isArray(devices) && devices.length > 0) {
+                // Existing user with devices - auto-complete onboarding
+                console.log(`[Init] Found ${devices.length} existing device(s), auto-completing onboarding`);
+                localStorage.setItem('onboarding_complete', 'true');
+                return false;
+            }
+        }
+    } catch (e) {
+        console.log('[Init] Could not check for existing devices:', e.message);
+        // On error, don't redirect - let user use the app normally
+        return false;
+    }
+
+    // No devices found and onboarding not complete - redirect to onboarding
+    console.log('[Init] New user detected, redirecting to onboarding');
+    window.location.href = 'onboarding.html';
+    return true; // Redirecting
 }
 
 // Modules to load
@@ -76,7 +97,7 @@ async function initApp() {
     console.log('[Init] Starting initialization');
 
     // Check onboarding status and redirect if needed
-    if (checkOnboarding()) {
+    if (await checkOnboarding()) {
         return; // Redirecting to onboarding, stop initialization
     }
 
