@@ -33,10 +33,11 @@ COPY scripts ./scripts
 COPY ss_modules ./ss_modules
 COPY *.py ./
 
-# Create data directory
+# Create data directory for persistent storage
 RUN mkdir -p /app/data && chown -R visualmapper:visualmapper /app/data
 
 # Environment variables
+ENV DATA_DIR=/app/data
 ENV MQTT_BROKER=localhost
 ENV MQTT_PORT=1883
 
