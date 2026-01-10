@@ -1794,10 +1794,7 @@ class ADBBridge:
         """
         Attempt to unlock the screen (works for swipe-to-unlock, not PIN/pattern).
 
-        Tries multiple unlock methods in sequence:
-        1. wm dismiss-keyguard (Android 8+, most reliable)
-        2. MENU key
-        3. Swipe up gesture
+        Tries multiple unlock methods in sequence, including Samsung-specific approaches.
 
         Args:
             device_id: Device identifier
@@ -1812,17 +1809,59 @@ class ADBBridge:
         try:
             logger.info(f"[ADBBridge] Unlocking screen on {resolved_id}")
 
+            # Get screen dimensions for swipe calculations
+            width, height = 1920, 1200  # Samsung tablet defaults
+            try:
+                wm_output = await conn.shell("wm size")
+                match = re.search(r'(\d+)x(\d+)', wm_output)
+                if match:
+                    width, height = int(match.group(1)), int(match.group(2))
+                    logger.debug(f"[ADBBridge] Screen size: {width}x{height}")
+            except:
+                pass
+            center_x = width // 2
+
+            # Ensure screen is awake first
+            await conn.shell("input keyevent 224")  # WAKEUP
+            await asyncio.sleep(0.2)
+
             # Method 1: wm dismiss-keyguard (most reliable on Android 8+)
             try:
                 await conn.shell("wm dismiss-keyguard")
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
                 if not await self.is_locked(device_id):
                     logger.info(f"[ADBBridge] Screen unlocked via wm dismiss-keyguard")
                     return True
             except Exception as e:
                 logger.debug(f"[ADBBridge] wm dismiss-keyguard failed: {e}")
 
-            # Method 2: MENU key (often dismisses lock screen on swipe-to-unlock)
+            # Method 2: Samsung swipe - from bottom center upward (fast swipe)
+            # Samsung tablets need swipe from very bottom to middle
+            try:
+                start_y = int(height * 0.95)  # Near bottom
+                end_y = int(height * 0.3)     # To upper-middle
+                logger.debug(f"[ADBBridge] Samsung swipe: {center_x},{start_y} -> {center_x},{end_y}")
+                await conn.shell(f"input touchscreen swipe {center_x} {start_y} {center_x} {end_y} 150")
+                await asyncio.sleep(0.5)
+                if not await self.is_locked(device_id):
+                    logger.info(f"[ADBBridge] Screen unlocked via Samsung swipe")
+                    return True
+            except Exception as e:
+                logger.debug(f"[ADBBridge] Samsung swipe failed: {e}")
+
+            # Method 3: Double-tap then swipe (Samsung sometimes needs this)
+            try:
+                await conn.shell(f"input tap {center_x} {int(height * 0.7)}")
+                await asyncio.sleep(0.1)
+                await conn.shell(f"input touchscreen swipe {center_x} {int(height * 0.9)} {center_x} {int(height * 0.2)} 200")
+                await asyncio.sleep(0.5)
+                if not await self.is_locked(device_id):
+                    logger.info(f"[ADBBridge] Screen unlocked via tap+swipe")
+                    return True
+            except Exception as e:
+                logger.debug(f"[ADBBridge] Tap+swipe failed: {e}")
+
+            # Method 4: MENU key
             try:
                 await conn.shell("input keyevent 82")  # KEYCODE_MENU
                 await asyncio.sleep(0.3)
@@ -1832,27 +1871,7 @@ class ADBBridge:
             except Exception as e:
                 logger.debug(f"[ADBBridge] MENU key failed: {e}")
 
-            # Method 3: Swipe up (works on most devices including Samsung)
-            try:
-                wm_output = await conn.shell("wm size")
-                match = re.search(r'(\d+)x(\d+)', wm_output)
-                if match:
-                    width, height = int(match.group(1)), int(match.group(2))
-                else:
-                    width, height = 1080, 1920
-                center_x = width // 2
-                # Swipe from 85% height to 15% height (long swipe)
-                await conn.shell(f"input swipe {center_x} {int(height * 0.85)} {center_x} {int(height * 0.15)} 300")
-                await asyncio.sleep(0.3)
-                if not await self.is_locked(device_id):
-                    logger.info(f"[ADBBridge] Screen unlocked via swipe")
-                    return True
-            except Exception as e:
-                logger.debug(f"[ADBBridge] Swipe failed: {e}")
-                # Fallback with hardcoded coordinates
-                await conn.shell("input swipe 540 1800 540 300 300")
-
-            # Method 4: HOME key (sometimes helps on Samsung)
+            # Method 5: HOME key (sometimes helps on Samsung)
             try:
                 await conn.shell("input keyevent 3")  # HOME
                 await asyncio.sleep(0.3)
@@ -1862,8 +1881,20 @@ class ADBBridge:
             except Exception as e:
                 logger.debug(f"[ADBBridge] HOME key failed: {e}")
 
+            # Method 6: Multiple rapid swipes (aggressive unlock)
+            try:
+                for i in range(3):
+                    await conn.shell(f"input touchscreen swipe {center_x} {int(height * 0.9)} {center_x} {int(height * 0.1)} 100")
+                    await asyncio.sleep(0.15)
+                await asyncio.sleep(0.3)
+                if not await self.is_locked(device_id):
+                    logger.info(f"[ADBBridge] Screen unlocked via rapid swipes")
+                    return True
+            except Exception as e:
+                logger.debug(f"[ADBBridge] Rapid swipes failed: {e}")
+
             # Final return - we tried our best
-            logger.debug(f"[ADBBridge] All swipe-unlock methods attempted for {device_id}")
+            logger.warning(f"[ADBBridge] All swipe-unlock methods attempted for {device_id} - may still be locked")
             return True
 
         except Exception as e:
