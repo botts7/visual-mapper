@@ -2610,7 +2610,7 @@ class ADBBridge:
             logger.error(f"[ADBBridge] Failed to launch app {package_name}: {e}")
             return False
 
-    async def _ensure_clean_ui_state(self, device_id: str, conn, resolved_id: str, max_attempts: int = 5) -> bool:
+    async def _ensure_clean_ui_state(self, device_id: str, conn, resolved_id: str, max_attempts: int = 8) -> bool:
         """
         Ensure the device UI is in a clean state (no notification shade, no dialogs).
         Uses BACK key presses (confirmed to work on Samsung tablets).
@@ -2641,22 +2641,35 @@ class ADBBridge:
 
                 # Try different dismissal strategies based on attempt number
                 if attempt == 0:
-                    # First try: HOME key (most reliable for NotificationShade)
-                    await conn.shell("input keyevent 3")  # HOME
+                    # First try: Collapse status bar via system command (most direct)
+                    await conn.shell("cmd statusbar collapse")
                 elif attempt == 1:
-                    # Second try: BACK key
-                    await conn.shell("input keyevent 4")  # BACK
+                    # Second try: HOME key
+                    await conn.shell("input keyevent 3")  # HOME
                 elif attempt == 2:
-                    # Third try: Swipe up from bottom (dismisses notification panel)
-                    await conn.shell("input swipe 540 1800 540 500 200")
+                    # Third try: Swipe up aggressively from very bottom
+                    await conn.shell("input swipe 540 2200 540 200 150")
                 elif attempt == 3:
-                    # Fourth try: Double HOME then wait
+                    # Fourth try: BACK key
+                    await conn.shell("input keyevent 4")  # BACK
+                elif attempt == 4:
+                    # Fifth try: Tap in center of screen (dismiss by touch)
+                    await conn.shell("input tap 540 1200")
+                elif attempt == 5:
+                    # Sixth try: Double HOME
                     await conn.shell("input keyevent 3")
                     await asyncio.sleep(0.2)
                     await conn.shell("input keyevent 3")
+                elif attempt == 6:
+                    # Seventh try: Multiple rapid swipes up
+                    await conn.shell("input swipe 540 1900 540 400 100")
+                    await asyncio.sleep(0.1)
+                    await conn.shell("input swipe 540 1900 540 400 100")
                 else:
-                    # Final tries: BACK repeatedly
+                    # Final tries: BACK + HOME combo
                     await conn.shell("input keyevent 4")
+                    await asyncio.sleep(0.1)
+                    await conn.shell("input keyevent 3")
 
                 await asyncio.sleep(0.5)  # Give time for UI to update
 
