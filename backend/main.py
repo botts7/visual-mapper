@@ -808,6 +808,39 @@ async def lifespan(app: FastAPI):
     # Initialize route dependencies (modular architecture)
     _init_route_dependencies()
 
+    # ML Training Server (optional - based on config)
+    ml_training_thread = None
+    ml_training_mode = os.getenv("ML_TRAINING_MODE", "disabled").lower()
+
+    if ml_training_mode == "local":
+        try:
+            from ml_components.ml_training_server import MLTrainingServer
+
+            ml_server = MLTrainingServer(
+                broker=MQTT_BROKER,
+                port=MQTT_PORT,
+                username=MQTT_USERNAME if MQTT_USERNAME else None,
+                password=MQTT_PASSWORD if MQTT_PASSWORD else None,
+                data_dir=str(DATA_DIR)
+            )
+
+            import threading
+            ml_training_thread = threading.Thread(target=ml_server.start, daemon=True)
+            ml_training_thread.start()
+            logger.info("[Server] ✅ ML Training Server started (local mode)")
+        except ImportError as e:
+            logger.warning(f"[Server] ⚠️ ML Training dependencies not available: {e}")
+        except Exception as e:
+            logger.error(f"[Server] Failed to start ML Training Server: {e}")
+    elif ml_training_mode == "remote":
+        ml_remote_host = os.getenv("ML_REMOTE_HOST", "")
+        if ml_remote_host:
+            logger.info(f"[Server] ✅ ML Training delegated to remote server: {ml_remote_host}")
+        else:
+            logger.warning("[Server] ⚠️ ML Training mode is 'remote' but ML_REMOTE_HOST not set")
+    else:
+        logger.info("[Server] ML Training disabled")
+
     yield
 
     logger.info("[Server] Shutting down Visual Mapper...")

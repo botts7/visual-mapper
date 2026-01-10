@@ -27,6 +27,7 @@ class FeatureManager:
         # Default flags
         self._flags = {
             "ml_enabled": self._get_env_bool("ML_ENABLED", False),
+            "ml_training": self._get_env_bool("ML_TRAINING", False),
             "real_icons_enabled": self._get_env_bool("ENABLE_REAL_ICONS", True),
             "advanced_navigation": self._get_env_bool("ADVANCED_NAVIGATION", False),
             "hybrid_execution": self._get_env_bool("HYBRID_EXECUTION", True),
