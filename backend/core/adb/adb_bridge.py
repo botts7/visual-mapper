@@ -1887,28 +1887,56 @@ class ADBBridge:
             logger.error(f"[ADBBridge] Failed to unlock screen: {e}")
             return False
 
-    async def unlock_screen_samsung(self, device_id: str, max_retries: int = 3) -> bool:
+    async def unlock_screen_samsung(self, device_id: str, max_retries: int = 2, skip_swipe_if_pin: bool = True) -> bool:
         """
         Samsung-specific unlock with retry loops and state verification.
 
+        OPTIMIZED: If device has PIN configured, tries swipe once then falls back to PIN
+        to avoid wasting time on swipe attempts that can never succeed.
+
         Flow:
-        1. Dismiss screensaver if active
-        2. Wake screen and wait for stabilization (1.5s for Samsung)
-        3. Verify screen state using get_samsung_screen_state()
-        4. Execute unlock strategy based on state
-        5. Verify unlock succeeded
-        6. Retry with progressive delays if needed
+        1. Check if PIN is configured - if so, limit swipe attempts
+        2. Dismiss screensaver if active
+        3. Wake screen and wait for stabilization (1.5s for Samsung)
+        4. Try quick swipe unlock (1 attempt if PIN configured, otherwise retry)
+        5. If PIN configured and swipe failed, return False to let caller try PIN
 
         Args:
             device_id: Device identifier
-            max_retries: Maximum unlock attempts (default 3)
+            max_retries: Maximum unlock attempts (default 2, reduced from 3)
+            skip_swipe_if_pin: If True and PIN is configured, only try swipe once
 
         Returns:
-            True if device is unlocked, False if still locked
+            True if device is unlocked, False if still locked (may need PIN)
         """
         conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
+
+        # Check if device has PIN configured - if so, don't waste time on swipe retries
+        has_pin_configured = False
+        if skip_swipe_if_pin:
+            try:
+                from utils.device_security import SecurityManager, LockStrategy
+                security_mgr = SecurityManager()
+                config = security_mgr.get_lock_config(device_id)
+                if not config:
+                    stable_id = await self.get_stable_device_id(device_id)
+                    if stable_id:
+                        config = security_mgr.get_lock_config(stable_id)
+                if config and config.get('strategy') == LockStrategy.AUTO_UNLOCK.value:
+                    passcode = security_mgr.get_passcode(device_id)
+                    if not passcode:
+                        stable_id = await self.get_stable_device_id(device_id)
+                        if stable_id:
+                            passcode = security_mgr.get_passcode(stable_id)
+                    has_pin_configured = bool(passcode)
+            except:
+                pass
+
+        if has_pin_configured:
+            logger.info(f"[ADBBridge] PIN configured - limiting swipe attempts to 1")
+            max_retries = 1  # Only try swipe once if PIN is available
 
         logger.info(f"[ADBBridge] Samsung unlock sequence starting for {device_id}")
 
@@ -1977,56 +2005,55 @@ class ADBBridge:
             if state in ("LOCKED_LOCKSCREEN", "LOCKED_PIN_ENTRY"):
                 logger.info(f"[ADBBridge] Attempting Samsung lock screen unlock...")
 
-                # Strategy 1: wm dismiss-keyguard (works for swipe-only)
+                # Strategy 1: wm dismiss-keyguard (works for swipe-only, quick)
                 logger.debug(f"[ADBBridge] Samsung trying: wm dismiss-keyguard")
                 await conn.shell("wm dismiss-keyguard")
-                await asyncio.sleep(0.6 + retry_delay)
+                await asyncio.sleep(0.5)
 
                 state = await self.get_samsung_screen_state(device_id)
                 if state == "UNLOCKED":
                     logger.info(f"[ADBBridge] Samsung unlocked via dismiss-keyguard")
                     return True
 
-                # Strategy 2: MENU key (Samsung-specific)
-                logger.debug(f"[ADBBridge] Samsung trying: MENU key")
+                # Strategy 2: MENU key + swipe (combined for speed)
+                logger.debug(f"[ADBBridge] Samsung trying: MENU + swipe")
                 await conn.shell("input keyevent 82")
-                await asyncio.sleep(0.5 + retry_delay)
+                await asyncio.sleep(0.3)
+                await conn.shell(f"input swipe {center_x} {int(height * 0.95)} {center_x} {int(height * 0.15)} 350")
+                await asyncio.sleep(0.5)
 
                 state = await self.get_samsung_screen_state(device_id)
                 if state == "UNLOCKED":
-                    logger.info(f"[ADBBridge] Samsung unlocked via MENU key")
+                    logger.info(f"[ADBBridge] Samsung unlocked via MENU + swipe")
                     return True
 
-                # Strategy 3: Bottom edge swipe (Samsung One UI)
-                logger.debug(f"[ADBBridge] Samsung trying: bottom edge swipe")
-                await conn.shell(f"input swipe {center_x} {int(height * 0.95)} {center_x} {int(height * 0.15)} 400")
-                await asyncio.sleep(0.7 + retry_delay)
+                # If PIN is configured, don't waste time with more swipe strategies
+                # Just return False so caller can try PIN
+                if has_pin_configured:
+                    logger.info(f"[ADBBridge] PIN configured, skipping additional swipe strategies")
+                    return False
 
-                state = await self.get_samsung_screen_state(device_id)
-                if state == "UNLOCKED":
-                    logger.info(f"[ADBBridge] Samsung unlocked via swipe")
-                    return True
-
-                # Strategy 4: Double-tap + swipe
+                # Additional strategies only for non-PIN devices
+                # Strategy 3: Double-tap + swipe
                 logger.debug(f"[ADBBridge] Samsung trying: double-tap + swipe")
                 await conn.shell(f"input tap {center_x} {height // 2}")
                 await asyncio.sleep(0.15)
                 await conn.shell(f"input tap {center_x} {height // 2}")
-                await asyncio.sleep(0.4)
-                await conn.shell(f"input swipe {center_x} {int(height * 0.85)} {center_x} {int(height * 0.2)} 350")
-                await asyncio.sleep(0.7 + retry_delay)
+                await asyncio.sleep(0.3)
+                await conn.shell(f"input swipe {center_x} {int(height * 0.85)} {center_x} {int(height * 0.2)} 300")
+                await asyncio.sleep(0.5)
 
                 state = await self.get_samsung_screen_state(device_id)
                 if state == "UNLOCKED":
                     logger.info(f"[ADBBridge] Samsung unlocked via double-tap + swipe")
                     return True
 
-                # Strategy 5: POWER + MENU combo
+                # Strategy 4: POWER + MENU combo
                 logger.debug(f"[ADBBridge] Samsung trying: POWER + MENU combo")
                 await conn.shell("input keyevent 26")
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(0.3)
                 await conn.shell("input keyevent 82")
-                await asyncio.sleep(0.6 + retry_delay)
+                await asyncio.sleep(0.5)
 
                 state = await self.get_samsung_screen_state(device_id)
                 if state == "UNLOCKED":
