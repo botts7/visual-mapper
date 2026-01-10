@@ -96,7 +96,10 @@ export async function saveFlow(wizard) {
         // Use connection ID for execution, stable ID for storage
         const deviceId = wizard.selectedDevice;
         const stableDeviceId = wizard.selectedDeviceStableId || deviceId;
-        const flowId = `flow_${stableDeviceId.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
+
+        // Check if we're editing an existing flow
+        const isEditing = wizard.isFlowEditMode && wizard.isFlowEditMode();
+        const flowId = isEditing ? wizard.editingFlowId : `flow_${stableDeviceId.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
 
         // Headless mode options
         const autoWakeBefore = document.getElementById('autoWakeBefore')?.checked ?? true;
@@ -123,23 +126,33 @@ export async function saveFlow(wizard) {
             wake_timeout_ms: 3000
         };
 
-        console.log('[Step5] Saving flow:', flowPayload);
+        console.log(`[Step5] ${isEditing ? 'Updating' : 'Creating'} flow:`, flowPayload);
 
-        const response = await fetch(`${getApiBase()}/flows`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(flowPayload)
-        });
+        // Use PUT for update, POST for create
+        let response;
+        if (isEditing) {
+            response = await fetch(`${getApiBase()}/flows/${encodeURIComponent(deviceId)}/${encodeURIComponent(flowId)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(flowPayload)
+            });
+        } else {
+            response = await fetch(`${getApiBase()}/flows`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(flowPayload)
+            });
+        }
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Failed to save flow');
+            throw new Error(error.detail || `Failed to ${isEditing ? 'update' : 'save'} flow`);
         }
 
         const savedFlow = await response.json();
-        console.log('[Step5] Flow saved:', savedFlow);
+        console.log(`[Step5] Flow ${isEditing ? 'updated' : 'saved'}:`, savedFlow);
 
-        showToast('Flow saved successfully!', 'success', 3000);
+        showToast(`Flow ${isEditing ? 'updated' : 'saved'} successfully!`, 'success', 3000);
 
         const result = await showFlowSavedDialog(savedFlow);
 
