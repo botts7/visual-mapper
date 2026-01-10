@@ -239,7 +239,8 @@ class SensorUpdater:
                     None
                 )
                 if not element:
-                    logger.warning(f"[SensorUpdater] Element not found for sensor {sensor.sensor_id}")
+                    # Use DEBUG level - this is expected when screen is off or app isn't on right screen
+                    logger.debug(f"[SensorUpdater] Element not found for sensor {sensor.sensor_id}")
                     # Use fallback value if configured
                     if sensor.extraction_rule.fallback_value:
                         extracted_value = sensor.extraction_rule.fallback_value
