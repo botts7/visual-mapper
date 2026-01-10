@@ -406,7 +406,7 @@ class FlowScheduler:
 
         # Unlock debounce tracking - prevents rapid unlock attempts
         self._last_unlock_attempt: Dict[str, float] = {}
-        self._unlock_debounce_seconds: int = 30  # Match frontend debounce
+        self._unlock_debounce_seconds: int = 5  # Reduced for faster retry
 
         # Scheduler state
         self._running = False
@@ -1052,10 +1052,11 @@ class FlowScheduler:
 
         # Step 1: Try swipe-to-unlock first
         try:
+            logger.info(f"[FlowScheduler] Calling unlock_screen for {device_id}")
             await self.flow_executor.adb_bridge.unlock_screen(device_id)
             await asyncio.sleep(0.5)
         except Exception as e:
-            logger.debug(f"[FlowScheduler] Swipe unlock attempt: {e}")
+            logger.warning(f"[FlowScheduler] Swipe unlock failed: {e}")
 
         # Check if unlocked after swipe
         is_locked = await self.flow_executor.adb_bridge.is_locked(device_id)
