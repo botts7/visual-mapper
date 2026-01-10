@@ -2,7 +2,7 @@
 # https://developers.home-assistant.io/docs/add-ons/configuration
 
 name: Visual Mapper
-version: 0.0.44
+version: 0.2.0
 slug: visual_mapper
 description: Android device control and sensor creation for Home Assistant via ADB
 url: https://github.com/yourusername/visual-mapper
@@ -58,6 +58,12 @@ options:
   connection_check_interval: 30
   connection_retry_enabled: true
   connection_max_retry_delay: 300
+  ml_training_mode: "disabled"
+  ml_remote_host: ""
+  ml_remote_port: 8099
+  ml_use_dqn: false
+  ml_batch_size: 64
+  ml_save_interval: 60
 
 # Options schema
 schema:
@@ -78,6 +84,12 @@ schema:
   connection_check_interval: int(5,300)
   connection_retry_enabled: bool
   connection_max_retry_delay: int(60,600)
+  ml_training_mode: list(disabled|local|remote)
+  ml_remote_host: str?
+  ml_remote_port: port?
+  ml_use_dqn: bool
+  ml_batch_size: int(16,256)
+  ml_save_interval: int(10,300)
 
 # Service dependencies
 services:

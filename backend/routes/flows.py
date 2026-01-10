@@ -96,6 +96,39 @@ async def get_flow(device_id: str, flow_id: str, service: FlowService = Depends(
         logger.error(f"[API] Failed to get flow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.put("/flows/{flow_id}")
+async def update_flow_by_id(flow_id: str, flow_data: dict, service: FlowService = Depends(get_flow_service)):
+    """
+    Update an existing flow by flow_id only.
+    Device ID is extracted from the flow_data.
+    Used by Android companion app for syncing flow changes back to server.
+    """
+    try:
+        # Extract device_id from flow data
+        device_id = flow_data.get("device_id") or flow_data.get("deviceId")
+        if not device_id:
+            raise HTTPException(status_code=400, detail="device_id is required in flow data")
+
+        result = await service.update_flow(device_id, flow_id, flow_data)
+
+        # If enabled state changed, reload scheduler
+        if "enabled" in flow_data:
+            deps = get_deps()
+            if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
+                try:
+                    await deps.flow_scheduler.reload_flows(device_id)
+                    logger.info(f"[API] Reloaded scheduler for device {device_id} after flow update")
+                except Exception as e:
+                    logger.warning(f"[API] Failed to reload scheduler: {e}")
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to update flow by ID: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.put("/flows/{device_id}/{flow_id}")
 async def update_flow(device_id: str, flow_id: str, flow_data: dict, service: FlowService = Depends(get_flow_service)):
     """Update an existing flow"""
