@@ -131,7 +131,7 @@ class SensorSource(BaseModel):
     element_text: Optional[str] = None  # Text content (for reference)
     element_class: Optional[str] = None  # Android class name
     element_resource_id: Optional[str] = None  # Android resource ID
-    custom_bounds: Optional[Any] = None  # For manual selection - flexible format
+    custom_bounds: Optional[ElementBounds] = None  # For manual selection
     screen_activity: Optional[str] = None  # Screen activity for context
 
     @field_validator('custom_bounds', mode='before')
@@ -140,11 +140,11 @@ class SensorSource(BaseModel):
         """Convert various bounds formats to ElementBounds or None"""
         if v is None:
             return None
+        if isinstance(v, ElementBounds):
+            return v
         try:
             result = ElementBounds.from_any(v)
-            if result:
-                return result.model_dump()
-            return None
+            return result  # Return ElementBounds object, not dict
         except Exception:
             return None
 
