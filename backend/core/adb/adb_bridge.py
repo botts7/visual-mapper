@@ -2151,9 +2151,10 @@ class ADBBridge:
             except Exception as kg_err:
                 logger.debug(f"[ADBBridge] Keyguard check failed: {kg_err}")
 
-            # Cannot determine - assume LOCKED to be safe (prevents false success)
-            logger.warning(f"[ADBBridge] Cannot determine lock status for {device_id}, assuming LOCKED for safety")
-            return True
+            # Cannot determine - assume UNLOCKED to avoid false positives on Samsung
+            # Samsung tablets often don't report standard lock flags when unlocked
+            logger.debug(f"[ADBBridge] Cannot determine lock status for {device_id}, assuming UNLOCKED (no lock indicators)")
+            return False
 
         except Exception as e:
             logger.error(f"[ADBBridge] Error checking lock status for {device_id}: {e} - assuming LOCKED for safety")
