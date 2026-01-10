@@ -1794,8 +1794,10 @@ class ADBBridge:
         """
         Attempt to unlock the screen (works for swipe-to-unlock, not PIN/pattern).
 
-        Uses wm dismiss-keyguard (Android 8+) for maximum reliability.
-        Includes Samsung-specific methods for NotificationShade lock screen.
+        Tries multiple unlock methods in sequence:
+        1. wm dismiss-keyguard (Android 8+, most reliable)
+        2. MENU key
+        3. Swipe up gesture
 
         Args:
             device_id: Device identifier
@@ -1810,50 +1812,10 @@ class ADBBridge:
         try:
             logger.info(f"[ADBBridge] Unlocking screen on {resolved_id}")
 
-            # Check current activity to detect Samsung NotificationShade lock screen
-            current_activity = await self.get_current_activity(resolved_id)
-            is_samsung_lock = current_activity and "NotificationShade" in current_activity
-
-            if is_samsung_lock:
-                logger.info(f"[ADBBridge] Detected Samsung NotificationShade lock screen")
-
-                # Samsung-specific Method 1: statusbar collapse command
-                try:
-                    await conn.shell("cmd statusbar collapse")
-                    await asyncio.sleep(0.3)
-                    if not await self.is_locked(device_id):
-                        logger.info(f"[ADBBridge] Samsung lock dismissed via cmd statusbar collapse")
-                        return True
-                except Exception as e:
-                    logger.debug(f"[ADBBridge] statusbar collapse failed: {e}")
-
-                # Samsung-specific Method 2: Double HOME key
-                try:
-                    await conn.shell("input keyevent 3")  # HOME
-                    await asyncio.sleep(0.2)
-                    await conn.shell("input keyevent 3")  # HOME again
-                    await asyncio.sleep(0.3)
-                    if not await self.is_locked(device_id):
-                        logger.info(f"[ADBBridge] Samsung lock dismissed via double HOME")
-                        return True
-                except Exception as e:
-                    logger.debug(f"[ADBBridge] double HOME failed: {e}")
-
-                # Samsung-specific Method 3: Aggressive swipe up
-                try:
-                    await conn.shell("input swipe 540 2200 540 200 150")
-                    await asyncio.sleep(0.3)
-                    if not await self.is_locked(device_id):
-                        logger.info(f"[ADBBridge] Samsung lock dismissed via aggressive swipe")
-                        return True
-                except Exception as e:
-                    logger.debug(f"[ADBBridge] aggressive swipe failed: {e}")
-
             # Method 1: wm dismiss-keyguard (most reliable on Android 8+)
             try:
                 await conn.shell("wm dismiss-keyguard")
                 await asyncio.sleep(0.3)
-                # Check if unlocked
                 if not await self.is_locked(device_id):
                     logger.info(f"[ADBBridge] Screen unlocked via wm dismiss-keyguard")
                     return True
@@ -1861,10 +1823,16 @@ class ADBBridge:
                 logger.debug(f"[ADBBridge] wm dismiss-keyguard failed: {e}")
 
             # Method 2: MENU key (often dismisses lock screen on swipe-to-unlock)
-            await conn.shell("input keyevent 82")  # KEYCODE_MENU
-            await asyncio.sleep(0.3)
+            try:
+                await conn.shell("input keyevent 82")  # KEYCODE_MENU
+                await asyncio.sleep(0.3)
+                if not await self.is_locked(device_id):
+                    logger.info(f"[ADBBridge] Screen unlocked via MENU key")
+                    return True
+            except Exception as e:
+                logger.debug(f"[ADBBridge] MENU key failed: {e}")
 
-            # Method 3: Swipe up (fallback for older devices)
+            # Method 3: Swipe up (works on most devices including Samsung)
             try:
                 wm_output = await conn.shell("wm size")
                 match = re.search(r'(\d+)x(\d+)', wm_output)
@@ -1873,18 +1841,31 @@ class ADBBridge:
                 else:
                     width, height = 1080, 1920
                 center_x = width // 2
-                await conn.shell(f"input swipe {center_x} {int(height * 0.8)} {center_x} {int(height * 0.3)} 300")
-            except:
+                # Swipe from 85% height to 15% height (long swipe)
+                await conn.shell(f"input swipe {center_x} {int(height * 0.85)} {center_x} {int(height * 0.15)} 300")
+                await asyncio.sleep(0.3)
+                if not await self.is_locked(device_id):
+                    logger.info(f"[ADBBridge] Screen unlocked via swipe")
+                    return True
+            except Exception as e:
+                logger.debug(f"[ADBBridge] Swipe failed: {e}")
                 # Fallback with hardcoded coordinates
-                await conn.shell("input swipe 540 1800 540 800 300")
+                await conn.shell("input swipe 540 1800 540 300 300")
 
-            # Final check if unlocked
-            await asyncio.sleep(0.3)
-            if not await self.is_locked(device_id):
-                logger.info(f"[ADBBridge] Screen unlocked via swipe/menu")
-                return True
+            # Method 4: HOME key (sometimes helps on Samsung)
+            try:
+                await conn.shell("input keyevent 3")  # HOME
+                await asyncio.sleep(0.3)
+                if not await self.is_locked(device_id):
+                    logger.info(f"[ADBBridge] Screen unlocked via HOME key")
+                    return True
+            except Exception as e:
+                logger.debug(f"[ADBBridge] HOME key failed: {e}")
 
+            # Final return - we tried our best
+            logger.debug(f"[ADBBridge] All swipe-unlock methods attempted for {device_id}")
             return True
+
         except Exception as e:
             logger.error(f"[ADBBridge] Failed to unlock screen: {e}")
             return False
@@ -2148,6 +2129,13 @@ class ADBBridge:
         """
         Check if device screen is locked (showing lock screen).
 
+        Uses reliable indicators:
+        1. mShowingLockscreen/mDreamingLockscreen flags (standard Android)
+        2. mKeyguardShowing flag (works well on Samsung)
+
+        NOTE: Does NOT check activity names (e.g., NotificationShade) as these
+        cause false positives when notification panel is simply pulled down.
+
         Returns:
             True if device is locked, False if unlocked
         """
@@ -2164,7 +2152,7 @@ class ADBBridge:
                 logger.warning(f"[ADBBridge] Empty window dump for {device_id} - assuming LOCKED for safety")
                 return True  # Can't check - assume locked for safety
 
-            # Check for lock screen indicators
+            # PRIMARY CHECK: Standard Android lock flags (MOST RELIABLE)
             if "mShowingLockscreen=true" in result:
                 logger.info(f"[ADBBridge] Device {device_id} is LOCKED (mShowingLockscreen=true)")
                 return True
@@ -2172,29 +2160,29 @@ class ADBBridge:
                 logger.info(f"[ADBBridge] Device {device_id} is LOCKED (mDreamingLockscreen=true)")
                 return True
 
-            # Check for Samsung lock screen (appears as NotificationShade activity)
-            # Samsung tablets show NotificationShade when locked instead of setting standard flags
-            current_activity = await self.get_current_activity(resolved_id)
-            if current_activity:
-                # NotificationShade is Samsung's lock screen overlay
-                if "NotificationShade" in current_activity:
-                    logger.info(f"[ADBBridge] Device {device_id} is LOCKED (Samsung NotificationShade detected: {current_activity})")
-                    return True
-                # Also check for other lock screen activities
-                lock_activities = ["Keyguard", "LockScreen", "SecurityLock", "BiometricPrompt"]
-                for lock_indicator in lock_activities:
-                    if lock_indicator.lower() in current_activity.lower():
-                        logger.info(f"[ADBBridge] Device {device_id} is LOCKED (lock activity detected: {current_activity})")
-                        return True
-
-            # Explicitly check for unlocked state
-            if "mShowingLockscreen=false" in result or "mDreamingLockscreen=false" in result:
-                logger.info(f"[ADBBridge] Device {device_id} is UNLOCKED")
+            # EXPLICIT UNLOCKED CHECK
+            if "mShowingLockscreen=false" in result:
+                logger.debug(f"[ADBBridge] Device {device_id} is UNLOCKED (mShowingLockscreen=false)")
                 return False
 
-            # Cannot determine - assume LOCKED to be safe (prevents false success)
-            logger.warning(f"[ADBBridge] Cannot determine lock status for {device_id}, assuming LOCKED for safety")
-            return True
+            # SECONDARY CHECK: Keyguard state (works on Samsung and most Android)
+            try:
+                keyguard_result = await conn.shell("dumpsys window policy | grep -E 'mKeyguardShowing|isKeyguardShowing'")
+                if keyguard_result:
+                    if "mKeyguardShowing=true" in keyguard_result or "isKeyguardShowing=true" in keyguard_result:
+                        logger.info(f"[ADBBridge] Device {device_id} is LOCKED (keyguard showing)")
+                        return True
+                    if "mKeyguardShowing=false" in keyguard_result or "isKeyguardShowing=false" in keyguard_result:
+                        logger.debug(f"[ADBBridge] Device {device_id} is UNLOCKED (keyguard not showing)")
+                        return False
+            except Exception as kg_err:
+                logger.debug(f"[ADBBridge] Keyguard check failed: {kg_err}")
+
+            # Cannot determine - assume UNLOCKED if no positive lock indicators found
+            # False negatives (missing a lock) are less harmful than false positives
+            # (which cause flows to repeatedly fail thinking device is locked)
+            logger.debug(f"[ADBBridge] No lock indicators found for {device_id}, assuming UNLOCKED")
+            return False
 
         except Exception as e:
             logger.error(f"[ADBBridge] Error checking lock status for {device_id}: {e} - assuming LOCKED for safety")
