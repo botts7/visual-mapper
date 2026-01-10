@@ -309,7 +309,7 @@
         // init.js auto-runs initApp() but skips onboarding redirect since we're on onboarding.html
 
         // Now load onboarding module
-        const { OnboardingWizard } = await import('./js/modules/onboarding.js?v=0.0.70');
+        const { OnboardingWizard } = await import('./js/modules/onboarding.js?v=0.1.17');
 
         // Initialize wizard
         window.wizard = new OnboardingWizard();
