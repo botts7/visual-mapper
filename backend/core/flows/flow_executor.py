@@ -1392,7 +1392,7 @@ class FlowExecutor:
             if current_activity and ("NotificationShade" in current_activity or "StatusBar" in current_activity):
                 logger.info(f"  [SensorCapture] NotificationShade detected, dismissing...")
                 # Use the fastest dismissal method first
-                conn = self.adb_bridge._connections.get(device_id)
+                conn = self.adb_bridge.devices.get(device_id)
                 if conn:
                     await conn.shell("cmd statusbar collapse")
                     await asyncio.sleep(0.3)
@@ -1461,7 +1461,7 @@ class FlowExecutor:
                         # First, dismiss NotificationShade if that's what's blocking
                         if current_activity and "NotificationShade" in current_activity:
                             logger.info(f"  NotificationShade blocking recovery, dismissing...")
-                            conn = self.adb_bridge._connections.get(device_id)
+                            conn = self.adb_bridge.devices.get(device_id)
                             if conn:
                                 await conn.shell("cmd statusbar collapse")
                                 await asyncio.sleep(0.3)
