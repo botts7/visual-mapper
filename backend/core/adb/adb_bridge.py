@@ -3002,14 +3002,47 @@ class ADBBridge:
                 # Check if device is locked and try to unlock
                 if await self.is_locked(device_id):
                     logger.info(f"[ADBBridge] Device locked before app launch - attempting unlock")
-                    await self.unlock_screen(device_id)
-                    await asyncio.sleep(0.5)
 
-                    # Check if still locked after unlock attempt
+                    # Try swipe unlock first (Samsung-specific method has retries)
+                    await self.unlock_screen(device_id)
+                    await asyncio.sleep(0.8)
+
+                    # Check if still locked after swipe attempt
                     if await self.is_locked(device_id):
-                        logger.warning(f"[ADBBridge] Device still locked - app launch may fail. PIN unlock may be required.")
+                        # Swipe didn't work - device likely needs PIN
+                        # Try to get passcode from security manager
+                        try:
+                            from utils.device_security import SecurityManager, LockStrategy
+                            security_mgr = SecurityManager()
+                            config = security_mgr.get_lock_config(device_id)
+
+                            # Also try stable_device_id
+                            if not config:
+                                stable_id = await self.get_stable_device_id(device_id)
+                                if stable_id and stable_id != device_id:
+                                    config = security_mgr.get_lock_config(stable_id)
+
+                            if config and config.get('strategy') == LockStrategy.AUTO_UNLOCK.value:
+                                passcode = security_mgr.get_passcode(device_id)
+                                if not passcode:
+                                    stable_id = await self.get_stable_device_id(device_id)
+                                    if stable_id:
+                                        passcode = security_mgr.get_passcode(stable_id)
+
+                                if passcode:
+                                    logger.info(f"[ADBBridge] Trying PIN unlock before app launch")
+                                    if await self.unlock_device(device_id, passcode):
+                                        logger.info(f"[ADBBridge] Device unlocked with PIN - proceeding with app launch")
+                                    else:
+                                        logger.warning(f"[ADBBridge] PIN unlock failed - app launch may fail")
+                                else:
+                                    logger.warning(f"[ADBBridge] No passcode found for PIN unlock")
+                            else:
+                                logger.warning(f"[ADBBridge] Device still locked, no AUTO_UNLOCK config")
+                        except Exception as e:
+                            logger.warning(f"[ADBBridge] Could not attempt PIN unlock: {e}")
                     else:
-                        logger.info(f"[ADBBridge] Device unlocked - proceeding with app launch")
+                        logger.info(f"[ADBBridge] Device unlocked via swipe - proceeding with app launch")
 
             logger.info(f"[ADBBridge] Launching app {package_name} on {device_id}")
 
