@@ -7,8 +7,9 @@
  * 1. Welcome - Introduction and requirements
  * 2. Connect Device - Network scan or manual entry
  * 3. Test Connection - Verify device connectivity
- * 4. Security - Configure lock screen settings
- * 5. Complete - Success screen with next steps
+ * 4. MQTT - Configure MQTT broker for Home Assistant
+ * 5. Security - Configure lock screen settings
+ * 6. Complete - Success screen with next steps
  *
  * @module OnboardingWizard
  */
@@ -18,12 +19,14 @@ import DeviceSecurityUI from './device-security.js?v=0.0.7';
 class OnboardingWizard {
     constructor() {
         this.currentStep = 1;
-        this.totalSteps = 5;
+        this.totalSteps = 6;
         this.selectedMethod = null; // 'scan' or 'manual'
         this.selectedDevice = null; // { ip, port, device_id }
         this.scannedDevices = [];
         this.isScanning = false;
         this.securityUI = null;
+        this.mqttConfig = null;
+        this.mqttConnected = false;
     }
 
     /**
@@ -75,12 +78,16 @@ class OnboardingWizard {
             // Move to connection test
             await this.testConnection();
         } else if (this.currentStep === 3) {
-            // Connection test complete, move to security
-            await this.initializeSecurity();
+            // Connection test complete, move to MQTT setup
+            await this.initializeMqtt();
         } else if (this.currentStep === 4) {
+            // MQTT configured, move to security
+            await this.saveMqttConfig();
+            await this.initializeSecurity();
+        } else if (this.currentStep === 5) {
             // Security configured, complete onboarding
             this.completeOnboarding();
-        } else if (this.currentStep === 5) {
+        } else if (this.currentStep === 6) {
             // Done - redirect to main app
             window.location.href = 'devices.html';
             return;
@@ -190,8 +197,9 @@ class OnboardingWizard {
             1: 'Get Started →',
             2: 'Connect Device →',
             3: 'Continue →',
-            4: 'Finish Setup →',
-            5: 'Go to Dashboard →'
+            4: 'Continue →',
+            5: 'Finish Setup →',
+            6: 'Go to Dashboard →'
         };
         btnNext.textContent = nextTexts[this.currentStep] || 'Next →';
 
@@ -585,6 +593,147 @@ class OnboardingWizard {
             }, 1500);
         } else {
             throw new Error(connectData.message || 'Connection failed');
+        }
+    }
+
+    /**
+     * Initialize MQTT configuration step
+     */
+    async initializeMqtt() {
+        console.log('[Onboarding] Initializing MQTT configuration');
+
+        const mqttStatus = document.getElementById('mqttStatus');
+        const mqttConfigForm = document.getElementById('mqttConfigForm');
+
+        try {
+            // Check current MQTT status from backend
+            const response = await fetch(`${window.API_BASE}/health`);
+            const health = await response.json();
+
+            if (health.mqtt_connected) {
+                // MQTT already connected (likely pre-configured in HA add-on)
+                this.mqttConnected = true;
+                mqttStatus.className = 'status-message success show';
+                mqttStatus.innerHTML = '<strong>MQTT Connected!</strong><br>MQTT is already configured and connected. You can continue.';
+                mqttConfigForm.classList.add('hidden');
+
+                // Load current config for display
+                try {
+                    const settingsResp = await fetch(`${window.API_BASE}/settings`);
+                    if (settingsResp.ok) {
+                        const settings = await settingsResp.json();
+                        this.mqttConfig = {
+                            broker: settings.mqtt_broker || 'core-mosquitto',
+                            port: settings.mqtt_port || 1883,
+                            username: settings.mqtt_username || '',
+                            password: ''
+                        };
+                    }
+                } catch (e) {
+                    console.log('[Onboarding] Could not load settings:', e);
+                }
+            } else {
+                // MQTT not connected - show config form
+                mqttStatus.className = 'status-message warning show';
+                mqttStatus.innerHTML = '<strong>MQTT Not Connected</strong><br>Please configure your MQTT broker below.';
+                mqttConfigForm.classList.remove('hidden');
+
+                // Pre-fill with defaults
+                document.getElementById('mqttBroker').value = 'core-mosquitto';
+                document.getElementById('mqttPort').value = '1883';
+            }
+        } catch (error) {
+            console.error('[Onboarding] Error checking MQTT status:', error);
+            mqttStatus.className = 'status-message warning show';
+            mqttStatus.innerHTML = '<strong>Could not check MQTT status</strong><br>Please configure manually below.';
+            mqttConfigForm.classList.remove('hidden');
+        }
+    }
+
+    /**
+     * Test MQTT connection
+     */
+    async testMqttConnection() {
+        console.log('[Onboarding] Testing MQTT connection');
+
+        const broker = document.getElementById('mqttBroker').value.trim();
+        const port = parseInt(document.getElementById('mqttPort').value) || 1883;
+        const username = document.getElementById('mqttUsername').value.trim();
+        const password = document.getElementById('mqttPassword').value;
+
+        if (!broker) {
+            this.showStatus('step4MqttStatus', 'Please enter an MQTT broker address', 'error');
+            return;
+        }
+
+        this.showStatus('step4MqttStatus', 'Testing connection...', 'info');
+
+        try {
+            const response = await fetch(`${window.API_BASE}/mqtt/test`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    broker: broker,
+                    port: port,
+                    username: username || null,
+                    password: password || null
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success || result.connected) {
+                this.mqttConnected = true;
+                this.mqttConfig = { broker, port, username, password };
+                this.showStatus('step4MqttStatus', 'MQTT connection successful!', 'success');
+            } else {
+                this.showStatus('step4MqttStatus', `Connection failed: ${result.message || 'Unknown error'}`, 'error');
+            }
+        } catch (error) {
+            console.error('[Onboarding] MQTT test error:', error);
+            this.showStatus('step4MqttStatus', `Test failed: ${error.message}`, 'error');
+        }
+    }
+
+    /**
+     * Save MQTT configuration
+     */
+    async saveMqttConfig() {
+        // If already connected (pre-configured), skip saving
+        if (this.mqttConnected && !document.getElementById('mqttConfigForm').classList.contains('hidden') === false) {
+            console.log('[Onboarding] MQTT already configured, skipping save');
+            return;
+        }
+
+        const broker = document.getElementById('mqttBroker')?.value?.trim();
+        const port = parseInt(document.getElementById('mqttPort')?.value) || 1883;
+        const username = document.getElementById('mqttUsername')?.value?.trim();
+        const password = document.getElementById('mqttPassword')?.value;
+
+        if (!broker) {
+            console.log('[Onboarding] No MQTT broker configured, using defaults');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${window.API_BASE}/settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mqtt_broker: broker,
+                    mqtt_port: port,
+                    mqtt_username: username || '',
+                    mqtt_password: password || ''
+                })
+            });
+
+            if (response.ok) {
+                console.log('[Onboarding] MQTT settings saved');
+            } else {
+                console.error('[Onboarding] Failed to save MQTT settings');
+            }
+        } catch (error) {
+            console.error('[Onboarding] Error saving MQTT settings:', error);
         }
     }
 

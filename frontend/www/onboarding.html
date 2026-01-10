@@ -37,10 +37,14 @@
             </div>
             <div class="step" data-step="4">
                 <div class="step-number">4</div>
-                <div class="step-label">Security</div>
+                <div class="step-label">MQTT</div>
             </div>
             <div class="step" data-step="5">
                 <div class="step-number">5</div>
+                <div class="step-label">Security</div>
+            </div>
+            <div class="step" data-step="6">
+                <div class="step-number">6</div>
                 <div class="step-label">Complete</div>
             </div>
         </div>
@@ -195,8 +199,49 @@
                 <div class="status-message" id="step3Status"></div>
             </div>
 
-            <!-- Step 4: Security Setup -->
+            <!-- Step 4: MQTT Setup -->
             <div class="step-content" id="step4">
+                <h2 class="step-title">Configure MQTT</h2>
+                <p class="step-description">
+                    MQTT connects Visual Mapper to Home Assistant for automatic sensor discovery.
+                </p>
+
+                <div id="mqttStatus" class="status-message info show">
+                    <strong>Checking MQTT configuration...</strong>
+                </div>
+
+                <div id="mqttConfigForm" class="hidden">
+                    <div class="form-group">
+                        <label for="mqttBroker">MQTT Broker</label>
+                        <input type="text" id="mqttBroker" placeholder="core-mosquitto or localhost">
+                        <small style="color: var(--onboarding-text-secondary);">For Home Assistant, use "core-mosquitto"</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mqttPort">MQTT Port</label>
+                        <input type="number" id="mqttPort" value="1883" placeholder="1883">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mqttUsername">Username (optional)</label>
+                        <input type="text" id="mqttUsername" placeholder="Leave empty if not required">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mqttPassword">Password (optional)</label>
+                        <input type="password" id="mqttPassword" placeholder="Leave empty if not required">
+                    </div>
+
+                    <button type="button" class="btn btn-secondary" onclick="testMqtt()" style="margin-top: 16px;">
+                        Test Connection
+                    </button>
+                </div>
+
+                <div class="status-message" id="step4MqttStatus"></div>
+            </div>
+
+            <!-- Step 5: Security Setup -->
+            <div class="step-content" id="step5">
                 <h2 class="step-title">Configure Device Security</h2>
                 <p class="step-description">
                     Choose how Visual Mapper should handle your device's lock screen during automation.
@@ -206,11 +251,11 @@
                     <!-- Security config UI will be injected here by device-security.js -->
                 </div>
 
-                <div class="status-message" id="step4Status"></div>
+                <div class="status-message" id="step5Status"></div>
             </div>
 
-            <!-- Step 5: Complete -->
-            <div class="step-content" id="step5">
+            <!-- Step 6: Complete -->
+            <div class="step-content" id="step6">
                 <div class="text-center">
                     <div class="success-icon">✓</div>
                     <h2 class="step-title">Setup Complete!</h2>
@@ -265,6 +310,7 @@
         window.nextStep = () => wizard.nextStep();
         window.previousStep = () => wizard.previousStep();
         window.skipOnboarding = () => wizard.skip();
+        window.testMqtt = () => wizard.testMqttConnection();
     </script>
 </body>
 </html>
