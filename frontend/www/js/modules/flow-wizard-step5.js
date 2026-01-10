@@ -177,7 +177,8 @@ export async function saveFlow(wizard) {
         }
 
         if (result === 'view') {
-            window.location.href = 'flows.html';
+            // Add cache-busting parameter to force fresh page load
+            window.location.href = `flows.html?refresh=${Date.now()}`;
         } else if (result === 'create') {
             wizard.reset();
         }
