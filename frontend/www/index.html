@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="0.0.34">
-    <meta name="version" content="0.0.44" data-build="2025-12-28">
+    <meta name="description" content="Android device monitoring and automation for Home Assistant via ADB">
+    <meta name="version" content="0.0.70" data-build="2026-01-10">
 
     <!-- Theme Color -->
-    <meta name="theme-color" content="0.0.34">
+    <meta name="theme-color" content="#667eea">
 
     <!-- Icons -->
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
@@ -16,25 +16,25 @@
     <link rel="manifest" href="manifest.webmanifest">
 
     <!-- Open Graph / Social Media -->
-    <meta property="og:type" content="0.0.34">
-    <meta property="og:title" content="0.0.34">
-    <meta property="og:description" content="0.0.34">
-    <meta property="og:image" content="0.0.34">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Visual Mapper - Android Device Automation">
+    <meta property="og:description" content="Android device monitoring and automation for Home Assistant via ADB">
+    <meta property="og:image" content="favicon.png">
 
     <title>Visual Mapper - Home</title>
-    <link rel="stylesheet" href="css/styles.css?v=0.0.44">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.70">
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.44"></script>
+    <script type="module" src="js/init.js?v=0.0.70"></script>
 
     <div class="container">
         <div class="card text-center">
             <h1>Visual Mapper</h1>
             <p>Android Device Monitoring & Automation for Home Assistant</p>
             <p class="mt-2">
-                <strong>Version:</strong> 0.0.5 (UI Refresh + Scheduler)
+                <strong>Version:</strong> <span id="appVersion">0.0.70</span>
             </p>
             <p class="mt-1">
                 <a href="main.html" class="btn">Go to Dashboard</a>
@@ -44,29 +44,63 @@
         <div class="card">
             <h2>Status</h2>
             <div class="status success">
-                <strong>✅ Phase 8 Complete:</strong> Flow System with automated sensor collection and performance monitoring!
+                <strong>Ready for Use:</strong> Home Assistant add-on with MQTT discovery, flow automation, and persistent storage.
             </div>
-            <div class="status warning">
-                <strong>⚠️ In Development:</strong> This project is being built from scratch using Test-Driven Development.
+            <div class="status info" id="connectionStatus">
+                <strong>Checking backend connection...</strong>
             </div>
         </div>
 
         <div class="card">
-            <h2>Roadmap</h2>
+            <h2>Features</h2>
             <ul>
-                <li>✅ <strong>Phase 0:</strong> Foundation (v0.0.1)</li>
-                <li>✅ <strong>Phase 1:</strong> Screenshot Capture (v0.0.2)</li>
-                <li>✅ <strong>Phase 2:</strong> Wireless ADB (v0.0.3)</li>
-                <li>✅ <strong>Phase 3:</strong> Sensor Creation (v0.0.4)</li>
-                <li>✅ <strong>Phase 8:</strong> Flow System (v0.0.4) - <em>Current</em></li>
-                <li>⏳ <strong>Phase 4:</strong> MQTT Integration (v0.0.5)</li>
-                <li>⏳ <strong>Phase 5:</strong> Testing Infrastructure (v0.0.6)</li>
-                <li>⏳ <strong>Phase 6:</strong> HA Add-on Packaging (v0.1.0)</li>
-                <li>⏳ <strong>Phase 7:</strong> Community Release (v1.0.0)</li>
+                <li><strong>Wireless ADB:</strong> Connect to Android devices over WiFi (Android 11+ pairing supported)</li>
+                <li><strong>Sensor Creation:</strong> Extract data from any UI element on your Android device</li>
+                <li><strong>Flow Automation:</strong> Schedule sensor updates and navigate through apps automatically</li>
+                <li><strong>MQTT Integration:</strong> Automatic Home Assistant discovery - sensors appear automatically</li>
+                <li><strong>Action Support:</strong> Tap, swipe, input text, and launch apps remotely</li>
+                <li><strong>Stable Device IDs:</strong> Sensors survive IP address changes</li>
             </ul>
+        </div>
+
+        <div class="card">
+            <h2>Quick Start</h2>
+            <ol>
+                <li><a href="devices.html">Add a Device</a> - Connect your Android device via ADB</li>
+                <li><a href="sensors.html">Create Sensors</a> - Capture data from UI elements</li>
+                <li><a href="flows.html">Build Flows</a> - Automate data collection and navigation</li>
+                <li>View in Home Assistant - Sensors auto-discovered via MQTT</li>
+            </ol>
         </div>
     </div>
 
-    <script type="module" src="js/init.js?v=0.0.44"></script>
+    <script type="module">
+        // Check backend connection and update status
+        async function checkBackend() {
+            const statusEl = document.getElementById('connectionStatus');
+            try {
+                const response = await fetch(`${window.API_BASE || '/api'}/health`);
+                if (response.ok) {
+                    const data = await response.json();
+                    statusEl.className = 'status success';
+                    statusEl.innerHTML = `<strong>Backend Connected:</strong> ${data.mqtt_connected ? 'MQTT connected' : 'MQTT disconnected'}`;
+
+                    // Update version from API if available
+                    if (data.version) {
+                        document.getElementById('appVersion').textContent = data.version;
+                    }
+                } else {
+                    statusEl.className = 'status warning';
+                    statusEl.innerHTML = '<strong>Backend Unavailable:</strong> Check if the server is running';
+                }
+            } catch (e) {
+                statusEl.className = 'status warning';
+                statusEl.innerHTML = '<strong>Backend Unavailable:</strong> Check if the server is running';
+            }
+        }
+
+        // Check on load
+        checkBackend();
+    </script>
 </body>
 </html>

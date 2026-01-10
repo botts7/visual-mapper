@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="app-version" content="0.0.34">
+    <meta name="app-version" content="0.0.70">
     <title>Welcome to Visual Mapper - Setup Wizard</title>
-    <link rel="stylesheet" href="css/styles.css?v=0.0.44">
-    <link rel="stylesheet" href="css/onboarding.css?v=0.0.44">
+    <link rel="stylesheet" href="css/styles.css?v=0.0.70">
+    <link rel="stylesheet" href="css/onboarding.css?v=0.0.70">
 </head>
 <body>
     <div class="onboarding-container">
@@ -247,14 +247,14 @@
     </div>
 
     <!-- Load init.js first to set up globals -->
-    <script src="js/init.js?v=0.0.44"></script>
+    <script src="js/init.js?v=0.0.70"></script>
 
     <script type="module">
         // Use globals set by init.js (already loaded above)
         // init.js auto-runs initApp() but skips onboarding redirect since we're on onboarding.html
 
         // Now load onboarding module
-        const { OnboardingWizard } = await import('./js/modules/onboarding.js?v=0.0.6');
+        const { OnboardingWizard } = await import('./js/modules/onboarding.js?v=0.0.70');
 
         // Initialize wizard
         window.wizard = new OnboardingWizard();
