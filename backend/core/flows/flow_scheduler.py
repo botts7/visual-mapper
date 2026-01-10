@@ -1147,18 +1147,18 @@ class FlowScheduler:
 
         return min_time if min_time != float('inf') else None
 
-    async def should_lock_device(self, device_id: str, grace_period_seconds: int = 300) -> bool:
+    async def should_lock_device(self, device_id: str) -> bool:
         """
         Check if device should be locked after flow execution.
 
         Returns True if ALL conditions met:
         - Device has AUTO_UNLOCK strategy configured (system manages lock/unlock)
-        - No flow scheduled within grace period
+        - No flow scheduled within grace period (from device config, default 5 min)
         - Wizard is not active on device
+        - Streaming is not active on device
 
         Args:
             device_id: Device to check
-            grace_period_seconds: Don't lock if flow due within this time (default 5 min)
 
         Returns:
             True if device should be locked
@@ -1175,6 +1175,9 @@ class FlowScheduler:
         if security_config.get('strategy') != LockStrategy.AUTO_UNLOCK.value:
             logger.debug(f"[FlowScheduler] Device {device_id} strategy is {security_config.get('strategy')} - skip lock")
             return False
+
+        # Get configurable grace period (default 300s = 5 min)
+        grace_period_seconds = security_config.get('sleep_grace_period', 300)
 
         # Check if wizard is active (skip lock if user is working)
         # Use ADB to properly resolve USB vs WiFi device ID mismatches
@@ -1206,6 +1209,11 @@ class FlowScheduler:
                     logger.debug(f"[FlowScheduler] Error checking device IDs for wizard: {e}")
         except ImportError:
             pass
+
+        # Check if streaming is active - don't lock during live view
+        if self.flow_executor.adb_bridge.is_streaming(device_id):
+            logger.info(f"[FlowScheduler] Skipping lock - streaming active on {device_id}")
+            return False
 
         # Check time until next flow
         time_until_next = self.get_time_until_next_flow(device_id)

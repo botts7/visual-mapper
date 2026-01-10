@@ -159,6 +159,7 @@ class DeviceSecurityManager:
         strategy: LockStrategy,
         passcode: Optional[str] = None,
         notes: Optional[str] = None,
+        sleep_grace_period: int = 300,
     ) -> bool:
         """
         Save lock screen configuration for device.
@@ -168,6 +169,7 @@ class DeviceSecurityManager:
             strategy: Lock strategy to use
             passcode: Passcode (required for AUTO_UNLOCK strategy)
             notes: Optional notes about configuration
+            sleep_grace_period: Seconds to wait before sleeping if another flow is due (default 300 = 5 min)
 
         Returns:
             True if saved successfully
@@ -182,6 +184,7 @@ class DeviceSecurityManager:
             "device_id": device_id,
             "strategy": strategy.value,
             "notes": notes or "",
+            "sleep_grace_period": sleep_grace_period,
         }
 
         # Encrypt passcode if provided
@@ -227,6 +230,7 @@ class DeviceSecurityManager:
                 - strategy: str (LockStrategy value)
                 - notes: str
                 - has_passcode: bool
+                - sleep_grace_period: int (seconds, default 300)
             Returns None if no config exists
         """
         config_path = self._get_config_path(device_id)
@@ -244,6 +248,7 @@ class DeviceSecurityManager:
                 "strategy": config.get("strategy", LockStrategy.MANUAL_ONLY.value),
                 "notes": config.get("notes", ""),
                 "has_passcode": "encrypted_passcode" in config,
+                "sleep_grace_period": config.get("sleep_grace_period", 300),
             }
 
         except Exception as e:

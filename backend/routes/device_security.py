@@ -34,6 +34,7 @@ class DeviceSecurityRequest(BaseModel):
     strategy: str  # LockStrategy enum value
     passcode: Optional[str] = None
     notes: Optional[str] = None
+    sleep_grace_period: int = 300  # Seconds before sleeping if another flow is due (default 5 min)
 
 
 class DeviceUnlockRequest(BaseModel):
@@ -111,7 +112,8 @@ async def save_device_security(device_id: str, request: DeviceSecurityRequest):
             device_id=device_id,
             strategy=strategy,
             passcode=request.passcode,
-            notes=request.notes
+            notes=request.notes,
+            sleep_grace_period=request.sleep_grace_period
         )
 
         if success:
