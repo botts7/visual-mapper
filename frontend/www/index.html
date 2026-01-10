@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Android device monitoring and automation for Home Assistant via ADB">
-    <meta name="version" content="0.0.93" data-build="2026-01-10">
+    <meta name="version" content="dynamic" data-build="dynamic">
 
     <!-- Theme Color -->
     <meta name="theme-color" content="#667eea">
@@ -22,19 +22,37 @@
     <meta property="og:image" content="favicon.png">
 
     <title>Visual Mapper - Home</title>
-    <link rel="stylesheet" href="css/styles.css?v=0.0.93">
+
+    <!-- Dynamic CSS loading with cache busting -->
+    <script>
+        // Use session-based cache key (refreshes once per browser session)
+        const cacheKey = sessionStorage.getItem('vmCacheKey') || Date.now();
+        sessionStorage.setItem('vmCacheKey', cacheKey);
+        document.write('<link rel="stylesheet" href="css/styles.css?v=' + cacheKey + '">');
+    </script>
+    <noscript>
+        <link rel="stylesheet" href="css/styles.css">
+    </noscript>
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.0.93"></script>
+
+    <!-- Dynamic JS loading with cache busting -->
+    <script>
+        const cacheKey = sessionStorage.getItem('vmCacheKey') || Date.now();
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = 'js/init.js?v=' + cacheKey;
+        document.body.appendChild(script);
+    </script>
 
     <div class="container">
         <div class="card text-center">
             <h1>Visual Mapper</h1>
             <p>Android Device Monitoring & Automation for Home Assistant</p>
             <p class="mt-2">
-                <strong>Version:</strong> <span id="appVersion">0.0.93</span>
+                <strong>Version:</strong> <span id="appVersion">Loading...</span>
             </p>
             <p class="mt-1">
                 <a href="main.html" class="btn">Go to Dashboard</a>
@@ -75,9 +93,11 @@
     </div>
 
     <script type="module">
-        // Check backend connection and update status
+        // Check backend connection and update status + version
         async function checkBackend() {
             const statusEl = document.getElementById('connectionStatus');
+            const versionEl = document.getElementById('appVersion');
+
             try {
                 const response = await fetch(`${window.API_BASE || '/api'}/health`);
                 if (response.ok) {
@@ -85,17 +105,26 @@
                     statusEl.className = 'status success';
                     statusEl.innerHTML = `<strong>Backend Connected:</strong> ${data.mqtt_connected ? 'MQTT connected' : 'MQTT disconnected'}`;
 
-                    // Update version from API if available
+                    // Update version from API (single source of truth)
                     if (data.version) {
-                        document.getElementById('appVersion').textContent = data.version;
+                        versionEl.textContent = data.version;
+                        // Update meta tag too
+                        const metaVersion = document.querySelector('meta[name="version"]');
+                        if (metaVersion) {
+                            metaVersion.content = data.version;
+                        }
+                    } else {
+                        versionEl.textContent = 'Unknown';
                     }
                 } else {
                     statusEl.className = 'status warning';
                     statusEl.innerHTML = '<strong>Backend Unavailable:</strong> Check if the server is running';
+                    versionEl.textContent = 'Offline';
                 }
             } catch (e) {
                 statusEl.className = 'status warning';
                 statusEl.innerHTML = '<strong>Backend Unavailable:</strong> Check if the server is running';
+                versionEl.textContent = 'Offline';
             }
         }
 

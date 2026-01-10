@@ -92,10 +92,36 @@ class TextExtractionRule(BaseModel):
 
 class ElementBounds(BaseModel):
     """UI element bounds (x, y, width, height)"""
-    x: int = Field(..., ge=0)
-    y: int = Field(..., ge=0)
-    width: int = Field(..., gt=0)
-    height: int = Field(..., gt=0)
+    x: int = Field(default=0, ge=0)
+    y: int = Field(default=0, ge=0)
+    width: int = Field(default=1, ge=1)
+    height: int = Field(default=1, ge=1)
+
+    @classmethod
+    def from_any(cls, v):
+        """Convert various formats to ElementBounds"""
+        if v is None:
+            return None
+        if isinstance(v, ElementBounds):
+            return v
+        if isinstance(v, dict):
+            # Handle dict format with x, y, width, height
+            if all(k in v for k in ['x', 'y', 'width', 'height']):
+                return cls(**v)
+            # Handle dict format with bounds array [x, y, x2, y2]
+            if 'bounds' in v and isinstance(v['bounds'], (list, tuple)) and len(v['bounds']) >= 4:
+                x, y, x2, y2 = v['bounds'][:4]
+                return cls(x=int(x), y=int(y), width=max(1, int(x2)-int(x)), height=max(1, int(y2)-int(y)))
+        if isinstance(v, (list, tuple)):
+            if len(v) >= 4:
+                # Assume [x, y, x2, y2] or [x, y, width, height]
+                x, y, v3, v4 = v[:4]
+                # Heuristic: if v3 > x and v4 > y significantly, it's likely [x, y, x2, y2]
+                if v3 > 100 and v4 > 100:  # Likely absolute coords
+                    return cls(x=int(x), y=int(y), width=max(1, int(v3)-int(x)), height=max(1, int(v4)-int(y)))
+                else:  # Likely [x, y, width, height]
+                    return cls(x=int(x), y=int(y), width=max(1, int(v3)), height=max(1, int(v4)))
+        return None
 
 
 class SensorSource(BaseModel):
@@ -105,7 +131,22 @@ class SensorSource(BaseModel):
     element_text: Optional[str] = None  # Text content (for reference)
     element_class: Optional[str] = None  # Android class name
     element_resource_id: Optional[str] = None  # Android resource ID
-    custom_bounds: Optional[ElementBounds] = None  # For manual selection
+    custom_bounds: Optional[Any] = None  # For manual selection - flexible format
+    screen_activity: Optional[str] = None  # Screen activity for context
+
+    @field_validator('custom_bounds', mode='before')
+    @classmethod
+    def validate_custom_bounds(cls, v):
+        """Convert various bounds formats to ElementBounds or None"""
+        if v is None:
+            return None
+        try:
+            result = ElementBounds.from_any(v)
+            if result:
+                return result.model_dump()
+            return None
+        except Exception:
+            return None
 
 
 class SensorDefinition(BaseModel):
@@ -146,6 +187,27 @@ class SensorDefinition(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
+    @field_validator('sensor_type', mode='before')
+    @classmethod
+    def validate_sensor_type(cls, v):
+        """Handle sensor_type validation gracefully"""
+        if v is None or v == '':
+            return 'sensor'  # Default to sensor
+        if isinstance(v, str):
+            v_lower = v.lower().strip()
+            valid_values = [e.value for e in SensorType]
+            if v_lower in valid_values:
+                return v_lower
+            # Check if it's an enum name
+            for enum_val in SensorType:
+                if enum_val.name.lower() == v_lower:
+                    return enum_val.value
+            # Invalid value - default to sensor
+            import logging
+            logging.getLogger(__name__).warning(f"[SensorModels] Unknown sensor_type '{v}', defaulting to 'sensor'")
+            return 'sensor'
+        return v
+
     @field_validator('state_class', mode='before')
     @classmethod
     def validate_state_class(cls, v):
@@ -157,8 +219,23 @@ class SensorDefinition(BaseModel):
     @field_validator('device_class', mode='before')
     @classmethod
     def validate_device_class(cls, v):
-        """Convert empty string to 'none' (default device class)"""
+        """Convert empty/invalid device class to 'none' (default device class)"""
         if v is None or v == '':
+            return 'none'
+        # Handle case-insensitive matching and invalid values gracefully
+        if isinstance(v, str):
+            v_lower = v.lower().strip()
+            # Check if it's a valid enum value
+            valid_values = [e.value for e in DeviceClass]
+            if v_lower in valid_values:
+                return v_lower
+            # Check if it's an enum name
+            for enum_val in DeviceClass:
+                if enum_val.name.lower() == v_lower:
+                    return enum_val.value
+            # Invalid value - default to 'none' instead of failing
+            import logging
+            logging.getLogger(__name__).warning(f"[SensorModels] Unknown device_class '{v}', defaulting to 'none'")
             return 'none'
         return v
 

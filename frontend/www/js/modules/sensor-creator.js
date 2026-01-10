@@ -1,6 +1,7 @@
 /**
  * Visual Mapper - Sensor Creator Module
- * Version: 0.0.13 (Phase 4 - MQTT + Dynamic Hierarchical Dropdowns)
+ * Version: 0.0.14 (Phase 4 - MQTT + Dynamic Hierarchical Dropdowns)
+ * v0.0.14: Added debounce/guard to prevent double-submission
  * v0.0.13: Added targetApp to sensor data for app association
  * v0.0.12: Added pre-fill options support (name, device_class, unit, icon) for suggestions integration
  * v0.0.11: Added screenActivity to source data for better deduplication
@@ -879,6 +880,64 @@ class SensorCreator {
     async _handleSubmit(event) {
         event.preventDefault();
 
+        // Prevent double-submission
+        if (this._submitting) {
+            console.log('[SensorCreator] Submission already in progress, ignoring duplicate');
+            return;
+        }
+        this._submitting = true;
+
+        // Safety net: auto-reset flag after 30 seconds
+        const submitTimeout = setTimeout(() => {
+            if (this._submitting) {
+                console.warn('[SensorCreator] Submit timeout after 30s - resetting flag');
+                this._submitting = false;
+                this._enableSubmitButton();
+            }
+        }, 30000);
+
+        // Disable submit button
+        this._disableSubmitButton();
+
+        try {
+            await this._doSubmit();
+        } finally {
+            clearTimeout(submitTimeout);
+            this._submitting = false;
+            this._enableSubmitButton();
+        }
+    }
+
+    /**
+     * Disable submit button during submission
+     * @private
+     */
+    _disableSubmitButton() {
+        const btn = document.querySelector('#sensorCreatorForm button[type="submit"]');
+        if (btn) {
+            btn.disabled = true;
+            btn._originalText = btn.textContent;
+            btn.textContent = 'Saving...';
+        }
+    }
+
+    /**
+     * Re-enable submit button after submission
+     * @private
+     */
+    _enableSubmitButton() {
+        const btn = document.querySelector('#sensorCreatorForm button[type="submit"]');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = btn._originalText || 'Create Sensor';
+        }
+    }
+
+    /**
+     * Actual submission logic (extracted from _handleSubmit)
+     * @private
+     */
+    async _doSubmit() {
         // Validate required data is present
         if (!this.currentDeviceId) {
             alert('Error: No device selected');
