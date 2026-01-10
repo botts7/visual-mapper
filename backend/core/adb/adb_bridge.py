@@ -1794,32 +1794,38 @@ class ADBBridge:
         """
         Attempt to unlock the screen (works for swipe-to-unlock, not PIN/pattern).
 
-        Wakes screen first, then uses device-specific unlock methods.
-        Has special handling for Samsung One UI which shows lock screen as "NotificationShade".
+        Routes to device-specific implementation:
+        - Samsung: Uses unlock_screen_samsung() with retry loops and state verification
+        - Others: Standard Android unlock sequence
 
         Args:
             device_id: Device identifier
 
         Returns:
-            True if unlock command sent successfully
+            True if unlock succeeded, False if still locked
         """
         conn, resolved_id = await self._resolve_device_connection(device_id)
         if not conn:
             raise ValueError(f"Device not connected: {device_id}")
 
+        # Detect device manufacturer for routing
+        manufacturer = "unknown"
+        try:
+            mfr_output = await conn.shell("getprop ro.product.manufacturer")
+            manufacturer = mfr_output.strip().lower()
+        except:
+            pass
+
+        is_samsung = "samsung" in manufacturer
+
+        # Route to device-specific implementation
+        if is_samsung:
+            logger.info(f"[ADBBridge] Using Samsung-specific unlock for {device_id}")
+            return await self.unlock_screen_samsung(device_id)
+
+        # Standard Android unlock sequence
         try:
             logger.info(f"[ADBBridge] Unlocking screen on {resolved_id}")
-
-            # Detect device manufacturer for device-specific handling
-            manufacturer = "unknown"
-            try:
-                mfr_output = await conn.shell("getprop ro.product.manufacturer")
-                manufacturer = mfr_output.strip().lower()
-                logger.debug(f"[ADBBridge] Device manufacturer: {manufacturer}")
-            except:
-                pass
-
-            is_samsung = "samsung" in manufacturer
 
             # Get screen dimensions
             try:
@@ -1840,11 +1846,7 @@ class ADBBridge:
             await asyncio.sleep(0.3)
             await conn.shell("input keyevent 26")   # KEYCODE_POWER (backup)
 
-            # Samsung needs longer wait for lock screen to fully appear
-            if is_samsung:
-                await asyncio.sleep(0.8)
-            else:
-                await asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)
 
             # Check if already unlocked after wake
             if not await self.is_locked(device_id):
@@ -1861,59 +1863,16 @@ class ADBBridge:
             except Exception as e:
                 logger.debug(f"[ADBBridge] wm dismiss-keyguard failed: {e}")
 
-            # STEP 3: Device-specific unlock sequence
-            if is_samsung:
-                logger.info(f"[ADBBridge] Samsung device - using Samsung-specific unlock...")
+            # STEP 3: Standard Android unlock sequence
+            logger.debug(f"[ADBBridge] Standard Android unlock sequence...")
 
-                # Samsung Method 1: MENU key (often reveals PIN or unlocks swipe screen)
-                await conn.shell("input keyevent 82")  # KEYCODE_MENU
-                await asyncio.sleep(0.4)
+            # MENU key (often dismisses swipe-to-unlock)
+            await conn.shell("input keyevent 82")  # KEYCODE_MENU
+            await asyncio.sleep(0.3)
 
-                if not await self.is_locked(device_id):
-                    logger.info(f"[ADBBridge] Samsung screen unlocked via MENU key")
-                    return True
-
-                # Samsung Method 2: Long upward swipe from very bottom
-                # Samsung One UI requires swipe starting from bottom edge
-                logger.debug(f"[ADBBridge] Samsung swipe attempt 1: bottom edge swipe")
-                await conn.shell(f"input swipe {center_x} {int(height * 0.95)} {center_x} {int(height * 0.15)} 350")
-                await asyncio.sleep(0.5)
-
-                if not await self.is_locked(device_id):
-                    logger.info(f"[ADBBridge] Samsung screen unlocked via swipe")
-                    return True
-
-                # Samsung Method 3: Double-tap to wake + swipe (some Samsung models)
-                logger.debug(f"[ADBBridge] Samsung swipe attempt 2: double-tap + swipe")
-                await conn.shell(f"input tap {center_x} {height // 2}")
-                await asyncio.sleep(0.1)
-                await conn.shell(f"input tap {center_x} {height // 2}")
-                await asyncio.sleep(0.3)
-                await conn.shell(f"input swipe {center_x} {int(height * 0.85)} {center_x} {int(height * 0.2)} 300")
-                await asyncio.sleep(0.5)
-
-                if not await self.is_locked(device_id):
-                    logger.info(f"[ADBBridge] Samsung screen unlocked via double-tap + swipe")
-                    return True
-
-                # Samsung Method 4: Power key + MENU (triggers PIN entry on some models)
-                logger.debug(f"[ADBBridge] Samsung attempt 3: POWER + MENU")
-                await conn.shell("input keyevent 26")  # POWER
-                await asyncio.sleep(0.3)
-                await conn.shell("input keyevent 82")  # MENU
-                await asyncio.sleep(0.4)
-
-            else:
-                # Standard Android unlock sequence
-                logger.debug(f"[ADBBridge] Standard Android unlock sequence...")
-
-                # MENU key (often dismisses swipe-to-unlock)
-                await conn.shell("input keyevent 82")  # KEYCODE_MENU
-                await asyncio.sleep(0.3)
-
-                # Swipe up from bottom to top
-                await conn.shell(f"input swipe {center_x} {int(height * 0.9)} {center_x} {int(height * 0.2)} 300")
-                await asyncio.sleep(0.3)
+            # Swipe up from bottom to top
+            await conn.shell(f"input swipe {center_x} {int(height * 0.9)} {center_x} {int(height * 0.2)} 300")
+            await asyncio.sleep(0.3)
 
             # Final check
             still_locked = await self.is_locked(device_id)
@@ -1922,11 +1881,174 @@ class ADBBridge:
             else:
                 logger.info(f"[ADBBridge] Screen unlocked successfully")
 
-            return True
+            return not still_locked
 
         except Exception as e:
             logger.error(f"[ADBBridge] Failed to unlock screen: {e}")
             return False
+
+    async def unlock_screen_samsung(self, device_id: str, max_retries: int = 3) -> bool:
+        """
+        Samsung-specific unlock with retry loops and state verification.
+
+        Flow:
+        1. Dismiss screensaver if active
+        2. Wake screen and wait for stabilization (1.5s for Samsung)
+        3. Verify screen state using get_samsung_screen_state()
+        4. Execute unlock strategy based on state
+        5. Verify unlock succeeded
+        6. Retry with progressive delays if needed
+
+        Args:
+            device_id: Device identifier
+            max_retries: Maximum unlock attempts (default 3)
+
+        Returns:
+            True if device is unlocked, False if still locked
+        """
+        conn, resolved_id = await self._resolve_device_connection(device_id)
+        if not conn:
+            raise ValueError(f"Device not connected: {device_id}")
+
+        logger.info(f"[ADBBridge] Samsung unlock sequence starting for {device_id}")
+
+        # Get screen dimensions once
+        try:
+            wm_output = await conn.shell("wm size")
+            match = re.search(r'(\d+)x(\d+)', wm_output)
+            width, height = (int(match.group(1)), int(match.group(2))) if match else (1920, 1200)
+            center_x = width // 2
+        except:
+            width, height, center_x = 1920, 1200, 960
+
+        for retry in range(max_retries):
+            retry_delay = retry * 0.5  # Progressive delay: 0, 0.5, 1.0 seconds
+
+            logger.info(f"[ADBBridge] Samsung unlock attempt {retry + 1}/{max_retries}")
+
+            # PHASE 1: Determine current state
+            state = await self.get_samsung_screen_state(device_id)
+            logger.info(f"[ADBBridge] Current Samsung state: {state}")
+
+            if state == "UNLOCKED":
+                logger.info(f"[ADBBridge] Samsung device already unlocked")
+                return True
+
+            if state == "NOTIFICATION_SHADE":
+                # Just dismiss the notification panel
+                logger.info(f"[ADBBridge] Dismissing notification panel...")
+                await conn.shell("cmd statusbar collapse")
+                await asyncio.sleep(0.3)
+                await conn.shell("am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS")
+                await asyncio.sleep(0.3)
+
+                state = await self.get_samsung_screen_state(device_id)
+                if state == "UNLOCKED":
+                    logger.info(f"[ADBBridge] Samsung unlocked after dismissing notification")
+                    return True
+                # If still not unlocked, it was actually the lock screen
+
+            # PHASE 2: Handle screen off / dreaming
+            if state in ("SCREEN_OFF", "DREAMING"):
+                logger.info(f"[ADBBridge] Waking Samsung device from {state}...")
+
+                # Dismiss screensaver first if dreaming
+                if state == "DREAMING":
+                    await self.dismiss_screensaver(device_id)
+                    await asyncio.sleep(0.3)
+
+                # Wake sequence
+                await conn.shell("input keyevent 224")  # WAKEUP
+                await asyncio.sleep(0.3)
+                await conn.shell("input keyevent 26")   # POWER backup
+
+                # Samsung needs longer stabilization (1.5s base + progressive delay)
+                await asyncio.sleep(1.5 + retry_delay)
+
+                # Re-check state
+                state = await self.get_samsung_screen_state(device_id)
+                logger.info(f"[ADBBridge] State after wake: {state}")
+
+                if state == "UNLOCKED":
+                    logger.info(f"[ADBBridge] Samsung unlocked after wake")
+                    return True
+
+            # PHASE 3: Handle lock screen
+            if state in ("LOCKED_LOCKSCREEN", "LOCKED_PIN_ENTRY"):
+                logger.info(f"[ADBBridge] Attempting Samsung lock screen unlock...")
+
+                # Strategy 1: wm dismiss-keyguard (works for swipe-only)
+                logger.debug(f"[ADBBridge] Samsung trying: wm dismiss-keyguard")
+                await conn.shell("wm dismiss-keyguard")
+                await asyncio.sleep(0.6 + retry_delay)
+
+                state = await self.get_samsung_screen_state(device_id)
+                if state == "UNLOCKED":
+                    logger.info(f"[ADBBridge] Samsung unlocked via dismiss-keyguard")
+                    return True
+
+                # Strategy 2: MENU key (Samsung-specific)
+                logger.debug(f"[ADBBridge] Samsung trying: MENU key")
+                await conn.shell("input keyevent 82")
+                await asyncio.sleep(0.5 + retry_delay)
+
+                state = await self.get_samsung_screen_state(device_id)
+                if state == "UNLOCKED":
+                    logger.info(f"[ADBBridge] Samsung unlocked via MENU key")
+                    return True
+
+                # Strategy 3: Bottom edge swipe (Samsung One UI)
+                logger.debug(f"[ADBBridge] Samsung trying: bottom edge swipe")
+                await conn.shell(f"input swipe {center_x} {int(height * 0.95)} {center_x} {int(height * 0.15)} 400")
+                await asyncio.sleep(0.7 + retry_delay)
+
+                state = await self.get_samsung_screen_state(device_id)
+                if state == "UNLOCKED":
+                    logger.info(f"[ADBBridge] Samsung unlocked via swipe")
+                    return True
+
+                # Strategy 4: Double-tap + swipe
+                logger.debug(f"[ADBBridge] Samsung trying: double-tap + swipe")
+                await conn.shell(f"input tap {center_x} {height // 2}")
+                await asyncio.sleep(0.15)
+                await conn.shell(f"input tap {center_x} {height // 2}")
+                await asyncio.sleep(0.4)
+                await conn.shell(f"input swipe {center_x} {int(height * 0.85)} {center_x} {int(height * 0.2)} 350")
+                await asyncio.sleep(0.7 + retry_delay)
+
+                state = await self.get_samsung_screen_state(device_id)
+                if state == "UNLOCKED":
+                    logger.info(f"[ADBBridge] Samsung unlocked via double-tap + swipe")
+                    return True
+
+                # Strategy 5: POWER + MENU combo
+                logger.debug(f"[ADBBridge] Samsung trying: POWER + MENU combo")
+                await conn.shell("input keyevent 26")
+                await asyncio.sleep(0.4)
+                await conn.shell("input keyevent 82")
+                await asyncio.sleep(0.6 + retry_delay)
+
+                state = await self.get_samsung_screen_state(device_id)
+                if state == "UNLOCKED":
+                    logger.info(f"[ADBBridge] Samsung unlocked via POWER + MENU")
+                    return True
+
+            # If we get here, unlock failed this attempt
+            logger.warning(f"[ADBBridge] Samsung unlock attempt {retry + 1} failed, state={state}")
+
+            if retry < max_retries - 1:
+                wait_time = 1.0 + retry_delay
+                logger.info(f"[ADBBridge] Waiting {wait_time:.1f}s before retry...")
+                await asyncio.sleep(wait_time)
+
+        # All retries exhausted
+        final_state = await self.get_samsung_screen_state(device_id)
+        logger.error(f"[ADBBridge] Samsung unlock FAILED after {max_retries} attempts. Final state: {final_state}")
+
+        if final_state == "LOCKED_PIN_ENTRY":
+            logger.warning(f"[ADBBridge] Device requires PIN/pattern - use unlock_device() with passcode")
+
+        return False
 
     def get_unlock_status(self, device_id: str) -> dict:
         """
@@ -2218,9 +2340,7 @@ class ADBBridge:
         Uses reliable indicators:
         1. mShowingLockscreen/mDreamingLockscreen flags (standard Android)
         2. mKeyguardShowing flag (works well on Samsung)
-
-        NOTE: Does NOT check activity names (e.g., NotificationShade) as these
-        cause false positives when notification panel is simply pulled down.
+        3. Samsung: Uses comprehensive get_samsung_screen_state() for better detection
 
         Returns:
             True if device is locked, False if unlocked
@@ -2231,6 +2351,25 @@ class ADBBridge:
             return True  # Can't check - assume locked for safety
 
         try:
+            # Detect manufacturer for device-specific handling
+            manufacturer = ""
+            try:
+                mfr = await asyncio.wait_for(conn.shell("getprop ro.product.manufacturer"), timeout=2.0)
+                manufacturer = mfr.strip().lower()
+            except:
+                pass
+
+            is_samsung = "samsung" in manufacturer
+
+            # For Samsung, use comprehensive state detection
+            if is_samsung:
+                state = await self.get_samsung_screen_state(device_id)
+                locked_states = {"SCREEN_OFF", "DREAMING", "LOCKED_LOCKSCREEN", "LOCKED_PIN_ENTRY"}
+                is_device_locked = state in locked_states
+                logger.info(f"[ADBBridge] Samsung device {device_id} state: {state}, locked={is_device_locked}")
+                return is_device_locked
+
+            # Standard Android detection
             # Get full window dump and check for lock indicators
             result = await conn.shell("dumpsys window")
 
@@ -2272,6 +2411,124 @@ class ADBBridge:
         except Exception as e:
             logger.error(f"[ADBBridge] Error checking lock status for {device_id}: {e} - assuming LOCKED for safety")
             return True  # Error occurred - assume locked for safety
+
+    async def get_samsung_screen_state(self, device_id: str) -> str:
+        """
+        Get comprehensive screen state for Samsung devices.
+
+        Combines multiple indicators to reliably determine state:
+        1. Power state (mWakefulness)
+        2. Lock flags (mShowingLockscreen, mKeyguardShowing)
+        3. Current activity (NotificationShade disambiguation)
+
+        Returns one of:
+            SCREEN_OFF - Screen is powered off
+            DREAMING - Screensaver/daydream active
+            LOCKED_LOCKSCREEN - On lock screen (NotificationShade as lock)
+            LOCKED_PIN_ENTRY - PIN/pattern entry visible
+            NOTIFICATION_SHADE - Notification panel pulled down (not locked)
+            UNLOCKED - Device is unlocked and usable
+        """
+        conn, resolved_id = await self._resolve_device_connection(device_id)
+        if not conn:
+            return "SCREEN_OFF"  # Safe default
+
+        try:
+            # Get all relevant state in parallel for efficiency
+            power_state = ""
+            lock_flags = ""
+            keyguard_state = ""
+            current_focus = ""
+
+            try:
+                power_state = await asyncio.wait_for(
+                    conn.shell("dumpsys power | grep -E 'mWakefulness|Display Power|state='"),
+                    timeout=2.0
+                )
+            except:
+                pass
+
+            try:
+                lock_flags = await asyncio.wait_for(
+                    conn.shell("dumpsys window | grep -E 'mShowingLockscreen|mDreamingLockscreen'"),
+                    timeout=2.0
+                )
+            except:
+                pass
+
+            try:
+                keyguard_state = await asyncio.wait_for(
+                    conn.shell("dumpsys window policy | grep -E 'mKeyguardShowing|isKeyguardShowing'"),
+                    timeout=2.0
+                )
+            except:
+                pass
+
+            try:
+                current_focus = await asyncio.wait_for(
+                    conn.shell("dumpsys activity | grep mCurrentFocus"),
+                    timeout=2.0
+                )
+            except:
+                pass
+
+            # 1. Check if screen is off
+            if "mWakefulness=Asleep" in power_state or "state=OFF" in power_state:
+                logger.debug(f"[ADBBridge] Samsung state: SCREEN_OFF")
+                return "SCREEN_OFF"
+
+            # 2. Check if dreaming (screensaver)
+            if "mWakefulness=Dreaming" in power_state:
+                logger.debug(f"[ADBBridge] Samsung state: DREAMING")
+                return "DREAMING"
+
+            # 3. Determine lock state from flags
+            is_showing_lockscreen = "mShowingLockscreen=true" in lock_flags
+            is_dreaming_lockscreen = "mDreamingLockscreen=true" in lock_flags
+            is_keyguard_showing = (
+                "mKeyguardShowing=true" in keyguard_state or
+                "isKeyguardShowing=true" in keyguard_state
+            )
+            is_keyguard_explicitly_false = (
+                "mKeyguardShowing=false" in keyguard_state or
+                "isKeyguardShowing=false" in keyguard_state
+            )
+
+            # 4. Check current activity for disambiguation
+            has_notification_shade = "NotificationShade" in current_focus
+            has_keyguard_activity = any(x in current_focus for x in
+                                        ["Keyguard", "LockScreen", "BiometricPrompt", "PinEntry", "BouncerHost"])
+
+            # Decision logic for Samsung:
+            # NotificationShade + lock flags = LOCKED_LOCKSCREEN (Samsung shows lock as NotificationShade)
+            # NotificationShade + keyguard explicitly false = NOTIFICATION_SHADE (just notification panel)
+            # Explicit lock flags = LOCKED
+
+            if has_keyguard_activity:
+                logger.debug(f"[ADBBridge] Samsung state: LOCKED_PIN_ENTRY (keyguard activity)")
+                return "LOCKED_PIN_ENTRY"
+
+            if has_notification_shade:
+                if is_showing_lockscreen or is_keyguard_showing or is_dreaming_lockscreen:
+                    logger.debug(f"[ADBBridge] Samsung state: LOCKED_LOCKSCREEN (NotificationShade + lock flag)")
+                    return "LOCKED_LOCKSCREEN"
+                if is_keyguard_explicitly_false:
+                    logger.debug(f"[ADBBridge] Samsung state: NOTIFICATION_SHADE (keyguard false)")
+                    return "NOTIFICATION_SHADE"
+                # Ambiguous NotificationShade - assume locked for safety on Samsung
+                logger.debug(f"[ADBBridge] Samsung state: LOCKED_LOCKSCREEN (ambiguous NotificationShade)")
+                return "LOCKED_LOCKSCREEN"
+
+            if is_showing_lockscreen or is_keyguard_showing or is_dreaming_lockscreen:
+                logger.debug(f"[ADBBridge] Samsung state: LOCKED_LOCKSCREEN (lock flags)")
+                return "LOCKED_LOCKSCREEN"
+
+            logger.debug(f"[ADBBridge] Samsung state: UNLOCKED")
+            return "UNLOCKED"
+
+        except Exception as e:
+            logger.error(f"[ADBBridge] Error getting Samsung screen state: {e}")
+            return "LOCKED_LOCKSCREEN"  # Safe default
 
     async def execute_batch_commands(self, device_id: str, commands: List[str]) -> List[tuple]:
         """
