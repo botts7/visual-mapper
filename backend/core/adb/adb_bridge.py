@@ -1921,28 +1921,28 @@ class ADBBridge:
                 security_mgr = SecurityManager()
 
                 # Try device_id first
-                logger.debug(f"[ADBBridge] PIN lookup: checking device_id={device_id}")
+                logger.info(f"[ADBBridge] PIN lookup: checking device_id={device_id}")
                 config = security_mgr.get_lock_config(device_id)
                 lookup_id = device_id
 
                 # Fallback to stable_id if no config found
                 if not config:
                     stable_id = await self.get_device_serial(device_id)
-                    logger.debug(f"[ADBBridge] PIN lookup: no config for device_id, trying stable_id={stable_id}")
+                    logger.info(f"[ADBBridge] PIN lookup: no config for device_id, trying stable_id={stable_id}")
                     if stable_id and stable_id != device_id:
                         config = security_mgr.get_lock_config(stable_id)
                         if config:
                             lookup_id = stable_id
 
                 if config:
-                    logger.debug(f"[ADBBridge] PIN lookup: found config for {lookup_id}, strategy={config.get('strategy')}")
+                    logger.info(f"[ADBBridge] PIN lookup: found config for {lookup_id}, strategy={config.get('strategy')}")
                     if config.get('strategy') == LockStrategy.AUTO_UNLOCK.value:
                         # Use the same ID that had the config for passcode lookup
                         passcode = security_mgr.get_passcode(lookup_id)
                         has_pin_configured = bool(passcode)
-                        logger.debug(f"[ADBBridge] PIN lookup: passcode found={has_pin_configured}")
+                        logger.info(f"[ADBBridge] PIN lookup: passcode found={has_pin_configured}")
                 else:
-                    logger.debug(f"[ADBBridge] PIN lookup: no config found for device_id or stable_id")
+                    logger.info(f"[ADBBridge] PIN lookup: no config found for device_id or stable_id")
             except Exception as e:
                 logger.warning(f"[ADBBridge] PIN lookup failed: {e}")
 
