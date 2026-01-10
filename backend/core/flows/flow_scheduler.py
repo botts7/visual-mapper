@@ -996,35 +996,39 @@ class FlowScheduler:
 
     async def _auto_unlock_if_needed(self, device_id: str) -> bool:
         """
-        Unlock device if AUTO_UNLOCK strategy is configured.
+        Ensure device is unlocked before flow execution.
 
-        Returns True if device is ready (unlocked or no unlock needed).
+        Always tries swipe-to-unlock if device is locked.
+        Uses PIN/passcode only if AUTO_UNLOCK strategy is configured.
+
+        Returns True if device is ready (unlocked or successfully unlocked).
         Returns False if device is locked and couldn't be unlocked.
         """
         from utils.device_security import LockStrategy
 
-        # Check if device has AUTO_UNLOCK configured
-        security_config = self.flow_executor.security_manager.get_lock_config(device_id)
-        if not security_config:
-            # No security config - assume device is unlocked/no-lock
-            return True
-
-        if security_config.get('strategy') != LockStrategy.AUTO_UNLOCK.value:
-            # Not AUTO_UNLOCK - we don't manage this device's lock
-            # Check if locked - if so, we can't proceed
-            is_locked = await self.flow_executor.adb_bridge.is_locked(device_id)
-            if is_locked:
-                logger.warning(f"[FlowScheduler] Device {device_id} is locked but not configured for AUTO_UNLOCK")
-                return False
-            return True
-
-        # AUTO_UNLOCK configured - we manage this device
+        # STEP 1: Check if device is locked (do this FIRST, before config check)
         is_locked = await self.flow_executor.adb_bridge.is_locked(device_id)
         if not is_locked:
             logger.debug(f"[FlowScheduler] Device {device_id} already unlocked")
             return True
 
-        logger.info(f"[FlowScheduler] Device {device_id} is locked - attempting auto-unlock")
+        logger.info(f"[FlowScheduler] Device {device_id} is locked - attempting unlock")
+
+        # STEP 2: Check security config (try both device_id and stable_device_id)
+        security_config = self.flow_executor.security_manager.get_lock_config(device_id)
+
+        # Also try stable_device_id if available
+        if not security_config:
+            try:
+                stable_id = await self.flow_executor.adb_bridge.get_stable_device_id(device_id)
+                if stable_id and stable_id != device_id:
+                    security_config = self.flow_executor.security_manager.get_lock_config(stable_id)
+                    if security_config:
+                        logger.debug(f"[FlowScheduler] Found security config via stable_device_id: {stable_id}")
+            except Exception as e:
+                logger.debug(f"[FlowScheduler] Could not get stable_device_id: {e}")
+
+        has_auto_unlock = security_config and security_config.get('strategy') == LockStrategy.AUTO_UNLOCK.value
 
         # Check debounce - prevent rapid unlock attempts (matches frontend 30s debounce)
         import time
@@ -1059,8 +1063,21 @@ class FlowScheduler:
             logger.info(f"[FlowScheduler] Device unlocked via swipe")
             return True
 
-        # Step 2: Try PIN/passcode
-        passcode = self.flow_executor.security_manager.get_passcode(device_id)
+        # Step 2: Try PIN/passcode (only if AUTO_UNLOCK configured)
+        if has_auto_unlock:
+            passcode = self.flow_executor.security_manager.get_passcode(device_id)
+            # Also try stable_device_id for passcode
+            if not passcode:
+                try:
+                    stable_id = await self.flow_executor.adb_bridge.get_stable_device_id(device_id)
+                    if stable_id and stable_id != device_id:
+                        passcode = self.flow_executor.security_manager.get_passcode(stable_id)
+                except:
+                    pass
+        else:
+            passcode = None
+            logger.debug(f"[FlowScheduler] No AUTO_UNLOCK config - skipping PIN attempt")
+
         if passcode:
             try:
                 unlock_success = await self.flow_executor.adb_bridge.unlock_device(device_id, passcode)
