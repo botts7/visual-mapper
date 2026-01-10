@@ -88,8 +88,8 @@ class OnboardingWizard {
             // Security configured, complete onboarding
             this.completeOnboarding();
         } else if (this.currentStep === 6) {
-            // Done - redirect to main app
-            window.location.href = 'devices.html';
+            // Done - redirect to dashboard
+            window.location.href = 'main.html';
             return;
         }
 
