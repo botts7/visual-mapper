@@ -69,7 +69,7 @@ from services.feature_manager import get_feature_manager
 
 # Route modules (modular architecture)
 from routes import RouteDependencies, set_dependencies
-from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration, device_security, device_registration, navigation, companion, services, deduplication, settings
+from routes import meta, health, adb_info, cache, performance, shell, maintenance, adb_connection, adb_control, adb_screenshot, adb_apps, suggestions, sensors, mqtt, actions, flows, streaming, migration, device_security, device_registration, navigation, companion, services, deduplication, settings, ml
 
 # Configure logging
 logging.basicConfig(
@@ -973,6 +973,8 @@ app.include_router(deduplication.router)
 logger.info("[Server] Registered route module: deduplication (5 endpoints: sensor/action/flow similarity + optimize)")
 app.include_router(settings.router)
 logger.info("[Server] Registered route module: settings (8 endpoints: preferences + saved devices CRUD)")
+app.include_router(ml.router)
+logger.info("[Server] Registered route module: ml (6 endpoints: status + stats + export + reset + import)")
 
 # ============================================================================
 # All API endpoints have been migrated to routes/ modules
