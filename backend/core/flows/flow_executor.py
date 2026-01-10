@@ -1321,7 +1321,23 @@ class FlowExecutor:
         logger.debug(f"  Capturing {len(step.sensor_ids)} sensors")
 
         try:
-            # 0. Validate correct app AND screen is visible before capturing
+            # 0a. Quick check for NotificationShade/StatusBar - dismiss immediately if present
+            current_activity = await self.adb_bridge.get_current_activity(device_id)
+            if current_activity and ("NotificationShade" in current_activity or "StatusBar" in current_activity):
+                logger.info(f"  [SensorCapture] NotificationShade detected, dismissing...")
+                # Use the fastest dismissal method first
+                conn = self.adb_bridge._connections.get(device_id)
+                if conn:
+                    await conn.shell("cmd statusbar collapse")
+                    await asyncio.sleep(0.3)
+                    # If still showing, try HOME key
+                    current_activity = await self.adb_bridge.get_current_activity(device_id)
+                    if current_activity and "NotificationShade" in current_activity:
+                        await conn.shell("input keyevent 3")  # HOME
+                        await asyncio.sleep(0.3)
+                logger.info(f"  [SensorCapture] NotificationShade dismissed")
+
+            # 0b. Validate correct app AND screen is visible before capturing
             expected_package = step.screen_package
             expected_activity = step.screen_activity  # Activity when sensor was created
 
@@ -1372,15 +1388,30 @@ class FlowExecutor:
                             logger.debug(f"  Still waiting... Current: {curr_name} ({(poll + 1) * poll_interval:.1f}s)")
 
                     if not activity_found:
-                        # Final attempt: try launching the app if wrong app in foreground
+                        # Final attempt: check if it's NotificationShade blocking us
                         current_activity = await self.adb_bridge.get_current_activity(device_id)
                         current_package = current_activity.split('/')[0] if current_activity and '/' in current_activity else current_activity
 
-                        if expected_package and current_package != expected_package:
+                        # First, dismiss NotificationShade if that's what's blocking
+                        if current_activity and "NotificationShade" in current_activity:
+                            logger.info(f"  NotificationShade blocking recovery, dismissing...")
+                            conn = self.adb_bridge._connections.get(device_id)
+                            if conn:
+                                await conn.shell("cmd statusbar collapse")
+                                await asyncio.sleep(0.3)
+                                await conn.shell("input keyevent 3")  # HOME as backup
+                                await asyncio.sleep(0.5)
+                            current_activity = await self.adb_bridge.get_current_activity(device_id)
+                            current_package = current_activity.split('/')[0] if current_activity and '/' in current_activity else current_activity
+                            if self._activity_matches(current_activity, expected_activity):
+                                logger.info(f"  NotificationShade dismissed, now on correct screen")
+                                activity_found = True
+
+                        if not activity_found and expected_package and current_package != expected_package:
                             logger.info(f"  Attempting recovery: launching {expected_package}")
                             success = await self.adb_bridge.launch_app(device_id, expected_package)
                             if success:
-                                await asyncio.sleep(3)  # Give app time to load
+                                await asyncio.sleep(2)  # Reduced from 3s to 2s
                                 new_activity = await self.adb_bridge.get_current_activity(device_id)
                                 if self._activity_matches(new_activity, expected_activity):
                                     logger.info(f"  Recovery successful: reached {expected_activity_name}")
