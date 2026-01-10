@@ -1794,7 +1794,7 @@ class ADBBridge:
         """
         Attempt to unlock the screen (works for swipe-to-unlock, not PIN/pattern).
 
-        Uses wm dismiss-keyguard (Android 8+) for maximum reliability.
+        Wakes screen first, then uses wm dismiss-keyguard and swipe.
 
         Args:
             device_id: Device identifier
@@ -1809,22 +1809,27 @@ class ADBBridge:
         try:
             logger.info(f"[ADBBridge] Unlocking screen on {resolved_id}")
 
-            # Method 1: wm dismiss-keyguard (most reliable on Android 8+)
+            # STEP 1: Wake the screen first (critical for mDreamingLockscreen)
+            await conn.shell("input keyevent 224")  # KEYCODE_WAKEUP
+            await asyncio.sleep(0.3)
+            await conn.shell("input keyevent 26")   # KEYCODE_POWER (backup)
+            await asyncio.sleep(0.5)
+
+            # STEP 2: wm dismiss-keyguard (works on Android 8+)
             try:
                 await conn.shell("wm dismiss-keyguard")
                 await asyncio.sleep(0.3)
-                # Check if unlocked
                 if not await self.is_locked(device_id):
                     logger.info(f"[ADBBridge] Screen unlocked via wm dismiss-keyguard")
                     return True
             except Exception as e:
                 logger.debug(f"[ADBBridge] wm dismiss-keyguard failed: {e}")
 
-            # Method 2: MENU key (often dismisses lock screen on swipe-to-unlock)
+            # STEP 3: MENU key (often dismisses swipe-to-unlock)
             await conn.shell("input keyevent 82")  # KEYCODE_MENU
             await asyncio.sleep(0.3)
 
-            # Method 3: Swipe up (fallback for older devices)
+            # STEP 4: Swipe up from bottom to top
             try:
                 wm_output = await conn.shell("wm size")
                 match = re.search(r'(\d+)x(\d+)', wm_output)
@@ -1833,11 +1838,13 @@ class ADBBridge:
                 else:
                     width, height = 1080, 1920
                 center_x = width // 2
-                await conn.shell(f"input swipe {center_x} {int(height * 0.8)} {center_x} {int(height * 0.3)} 300")
+                # Swipe from 90% to 20% height (long swipe for Samsung)
+                await conn.shell(f"input swipe {center_x} {int(height * 0.9)} {center_x} {int(height * 0.2)} 300")
             except:
                 # Fallback with hardcoded coordinates
-                await conn.shell("input swipe 540 1800 540 800 300")
+                await conn.shell("input swipe 540 1800 540 400 300")
 
+            await asyncio.sleep(0.3)
             return True
         except Exception as e:
             logger.error(f"[ADBBridge] Failed to unlock screen: {e}")
