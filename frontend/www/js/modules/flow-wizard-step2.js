@@ -89,6 +89,12 @@ export async function loadStep(wizard) {
         // Trigger background app name prefetch
         prefetchAppNames(wizard);
 
+        // Also trigger icon prefetch in background
+        fetch(`${getApiBase()}/adb/prefetch-icons/${encodeURIComponent(wizard.selectedDevice)}`, {
+            method: 'POST'
+        }).then(() => console.log('[Step2] Icon prefetch triggered'))
+          .catch(() => {});
+
     } catch (error) {
         console.error('[Step2] Error loading apps:', error);
         appList.innerHTML = `

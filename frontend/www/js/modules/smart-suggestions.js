@@ -104,8 +104,15 @@ class SmartSuggestions {
         this.actionSuggestions = actionData.suggestions || [];
 
         console.log(`[SmartSuggestions] Got ${this.sensorSuggestions.length} sensor suggestions, ${this.actionSuggestions.length} action suggestions`);
-        console.log('[SmartSuggestions] Sensor suggestions:', this.sensorSuggestions);
-        console.log('[SmartSuggestions] Action suggestions:', this.actionSuggestions);
+        console.log('[SmartSuggestions] Sensor suggestions:', JSON.stringify(this.sensorSuggestions, null, 2));
+        console.log('[SmartSuggestions] Action suggestions:', JSON.stringify(this.actionSuggestions, null, 2));
+
+        // Debug alternative names
+        const sensorsWithAlts = this.sensorSuggestions.filter(s => s.alternative_names?.length > 0);
+        console.log(`[SmartSuggestions] Sensors with alternative_names: ${sensorsWithAlts.length}/${this.sensorSuggestions.length}`);
+        if (sensorsWithAlts.length > 0) {
+            console.log('[SmartSuggestions] First sensor with alternatives:', sensorsWithAlts[0]);
+        }
 
         const totalSuggestions = this.sensorSuggestions.length + this.actionSuggestions.length;
         if (totalSuggestions === 0) {
