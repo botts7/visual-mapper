@@ -2573,6 +2573,53 @@ img.app-icon {
     transform: translateY(-1px);
 }
 
+/* Alternative Names Row */
+.suggestion-alt-names {
+    background: var(--bg-secondary);
+    padding: 6px 8px;
+    border-radius: 6px;
+    margin: 6px 0;
+    border: 1px dashed var(--border-color);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.suggestion-alt-names .alt-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.suggestion-alt-names .alt-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.alt-name-btn {
+    padding: 3px 8px;
+    font-size: 11px;
+    background: var(--bg-primary);
+    border: 1px solid var(--primary-color);
+    color: var(--primary-color);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.alt-name-btn:hover {
+    background: var(--primary-color);
+    color: white;
+    transform: scale(1.02);
+}
+
+.alt-name-btn:active {
+    transform: scale(0.98);
+}
+
 /* Suggestion Edit Dialog */
 .suggestion-edit-dialog-overlay {
     position: fixed;

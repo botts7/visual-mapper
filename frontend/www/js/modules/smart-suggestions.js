@@ -5,8 +5,8 @@
  * based on pattern detection heuristics.
  */
 
-import { getApiBase } from './api-base-detection.js?v=0.2.37';
-import { showToast } from './toast.js?v=0.2.37';
+import { getApiBase } from './api-base-detection.js?v=0.2.41';
+import { showToast } from './toast.js?v=0.2.41';
 
 class SmartSuggestions {
     constructor() {
@@ -148,7 +148,7 @@ class SmartSuggestions {
                         </button>
                     </div>
                     <div class="modal-body">
-                        <div id="suggestionsContent"></div>
+                        <div id="modalSuggestionsContent"></div>
                     </div>
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" id="closeSuggestionsBtn">
@@ -256,7 +256,7 @@ class SmartSuggestions {
      * Render suggestions list
      */
     renderSuggestions() {
-        const container = document.getElementById('suggestionsContent');
+        const container = document.getElementById('modalSuggestionsContent');
 
         // Get suggestions for current mode
         const suggestions = this.currentMode === 'sensors' ? this.sensorSuggestions : this.actionSuggestions;
@@ -602,7 +602,7 @@ class SmartSuggestions {
             };
 
             // Import Dialogs module to create action
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.37');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.41');
             await Dialogs.createAction(this.wizard, element, null);
         }
     }

@@ -5,7 +5,7 @@
  * Handles app list loading, icon detection, system app filtering, and app search
  */
 
-import { showToast } from './toast.js?v=0.2.37';
+import { showToast } from './toast.js?v=0.2.41';
 
 // Helper to get API base
 function getApiBase() {
@@ -94,6 +94,9 @@ export async function loadStep(wizard) {
             method: 'POST'
         }).then(() => console.log('[Step2] Icon prefetch triggered'))
           .catch(() => {});
+
+        // Start queue stats polling to auto-refresh icons/names when fetching completes
+        startQueueStatsPolling(wizard);
 
     } catch (error) {
         console.error('[Step2] Error loading apps:', error);
@@ -403,6 +406,57 @@ function stopQueueStatsPolling(wizard) {
     }
 }
 
+// Track previous queue state for detecting completion
+let previousIconQueuePending = -1;
+let previousAppNameQueuePending = -1;
+
+/**
+ * Refresh all icon images by adding cache-buster
+ */
+function refreshIconImages() {
+    const cacheBust = Date.now();
+    document.querySelectorAll('.app-icon').forEach(img => {
+        const originalSrc = img.src.split('?')[0]; // Remove any existing cache buster
+        img.src = `${originalSrc}?t=${cacheBust}`;
+    });
+    console.log('[Step2] Refreshed all icon images with cache buster');
+}
+
+/**
+ * Refresh all app labels by re-fetching app names
+ */
+async function refreshAppNames() {
+    try {
+        const deviceSelect = document.getElementById('deviceSelect');
+        const deviceId = deviceSelect?.value;
+        if (!deviceId) return;
+
+        console.log('[Step2] Refreshing app names...');
+        const response = await fetch(`${getApiBase()}/adb/apps/${encodeURIComponent(deviceId)}`);
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const apps = data.apps || [];
+
+        // Update app labels in the DOM
+        apps.forEach(app => {
+            const appItem = document.querySelector(`.app-item[data-package="${app.package}"]`);
+            if (appItem && app.label && app.label !== app.package) {
+                const labelEl = appItem.querySelector('.app-label');
+                if (labelEl && labelEl.textContent !== app.label) {
+                    labelEl.textContent = app.label;
+                    appItem.dataset.label = app.label;
+                    console.log(`[Step2] Updated app name: ${app.package} -> ${app.label}`);
+                }
+            }
+        });
+
+        console.log('[Step2] App names refreshed');
+    } catch (error) {
+        console.debug('[Step2] Failed to refresh app names:', error);
+    }
+}
+
 /**
  * Update queue stats display
  */
@@ -425,11 +479,19 @@ async function updateQueueStats() {
             statusIcon.textContent = '✅';
             statusText.textContent = 'All icons fetched';
             statusText.style.color = '#22c55e';
+
+            // Refresh icons if we just completed (transitioned from pending to done)
+            if (previousIconQueuePending > 0) {
+                console.log('[Step2] Icon fetching completed, refreshing images...');
+                setTimeout(refreshIconImages, 500); // Small delay to ensure backend has written files
+            }
         } else {
             statusIcon.textContent = '⏳';
             statusText.textContent = `Fetching icons... (${totalPending} remaining, ${processing_count} in progress)`;
             statusText.style.color = '#3b82f6';
         }
+
+        previousIconQueuePending = totalPending;
 
     } catch (error) {
         console.debug('[Step2] Failed to fetch icon queue stats:', error);
@@ -457,11 +519,19 @@ async function updateQueueStats() {
             statusIcon.textContent = '✅';
             statusText.textContent = `All app names fetched (${completed_count} apps)`;
             statusText.style.color = '#22c55e';
+
+            // Refresh app names if we just completed (transitioned from pending to done)
+            if (previousAppNameQueuePending > 0) {
+                console.log('[Step2] App name fetching completed, refreshing labels...');
+                setTimeout(refreshAppNames, 500); // Small delay to ensure backend cache is updated
+            }
         } else if (totalPending > 0) {
             statusIcon.textContent = '📝';
             statusText.textContent = `Fetching app names... ${progress_percentage}% (${completed_count}/${total_requested}, ${processing_count} in progress)`;
             statusText.style.color = '#3b82f6';
         }
+
+        previousAppNameQueuePending = totalPending;
 
     } catch (error) {
         console.debug('[Step2] Failed to fetch app name queue stats:', error);

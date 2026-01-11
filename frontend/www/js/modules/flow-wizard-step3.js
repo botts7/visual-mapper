@@ -57,23 +57,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.2.37';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.37';
-import FlowInteractions from './flow-interactions.js?v=0.2.37';
-import FlowStepManager from './flow-step-manager.js?v=0.2.37';
-import FlowRecorder from './flow-recorder.js?v=0.2.37';
-import LiveStream from './live-stream.js?v=0.2.37';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.37';
+import { showToast } from './toast.js?v=0.2.41';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.41';
+import FlowInteractions from './flow-interactions.js?v=0.2.41';
+import FlowStepManager from './flow-step-manager.js?v=0.2.41';
+import FlowRecorder from './flow-recorder.js?v=0.2.41';
+import LiveStream from './live-stream.js?v=0.2.41';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.41';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.2.37';
+} from './device-unlock.js?v=0.2.41';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.2.37';
+import * as Step3Controller from './step3-controller.js?v=0.2.41';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -3032,7 +3032,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.37');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.41');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3066,7 +3066,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.37');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.41');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -3220,6 +3220,82 @@ async function loadSuggestions(wizard) {
 }
 
 /**
+ * Escape HTML to prevent XSS
+ */
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+/**
+ * Handle alternative name click - swap names
+ */
+function handleAlternativeNameClick(wizard, index, altName) {
+    const suggestions = wizard._suggestionsMode === 'sensors'
+        ? wizard._sensorSuggestions
+        : wizard._actionSuggestions;
+
+    const suggestion = suggestions[index];
+    if (!suggestion) return;
+
+    // Swap names: current name becomes an alternative, alt becomes primary
+    const oldName = suggestion.name || suggestion.suggested_name;
+    suggestion.name = altName;
+    suggestion.suggested_name = altName;
+
+    // Update alternatives list
+    if (suggestion.alternative_names) {
+        // Remove the selected alternative
+        suggestion.alternative_names = suggestion.alternative_names.filter(
+            alt => alt.name.toLowerCase() !== altName.toLowerCase()
+        );
+        // Add old name as alternative (if not already there)
+        if (!suggestion.alternative_names.some(alt => alt.name.toLowerCase() === oldName.toLowerCase())) {
+            suggestion.alternative_names.unshift({
+                name: oldName,
+                location: 'previous',
+                score: 100
+            });
+        }
+    }
+
+    // Re-render to update display
+    renderSuggestionsContent(wizard);
+    showToast(`Name changed to "${altName}"`, 'success', 2000);
+}
+
+/**
+ * Highlight suggestion element on screenshot
+ */
+function highlightSuggestionElement(wizard, suggestion) {
+    if (!wizard || !suggestion?.element?.bounds) return;
+
+    import('./canvas-overlay-renderer.js').then(module => {
+        const element = {
+            bounds: suggestion.element.bounds,
+            text: suggestion.element.text,
+            class: suggestion.element.class
+        };
+        module.highlightHoveredElement(wizard, element);
+    }).catch(err => {
+        console.warn('[Suggestions] Could not highlight element:', err);
+    });
+}
+
+/**
+ * Clear suggestion highlight
+ */
+function clearSuggestionHighlight(wizard) {
+    if (!wizard) return;
+
+    import('./canvas-overlay-renderer.js').then(module => {
+        module.clearHoverHighlight(wizard);
+    }).catch(() => {});
+}
+
+/**
  * Render the suggestions content based on current mode
  */
 function renderSuggestionsContent(wizard) {
@@ -3276,6 +3352,32 @@ function renderSuggestionsContent(wizard) {
         };
         const displayIcon = iconEmoji[icon] || '📊';
 
+        // Build alternative names HTML if available
+        let alternativeNamesHtml = '';
+        if (suggestion.alternative_names && suggestion.alternative_names.length > 0) {
+            const locationIcons = {
+                'above': '⬆️',
+                'below': '⬇️',
+                'left': '⬅️',
+                'right': '➡️',
+                'resource_id': '🏷️',
+                'pattern': '🔍',
+                'content_desc': '📝',
+                'previous': '↩️'
+            };
+            const altButtons = suggestion.alternative_names.map(alt => {
+                const locIcon = locationIcons[alt.location] || '📍';
+                return `<button type="button" class="alt-name-btn" data-index="${index}" data-alt-name="${escapeHtml(alt.name)}" title="${alt.location}: score ${alt.score}">${locIcon} ${escapeHtml(alt.name)}</button>`;
+            }).join('');
+
+            alternativeNamesHtml = `
+                <div class="suggestion-alt-names">
+                    <span class="alt-label">Also try:</span>
+                    <span class="alt-buttons">${altButtons}</span>
+                </div>
+            `;
+        }
+
         return `
             <div class="suggestion-item ${isSelected ? 'selected' : ''}" data-index="${index}">
                 <label class="suggestion-checkbox">
@@ -3283,10 +3385,11 @@ function renderSuggestionsContent(wizard) {
                 </label>
                 <div class="suggestion-icon">${displayIcon}</div>
                 <div class="suggestion-details">
-                    <div class="suggestion-name">${suggestion.name || suggestion.suggested_name || 'Unnamed'}</div>
-                    <div class="suggestion-value-big">${displayValue}${unit ? ' ' + unit : ''}</div>
+                    <div class="suggestion-name">${escapeHtml(suggestion.name || suggestion.suggested_name || 'Unnamed')}</div>
+                    <div class="suggestion-value-big">${escapeHtml(displayValue)}${unit ? ' ' + escapeHtml(unit) : ''}</div>
+                    ${alternativeNamesHtml}
                     <div class="suggestion-meta">
-                        <span class="suggestion-device-class">${deviceClass}</span>
+                        <span class="suggestion-device-class">${escapeHtml(deviceClass)}</span>
                         <span class="suggestion-confidence">${confidence}%</span>
                     </div>
                 </div>
@@ -3303,8 +3406,8 @@ function renderSuggestionsContent(wizard) {
     // Add click handlers for checkboxes (toggle selection)
     suggestionsContent.querySelectorAll('.suggestion-item').forEach(item => {
         item.addEventListener('click', (e) => {
-            // Don't toggle if clicking on buttons
-            if (e.target.closest('.suggestion-buttons')) return;
+            // Don't toggle if clicking on buttons or alt-name buttons
+            if (e.target.closest('.suggestion-buttons') || e.target.closest('.alt-name-btn')) return;
 
             const index = parseInt(item.dataset.index);
             if (wizard._selectedSuggestions.has(index)) {
@@ -3317,6 +3420,22 @@ function renderSuggestionsContent(wizard) {
                 item.querySelector('input[type="checkbox"]').checked = true;
             }
             updateSelectedCount(wizard);
+        });
+
+        // Add hover handlers for element highlighting
+        item.addEventListener('mouseenter', () => {
+            const index = parseInt(item.dataset.index);
+            const suggestions = wizard._suggestionsMode === 'sensors'
+                ? wizard._sensorSuggestions
+                : wizard._actionSuggestions;
+            const suggestion = suggestions[index];
+            if (suggestion) {
+                highlightSuggestionElement(wizard, suggestion);
+            }
+        });
+
+        item.addEventListener('mouseleave', () => {
+            clearSuggestionHighlight(wizard);
         });
     });
 
@@ -3335,6 +3454,16 @@ function renderSuggestionsContent(wizard) {
             e.stopPropagation();
             const index = parseInt(btn.dataset.index);
             handleQuickAddSuggestion(wizard, index);
+        });
+    });
+
+    // Add click handlers for Alternative Name buttons
+    suggestionsContent.querySelectorAll('.alt-name-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const index = parseInt(btn.dataset.index);
+            const altName = btn.dataset.altName;
+            handleAlternativeNameClick(wizard, index, altName);
         });
     });
 }
@@ -3780,7 +3909,7 @@ async function addSelectedSuggestions(wizard) {
 
 /**
  * Handle Smart Suggestions button click
- * Shows AI-powered sensor suggestions
+ * Shows AI-powered sensor suggestions in the inline Suggestions tab
  */
 export async function handleSmartSuggestions(wizard) {
     if (!wizard.selectedDevice) {
@@ -3788,24 +3917,17 @@ export async function handleSmartSuggestions(wizard) {
         return;
     }
 
-    try {
-        // Dynamically import SmartSuggestions module
-        // Use timestamp to force cache refresh (browser was aggressively caching)
-        const cacheBust = Date.now();
-        const SmartSuggestionsModule = await import(`./smart-suggestions.js?v=0.2.37&t=${cacheBust}`);
-        const SmartSuggestions = SmartSuggestionsModule.default || window.SmartSuggestions;
+    // Switch to the Suggestions tab
+    switchToTab(wizard, 'suggestions');
 
-        // Create instance and show (pass wizard for full creator dialog access)
-        const smartSuggestions = new SmartSuggestions();
-        await smartSuggestions.show(wizard, wizard.selectedDevice, (sensors) => {
-            // Callback when sensors are added
-            handleBulkSensorAddition(wizard, sensors);
-        });
-
-    } catch (error) {
-        console.error('[FlowWizard] Failed to load Smart Suggestions:', error);
-        showToast('Failed to load Smart Suggestions', 'error');
+    // Initialize suggestions tab if not already done
+    if (!wizard._suggestionsTabInitialized) {
+        setupSuggestionsTab(wizard);
+        wizard._suggestionsTabInitialized = true;
     }
+
+    // Trigger a refresh to load suggestions
+    await loadSuggestions(wizard);
 }
 
 /**
@@ -4764,7 +4886,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.37');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.41');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -4772,7 +4894,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.37');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.41');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -4780,7 +4902,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.37');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.41');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -4788,7 +4910,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.37');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.41');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
