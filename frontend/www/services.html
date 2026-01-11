@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.2.10" data-build="2026-01-02">
+    <meta name="version" content="0.2.11" data-build="2026-01-02">
     <title>Services - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.2.10">
+    <link rel="stylesheet" href="css/styles.css?v=0.2.11">
     <style>
         .service-card {
             background: var(--card-background);
@@ -295,7 +295,7 @@
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.2.10"></script>
+    <script type="module" src="js/init.js?v=0.2.11"></script>
 
     <div class="container">
         <div class="card">
@@ -502,8 +502,8 @@
         }
 
         async function startMl() {
+            const btn = document.getElementById('ml-start');
             try {
-                const btn = document.getElementById('ml-start');
                 btn.disabled = true;
                 btn.textContent = 'Starting...';
 
@@ -512,11 +512,17 @@
                 });
                 const data = await response.json();
 
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to start ML service');
+                }
+
                 await refreshStatus();
-                btn.textContent = 'Start';
             } catch (error) {
                 console.error('Failed to start ML service:', error);
-                alert('Failed to start ML service: ' + error.message);
+                alert('Failed to start ML service:\n\n' + error.message);
+            } finally {
+                btn.textContent = 'Start';
+                btn.disabled = false;
             }
         }
 
