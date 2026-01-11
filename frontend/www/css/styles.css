@@ -166,6 +166,7 @@ nav a {
     padding: 0.5rem 0.75rem;
     border-radius: 4px;
     transition: background-color 0.2s;
+    white-space: nowrap;
 }
 
 nav a:hover {
