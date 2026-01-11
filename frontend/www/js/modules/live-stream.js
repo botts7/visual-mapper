@@ -80,6 +80,7 @@ class LiveStream {
         this.onMetricsUpdate = null;
         this.onConnectionStateChange = null; // New callback for connection state
         this.onScreenChange = null;          // Smart refresh: fires when screen stabilizes after change
+        this.onElementsCleared = null;       // Fires immediately when screen change detected (before stabilization)
 
         // Overlay settings
         this.showOverlays = true;
@@ -1049,7 +1050,13 @@ class LiveStream {
             if (this._lastFrameHash !== 0 && newHash !== this._lastFrameHash) {
                 // Screen changed - track that we're in a "changing" state
                 if (!this._screenChanged) {
-                    console.log('[LiveStream] Smart: screen change detected');
+                    console.log('[LiveStream] Smart: screen change detected, clearing stale elements');
+                    // IMMEDIATELY clear elements when screen changes to prevent misalignment
+                    // Don't wait for stabilization - old elements on new screenshot looks broken
+                    this.elements = [];
+                    if (this.onElementsCleared) {
+                        this.onElementsCleared();
+                    }
                 }
                 this._screenChanged = true;
                 this._stableFrameCount = 0;
