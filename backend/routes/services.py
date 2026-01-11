@@ -183,11 +183,14 @@ async def start_ml_training():
         port = os.environ.get("MQTT_PORT", "1883")
 
         # Start ML training server as subprocess
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        ml_script = os.path.join(backend_dir, "ml_components", "ml_training_server.py")
+
         ml_training_process = subprocess.Popen(
-            [sys.executable, "ml_training_server.py", "--broker", broker, "--port", port],
+            [sys.executable, ml_script, "--broker", broker, "--port", port],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            cwd=backend_dir
         )
 
         logger.info(f"Started ML training server with PID {ml_training_process.pid}")
