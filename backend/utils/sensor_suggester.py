@@ -693,8 +693,8 @@ class SensorSuggester:
             'pattern_type': pattern_name,
             'element': {
                 'text': text,
-                'resource-id': resource_id,
-                'content-desc': element.get('content_desc', ''),
+                'resource_id': resource_id,
+                'content_desc': element.get('content_desc', ''),
                 'class': element.get('class', ''),
                 'bounds': element.get('bounds', {})
             },

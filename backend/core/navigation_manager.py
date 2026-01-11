@@ -625,6 +625,15 @@ class NavigationManager:
             activity: Home screen activity
             ui_elements: UI elements for identification
         """
+        graph = self.get_or_create_graph(package)
+
+        # Clear old home screen flag from ALL screens first
+        for existing_screen in graph.screens.values():
+            if existing_screen.is_home_screen:
+                existing_screen.is_home_screen = False
+                logger.debug(f"[NavigationManager] Cleared home flag from: {existing_screen.display_name}")
+
+        # Now add/update the new home screen
         screen = self.add_screen(
             package=package,
             activity=activity,
@@ -633,10 +642,9 @@ class NavigationManager:
             is_home_screen=True
         )
 
-        graph = self.get_graph(package)
-        if graph:
-            graph.home_screen_id = screen.screen_id
-            self.save_graph(graph)
+        # Ensure graph home_screen_id is set
+        graph.home_screen_id = screen.screen_id
+        self.save_graph(graph)
 
         logger.info(f"[NavigationManager] Set home screen for {package}: {screen.display_name}")
 
