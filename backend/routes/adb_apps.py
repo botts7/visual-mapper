@@ -63,19 +63,16 @@ async def get_app_icon(
     """
     Get app icon - multi-tier approach for optimal performance
 
-    Multi-Tier Loading Strategy:
-    0. Device-specific cache (scraped from device) - INSTANT + BEST QUALITY
-    1. Play Store cache (pre-populated/scraped) - INSTANT
-    2. APK extraction cache (previously extracted) - INSTANT
-    3. If skip_extraction=true: Return SVG immediately - INSTANT
-    4. Play Store scrape (on-demand) - 1-2 seconds
-    5. APK extraction (for system/OEM apps) - 10-30 seconds
-    6. SVG fallback - INSTANT
+    Multi-Tier Loading Strategy (prioritized by quality):
+    0. Play Store cache - INSTANT + BEST QUALITY (authoritative, high-res)
+    1. APK extraction cache - INSTANT (extracted from APK)
+    2. Device-specific cache - INSTANT (screenshot crop fallback)
+    3. Background fetch + SVG fallback - INSTANT response while fetching
 
     Args:
         device_id: ADB device ID
         package_name: App package name
-        skip_extraction: If true, skip slow methods (scraping/extraction) and return SVG
+        skip_extraction: If true, skip slow methods and return SVG
 
     Returns:
         Icon image data (PNG/WebP/SVG)
@@ -84,37 +81,22 @@ async def get_app_icon(
 
     deps = get_deps()
 
-    # Tier 0: Check device-specific cache (INSTANT + BEST QUALITY)
-    # This is scraped from the actual device app drawer, so it respects:
-    # - User's launcher theme
-    # - Adaptive icons (rendered correctly)
-    # - Custom icon packs
-    # - OEM customizations
-    if deps.device_icon_scraper:
-        icon_data = deps.device_icon_scraper.get_icon(device_id, package_name)
-        if icon_data:
-            logger.debug(f"[API] Tier 0: Device-specific cache hit for {package_name}")
-            return Response(
-                content=icon_data,
-                media_type="image/png",
-                headers={"X-Icon-Source": "device-scraper"},
-            )
-
-    # Tier 1: Check Play Store cache (INSTANT)
+    # Tier 0: Check Play Store cache (INSTANT + BEST QUALITY)
+    # Play Store icons are high quality, properly sized, and authoritative
     if deps.playstore_icon_scraper:
         from pathlib import Path
 
         playstore_cache = Path(f"data/app-icons-playstore/{package_name}.png")
         if playstore_cache.exists():
             icon_data = playstore_cache.read_bytes()
-            logger.debug(f"[API] Tier 1: Play Store cache hit for {package_name}")
+            logger.debug(f"[API] Tier 0: Play Store cache hit for {package_name}")
             return Response(
                 content=icon_data,
                 media_type="image/png",
                 headers={"X-Icon-Source": "playstore"},
             )
 
-    # Tier 2: Check APK extraction cache (INSTANT)
+    # Tier 1: Check APK extraction cache (INSTANT)
     if deps.app_icon_extractor:
         from pathlib import Path
         import glob
@@ -123,11 +105,23 @@ async def get_app_icon(
         apk_caches = glob.glob(apk_cache_pattern)
         if apk_caches:
             icon_data = Path(apk_caches[0]).read_bytes()
-            logger.debug(f"[API] Tier 2: APK cache hit for {package_name}")
+            logger.debug(f"[API] Tier 1: APK cache hit for {package_name}")
             return Response(
                 content=icon_data,
                 media_type="image/png",
                 headers={"X-Icon-Source": "apk-extraction"},
+            )
+
+    # Tier 2: Check device-specific cache (INSTANT but lower quality)
+    # Device scraper crops from screenshots - use as fallback only for apps not on Play Store
+    if deps.device_icon_scraper:
+        icon_data = deps.device_icon_scraper.get_icon(device_id, package_name)
+        if icon_data:
+            logger.debug(f"[API] Tier 2: Device scraper cache hit for {package_name}")
+            return Response(
+                content=icon_data,
+                media_type="image/png",
+                headers={"X-Icon-Source": "device-scraper"},
             )
 
     # Tier 3: Not in cache - Trigger background fetch and return SVG immediately
