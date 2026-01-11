@@ -13,7 +13,12 @@ from pydantic import BaseModel
 from typing import Optional
 import logging
 import time
+import os
+from pathlib import Path
 from routes import get_deps
+
+# Get DATA_DIR from environment (matches main.py)
+DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +89,8 @@ async def get_app_icon(
     # Tier 0: Check Play Store cache (INSTANT + BEST QUALITY)
     # Play Store icons are high quality, properly sized, and authoritative
     # Always check the cache directory - icons may exist even if scraper isn't initialized
-    from pathlib import Path
-
-    playstore_cache = Path(f"data/app-icons-playstore/{package_name}.png")
+    playstore_cache = DATA_DIR / "app-icons-playstore" / f"{package_name}.png"
+    logger.debug(f"[API] Checking Play Store cache: {playstore_cache} (exists={playstore_cache.exists()})")
     if playstore_cache.exists():
         icon_data = playstore_cache.read_bytes()
         logger.debug(f"[API] Tier 0: Play Store cache hit for {package_name}")
@@ -100,7 +104,7 @@ async def get_app_icon(
     # Always check the cache directory - icons may exist even if extractor isn't initialized
     import glob
 
-    apk_cache_pattern = f"data/app-icons/{package_name}_*.png"
+    apk_cache_pattern = str(DATA_DIR / "app-icons" / f"{package_name}_*.png")
     apk_caches = glob.glob(apk_cache_pattern)
     if apk_caches:
         icon_data = Path(apk_caches[0]).read_bytes()
@@ -476,10 +480,8 @@ async def check_icon_cache(device_id: str):
         cache_stats = deps.device_icon_scraper.get_cache_stats(device_id)
 
         # Calculate new apps count
-        from pathlib import Path
-
         safe_device_id = device_id.replace(":", "_")
-        device_cache_dir = Path(f"data/device-icons/{safe_device_id}")
+        device_cache_dir = DATA_DIR / "device-icons" / safe_device_id
         cached_packages = (
             {f.stem for f in device_cache_dir.glob("*.png")}
             if device_cache_dir.exists()
