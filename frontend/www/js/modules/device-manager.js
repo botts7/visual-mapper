@@ -45,10 +45,43 @@ class DeviceManager {
             // Reload devices
             await this.loadDevices();
 
+            // Trigger background prefetch for app icons and names
+            if (response.device_id) {
+                this.prefetchAppData(response.device_id);
+            }
+
             return response.device_id;
         } catch (error) {
             console.error('[DeviceManager] Connection failed:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Prefetch app icons and names in background for a device
+     * Improves UX by caching data before user needs it
+     * @param {string} deviceId - Device ID to prefetch for
+     */
+    async prefetchAppData(deviceId) {
+        console.log(`[DeviceManager] Starting background prefetch for ${deviceId}`);
+
+        try {
+            // Prefetch app names (faster, from Play Store)
+            fetch(`${this.apiClient.baseUrl}/adb/prefetch-app-names/${encodeURIComponent(deviceId)}`, {
+                method: 'POST'
+            }).then(resp => {
+                if (resp.ok) console.log(`[DeviceManager] App names prefetch queued for ${deviceId}`);
+            }).catch(() => {}); // Silent fail - non-critical
+
+            // Prefetch app icons (slower, may extract from APKs)
+            fetch(`${this.apiClient.baseUrl}/adb/prefetch-icons/${encodeURIComponent(deviceId)}`, {
+                method: 'POST'
+            }).then(resp => {
+                if (resp.ok) console.log(`[DeviceManager] App icons prefetch queued for ${deviceId}`);
+            }).catch(() => {}); // Silent fail - non-critical
+
+        } catch (error) {
+            console.warn('[DeviceManager] Prefetch failed (non-critical):', error);
         }
     }
 

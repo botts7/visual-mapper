@@ -758,9 +758,67 @@ class OnboardingWizard {
     /**
      * Complete onboarding
      */
-    completeOnboarding() {
+    async completeOnboarding() {
         console.log('[Onboarding] Onboarding complete');
         this.markOnboardingComplete();
+
+        // Start background prefetch of app icons and names for better UX
+        if (this.selectedDevice?.device_id) {
+            this.prefetchAppData(this.selectedDevice.device_id);
+        }
+    }
+
+    /**
+     * Prefetch app icons and names in background
+     * This improves UX by caching data before user needs it
+     */
+    async prefetchAppData(deviceId) {
+        console.log(`[Onboarding] Starting background prefetch for ${deviceId}`);
+
+        // Update UI to show prefetch is happening
+        const infoBox = document.querySelector('#step6 .info-box');
+        if (infoBox) {
+            const prefetchStatus = document.createElement('div');
+            prefetchStatus.id = 'prefetchStatus';
+            prefetchStatus.style.cssText = 'margin-top: 16px; padding: 12px; background: rgba(33, 150, 243, 0.1); border-radius: 6px; font-size: 14px;';
+            prefetchStatus.innerHTML = '<span class="spinner" style="display: inline-block; width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></span> Caching app icons and names...';
+            infoBox.appendChild(prefetchStatus);
+        }
+
+        try {
+            // Prefetch app names first (faster, from Play Store)
+            const namesResponse = await fetch(`${window.API_BASE}/adb/prefetch-app-names/${encodeURIComponent(deviceId)}`, {
+                method: 'POST'
+            });
+            if (namesResponse.ok) {
+                const namesData = await namesResponse.json();
+                console.log(`[Onboarding] App names prefetch queued: ${namesData.total_requested || 0} apps`);
+            }
+
+            // Prefetch app icons (slower, may extract from APKs)
+            const iconsResponse = await fetch(`${window.API_BASE}/adb/prefetch-icons/${encodeURIComponent(deviceId)}`, {
+                method: 'POST'
+            });
+            if (iconsResponse.ok) {
+                const iconsData = await iconsResponse.json();
+                console.log(`[Onboarding] App icons prefetch queued: ${iconsData.apps_queued || 0} apps`);
+            }
+
+            // Update status
+            const prefetchStatus = document.getElementById('prefetchStatus');
+            if (prefetchStatus) {
+                prefetchStatus.innerHTML = '&#10003; App data cached for faster loading';
+                prefetchStatus.style.background = 'rgba(76, 175, 80, 0.1)';
+            }
+
+        } catch (error) {
+            console.warn('[Onboarding] Prefetch failed (non-critical):', error);
+            // Remove status on error - not critical
+            const prefetchStatus = document.getElementById('prefetchStatus');
+            if (prefetchStatus) {
+                prefetchStatus.remove();
+            }
+        }
     }
 
     /**
