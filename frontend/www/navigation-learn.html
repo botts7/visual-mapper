@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.2.23" data-build="2025-12-29">
+    <meta name="version" content="0.2.24" data-build="2025-01-11">
     <title>Learn Navigation - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
-    <link rel="stylesheet" href="css/styles.css?v=0.2.23">
+    <link rel="stylesheet" href="css/styles.css?v=0.2.24">
     <style>
         .learn-container {
             display: grid;
@@ -289,7 +289,7 @@
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.2.23"></script>
+    <script type="module" src="js/init.js?v=0.2.24"></script>
 
     <div class="container">
         <div class="card">
@@ -655,11 +655,14 @@
                 try {
                     // Step 1: Pause the flow scheduler to prevent interference
                     console.log('[NavigationLearner] Pausing flow scheduler...');
-                    await this.apiClient.post('/scheduler/pause');
+                    this.updateStatus('learning', 'Pausing flows...');
+                    const pauseResult = await this.apiClient.post('/scheduler/pause');
                     this.schedulerWasPaused = true;
+                    console.log('[NavigationLearner] Scheduler paused:', pauseResult);
 
                     // Step 2: Unlock the device if locked
                     console.log('[NavigationLearner] Unlocking device...');
+                    this.updateStatus('learning', 'Unlocking device...');
                     try {
                         await this.apiClient.post('/adb/unlock', { device_id: this.deviceId });
                         await new Promise(r => setTimeout(r, 500));
@@ -671,11 +674,15 @@
                     const selectedApp = document.getElementById('appSelect').value;
                     if (selectedApp) {
                         console.log('[NavigationLearner] Launching app:', selectedApp);
+                        this.updateStatus('learning', 'Launching app...');
                         await this.launchApp(selectedApp);
                         this.targetPackage = selectedApp;
                     }
                 } catch (e) {
                     console.error('[NavigationLearner] Preparation error:', e);
+                    this.updateStatus('connected', 'Preparation failed');
+                    alert(`Failed to prepare for learning: ${e.message || e}`);
+                    return;
                 }
 
                 this.isLearning = true;
@@ -709,16 +716,19 @@
                 // Resume the flow scheduler if we paused it
                 if (this.schedulerWasPaused) {
                     try {
+                        this.updateStatus('connected', 'Resuming flows...');
                         console.log('[NavigationLearner] Resuming flow scheduler...');
-                        await this.apiClient.post('/scheduler/resume');
+                        const resumeResult = await this.apiClient.post('/scheduler/resume');
+                        console.log('[NavigationLearner] Scheduler resumed:', resumeResult);
                         this.schedulerWasPaused = false;
                     } catch (e) {
                         console.error('[NavigationLearner] Failed to resume scheduler:', e);
+                        this.updateStatus('connected', 'Warning: flows not resumed');
                     }
                 }
 
                 this.targetPackage = null;
-                this.updateStatus('connected', 'Stopped');
+                this.updateStatus('connected', 'Learning stopped');
             }
 
             async refreshScreen() {
@@ -790,17 +800,20 @@
                     return;
                 }
 
-                // Check if we already know this screen
-                const screenId = this.computeScreenId(activity);
-                const existingScreen = this.screens.find(s => s.screen_id === screenId);
+                // Check if we already know this screen (by activity name - backend handles deduplication)
+                const existingScreen = this.screens.find(s => s.activity === activity);
 
                 if (!existingScreen) {
-                    // Add new screen
+                    // Add new screen - backend will deduplicate by screen_id
                     try {
+                        // Detect splash screens - don't auto-set as home
+                        const splashPatterns = ['splash', 'launch', 'loading', 'startup', 'intro', 'welcome'];
+                        const isSplashScreen = splashPatterns.some(p => activity.toLowerCase().includes(p));
+
                         const data = await this.apiClient.post(`/navigation/${encodeURIComponent(packageName)}/screens`, {
                             activity: activity,
                             display_name: activity.split('.').pop(),
-                            is_home_screen: this.screens.length === 0
+                            is_home_screen: this.screens.length === 0 && !isSplashScreen
                         });
 
                         if (data.screen) {
@@ -813,19 +826,8 @@
                     }
                 }
 
-                // Mark current screen
-                this.updateCurrentScreen(screenId);
-            }
-
-            computeScreenId(activity) {
-                // Simple hash for screen ID
-                let hash = 0;
-                for (let i = 0; i < activity.length; i++) {
-                    const char = activity.charCodeAt(i);
-                    hash = ((hash << 5) - hash) + char;
-                    hash = hash & hash;
-                }
-                return `screen_${Math.abs(hash).toString(16)}`;
+                // Mark current screen in UI
+                this.updateCurrentScreenHighlight(activity);
             }
 
             async sendKeyEvent(keycode, keyName) {
@@ -1041,11 +1043,18 @@
                 `).join('');
             }
 
-            updateCurrentScreen(screenId) {
+            updateCurrentScreenHighlight(activity) {
                 document.querySelectorAll('.screen-item').forEach(item => {
                     item.classList.remove('current');
                 });
-                // Would need to match by screen ID
+                // Match by activity name
+                const items = document.querySelectorAll('.screen-item');
+                items.forEach(item => {
+                    const activityEl = item.querySelector('.screen-activity');
+                    if (activityEl && activityEl.textContent === activity) {
+                        item.classList.add('current');
+                    }
+                });
             }
         }
 

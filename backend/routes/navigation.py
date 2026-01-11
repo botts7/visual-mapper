@@ -5,7 +5,7 @@ API endpoints for navigation graph learning and management
 
 import logging
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel
 
 from ml_components.navigation_models import (
@@ -442,8 +442,8 @@ async def learn_transition(package: str, request: LearnTransitionRequest) -> Dic
 @router.post("/{package}/set-home-screen")
 async def set_home_screen(
     package: str,
-    activity: str,
-    ui_elements: List[Dict[str, Any]] = []
+    activity: str = Query(..., description="Home screen activity name"),
+    ui_elements: List[Dict[str, Any]] = Body(default=[])
 ) -> Dict[str, Any]:
     """
     Set the home screen for an app
