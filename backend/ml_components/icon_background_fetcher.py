@@ -148,15 +148,18 @@ class IconBackgroundFetcher:
 
         try:
             # Step 1: Try Play Store (fast, high quality, no ADB needed)
+            # NOTE: playstore_scraper.get_icon() uses blocking HTTP calls (google_play_scraper + requests)
+            # Must run in thread pool to avoid blocking asyncio event loop
             if self.playstore_scraper:
-                icon_data = self.playstore_scraper.get_icon(package_name)
+                icon_data = await asyncio.to_thread(self.playstore_scraper.get_icon, package_name)
                 if icon_data:
                     logger.info(f"[IconBackgroundFetcher] ✅ Play Store cached: {package_name}")
                     return
 
             # Step 2: Try APK extraction (slow, requires ADB)
+            # NOTE: APK extraction also involves blocking I/O, run in thread
             if self.apk_extractor and not skip_adb:
-                icon_data = self.apk_extractor.get_icon(device_id, package_name)
+                icon_data = await asyncio.to_thread(self.apk_extractor.get_icon, device_id, package_name)
                 if icon_data:
                     logger.info(f"[IconBackgroundFetcher] ✅ APK extracted: {package_name}")
                     return

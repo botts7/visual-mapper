@@ -150,7 +150,11 @@ class AppNameBackgroundFetcher:
 
         try:
             # Fetch app name (NOT cache_only, this will scrape if needed)
-            app_name = self.playstore_scraper.get_app_name(package_name, cache_only=False)
+            # NOTE: get_app_name() uses blocking HTTP calls (google_play_scraper + requests)
+            # Must run in thread pool to avoid blocking asyncio event loop
+            app_name = await asyncio.to_thread(
+                self.playstore_scraper.get_app_name, package_name, False  # cache_only=False
+            )
 
             if app_name:
                 logger.info(f"[AppNameBackgroundFetcher] ✅ Fetched: {package_name} → {app_name}")
