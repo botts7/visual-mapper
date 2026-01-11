@@ -246,4 +246,4 @@ dmypy.json
 # Docker (local development)
 # =============================================================================
 docker-build.log
-docker-compose.override.yml
+docker-compose.override.ymlandroid-companion/
