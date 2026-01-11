@@ -194,7 +194,9 @@ HW_INFO = detect_hardware()
 
 # Try to import PyTorch
 feature_manager = get_feature_manager()
-if feature_manager.is_enabled("ml_enabled"):
+ml_enabled = feature_manager.is_enabled("ml_enabled") if feature_manager else True  # Default to enabled when standalone
+
+if ml_enabled:
     try:
         import torch
         import torch.nn as nn
@@ -222,7 +224,7 @@ else:
 # Try to import ONNX Runtime for NPU acceleration
 ONNX_AVAILABLE = False
 ONNX_DML_AVAILABLE = False
-if feature_manager.is_enabled("ml_enabled"):
+if ml_enabled:
     try:
         import onnxruntime as ort
         ONNX_AVAILABLE = True
