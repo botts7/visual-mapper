@@ -3792,7 +3792,7 @@ export async function handleSmartSuggestions(wizard) {
         // Dynamically import SmartSuggestions module
         // Use timestamp to force cache refresh (browser was aggressively caching)
         const cacheBust = Date.now();
-        const SmartSuggestionsModule = await import(`./smart-suggestions.js?v=0.2.25&t=${cacheBust}`);
+        const SmartSuggestionsModule = await import(`./smart-suggestions.js?v=0.2.28&t=${cacheBust}`);
         const SmartSuggestions = SmartSuggestionsModule.default || window.SmartSuggestions;
 
         // Create instance and show (pass wizard for full creator dialog access)
