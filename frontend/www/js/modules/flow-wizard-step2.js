@@ -5,12 +5,14 @@
  * Handles app list loading, icon detection, system app filtering, and app search
  */
 
-import { showToast } from './toast.js?v=0.2.56';
+import { showToast } from './toast.js?v=0.2.57';
 
 // Helper to get API base
 function getApiBase() {
     return window.API_BASE || '/api';
 }
+
+let activeWizard = null;
 
 /**
  * Load Step 2: App Selection
@@ -19,6 +21,7 @@ function getApiBase() {
  */
 export async function loadStep(wizard) {
     console.log('[Step2] Loading App Selection');
+    activeWizard = wizard;
 
     // Reset refresh flags for new step load
     resetRefreshFlags();
@@ -460,8 +463,7 @@ async function refreshAppNames() {
     hasRefreshedAppNames = true;
 
     try {
-        const deviceSelect = document.getElementById('deviceSelect');
-        const deviceId = deviceSelect?.value;
+        const deviceId = activeWizard?.selectedDevice || activeWizard?.selectedDeviceStableId;
         if (!deviceId) return;
 
         console.log('[Step2] Refreshing app names...');
@@ -693,6 +695,9 @@ export function getStepData(wizard) {
  */
 export function cleanup(wizard) {
     stopQueueStatsPolling(wizard);
+    if (activeWizard === wizard) {
+        activeWizard = null;
+    }
 }
 
 export default { loadStep, validateStep, getStepData, cleanup };

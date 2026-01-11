@@ -3151,12 +3151,32 @@ class ADBBridge:
 
             logger.debug(f"[ADBBridge] Found {len(packages)} total packages")
 
+            # Get third-party package list (used for system app filtering when available)
+            third_party_set = set()
+            try:
+                third_party_output = await conn.shell("pm list packages -3")
+                for line in third_party_output.strip().split("\n"):
+                    if line.startswith("package:"):
+                        pkg = line.replace("package:", "").strip()
+                        if pkg:
+                            third_party_set.add(pkg)
+            except Exception as e:
+                logger.debug(
+                    f"[ADBBridge] Failed to list third-party packages: {e}"
+                )
+
             # Get ONLY packages with LAUNCHER activities (apps in app drawer)
             # These are the only apps we can actually launch and automate
             # Excludes system services, frameworks, background processes - they can't be used in flows anyway
-            launcher_output = await conn.shell(
-                "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"
-            )
+            launcher_output = ""
+            try:
+                launcher_output = await conn.shell(
+                    "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[ADBBridge] Launcher query failed, will fallback: {e}"
+                )
 
             # Parse output to extract package names
             # Format: "packagename/activityname"
@@ -3167,6 +3187,18 @@ class ADBBridge:
                     package = line.split("/")[0].strip()
                     if package:
                         launcher_packages_set.add(package)
+
+            if not launcher_packages_set:
+                if third_party_set:
+                    logger.warning(
+                        "[ADBBridge] Launcher query returned no apps, falling back to third-party packages"
+                    )
+                    launcher_packages_set = set(third_party_set)
+                else:
+                    logger.warning(
+                        "[ADBBridge] Launcher query returned no apps, falling back to all packages"
+                    )
+                    launcher_packages_set = set(packages)
 
             launcher_packages = sorted(list(launcher_packages_set))
 
@@ -3189,11 +3221,15 @@ class ADBBridge:
                 else:
                     label = self._smart_label_from_package(package)
 
+                is_system = False
+                if third_party_set:
+                    is_system = package not in third_party_set
+
                 apps.append(
                     {
                         "package": package,
                         "label": label,
-                        "is_system": False,  # All apps returned are launchable (not system services)
+                        "is_system": is_system,
                     }
                 )
 
