@@ -8,10 +8,13 @@ No dependencies on managers - safest module to extract first.
 from fastapi import APIRouter, HTTPException
 import logging
 from core.mqtt.ha_device_classes import export_to_json as export_device_classes
+from utils.version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["meta"])
+
+logger.info(f"[Meta] Loaded version: {APP_VERSION}")
 
 
 @router.get("/")
@@ -19,7 +22,7 @@ async def api_root():
     """API root endpoint"""
     return {
         "name": "Visual Mapper API",
-        "version": "0.0.12",
+        "version": APP_VERSION,
         "endpoints": {
             "health": "/api/health",
             "diagnostics_adb": "/api/diagnostics/adb/{device_id}",

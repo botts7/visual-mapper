@@ -22,6 +22,7 @@ import uvicorn
 from pathlib import Path
 from PIL import Image
 
+from utils.version import APP_VERSION
 from core.adb.adb_bridge import ADBBridge
 from core.sensors.sensor_manager import SensorManager
 from core.sensors.sensor_models import SensorDefinition, TextExtractionRule
@@ -163,7 +164,7 @@ logging.getLogger().addHandler(ws_log_handler)
 # Create FastAPI app
 app = FastAPI(
     title="Visual Mapper API",
-    version="0.0.44",
+    version=APP_VERSION,
     description="Android Device Monitoring & Automation for Home Assistant"
 )
 
@@ -356,7 +357,7 @@ async def lifespan(app: FastAPI):
     """Initialize MQTT connection on startup"""
     global mqtt_manager, sensor_updater, flow_manager, flow_executor, flow_scheduler, performance_monitor, screenshot_stitcher, app_icon_extractor, playstore_icon_scraper, device_icon_scraper, icon_background_fetcher, app_name_background_fetcher, stream_manager, adb_maintenance, shell_pool, connection_monitor
 
-    logger.info("[Server] Starting Visual Mapper v0.0.12")
+    logger.info(f"[Server] Starting Visual Mapper v{APP_VERSION}")
     logger.info(f"[Server] MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
     if MQTT_USE_SSL:
         logger.info(f"[Server] MQTT SSL Enabled (Insecure: {MQTT_TLS_INSECURE})")

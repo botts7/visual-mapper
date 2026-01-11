@@ -14,6 +14,7 @@ from typing import Dict, Optional, Any
 from datetime import datetime
 
 from core.sensors.sensor_models import SensorDefinition, MQTTDiscoveryConfig, SensorStateUpdate
+from utils.version import APP_VERSION
 
 # Import ActionDefinition for action discovery
 try:
@@ -422,7 +423,7 @@ class MQTTManager:
                 "name": self.get_device_display_name(sensor.device_id, app_name),
                 "manufacturer": "Visual Mapper",
                 "model": app_name or "Android Device Monitor",  # Use app name as model
-                "sw_version": "0.0.12"
+                "sw_version": APP_VERSION
             }
         }
 
@@ -767,7 +768,7 @@ class MQTTManager:
                 "name": self.get_device_display_name(action_def.action.device_id),
                 "manufacturer": "Visual Mapper",
                 "model": "Android Device Monitor",
-                "sw_version": "0.0.12"
+                "sw_version": APP_VERSION
             },
             "payload_press": "EXECUTE"
         }

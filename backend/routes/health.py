@@ -7,26 +7,12 @@ Depends on mqtt_manager for connection status.
 
 from fastapi import APIRouter
 import logging
-import os
 from routes import get_deps
+from utils.version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["health"])
-
-# Read version from .build-version file (auto-updated by pre-commit hook)
-def _get_version():
-    """Get version from .build-version file"""
-    version_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.build-version')
-    try:
-        if os.path.exists(version_file):
-            with open(version_file, 'r') as f:
-                return f.read().strip()
-    except Exception as e:
-        logger.warning(f"Failed to read version file: {e}")
-    return "0.0.81"  # Fallback version
-
-APP_VERSION = _get_version()
 
 
 @router.api_route("/health", methods=["GET", "HEAD"])

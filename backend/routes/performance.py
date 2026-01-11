@@ -11,6 +11,7 @@ import time
 import subprocess
 import platform
 from routes import get_deps
+from utils.version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ async def get_performance_metrics():
     deps = get_deps()
     metrics = {
         "timestamp": time.time(),
-        "version": "0.0.12",
+        "version": APP_VERSION,
     }
 
     # Screenshot cache statistics
