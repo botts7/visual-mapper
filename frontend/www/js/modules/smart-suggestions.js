@@ -341,6 +341,52 @@ class SmartSuggestions {
                 this.useAlternativeName(entityId, altName);
             });
         });
+
+        // Attach hover listeners for element highlighting on screenshot
+        container.querySelectorAll('.suggestion-card').forEach(card => {
+            card.addEventListener('mouseenter', (e) => {
+                const entityId = card.dataset.entityId;
+                this.highlightSuggestionElement(entityId);
+            });
+            card.addEventListener('mouseleave', () => {
+                this.clearSuggestionHighlight();
+            });
+        });
+    }
+
+    /**
+     * Highlight a suggestion's element on the screenshot
+     */
+    highlightSuggestionElement(entityId) {
+        if (!this.wizard) return;
+
+        // Find the suggestion
+        const suggestions = this.currentMode === 'sensors' ? this.sensorSuggestions : this.actionSuggestions;
+        const suggestion = suggestions.find(s => s.entity_id === entityId);
+        if (!suggestion?.element?.bounds) return;
+
+        // Import and use the canvas overlay renderer
+        import('./canvas-overlay-renderer.js').then(module => {
+            const element = {
+                bounds: suggestion.element.bounds,
+                text: suggestion.element.text,
+                class: suggestion.element.class
+            };
+            module.highlightHoveredElement(this.wizard, element);
+        }).catch(err => {
+            console.warn('[SmartSuggestions] Could not highlight element:', err);
+        });
+    }
+
+    /**
+     * Clear suggestion highlight
+     */
+    clearSuggestionHighlight() {
+        if (!this.wizard) return;
+
+        import('./canvas-overlay-renderer.js').then(module => {
+            module.clearHoverHighlight(this.wizard);
+        }).catch(() => {});
     }
 
     /**

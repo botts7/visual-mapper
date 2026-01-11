@@ -172,6 +172,11 @@ export async function loadStep(wizard) {
                 ? `<button class="btn btn-sm btn-warning insert-step-btn" data-insert-index="${originalIndex}" style="background: #f59e0b; color: white; font-size: 0.7em; padding: 4px 8px;">Insert</button>`
                 : `<button class="btn btn-sm btn-secondary insert-step-btn" data-insert-index="${originalIndex}" style="font-size: 0.7em; padding: 4px 8px;">Insert</button>`;
 
+            // Add edit sensor button for capture_sensors steps
+            const editSensorBtn = step.step_type === 'capture_sensors' && step.sensor_ids?.length
+                ? `<button class="btn btn-sm btn-primary edit-sensor-btn" data-step-index="${originalIndex}" data-sensor-ids="${step.sensor_ids.join(',')}" style="font-size: 0.7em; padding: 4px 8px;" title="Edit linked sensor">✏️</button>`
+                : '';
+
             return `
             <div class="step-review-item" data-original-index="${originalIndex}" style="${issueStyle}">
                 <div class="step-review-number">${originalIndex + 1}</div>
@@ -191,6 +196,7 @@ export async function loadStep(wizard) {
                             ↓
                         </button>
                     </div>
+                    ${editSensorBtn}
                     ${insertBtn}
                     <button class="btn btn-sm btn-danger" onclick="window.flowWizard.removeStepAt(${originalIndex})">
                         Del
@@ -323,6 +329,55 @@ function wireUpStep4Handlers(wizard, container, navIssues) {
                 wizard.goToStep(3);
             } else if (window.flowWizard?.goToStep) {
                 window.flowWizard.goToStep(3);
+            }
+        });
+    });
+
+    // Wire up "Edit Sensor" buttons for capture_sensors steps
+    container.querySelectorAll('.edit-sensor-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const stepIndex = parseInt(e.target.dataset.stepIndex, 10);
+            const sensorIds = e.target.dataset.sensorIds?.split(',') || [];
+
+            if (sensorIds.length === 0) {
+                showToast('No sensors linked to this step', 'warning');
+                return;
+            }
+
+            console.log(`[Step4] Edit sensor clicked for step ${stepIndex}, sensors: ${sensorIds}`);
+
+            // For now, open the first sensor in the sensor manager
+            const sensorId = sensorIds[0];
+            try {
+                // Fetch the sensor data
+                const response = await fetch(`${window.API_BASE || '/api'}/sensors/${wizard.selectedDevice}/${sensorId}`);
+                if (!response.ok) {
+                    throw new Error('Sensor not found');
+                }
+                const sensor = await response.json();
+
+                // Open sensor editor if available
+                if (wizard.sensorCreator) {
+                    wizard.sensorCreator.show(wizard.selectedDevice, sensor.element || {}, 0, {
+                        name: sensor.name,
+                        entity_id: sensor.entity_id,
+                        device_class: sensor.device_class || 'none',
+                        unit: sensor.unit_of_measurement || '',
+                        icon: sensor.icon || 'mdi:eye',
+                        existingSensorId: sensorId,
+                        stableDeviceId: wizard.selectedDeviceStableId || wizard.selectedDevice,
+                        screenActivity: sensor.screen_activity,
+                        targetApp: wizard.selectedApp?.package
+                    });
+                } else {
+                    // Fallback: navigate to sensors page
+                    showToast('Opening sensor in new tab...', 'info');
+                    window.open(`/sensors.html?edit=${sensorId}`, '_blank');
+                }
+            } catch (error) {
+                console.error('[Step4] Error editing sensor:', error);
+                showToast(`Could not load sensor: ${error.message}`, 'error');
             }
         });
     });
