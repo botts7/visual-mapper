@@ -5,7 +5,7 @@
  * Handles app list loading, icon detection, system app filtering, and app search
  */
 
-import { showToast } from './toast.js?v=0.2.58';
+import { showToast } from './toast.js?v=0.2.59';
 
 // Helper to get API base
 function getApiBase() {
@@ -436,13 +436,18 @@ export function resetRefreshFlags() {
 
 /**
  * Refresh all icon images by adding cache-buster
+ * @param {boolean} finalRefresh - If true, this is the final refresh after queue completes
  */
-function refreshIconImages() {
-    if (hasRefreshedIcons) {
-        console.log('[Step2] Icons already refreshed this session, skipping');
+function refreshIconImages(finalRefresh = false) {
+    // Skip if we've done the final refresh (queue completed)
+    if (hasRefreshedIcons && finalRefresh) {
+        console.log('[Step2] Final icon refresh already done, skipping');
         return;
     }
-    hasRefreshedIcons = true;
+
+    if (finalRefresh) {
+        hasRefreshedIcons = true;
+    }
 
     const cacheBust = Date.now();
     document.querySelectorAll('.app-icon').forEach(img => {
@@ -454,13 +459,18 @@ function refreshIconImages() {
 
 /**
  * Refresh all app labels by re-fetching app names
+ * @param {boolean} finalRefresh - If true, this is the final refresh after queue completes
  */
-async function refreshAppNames() {
-    if (hasRefreshedAppNames) {
-        console.log('[Step2] App names already refreshed this session, skipping');
+async function refreshAppNames(finalRefresh = false) {
+    // Skip if we've done the final refresh (queue completed)
+    if (hasRefreshedAppNames && finalRefresh) {
+        console.log('[Step2] Final app names refresh already done, skipping');
         return;
     }
-    hasRefreshedAppNames = true;
+
+    if (finalRefresh) {
+        hasRefreshedAppNames = true;
+    }
 
     try {
         const deviceId = activeWizard?.selectedDevice || activeWizard?.selectedDeviceStableId;
@@ -516,10 +526,10 @@ async function updateQueueStats() {
             statusText.textContent = 'All icons fetched';
             statusText.style.color = '#22c55e';
 
-            // Refresh icons if we just completed (transitioned from pending to done)
+            // Final refresh when queue completes
             if (previousIconQueuePending > 0) {
-                console.log('[Step2] Icon fetching completed, refreshing images...');
-                setTimeout(refreshIconImages, 500); // Small delay to ensure backend has written files
+                console.log('[Step2] Icon fetching completed, final refresh...');
+                setTimeout(() => refreshIconImages(true), 500);
             }
         } else {
             // Check if worker is stuck (items in queue but not processing and not running)
@@ -528,16 +538,21 @@ async function updateQueueStats() {
                 statusText.textContent = `Worker stopped (${queue_size} queued) - Click Refetch`;
                 statusText.style.color = '#f59e0b';
 
-                // Trigger refresh when worker BECOMES stuck (was running, now stopped)
-                // Some icons may have been fetched before the worker stopped
+                // Trigger refresh when worker BECOMES stuck
                 if (wasIconWorkerRunning) {
                     console.log('[Step2] Icon worker became stuck, refreshing any fetched icons...');
-                    setTimeout(refreshIconImages, 500);
+                    setTimeout(() => refreshIconImages(false), 500);
                 }
             } else {
                 statusIcon.textContent = '⏳';
                 statusText.textContent = `Fetching icons... (${totalPending} remaining, ${processing_count} in progress)`;
                 statusText.style.color = '#3b82f6';
+
+                // Periodic refresh while fetching - refresh every ~5 icons fetched
+                if (previousIconQueuePending > 0 && previousIconQueuePending - totalPending >= 5) {
+                    console.log(`[Step2] Progress: ${previousIconQueuePending - totalPending} icons fetched, refreshing...`);
+                    refreshIconImages(false);
+                }
             }
         }
 
@@ -572,10 +587,10 @@ async function updateQueueStats() {
             statusText.textContent = `All app names fetched (${completed_count} apps)`;
             statusText.style.color = '#22c55e';
 
-            // Refresh app names if we just completed (transitioned from pending to done)
+            // Final refresh when queue completes
             if (previousAppNameQueuePending > 0) {
-                console.log('[Step2] App name fetching completed, refreshing labels...');
-                setTimeout(refreshAppNames, 500); // Small delay to ensure backend cache is updated
+                console.log('[Step2] App name fetching completed, final refresh...');
+                setTimeout(() => refreshAppNames(true), 500);
             }
         } else if (totalPending > 0) {
             // Check if worker is stuck
@@ -587,12 +602,18 @@ async function updateQueueStats() {
                 // Trigger refresh when worker BECOMES stuck
                 if (wasAppNameWorkerRunning) {
                     console.log('[Step2] App name worker became stuck, refreshing any fetched names...');
-                    setTimeout(refreshAppNames, 500);
+                    setTimeout(() => refreshAppNames(false), 500);
                 }
             } else {
                 statusIcon.textContent = '📝';
                 statusText.textContent = `Fetching app names... ${progress_percentage}% (${completed_count}/${total_requested}, ${processing_count} in progress)`;
                 statusText.style.color = '#3b82f6';
+
+                // Periodic refresh while fetching - refresh every ~10 names fetched
+                if (previousAppNameQueuePending > 0 && previousAppNameQueuePending - totalPending >= 10) {
+                    console.log(`[Step2] Progress: ${previousAppNameQueuePending - totalPending} names fetched, refreshing...`);
+                    refreshAppNames(false);
+                }
             }
         }
 
