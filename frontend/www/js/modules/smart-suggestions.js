@@ -332,6 +332,56 @@ class SmartSuggestions {
                 this.editSuggestion(entityId);
             });
         });
+
+        // Attach alternative name button listeners
+        container.querySelectorAll('.alt-name-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const entityId = e.target.dataset.entityId;
+                const altName = e.target.dataset.altName;
+                this.useAlternativeName(entityId, altName);
+            });
+        });
+    }
+
+    /**
+     * Use an alternative name for a suggestion
+     */
+    useAlternativeName(entityId, altName) {
+        // Find the suggestion
+        const suggestions = this.currentMode === 'sensors' ? this.sensorSuggestions : this.actionSuggestions;
+        const suggestion = suggestions.find(s => s.entity_id === entityId);
+        if (!suggestion) return;
+
+        // Swap names: current name becomes an alternative, alt becomes primary
+        const oldName = suggestion.name;
+        suggestion.name = altName;
+
+        // Update alternatives list
+        if (suggestion.alternative_names) {
+            // Remove the selected alternative
+            suggestion.alternative_names = suggestion.alternative_names.filter(
+                alt => alt.name.toLowerCase() !== altName.toLowerCase()
+            );
+            // Add old name as alternative (if not already there)
+            if (!suggestion.alternative_names.some(alt => alt.name.toLowerCase() === oldName.toLowerCase())) {
+                suggestion.alternative_names.unshift({
+                    name: oldName,
+                    location: 'previous',
+                    score: 100
+                });
+            }
+        }
+
+        // Update the display
+        const nameEl = document.querySelector(`.suggestion-name[data-entity-id="${entityId}"]`);
+        if (nameEl) {
+            nameEl.textContent = altName;
+        }
+
+        // Re-render to update alternative buttons
+        this.renderSuggestions();
+
+        showToast(`Name changed to "${altName}"`, 'success', 2000);
     }
 
     /**
@@ -339,22 +389,35 @@ class SmartSuggestions {
      */
     renderSuggestionCard(suggestion, checked = false) {
         console.log('[SmartSuggestions] Rendering card for suggestion:', suggestion);
-        console.log('[SmartSuggestions] Suggestion fields:', {
-            name: suggestion.name,
-            entity_id: suggestion.entity_id,
-            pattern_type: suggestion.pattern_type,
-            device_class: suggestion.device_class,
-            action_type: suggestion.action_type,
-            icon: suggestion.icon,
-            current_value: suggestion.current_value,
-            unit_of_measurement: suggestion.unit_of_measurement,
-            element: suggestion.element
-        });
 
         const confidenceClass = suggestion.confidence >= 0.8 ? 'high' :
                                suggestion.confidence >= 0.5 ? 'medium' : 'low';
 
         const confidencePercent = Math.round(suggestion.confidence * 100);
+
+        // Build alternative names HTML if available
+        let alternativeNamesHtml = '';
+        if (suggestion.alternative_names && suggestion.alternative_names.length > 0) {
+            const altButtons = suggestion.alternative_names.map(alt => {
+                const locationIcon = {
+                    'above': '⬆️',
+                    'below': '⬇️',
+                    'left': '⬅️',
+                    'right': '➡️',
+                    'resource_id': '🏷️',
+                    'pattern': '🔍',
+                    'content_desc': '📝'
+                }[alt.location] || '📍';
+                return `<button type="button" class="alt-name-btn" data-entity-id="${suggestion.entity_id}" data-alt-name="${this.escapeHtml(alt.name)}" title="${alt.location}: score ${alt.score}">${locationIcon} ${this.escapeHtml(alt.name)}</button>`;
+            }).join('');
+
+            alternativeNamesHtml = `
+                <div class="suggestion-row alternative-names-row">
+                    <span class="label">Also try:</span>
+                    <span class="value alt-names-container">${altButtons}</span>
+                </div>
+            `;
+        }
 
         return `
             <div class="suggestion-card" data-entity-id="${suggestion.entity_id}">
@@ -364,7 +427,7 @@ class SmartSuggestions {
                            data-entity-id="${suggestion.entity_id}"
                            ${checked ? 'checked' : ''}>
                     <div class="suggestion-info">
-                        <strong>${this.escapeHtml(suggestion.name)}</strong>
+                        <strong class="suggestion-name" data-entity-id="${suggestion.entity_id}">${this.escapeHtml(suggestion.name)}</strong>
                         <code class="entity-id">${suggestion.entity_id}</code>
                         <span class="confidence-badge confidence-${confidenceClass}" title="Confidence: ${confidencePercent}%">
                             ${confidencePercent}%
@@ -372,6 +435,7 @@ class SmartSuggestions {
                     </div>
                 </div>
                 <div class="suggestion-details">
+                    ${alternativeNamesHtml}
                     <div class="suggestion-row">
                         <span class="label">Element:</span>
                         <span class="value">"${this.escapeHtml(suggestion.element.text || '(no text)')}"</span>

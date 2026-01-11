@@ -624,13 +624,57 @@ class SensorSuggester:
         all_elements: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
-        Create a sensor suggestion from element and pattern match
+        Create a sensor suggestion from element and pattern match.
+        Includes alternative name suggestions for user to choose from.
         """
         text = element.get('text', '').strip()
         resource_id = element.get('resource_id', '')
 
-        # Generate sensor name (use spatial detection if available)
-        name = self._generate_sensor_name(element, pattern_name, all_elements)
+        # Find nearby label candidates (up to 3)
+        label_candidates = []
+        if all_elements:
+            label_candidates = self._find_nearby_labels(element, all_elements, max_candidates=3)
+
+        # Generate primary sensor name (use best label candidate if available)
+        if label_candidates:
+            name = label_candidates[0]['text'].title()
+        else:
+            name = self._generate_sensor_name(element, pattern_name, None)
+
+        # Build alternative names list
+        alternative_names = []
+        for i, candidate in enumerate(label_candidates):
+            alt_name = candidate['text'].title()
+            if alt_name.lower() != name.lower():  # Don't include primary name
+                alternative_names.append({
+                    'name': alt_name,
+                    'location': candidate.get('location', 'unknown'),
+                    'score': round(candidate.get('score', 0), 1)
+                })
+
+        # Also add resource-id based name as alternative if different
+        if resource_id:
+            parts = resource_id.split('/')
+            if len(parts) > 1:
+                resource_name = parts[-1].replace('_', ' ').title()
+                if resource_name.lower() != name.lower():
+                    # Check if not already in alternatives
+                    if not any(alt['name'].lower() == resource_name.lower() for alt in alternative_names):
+                        alternative_names.append({
+                            'name': resource_name,
+                            'location': 'resource_id',
+                            'score': 50  # Medium priority
+                        })
+
+        # Add pattern-based name as fallback alternative
+        pattern_based_name = pattern_name.replace('_', ' ').title()
+        if pattern_based_name.lower() != name.lower():
+            if not any(alt['name'].lower() == pattern_based_name.lower() for alt in alternative_names):
+                alternative_names.append({
+                    'name': pattern_based_name,
+                    'location': 'pattern',
+                    'score': 25  # Lower priority
+                })
 
         # Generate entity ID
         entity_id = self._generate_entity_id(element, pattern_name)
@@ -640,6 +684,7 @@ class SensorSuggester:
 
         return {
             'name': name,
+            'alternative_names': alternative_names,  # NEW: List of alternative name suggestions
             'entity_id': entity_id,
             'device_class': pattern.get('device_class'),
             'unit_of_measurement': unit,
@@ -657,13 +702,15 @@ class SensorSuggester:
             'suggested': True  # User hasn't confirmed yet
         }
 
-    def _find_nearby_label(
+    def _find_nearby_labels(
         self,
         element: Dict[str, Any],
-        elements: List[Dict[str, Any]]
-    ) -> Optional[str]:
+        elements: List[Dict[str, Any]],
+        max_candidates: int = 3
+    ) -> List[Dict[str, Any]]:
         """
-        Find label element spatially near this value element
+        Find label elements spatially near this value element.
+        Returns multiple candidates ranked by likelihood.
 
         Detects label-value pairs like:
         - "Cumulative AEC" (label above) + "17.7kWh/100km" (value)
@@ -671,22 +718,17 @@ class SensorSuggester:
         - "Total mileage" (label above) + "18107km" (value)
         - "Battery:" (label left) + "85%" (value)
 
-        Priority order:
-        1. Element directly above (most common UI pattern)
-        2. Element directly below (sometimes labels are below)
-        3. Element to the left on same row
-        4. Content description of parent/sibling elements
-
         Args:
             element: The value element to find a label for
             elements: All UI elements to search through
+            max_candidates: Maximum number of label candidates to return
 
         Returns:
-            Label text if found, None otherwise
+            List of label candidates with text and score, sorted by score (best first)
         """
         bounds = element.get('bounds', {})
         if not bounds or 'x' not in bounds or 'y' not in bounds:
-            return None
+            return []
 
         element_text = element.get('text', '').strip()
         element_width = bounds.get('width', 200)
@@ -781,30 +823,61 @@ class SensorSuggester:
                             'priority': 4
                         })
 
-        # Pick best label by priority (above > below > left > content_desc)
-        best_label = None
+        # Collect all candidates and score them
+        all_candidates = []
 
-        # Sort each group by distance and x_offset (prefer centered)
-        def sort_key(item):
-            return (item['distance'], item['x_offset'])
+        # Score calculation: lower distance = higher score, priority as tiebreaker
+        def calculate_score(item):
+            # Base score from priority (above=1 is best)
+            priority_score = (5 - item['priority']) * 100  # 400, 300, 200, 100
+            # Distance penalty (closer = higher score)
+            distance_penalty = min(item['distance'], 200)  # Cap penalty
+            # X-offset penalty (more centered = higher score)
+            offset_penalty = min(item['x_offset'] / 2, 50)
+            return priority_score - distance_penalty - offset_penalty
 
-        if above_labels:
-            above_labels.sort(key=sort_key)
-            best_label = above_labels[0]
-        elif below_labels:
-            below_labels.sort(key=sort_key)
-            best_label = below_labels[0]
-        elif left_labels:
-            left_labels.sort(key=sort_key)
-            best_label = left_labels[0]
-        elif content_desc_labels:
-            content_desc_labels.sort(key=sort_key)
-            best_label = content_desc_labels[0]
+        for label in above_labels + below_labels + left_labels + content_desc_labels:
+            label['score'] = calculate_score(label)
+            label['location'] = {
+                1: 'above',
+                2: 'below',
+                3: 'left',
+                4: 'content_desc'
+            }.get(label['priority'], 'unknown')
+            all_candidates.append(label)
 
-        if best_label:
-            logger.debug(f"[SensorSuggester] Found nearby label '{best_label['text']}' for value '{element_text}' (priority={best_label['priority']}, dist={best_label['distance']:.0f})")
-            return best_label['text']
+        # Sort by score (highest first) and remove duplicates
+        all_candidates.sort(key=lambda x: x['score'], reverse=True)
 
+        # Remove duplicate texts (keep highest scored)
+        seen_texts = set()
+        unique_candidates = []
+        for candidate in all_candidates:
+            text_lower = candidate['text'].lower().strip()
+            if text_lower not in seen_texts:
+                seen_texts.add(text_lower)
+                unique_candidates.append(candidate)
+
+        # Return top candidates
+        result = unique_candidates[:max_candidates]
+
+        if result:
+            logger.debug(f"[SensorSuggester] Found {len(result)} label candidates for value '{element_text}': {[c['text'] for c in result]}")
+
+        return result
+
+    def _find_nearby_label(
+        self,
+        element: Dict[str, Any],
+        elements: List[Dict[str, Any]]
+    ) -> Optional[str]:
+        """
+        Find the best label element spatially near this value element.
+        Wrapper for _find_nearby_labels that returns just the top result.
+        """
+        candidates = self._find_nearby_labels(element, elements, max_candidates=1)
+        if candidates:
+            return candidates[0]['text']
         return None
 
     def _looks_like_label(self, text: str) -> bool:

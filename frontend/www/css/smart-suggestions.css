@@ -180,6 +180,43 @@
     flex: 1;
 }
 
+/* Alternative Names Row */
+.alternative-names-row {
+    background: var(--bg-secondary);
+    padding: 8px 10px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    border: 1px dashed var(--border);
+}
+
+.alt-names-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.alt-name-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.alt-name-btn:hover {
+    background: var(--accent);
+    color: white;
+    transform: scale(1.02);
+}
+
+.alt-name-btn:active {
+    transform: scale(0.98);
+}
+
 /* Suggestion Actions */
 .suggestion-actions {
     display: flex;
