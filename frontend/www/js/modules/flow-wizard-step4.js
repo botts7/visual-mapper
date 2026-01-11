@@ -559,19 +559,29 @@ function checkNavigationIssues(steps) {
     const issues = [];
     let currentActivity = null;  // What screen we expect to be on
     let currentActivityIndex = -1;  // Step that set current activity
+    let lastStepWasAppLaunch = false;  // Track if previous step was launch_app
 
     // Step types that have screen_activity and need to be on the right screen
     const screenDependentTypes = ['capture_sensors', 'tap', 'swipe', 'text'];
     // Step types that can change screens (navigation actions)
     const screenChangingTypes = ['tap', 'swipe', 'go_back'];
 
+    // Common splash/loading screen patterns (case insensitive check)
+    const splashPatterns = ['splash', 'launch', 'loading', 'startup', 'intro', 'welcome'];
+    const isSplashScreen = (activity) => {
+        if (!activity) return false;
+        const actLower = activity.toLowerCase();
+        return splashPatterns.some(pattern => actLower.includes(pattern));
+    };
+
     for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
 
-        // launch_app sets initial screen
+        // launch_app sets initial screen (might be splash screen)
         if (step.step_type === 'launch_app') {
             currentActivity = step.screen_activity || step.expected_activity || null;
             currentActivityIndex = i;
+            lastStepWasAppLaunch = true;
             continue;
         }
 
@@ -579,6 +589,7 @@ function checkNavigationIssues(steps) {
         if (step.step_type === 'restart_app') {
             currentActivity = null; // Unknown - will be app's home screen
             currentActivityIndex = i;
+            lastStepWasAppLaunch = true;  // Treat like a new app launch (may show splash)
             continue;
         }
 
@@ -586,6 +597,12 @@ function checkNavigationIssues(steps) {
         if (step.step_type === 'go_home' || step.step_type === 'go_back') {
             currentActivity = null;
             currentActivityIndex = i;
+            lastStepWasAppLaunch = false;
+            continue;
+        }
+
+        // wait steps don't change screens but shouldn't clear the app launch flag
+        if (step.step_type === 'wait') {
             continue;
         }
 
@@ -598,27 +615,39 @@ function checkNavigationIssues(steps) {
                 const currentActName = currentActivity.split('.').pop();
                 const stepActName = stepActivity.split('.').pop();
 
-                // Check if there was a screen-changing action between currentActivityIndex and this step
-                let hasNavigationBetween = false;
-                for (let j = currentActivityIndex + 1; j < i; j++) {
-                    if (screenChangingTypes.includes(steps[j].step_type)) {
-                        hasNavigationBetween = true;
-                        break;
+                // Skip warning if this is a natural splash → main screen transition after app launch
+                // Apps commonly show a splash screen briefly before the main screen
+                const isPostLaunchTransition = lastStepWasAppLaunch && isSplashScreen(currentActivity);
+
+                if (isPostLaunchTransition) {
+                    console.log(`[Step4] Skipping warning: splash→main transition after launch (${currentActName} → ${stepActName})`);
+                    // Update to the actual screen the user is on
+                    currentActivity = stepActivity;
+                    currentActivityIndex = i;
+                    lastStepWasAppLaunch = false;
+                } else {
+                    // Check if there was a screen-changing action between currentActivityIndex and this step
+                    let hasNavigationBetween = false;
+                    for (let j = currentActivityIndex + 1; j < i; j++) {
+                        if (screenChangingTypes.includes(steps[j].step_type)) {
+                            hasNavigationBetween = true;
+                            break;
+                        }
                     }
-                }
 
-                if (!hasNavigationBetween) {
-                    const stepTypeLabel = step.step_type === 'capture_sensors' ? 'Sensor' :
-                                         step.step_type === 'tap' ? 'Tap action' :
-                                         step.step_type === 'swipe' ? 'Swipe action' : 'Step';
+                    if (!hasNavigationBetween) {
+                        const stepTypeLabel = step.step_type === 'capture_sensors' ? 'Sensor' :
+                                             step.step_type === 'tap' ? 'Tap action' :
+                                             step.step_type === 'swipe' ? 'Swipe action' : 'Step';
 
-                    issues.push({
-                        stepIndex: i,
-                        stepType: step.step_type,
-                        currentActivity: stepActName,
-                        previousActivity: currentActName,
-                        message: `${stepTypeLabel} at step ${i + 1} expects "${stepActName}" but flow is on "${currentActName}". Add navigation steps to reach the correct screen.`
-                    });
+                        issues.push({
+                            stepIndex: i,
+                            stepType: step.step_type,
+                            currentActivity: stepActName,
+                            previousActivity: currentActName,
+                            message: `${stepTypeLabel} at step ${i + 1} expects "${stepActName}" but flow is on "${currentActName}". Add navigation steps to reach the correct screen.`
+                        });
+                    }
                 }
             }
 
@@ -628,6 +657,9 @@ function checkNavigationIssues(steps) {
                 currentActivity = stepActivity;
                 currentActivityIndex = i;
             }
+
+            // Clear the app launch flag after processing a screen-dependent step
+            lastStepWasAppLaunch = false;
         }
 
         // Taps and swipes CAN change screens - after them we don't know where we are
