@@ -108,15 +108,11 @@ class IconBackgroundFetcher:
                 device_id, package_name = self.queue.popleft()
                 key = f"{device_id}:{package_name}"
 
-                # Skip if wizard is active on this device (avoid ADB contention)
+                # Check if wizard is active on this device (affects ADB-based extraction only)
+                wizard_active = False
                 try:
                     from main import wizard_active_devices
-                    if device_id in wizard_active_devices:
-                        logger.debug(f"[IconBackgroundFetcher] Skipping {package_name} - wizard active on {device_id}")
-                        # Re-queue for later
-                        self.queue.append((device_id, package_name))
-                        await asyncio.sleep(5)  # Wait before retrying
-                        continue
+                    wizard_active = device_id in wizard_active_devices
                 except ImportError:
                     pass  # wizard_active_devices not available
 
@@ -124,7 +120,8 @@ class IconBackgroundFetcher:
                 self.processing.add(key)
 
                 try:
-                    await self._fetch_icon(device_id, package_name)
+                    # Pass wizard_active flag - allows Play Store fetch but skips APK extraction
+                    await self._fetch_icon(device_id, package_name, skip_adb=wizard_active)
                 finally:
                     # Remove from processing
                     self.processing.discard(key)
@@ -138,30 +135,33 @@ class IconBackgroundFetcher:
 
         logger.info("[IconBackgroundFetcher] Worker loop stopped")
 
-    async def _fetch_icon(self, device_id: str, package_name: str):
+    async def _fetch_icon(self, device_id: str, package_name: str, skip_adb: bool = False):
         """
         Fetch icon from Play Store or APK extraction
 
         Args:
             device_id: ADB device ID
             package_name: App package name
+            skip_adb: If True, skip APK extraction (ADB busy with wizard)
         """
-        logger.debug(f"[IconBackgroundFetcher] Fetching icon: {package_name}")
+        logger.debug(f"[IconBackgroundFetcher] Fetching icon: {package_name} (skip_adb={skip_adb})")
 
         try:
-            # Step 1: Try Play Store (fast, high quality, works offline once cached)
+            # Step 1: Try Play Store (fast, high quality, no ADB needed)
             if self.playstore_scraper:
                 icon_data = self.playstore_scraper.get_icon(package_name)
                 if icon_data:
                     logger.info(f"[IconBackgroundFetcher] ✅ Play Store cached: {package_name}")
                     return
 
-            # Step 2: Try APK extraction (slow but works for all apps on device)
-            if self.apk_extractor:
+            # Step 2: Try APK extraction (slow, requires ADB)
+            if self.apk_extractor and not skip_adb:
                 icon_data = self.apk_extractor.get_icon(device_id, package_name)
                 if icon_data:
                     logger.info(f"[IconBackgroundFetcher] ✅ APK extracted: {package_name}")
                     return
+            elif skip_adb:
+                logger.debug(f"[IconBackgroundFetcher] Skipping APK extraction (wizard active): {package_name}")
 
             logger.warning(f"[IconBackgroundFetcher] ❌ Failed to fetch icon: {package_name}")
 
