@@ -29,17 +29,17 @@ import APIClient from './api-client.js?v=0.0.4';
 import SensorCreator from './sensor-creator.js?v=0.0.11';
 
 // Step modules
-import * as Step1 from './flow-wizard-step1.js?v=0.0.6';
-import * as Step2 from './flow-wizard-step2.js?v=0.0.6';
-import * as Step3 from './flow-wizard-step3.js?v=0.0.61';
-import * as Step4 from './flow-wizard-step4.js?v=0.0.17';
-import * as Step5 from './flow-wizard-step5.js?v=0.0.9';
+import * as Step1 from './flow-wizard-step1.js?v=0.2.26';
+import * as Step2 from './flow-wizard-step2.js?v=0.2.26';
+import * as Step3 from './flow-wizard-step3.js?v=0.2.26';
+import * as Step4 from './flow-wizard-step4.js?v=0.2.26';
+import * as Step5 from './flow-wizard-step5.js?v=0.2.26';
 
 // Dialog module
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.0.11';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.26';
 
 // Element actions module
-import * as ElementActions from './flow-wizard-element-actions.js?v=0.0.6';
+import * as ElementActions from './flow-wizard-element-actions.js?v=0.2.26';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
