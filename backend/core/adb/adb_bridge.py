@@ -3161,9 +3161,7 @@ class ADBBridge:
                         if pkg:
                             third_party_set.add(pkg)
             except Exception as e:
-                logger.debug(
-                    f"[ADBBridge] Failed to list third-party packages: {e}"
-                )
+                logger.debug(f"[ADBBridge] Failed to list third-party packages: {e}")
 
             # Get ONLY packages with LAUNCHER activities (apps in app drawer)
             # These are the only apps we can actually launch and automate
@@ -3174,9 +3172,7 @@ class ADBBridge:
                     "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"
                 )
             except Exception as e:
-                logger.warning(
-                    f"[ADBBridge] Launcher query failed, will fallback: {e}"
-                )
+                logger.warning(f"[ADBBridge] Launcher query failed, will fallback: {e}")
 
             # Parse output to extract package names
             # Format: "packagename/activityname"
