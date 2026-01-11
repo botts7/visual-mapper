@@ -46,12 +46,17 @@ class PersistentADBShell:
         """Start the persistent shell session"""
         try:
             self.process = await asyncio.create_subprocess_exec(
-                'adb', '-s', self.device_id, 'shell',
+                "adb",
+                "-s",
+                self.device_id,
+                "shell",
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
-            logger.info(f"[PersistentShell:{self._session_id}] Started for {self.device_id}")
+            logger.info(
+                f"[PersistentShell:{self._session_id}] Started for {self.device_id}"
+            )
             return True
         except Exception as e:
             logger.error(f"[PersistentShell:{self._session_id}] Failed to start: {e}")
@@ -85,29 +90,32 @@ class PersistentADBShell:
                 while True:
                     try:
                         line = await asyncio.wait_for(
-                            self.process.stdout.readline(),
-                            timeout=self.timeout
+                            self.process.stdout.readline(), timeout=self.timeout
                         )
                         if not line:
                             break
-                        decoded = line.decode().rstrip('\r\n')
+                        decoded = line.decode().rstrip("\r\n")
                         if marker in decoded:
                             # Remove marker from output
-                            final_line = decoded.replace(marker, '').strip()
+                            final_line = decoded.replace(marker, "").strip()
                             if final_line:
                                 output_lines.append(final_line)
                             break
                         output_lines.append(decoded)
                     except asyncio.TimeoutError:
-                        logger.warning(f"[PersistentShell:{self._session_id}] Command timeout: {command[:50]}")
+                        logger.warning(
+                            f"[PersistentShell:{self._session_id}] Command timeout: {command[:50]}"
+                        )
                         return (False, "Command timeout")
 
                 latency = (time.time() - start_time) * 1000
                 self._command_count += 1
                 self._total_latency_ms += latency
 
-                output = '\n'.join(output_lines)
-                logger.debug(f"[PersistentShell:{self._session_id}] Command executed in {latency:.1f}ms")
+                output = "\n".join(output_lines)
+                logger.debug(
+                    f"[PersistentShell:{self._session_id}] Command executed in {latency:.1f}ms"
+                )
                 return (True, output)
 
             except Exception as e:
@@ -167,8 +175,10 @@ class PersistentADBShell:
             "device_id": self.device_id,
             "command_count": self._command_count,
             "total_latency_ms": round(self._total_latency_ms, 1),
-            "avg_latency_ms": round(self._total_latency_ms / max(1, self._command_count), 1),
-            "is_active": self.is_active
+            "avg_latency_ms": round(
+                self._total_latency_ms / max(1, self._command_count), 1
+            ),
+            "is_active": self.is_active,
         }
 
 
@@ -183,7 +193,9 @@ class PersistentShellPool:
         self.max_sessions = max_sessions_per_device
         self._pools: Dict[str, List[PersistentADBShell]] = {}
         self._lock = asyncio.Lock()
-        logger.info(f"[ShellPool] Initialized (max {max_sessions_per_device} per device)")
+        logger.info(
+            f"[ShellPool] Initialized (max {max_sessions_per_device} per device)"
+        )
 
     async def get_shell(self, device_id: str) -> PersistentADBShell:
         """Get or create a shell session for a device"""
@@ -230,11 +242,7 @@ class PersistentShellPool:
 
     def get_stats(self) -> dict:
         """Get pool statistics"""
-        stats = {
-            "devices": {},
-            "total_sessions": 0,
-            "active_sessions": 0
-        }
+        stats = {"devices": {}, "total_sessions": 0, "active_sessions": 0}
         for device_id, pool in self._pools.items():
             device_stats = []
             for shell in pool:
@@ -249,6 +257,7 @@ class PersistentShellPool:
 @dataclass
 class ConnectionMetrics:
     """Track connection health metrics"""
+
     device_id: str
     last_successful_command: Optional[datetime] = None
     avg_latency_ms: float = 0
@@ -263,7 +272,9 @@ class ConnectionMetrics:
         if self.successful_commands == 0:
             return "unknown"
 
-        fail_rate = self.failed_commands / (self.failed_commands + self.successful_commands)
+        fail_rate = self.failed_commands / (
+            self.failed_commands + self.successful_commands
+        )
 
         if fail_rate < 0.01 and self.avg_latency_ms < 500:
             return "good"
@@ -275,13 +286,17 @@ class ConnectionMetrics:
     def to_dict(self) -> dict:
         return {
             "device_id": self.device_id,
-            "last_successful_command": self.last_successful_command.isoformat() if self.last_successful_command else None,
+            "last_successful_command": (
+                self.last_successful_command.isoformat()
+                if self.last_successful_command
+                else None
+            ),
             "avg_latency_ms": round(self.avg_latency_ms, 1),
             "failed_commands": self.failed_commands,
             "successful_commands": self.successful_commands,
             "reconnect_count": self.reconnect_count,
             "connection_quality": self.connection_quality,
-            "uptime_seconds": (datetime.now() - self.created_at).total_seconds()
+            "uptime_seconds": (datetime.now() - self.created_at).total_seconds(),
         }
 
 
@@ -333,9 +348,10 @@ class ADBMaintenance:
         try:
             # Kill server
             proc = await asyncio.create_subprocess_exec(
-                'adb', 'kill-server',
+                "adb",
+                "kill-server",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             await proc.communicate()
 
@@ -343,17 +359,15 @@ class ADBMaintenance:
 
             # Start server
             proc = await asyncio.create_subprocess_exec(
-                'adb', 'start-server',
+                "adb",
+                "start-server",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await proc.communicate()
 
             logger.info("[ADBMaintenance] ADB server restarted")
-            return {
-                "success": True,
-                "message": "ADB server restarted successfully"
-            }
+            return {"success": True, "message": "ADB server restarted successfully"}
         except Exception as e:
             logger.error(f"[ADBMaintenance] Server restart failed: {e}")
             return {"success": False, "error": str(e)}
@@ -362,23 +376,24 @@ class ADBMaintenance:
         """Check ADB server status"""
         try:
             proc = await asyncio.create_subprocess_exec(
-                'adb', 'devices',
+                "adb",
+                "devices",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await proc.communicate()
 
             devices = []
-            for line in stdout.decode().strip().split('\n')[1:]:
-                if '\t' in line:
-                    device_id, state = line.split('\t')
+            for line in stdout.decode().strip().split("\n")[1:]:
+                if "\t" in line:
+                    device_id, state = line.split("\t")
                     devices.append({"id": device_id, "state": state})
 
             return {
                 "success": True,
                 "server_running": True,
                 "devices": devices,
-                "device_count": len(devices)
+                "device_count": len(devices),
             }
         except FileNotFoundError:
             return {"success": False, "error": "ADB not found in PATH"}
@@ -391,13 +406,12 @@ class ADBMaintenance:
         """Clear all app caches to free storage and improve performance"""
         logger.info(f"[ADBMaintenance] Trimming cache on {device_id}")
         success, result = await self._run_shell_command(
-            device_id,
-            "pm trim-caches 999999999999999999"
+            device_id, "pm trim-caches 999999999999999999"
         )
         return {
             "success": success,
             "message": "Cache trimmed successfully" if success else result,
-            "device_id": device_id
+            "device_id": device_id,
         }
 
     # === ART Compilation ===
@@ -419,14 +433,13 @@ class ADBMaintenance:
 
         logger.info(f"[ADBMaintenance] Compiling apps on {device_id} (mode={mode})")
         success, result = await self._run_shell_command(
-            device_id,
-            f"cmd package compile -m {mode} -a"
+            device_id, f"cmd package compile -m {mode} -a"
         )
         return {
             "success": success,
             "mode": mode,
             "message": "Compilation started" if success else result,
-            "note": "This process can take 5-15 minutes"
+            "note": "This process can take 5-15 minutes",
         }
 
     # === Background Process Limits ===
@@ -444,22 +457,22 @@ class ADBMaintenance:
         if limit < -1 or limit > 4:
             return {"success": False, "error": "Limit must be -1 to 4"}
 
-        logger.info(f"[ADBMaintenance] Setting background limit to {limit} on {device_id}")
+        logger.info(
+            f"[ADBMaintenance] Setting background limit to {limit} on {device_id}"
+        )
         success, result = await self._run_shell_command(
-            device_id,
-            f"settings put global background_process_limit {limit}"
+            device_id, f"settings put global background_process_limit {limit}"
         )
         return {
             "success": success,
             "limit": limit,
-            "message": f"Background limit set to {limit}" if success else result
+            "message": f"Background limit set to {limit}" if success else result,
         }
 
     async def get_background_limit(self, device_id: str) -> dict:
         """Get current background process limit"""
         success, result = await self._run_shell_command(
-            device_id,
-            "settings get global background_process_limit"
+            device_id, "settings get global background_process_limit"
         )
         if success:
             try:
@@ -475,7 +488,10 @@ class ADBMaintenance:
         """Disable visual effects for faster UI operations"""
         commands = [
             ("disable_window_blurs", "settings put global disable_window_blurs 1"),
-            ("reduce_transparency", "settings put global accessibility_reduce_transparency 1"),
+            (
+                "reduce_transparency",
+                "settings put global accessibility_reduce_transparency 1",
+            ),
             ("animator_scale", "settings put global animator_duration_scale 0.5"),
             ("transition_scale", "settings put global transition_animation_scale 0.5"),
             ("window_scale", "settings put global window_animation_scale 0.5"),
@@ -491,7 +507,7 @@ class ADBMaintenance:
             "success": success_count > 0,
             "optimizations_applied": success_count,
             "total_optimizations": len(commands),
-            "details": results
+            "details": results,
         }
 
     async def reset_ui_optimizations(self, device_id: str) -> dict:
@@ -514,20 +530,18 @@ class ADBMaintenance:
     async def whitelist_from_doze(self, device_id: str, package: str) -> dict:
         """Add package to Doze whitelist (prevents killing during background)"""
         success, result = await self._run_shell_command(
-            device_id,
-            f"dumpsys deviceidle whitelist +{package}"
+            device_id, f"dumpsys deviceidle whitelist +{package}"
         )
         return {
             "success": success,
             "package": package,
-            "message": f"Added {package} to Doze whitelist" if success else result
+            "message": f"Added {package} to Doze whitelist" if success else result,
         }
 
     async def remove_from_doze_whitelist(self, device_id: str, package: str) -> dict:
         """Remove package from Doze whitelist"""
         success, result = await self._run_shell_command(
-            device_id,
-            f"dumpsys deviceidle whitelist -{package}"
+            device_id, f"dumpsys deviceidle whitelist -{package}"
         )
         return {"success": success, "package": package}
 
@@ -557,7 +571,7 @@ class ADBMaintenance:
             "success": success_count > 0,
             "optimizations_run": len(results),
             "successful": success_count,
-            "results": results
+            "results": results,
         }
 
     # === Connection Metrics ===
@@ -610,7 +624,7 @@ class ADBHelpers:
         resource_id: Optional[str] = None,
         class_name: Optional[str] = None,
         content_desc: Optional[str] = None,
-        exact_match: bool = False
+        exact_match: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Find a UI element by various criteria
@@ -670,10 +684,14 @@ class ADBHelpers:
                         continue
 
                 # Found matching element
-                logger.debug(f"[ADBHelpers] Found element: text='{element.get('text')}', class={element.get('class')}")
+                logger.debug(
+                    f"[ADBHelpers] Found element: text='{element.get('text')}', class={element.get('class')}"
+                )
                 return element
 
-            logger.debug(f"[ADBHelpers] Element not found (text={text}, id={resource_id}, class={class_name})")
+            logger.debug(
+                f"[ADBHelpers] Element not found (text={text}, id={resource_id}, class={class_name})"
+            )
             return None
 
         except Exception as e:
@@ -688,7 +706,7 @@ class ADBHelpers:
         class_name: Optional[str] = None,
         content_desc: Optional[str] = None,
         timeout: Optional[float] = None,
-        exact_match: bool = False
+        exact_match: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Wait for a UI element to appear
@@ -717,7 +735,7 @@ class ADBHelpers:
                 resource_id=resource_id,
                 class_name=class_name,
                 content_desc=content_desc,
-                exact_match=exact_match
+                exact_match=exact_match,
             )
 
             if element:
@@ -728,7 +746,9 @@ class ADBHelpers:
             # Poll again after interval
             await asyncio.sleep(self.poll_interval)
 
-        logger.warning(f"[ADBHelpers] Timeout waiting for element (text={text}, id={resource_id})")
+        logger.warning(
+            f"[ADBHelpers] Timeout waiting for element (text={text}, id={resource_id})"
+        )
         return None
 
     async def element_exists(
@@ -737,7 +757,7 @@ class ADBHelpers:
         text: Optional[str] = None,
         resource_id: Optional[str] = None,
         class_name: Optional[str] = None,
-        exact_match: bool = False
+        exact_match: bool = False,
     ) -> bool:
         """
         Check if a UI element exists
@@ -757,7 +777,7 @@ class ADBHelpers:
             text=text,
             resource_id=resource_id,
             class_name=class_name,
-            exact_match=exact_match
+            exact_match=exact_match,
         )
         return element is not None
 
@@ -769,7 +789,7 @@ class ADBHelpers:
         class_name: Optional[str] = None,
         exact_match: bool = False,
         wait: bool = True,
-        timeout: Optional[float] = None
+        timeout: Optional[float] = None,
     ) -> bool:
         """
         Find and click a UI element
@@ -793,7 +813,7 @@ class ADBHelpers:
                 resource_id=resource_id,
                 class_name=class_name,
                 timeout=timeout,
-                exact_match=exact_match
+                exact_match=exact_match,
             )
         else:
             element = await self.find_element(
@@ -801,7 +821,7 @@ class ADBHelpers:
                 text=text,
                 resource_id=resource_id,
                 class_name=class_name,
-                exact_match=exact_match
+                exact_match=exact_match,
             )
 
         if not element:
@@ -816,7 +836,8 @@ class ADBHelpers:
 
         # Parse bounds format: "[x1,y1][x2,y2]"
         import re
-        match = re.findall(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+
+        match = re.findall(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", bounds)
         if not match:
             logger.error(f"[ADBHelpers] Cannot parse bounds: {bounds}")
             return False
@@ -844,7 +865,8 @@ class ADBHelpers:
             return None
 
         import re
-        match = re.findall(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+
+        match = re.findall(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", bounds)
         if not match:
             return None
 
@@ -874,7 +896,7 @@ class ADBHelpers:
         self,
         device_id: str,
         expected_elements: List[Dict[str, str]],
-        require_all: bool = True
+        require_all: bool = True,
     ) -> bool:
         """
         Validate screen by checking for expected UI elements
@@ -901,14 +923,16 @@ class ADBHelpers:
                 device_id,
                 text=criteria.get("text"),
                 resource_id=criteria.get("resource_id"),
-                class_name=criteria.get("class_name")
+                class_name=criteria.get("class_name"),
             )
 
             if element:
                 found_count += 1
             elif require_all:
                 # Missing required element
-                logger.debug(f"[ADBHelpers] Screen validation failed: missing element {criteria}")
+                logger.debug(
+                    f"[ADBHelpers] Screen validation failed: missing element {criteria}"
+                )
                 return False
 
         if require_all:
@@ -922,7 +946,7 @@ class ADBHelpers:
         text: Optional[str] = None,
         resource_id: Optional[str] = None,
         max_scrolls: int = 10,
-        direction: str = "down"
+        direction: str = "down",
     ) -> Optional[Dict[str, Any]]:
         """
         Scroll until element is found
@@ -940,9 +964,7 @@ class ADBHelpers:
         for i in range(max_scrolls):
             # Check if element exists
             element = await self.find_element(
-                device_id,
-                text=text,
-                resource_id=resource_id
+                device_id, text=text, resource_id=resource_id
             )
 
             if element:
@@ -964,10 +986,7 @@ class ADBHelpers:
             center_x = screen_width // 2
 
             await self.adb_bridge.swipe(
-                device_id,
-                center_x, start_y,
-                center_x, end_y,
-                duration=300
+                device_id, center_x, start_y, center_x, end_y, duration=300
             )
 
             # Brief delay for UI to settle
@@ -981,7 +1000,7 @@ class ADBHelpers:
         device_id: str,
         text: Optional[str] = None,
         resource_id: Optional[str] = None,
-        class_name: Optional[str] = None
+        class_name: Optional[str] = None,
     ) -> Optional[str]:
         """
         Find element and extract its text value
@@ -996,10 +1015,7 @@ class ADBHelpers:
             Element text or None if not found
         """
         element = await self.find_element(
-            device_id,
-            text=text,
-            resource_id=resource_id,
-            class_name=class_name
+            device_id, text=text, resource_id=resource_id, class_name=class_name
         )
 
         if element:
@@ -1017,7 +1033,8 @@ class ADBHelpers:
             Tuple of (x1, y1, x2, y2) or None
         """
         import re
-        match = re.findall(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+
+        match = re.findall(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", bounds_str)
         if match:
             return tuple(map(int, match[0]))
         return None

@@ -43,6 +43,7 @@ def detect_accelerators() -> dict:
     # Check for Coral Edge TPU
     try:
         from pycoral.utils.edgetpu import list_edge_tpus
+
         edge_tpus = list_edge_tpus()
         if edge_tpus:
             accelerators["coral_available"] = True
@@ -56,6 +57,7 @@ def detect_accelerators() -> dict:
     # Check for CUDA (PyTorch)
     try:
         import torch
+
         if torch.cuda.is_available():
             accelerators["cuda_available"] = True
             accelerators["cuda_device"] = torch.cuda.get_device_name(0)
@@ -65,6 +67,7 @@ def detect_accelerators() -> dict:
     # Check for DirectML
     try:
         import torch_directml
+
         accelerators["directml_available"] = True
     except ImportError:
         pass
@@ -72,6 +75,7 @@ def detect_accelerators() -> dict:
     # Check for ONNX Runtime with DirectML
     try:
         import onnxruntime as ort
+
         providers = ort.get_available_providers()
         accelerators["onnx_available"] = True
         if "DmlExecutionProvider" in providers:
@@ -84,6 +88,7 @@ def detect_accelerators() -> dict:
 
 class AcceleratorStatus(BaseModel):
     """Hardware accelerator status"""
+
     coral_available: bool
     coral_devices: int
     coral_device_info: list
@@ -95,6 +100,7 @@ class AcceleratorStatus(BaseModel):
 
 class MLStatus(BaseModel):
     """ML Training status response"""
+
     enabled: bool
     mode: str  # disabled, local, remote
     training_active: bool
@@ -109,6 +115,7 @@ class MLStatus(BaseModel):
 
 class MLStats(BaseModel):
     """ML Training statistics"""
+
     total_states: int
     total_actions: int
     total_updates: int
@@ -141,7 +148,7 @@ def load_q_table() -> dict:
     if not path.exists():
         return {}
     try:
-        with open(path, 'r') as f:
+        with open(path, "r") as f:
             return json.load(f)
     except Exception as e:
         logger.error(f"Failed to load Q-table: {e}")
@@ -197,7 +204,7 @@ async def get_ml_status() -> MLStatus:
         q_table_path=str(q_table_path),
         last_updated=last_updated,
         remote_host=remote_host if mode == "remote" else None,
-        accelerators=AcceleratorStatus(**accel)
+        accelerators=AcceleratorStatus(**accel),
     )
 
 
@@ -215,7 +222,7 @@ async def get_ml_stats() -> MLStats:
             max_q_value=0.0,
             min_q_value=0.0,
             exploration_rate=1.0,
-            last_training_time=None
+            last_training_time=None,
         )
 
     # Parse Q-table structure
@@ -248,7 +255,7 @@ async def get_ml_stats() -> MLStats:
         max_q_value=round(max_q, 4),
         min_q_value=round(min_q, 4),
         exploration_rate=round(exploration_rate, 4),
-        last_training_time=last_training
+        last_training_time=last_training,
     )
 
 
@@ -265,13 +272,15 @@ async def export_q_table():
     q_table_path = get_q_table_path()
 
     if not q_table_path.exists():
-        raise HTTPException(status_code=404, detail="No Q-table found. Start ML training first.")
+        raise HTTPException(
+            status_code=404, detail="No Q-table found. Start ML training first."
+        )
 
     # Return as downloadable file
     return FileResponse(
         path=str(q_table_path),
         filename=f"visual_mapper_q_table_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-        media_type="application/json"
+        media_type="application/json",
     )
 
 
@@ -281,7 +290,9 @@ async def export_q_table_json():
     q_table = load_q_table()
 
     if not q_table:
-        raise HTTPException(status_code=404, detail="No Q-table found. Start ML training first.")
+        raise HTTPException(
+            status_code=404, detail="No Q-table found. Start ML training first."
+        )
 
     return JSONResponse(content=q_table)
 
@@ -298,7 +309,7 @@ async def reset_ml_data():
     if q_table_path.exists():
         try:
             # Create backup first
-            backup_path = q_table_path.with_suffix('.json.bak')
+            backup_path = q_table_path.with_suffix(".json.bak")
             q_table_path.rename(backup_path)
             deleted_files.append(str(q_table_path))
             logger.info(f"Backed up Q-table to {backup_path}")
@@ -312,7 +323,7 @@ async def reset_ml_data():
     for pattern in model_patterns:
         for model_file in ml_dir.glob(pattern):
             try:
-                backup = model_file.with_suffix(model_file.suffix + '.bak')
+                backup = model_file.with_suffix(model_file.suffix + ".bak")
                 model_file.rename(backup)
                 deleted_files.append(str(model_file))
             except Exception as e:
@@ -325,14 +336,14 @@ async def reset_ml_data():
                 "success": len(deleted_files) > 0,
                 "deleted": deleted_files,
                 "errors": errors,
-                "message": "Partial reset - some files could not be deleted"
-            }
+                "message": "Partial reset - some files could not be deleted",
+            },
         )
 
     return {
         "success": True,
         "deleted": deleted_files,
-        "message": "ML data reset successfully. Backups created with .bak extension."
+        "message": "ML data reset successfully. Backups created with .bak extension.",
     }
 
 
@@ -346,20 +357,20 @@ async def import_q_table(q_table_data: dict):
 
     # Backup existing if present
     if q_table_path.exists():
-        backup_path = q_table_path.with_suffix('.json.bak')
+        backup_path = q_table_path.with_suffix(".json.bak")
         q_table_path.rename(backup_path)
         logger.info(f"Backed up existing Q-table to {backup_path}")
 
     # Write new Q-table
     try:
-        with open(q_table_path, 'w') as f:
+        with open(q_table_path, "w") as f:
             json.dump(q_table_data, f, indent=2)
 
         return {
             "success": True,
             "path": str(q_table_path),
             "size": q_table_path.stat().st_size,
-            "message": "Q-table imported successfully"
+            "message": "Q-table imported successfully",
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to import Q-table: {e}")

@@ -36,7 +36,9 @@ class DeviceDataMigrator:
         self.migrated_files: List[str] = []
         self.errors: List[str] = []
 
-    def discover_device_mappings(self, device_serial_map: Dict[str, str]) -> Dict[str, str]:
+    def discover_device_mappings(
+        self, device_serial_map: Dict[str, str]
+    ) -> Dict[str, str]:
         """
         Discover mappings between old device IDs (IP:port or hash) and new stable IDs.
 
@@ -64,9 +66,7 @@ class DeviceDataMigrator:
         return mappings
 
     def migrate_sensors(
-        self,
-        device_serial_map: Dict[str, str],
-        dry_run: bool = True
+        self, device_serial_map: Dict[str, str], dry_run: bool = True
     ) -> List[Dict]:
         """
         Migrate sensor files to use stable device IDs.
@@ -93,14 +93,11 @@ class DeviceDataMigrator:
         return results
 
     def _migrate_sensor_file(
-        self,
-        sensor_file: Path,
-        mappings: Dict[str, str],
-        dry_run: bool
+        self, sensor_file: Path, mappings: Dict[str, str], dry_run: bool
     ) -> Optional[Dict]:
         """Migrate a single sensor file"""
         try:
-            with open(sensor_file, 'r', encoding='utf-8') as f:
+            with open(sensor_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             original_device_id = data.get("device_id", "")
@@ -141,10 +138,14 @@ class DeviceDataMigrator:
                 old_device_id = sensor.get("device_id", "")
 
                 # Update sensor_id prefix if it contains old ID pattern
-                new_sensor_id = self._update_sensor_id(old_sensor_id, mappings, new_stable_id)
+                new_sensor_id = self._update_sensor_id(
+                    old_sensor_id, mappings, new_stable_id
+                )
                 if new_sensor_id != old_sensor_id:
                     sensor["sensor_id"] = new_sensor_id
-                    changes.append(f"  sensor[{i}].sensor_id: {old_sensor_id} -> {new_sensor_id}")
+                    changes.append(
+                        f"  sensor[{i}].sensor_id: {old_sensor_id} -> {new_sensor_id}"
+                    )
 
                 # Update device_id to use connection format but keep it for backwards compat
                 # Actually, we should keep device_id as connection_id for ADB operations
@@ -153,7 +154,9 @@ class DeviceDataMigrator:
                 old_stable = sensor.get("stable_device_id", "")
                 if old_stable != new_stable_id:
                     sensor["stable_device_id"] = new_stable_id
-                    changes.append(f"  sensor[{i}].stable_device_id: {old_stable} -> {new_stable_id}")
+                    changes.append(
+                        f"  sensor[{i}].stable_device_id: {old_stable} -> {new_stable_id}"
+                    )
 
             result = {
                 "file": str(sensor_file),
@@ -161,7 +164,7 @@ class DeviceDataMigrator:
                 "new_filename": new_filename,
                 "stable_id": new_stable_id,
                 "changes": changes,
-                "sensor_count": len(data.get("sensors", []))
+                "sensor_count": len(data.get("sensors", [])),
             }
 
             if not dry_run:
@@ -169,7 +172,7 @@ class DeviceDataMigrator:
                 self._backup_file(sensor_file)
 
                 # Write updated data
-                with open(sensor_file, 'w', encoding='utf-8') as f:
+                with open(sensor_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)
 
                 # Rename file
@@ -195,10 +198,7 @@ class DeviceDataMigrator:
             return {"file": str(sensor_file), "status": "error", "error": str(e)}
 
     def _update_sensor_id(
-        self,
-        sensor_id: str,
-        mappings: Dict[str, str],
-        new_stable_id: str
+        self, sensor_id: str, mappings: Dict[str, str], new_stable_id: str
     ) -> str:
         """Update sensor_id to use stable device ID prefix"""
         # Pattern: 192_168_86_2_46747_sensor_xxxx
@@ -209,11 +209,11 @@ class DeviceDataMigrator:
             sanitized = old_pattern.replace(":", "_").replace(".", "_")
             if sensor_id.startswith(sanitized):
                 # Replace the prefix
-                suffix = sensor_id[len(sanitized):]
+                suffix = sensor_id[len(sanitized) :]
                 return f"{new_stable_id}{suffix}"
 
         # If no pattern matched, try to extract just the sensor suffix
-        match = re.search(r'_sensor_([a-f0-9]+)$', sensor_id)
+        match = re.search(r"_sensor_([a-f0-9]+)$", sensor_id)
         if match:
             return f"{new_stable_id}_sensor_{match.group(1)}"
 
@@ -222,9 +222,9 @@ class DeviceDataMigrator:
     def _merge_sensor_files(self, source: Path, target: Path):
         """Merge sensors from source into target file"""
         try:
-            with open(source, 'r', encoding='utf-8') as f:
+            with open(source, "r", encoding="utf-8") as f:
                 source_data = json.load(f)
-            with open(target, 'r', encoding='utf-8') as f:
+            with open(target, "r", encoding="utf-8") as f:
                 target_data = json.load(f)
 
             # Get existing sensor IDs
@@ -236,16 +236,14 @@ class DeviceDataMigrator:
                     target_data.setdefault("sensors", []).append(sensor)
                     logger.info(f"[Migrator] Merged sensor {sensor.get('sensor_id')}")
 
-            with open(target, 'w', encoding='utf-8') as f:
+            with open(target, "w", encoding="utf-8") as f:
                 json.dump(target_data, f, indent=2)
 
         except Exception as e:
             logger.error(f"[Migrator] Failed to merge {source} into {target}: {e}")
 
     def migrate_flows(
-        self,
-        device_serial_map: Dict[str, str],
-        dry_run: bool = True
+        self, device_serial_map: Dict[str, str], dry_run: bool = True
     ) -> List[Dict]:
         """Migrate flow files to use stable device IDs"""
         results = []
@@ -262,14 +260,11 @@ class DeviceDataMigrator:
         return results
 
     def _migrate_flow_file(
-        self,
-        flow_file: Path,
-        mappings: Dict[str, str],
-        dry_run: bool
+        self, flow_file: Path, mappings: Dict[str, str], dry_run: bool
     ) -> Optional[Dict]:
         """Migrate a single flow file"""
         try:
-            with open(flow_file, 'r', encoding='utf-8') as f:
+            with open(flow_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             original_device_id = data.get("device_id", "")
@@ -302,7 +297,7 @@ class DeviceDataMigrator:
                 "new_filename": new_filename,
                 "stable_id": new_stable_id,
                 "changes": changes,
-                "flow_count": len(data.get("flows", []))
+                "flow_count": len(data.get("flows", [])),
             }
 
             if not dry_run:
@@ -311,7 +306,9 @@ class DeviceDataMigrator:
                 if flow_file.name != new_filename:
                     if new_path.exists():
                         # Would need to merge - for now just warn
-                        logger.warning(f"[Migrator] Target {new_filename} exists, skipping rename")
+                        logger.warning(
+                            f"[Migrator] Target {new_filename} exists, skipping rename"
+                        )
                     else:
                         flow_file.rename(new_path)
 
@@ -337,9 +334,7 @@ class DeviceDataMigrator:
         logger.debug(f"[Migrator] Backed up {file_path.name} to {backup_path.name}")
 
     def run_migration(
-        self,
-        device_serial_map: Dict[str, str],
-        dry_run: bool = True
+        self, device_serial_map: Dict[str, str], dry_run: bool = True
     ) -> Dict:
         """
         Run full migration of sensors and flows.
@@ -362,14 +357,11 @@ class DeviceDataMigrator:
             "device_mappings": device_serial_map,
             "sensors": {
                 "files_processed": len(sensor_results),
-                "results": sensor_results
+                "results": sensor_results,
             },
-            "flows": {
-                "files_processed": len(flow_results),
-                "results": flow_results
-            },
+            "flows": {"files_processed": len(flow_results), "results": flow_results},
             "migrated_files": self.migrated_files,
-            "errors": self.errors
+            "errors": self.errors,
         }
 
         return report
@@ -381,10 +373,16 @@ def main():
     import sys
 
     parser = argparse.ArgumentParser(description="Migrate device data to stable IDs")
-    parser.add_argument("--dry-run", action="store_true", help="Preview changes without modifying")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Preview changes without modifying"
+    )
     parser.add_argument("--device-map", type=str, help="JSON file with device mappings")
-    parser.add_argument("--conn-id", type=str, help="Connection ID (e.g., 192.168.1.2:46747)")
-    parser.add_argument("--stable-id", type=str, help="Stable device ID (e.g., R9YT50J4S9D)")
+    parser.add_argument(
+        "--conn-id", type=str, help="Connection ID (e.g., 192.168.1.2:46747)"
+    )
+    parser.add_argument(
+        "--stable-id", type=str, help="Stable device ID (e.g., R9YT50J4S9D)"
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -393,7 +391,7 @@ def main():
     device_map = {}
 
     if args.device_map:
-        with open(args.device_map, 'r') as f:
+        with open(args.device_map, "r") as f:
             device_map = json.load(f)
     elif args.conn_id and args.stable_id:
         device_map[args.conn_id] = args.stable_id
@@ -410,24 +408,24 @@ def main():
     print(f"Mode: {'DRY RUN' if report['dry_run'] else 'EXECUTED'}")
     print(f"Timestamp: {report['timestamp']}")
     print(f"\nDevice Mappings:")
-    for conn, stable in report['device_mappings'].items():
+    for conn, stable in report["device_mappings"].items():
         print(f"  {conn} -> {stable}")
 
     print(f"\nSensors: {report['sensors']['files_processed']} files")
-    for r in report['sensors']['results']:
+    for r in report["sensors"]["results"]:
         print(f"  [{r.get('status', 'unknown')}] {r.get('old_filename', 'unknown')}")
-        for change in r.get('changes', []):
+        for change in r.get("changes", []):
             print(f"    {change}")
 
     print(f"\nFlows: {report['flows']['files_processed']} files")
-    for r in report['flows']['results']:
+    for r in report["flows"]["results"]:
         print(f"  [{r.get('status', 'unknown')}] {r.get('old_filename', 'unknown')}")
-        for change in r.get('changes', []):
+        for change in r.get("changes", []):
             print(f"    {change}")
 
-    if report['errors']:
+    if report["errors"]:
         print(f"\nErrors: {len(report['errors'])}")
-        for e in report['errors']:
+        for e in report["errors"]:
             print(f"  - {e}")
 
     print("\n" + "=" * 60)

@@ -28,7 +28,7 @@ from utils.error_handler import (
     logger,
     ErrorContext,
     ActionNotFoundError,
-    ActionValidationError
+    ActionValidationError,
 )
 
 
@@ -58,7 +58,7 @@ class ActionManager:
             return []
 
         try:
-            with open(actions_file, 'r', encoding='utf-8') as f:
+            with open(actions_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return [ActionDefinition(**action) for action in data]
         except Exception as e:
@@ -70,7 +70,7 @@ class ActionManager:
         actions_file = self._get_actions_file(device_id)
 
         try:
-            with open(actions_file, 'w', encoding='utf-8') as f:
+            with open(actions_file, "w", encoding="utf-8") as f:
                 data = [action.dict() for action in actions]
                 json.dump(data, f, indent=2, default=str)
             logger.info(f"Saved {len(actions)} actions for device {device_id}")
@@ -91,7 +91,7 @@ class ActionManager:
         validation_element: Dict[str, Any] = None,
         return_home_after: bool = False,
         max_navigation_attempts: int = 3,
-        navigation_timeout: int = 10
+        navigation_timeout: int = 10,
     ) -> ActionDefinition:
         """
         Create a new action
@@ -134,7 +134,7 @@ class ActionManager:
                 max_navigation_attempts=max_navigation_attempts,
                 navigation_timeout=navigation_timeout,
                 created_at=datetime.now(),
-                updated_at=datetime.now()
+                updated_at=datetime.now(),
             )
 
             # Load existing actions
@@ -146,7 +146,9 @@ class ActionManager:
             # Save
             self._save_actions(device_id, actions)
 
-            logger.info(f"Created action {action_id} for device {device_id}: {action.action_type}")
+            logger.info(
+                f"Created action {action_id} for device {device_id}: {action.action_type}"
+            )
             return action_def
 
     def get_action(self, device_id: str, action_id: str) -> ActionDefinition:
@@ -197,7 +199,7 @@ class ActionManager:
             matching_actions = []
             for actions_file in self.data_dir.glob("actions_*.json"):
                 try:
-                    with open(actions_file, 'r', encoding='utf-8') as f:
+                    with open(actions_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                         file_actions = [ActionDefinition(**action) for action in data]
                         # Check each action's stable_device_id
@@ -213,7 +215,7 @@ class ActionManager:
         all_actions = []
         for actions_file in self.data_dir.glob("actions_*.json"):
             try:
-                with open(actions_file, 'r', encoding='utf-8') as f:
+                with open(actions_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     all_actions.extend([ActionDefinition(**action) for action in data])
             except Exception as e:
@@ -235,7 +237,7 @@ class ActionManager:
         validation_element: Optional[Dict[str, Any]] = None,
         return_home_after: Optional[bool] = None,
         max_navigation_attempts: Optional[int] = None,
-        navigation_timeout: Optional[int] = None
+        navigation_timeout: Optional[int] = None,
     ) -> ActionDefinition:
         """
         Update an existing action
@@ -321,11 +323,7 @@ class ActionManager:
         logger.info(f"Deleted action {action_id} for device {device_id}")
 
     def record_execution(
-        self,
-        device_id: str,
-        action_id: str,
-        success: bool,
-        result_message: str
+        self, device_id: str, action_id: str, success: bool, result_message: str
     ):
         """
         Record action execution result
@@ -343,7 +341,9 @@ class ActionManager:
                 if action.id == action_id:
                     action.execution_count += 1
                     action.last_executed = datetime.now()
-                    action.last_result = "success" if success else f"error: {result_message}"
+                    action.last_result = (
+                        "success" if success else f"error: {result_message}"
+                    )
                     break
 
             self._save_actions(device_id, actions)
@@ -396,7 +396,9 @@ class ActionManager:
             # Save
             self._save_actions(device_id, existing_actions)
 
-            logger.info(f"Imported {len(imported_actions)} actions for device {device_id}")
+            logger.info(
+                f"Imported {len(imported_actions)} actions for device {device_id}"
+            )
             return len(imported_actions)
 
         except json.JSONDecodeError as e:

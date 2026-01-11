@@ -51,8 +51,19 @@ class DeviceController:
             # Get navigation mode
             def _get_nav_mode():
                 result = subprocess.run(
-                    ['adb', '-s', device_id, 'shell', 'settings', 'get', 'secure', 'navigation_mode'],
-                    capture_output=True, text=True, timeout=5
+                    [
+                        "adb",
+                        "-s",
+                        device_id,
+                        "shell",
+                        "settings",
+                        "get",
+                        "secure",
+                        "navigation_mode",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 try:
                     return int(result.stdout.strip())
@@ -62,10 +73,15 @@ class DeviceController:
             # Check if app is fullscreen
             def _check_fullscreen():
                 result = subprocess.run(
-                    ['adb', '-s', device_id, 'shell', 'dumpsys', 'window', 'windows'],
-                    capture_output=True, text=True, timeout=5
+                    ["adb", "-s", device_id, "shell", "dumpsys", "window", "windows"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
-                return 'FLAG_FULLSCREEN' in result.stdout or 'mIsFullscreen=true' in result.stdout
+                return (
+                    "FLAG_FULLSCREEN" in result.stdout
+                    or "mIsFullscreen=true" in result.stdout
+                )
 
             nav_mode = await asyncio.to_thread(_get_nav_mode)
             is_fullscreen = await asyncio.to_thread(_check_fullscreen)
@@ -84,23 +100,25 @@ class DeviceController:
             else:  # 3-button (mode 0)
                 estimated_nav_height = 48
 
-            logger.info(f"[NavInfo] mode={nav_mode}, has_nav_bar={has_nav_bar}, fullscreen={is_fullscreen}, nav_height={estimated_nav_height}")
+            logger.info(
+                f"[NavInfo] mode={nav_mode}, has_nav_bar={has_nav_bar}, fullscreen={is_fullscreen}, nav_height={estimated_nav_height}"
+            )
 
             return {
-                'nav_mode': nav_mode,
-                'has_nav_bar': has_nav_bar,
-                'is_fullscreen': is_fullscreen,
-                'estimated_nav_height': estimated_nav_height
+                "nav_mode": nav_mode,
+                "has_nav_bar": has_nav_bar,
+                "is_fullscreen": is_fullscreen,
+                "estimated_nav_height": estimated_nav_height,
             }
 
         except Exception as e:
             logger.warning(f"[NavInfo] Failed to get nav info: {e}")
             # Return safe defaults - assume nav bar exists
             return {
-                'nav_mode': 0,
-                'has_nav_bar': True,
-                'is_fullscreen': False,
-                'estimated_nav_height': 48
+                "nav_mode": 0,
+                "has_nav_bar": True,
+                "is_fullscreen": False,
+                "estimated_nav_height": 48,
             }
 
     async def refresh_page(self, device_id: str, times: int = 3):
@@ -120,13 +138,15 @@ class DeviceController:
                 # Swipe DOWN from near top to middle (pull-to-refresh)
                 swipe_x = width // 2
                 swipe_start_y = int(height * 0.15)  # Start near top
-                swipe_end_y = int(height * 0.60)    # End in middle
+                swipe_end_y = int(height * 0.60)  # End in middle
 
                 await self.adb_bridge.swipe(
                     device_id,
-                    swipe_x, swipe_start_y,
-                    swipe_x, swipe_end_y,
-                    duration=300
+                    swipe_x,
+                    swipe_start_y,
+                    swipe_x,
+                    swipe_end_y,
+                    duration=300,
                 )
                 await asyncio.sleep(1.5)  # Wait for refresh animation
 
@@ -153,7 +173,14 @@ class DeviceController:
                 swipe_start_y = int(height * 0.70)
                 swipe_end_y = int(height * 0.30)
 
-                await self.adb_bridge.swipe(device_id, swipe_x, swipe_start_y, swipe_x, swipe_end_y, duration=300)
+                await self.adb_bridge.swipe(
+                    device_id,
+                    swipe_x,
+                    swipe_start_y,
+                    swipe_x,
+                    swipe_end_y,
+                    duration=300,
+                )
                 await asyncio.sleep(0.3)
 
                 img_after = await self.capture_screenshot_pil(device_id)
@@ -190,9 +217,11 @@ class DeviceController:
 
                 await self.adb_bridge.swipe(
                     device_id,
-                    swipe_x, swipe_start_y,
-                    swipe_x, swipe_end_y,
-                    duration=300
+                    swipe_x,
+                    swipe_start_y,
+                    swipe_x,
+                    swipe_end_y,
+                    duration=300,
                 )
                 await asyncio.sleep(0.3)
 
@@ -225,7 +254,9 @@ class DeviceController:
             logger.error(f"[DeviceController] Screenshot capture failed: {e}")
             return None
 
-    async def get_ui_elements_with_retry(self, device_id: str, max_retries: int = 3) -> list:
+    async def get_ui_elements_with_retry(
+        self, device_id: str, max_retries: int = 3
+    ) -> list:
         """
         Get UI elements with retry logic. uiautomator can be flaky,
         especially right after scrolling.
@@ -250,7 +281,9 @@ class DeviceController:
                     logger.warning(f"  UI elements attempt {attempt + 1}: empty result")
 
             except Exception as e:
-                logger.warning(f"  UI elements attempt {attempt + 1}/{max_retries} failed: {e}")
+                logger.warning(
+                    f"  UI elements attempt {attempt + 1}/{max_retries} failed: {e}"
+                )
 
         logger.warning(f"  All UI element retries failed - using pixel-only stitching")
         return []
@@ -263,6 +296,7 @@ class DeviceController:
         """
         try:
             import re
+
             # Get UI hierarchy
             ui_elements = await self.adb_bridge.get_ui_elements(device_id)
 
@@ -273,7 +307,7 @@ class DeviceController:
                     # Parse bounds format: "[x1,y1][x2,y2]"
                     if bounds:
                         # Extract Y coordinate as scroll position
-                        match = re.search(r'\[(\d+),(\d+)\]', bounds)
+                        match = re.search(r"\[(\d+),(\d+)\]", bounds)
                         if match:
                             return int(match.group(2))
 
@@ -302,9 +336,18 @@ class DeviceController:
 
         # Interactive element types that we want to avoid
         interactive_classes = [
-            'button', 'edittext', 'checkbox', 'switch', 'radio',
-            'imagebutton', 'spinner', 'seekbar', 'ratingbar',
-            'compoundbutton', 'togglebutton', 'link'
+            "button",
+            "edittext",
+            "checkbox",
+            "switch",
+            "radio",
+            "imagebutton",
+            "spinner",
+            "seekbar",
+            "ratingbar",
+            "compoundbutton",
+            "togglebutton",
+            "link",
         ]
 
         # Track which X ranges are occupied by interactive elements
@@ -315,9 +358,9 @@ class DeviceController:
 
         for elem in elements:
             # Check if this is an interactive element
-            class_name = (elem.get('class', '') or '').lower()
-            clickable = elem.get('clickable', False)
-            focusable = elem.get('focusable', False)
+            class_name = (elem.get("class", "") or "").lower()
+            clickable = elem.get("clickable", False)
+            focusable = elem.get("focusable", False)
 
             is_interactive = clickable or focusable
             for ic in interactive_classes:
@@ -329,13 +372,13 @@ class DeviceController:
                 continue
 
             # Get element bounds
-            bounds = elem.get('bounds', {})
+            bounds = elem.get("bounds", {})
             if isinstance(bounds, dict):
-                x = bounds.get('x', 0)
-                width = bounds.get('width', 0)
+                x = bounds.get("x", 0)
+                width = bounds.get("width", 0)
             elif isinstance(bounds, str):
                 # Parse "[x1,y1][x2,y2]" format
-                match = re.findall(r'\[(\d+),(\d+)\]', bounds)
+                match = re.findall(r"\[(\d+),(\d+)\]", bounds)
                 if len(match) >= 2:
                     x = int(match[0][0])
                     x2 = int(match[1][0])
@@ -384,8 +427,8 @@ class DeviceController:
 
             # Convert to grayscale for comparison using PIL
             if len(arr1.shape) == 3:
-                gray1 = np.array(img1.convert('L'))
-                gray2 = np.array(img2.convert('L'))
+                gray1 = np.array(img1.convert("L"))
+                gray2 = np.array(img2.convert("L"))
             else:
                 gray1, gray2 = arr1, arr2
 

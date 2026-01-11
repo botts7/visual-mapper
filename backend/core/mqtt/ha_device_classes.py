@@ -11,6 +11,7 @@ from dataclasses import dataclass
 @dataclass
 class DeviceClassInfo:
     """Device class metadata"""
+
     name: str
     description: str
     valid_units: List[str]
@@ -27,216 +28,215 @@ SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         description="Percentage of battery that is left",
         valid_units=["%"],
         default_icon="mdi:battery",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "power": DeviceClassInfo(
         name="Power",
         description="Power measurement",
         valid_units=["W", "kW"],
         default_icon="mdi:flash",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "energy": DeviceClassInfo(
         name="Energy",
         description="Energy consumption",
         valid_units=["Wh", "kWh", "MWh", "GWh"],
         default_icon="mdi:lightning-bolt",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "voltage": DeviceClassInfo(
         name="Voltage",
         description="Voltage measurement",
         valid_units=["V", "mV"],
         default_icon="mdi:sine-wave",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "current": DeviceClassInfo(
         name="Current",
         description="Current measurement",
         valid_units=["A", "mA"],
         default_icon="mdi:current-ac",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "power_factor": DeviceClassInfo(
         name="Power Factor",
         description="Power factor",
         valid_units=["%", ""],
         default_icon="mdi:angle-acute",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
-
     # Environmental
     "temperature": DeviceClassInfo(
         name="Temperature",
         description="Temperature measurement",
         valid_units=["°C", "°F", "K"],
         default_icon="mdi:thermometer",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "humidity": DeviceClassInfo(
         name="Humidity",
         description="Relative humidity",
         valid_units=["%"],
         default_icon="mdi:water-percent",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "pressure": DeviceClassInfo(
         name="Pressure",
         description="Atmospheric pressure",
         valid_units=["Pa", "hPa", "kPa", "bar", "mbar", "mmHg", "inHg", "psi"],
         default_icon="mdi:gauge",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "illuminance": DeviceClassInfo(
         name="Illuminance",
         description="Light level",
         valid_units=["lx"],
         default_icon="mdi:brightness-5",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "pm25": DeviceClassInfo(
         name="PM2.5",
         description="Particulate matter <= 2.5 μm",
         valid_units=["µg/m³"],
         default_icon="mdi:air-filter",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "pm10": DeviceClassInfo(
         name="PM10",
         description="Particulate matter <= 10 μm",
         valid_units=["µg/m³"],
         default_icon="mdi:air-filter",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "aqi": DeviceClassInfo(
         name="Air Quality Index",
         description="Air quality index",
         valid_units=[""],
         default_icon="mdi:air-filter",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "carbon_dioxide": DeviceClassInfo(
         name="Carbon Dioxide",
         description="CO2 concentration",
         valid_units=["ppm"],
         default_icon="mdi:molecule-co2",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "carbon_monoxide": DeviceClassInfo(
         name="Carbon Monoxide",
         description="CO concentration",
         valid_units=["ppm"],
         default_icon="mdi:molecule-co",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
-
     # Distance & Speed
     "distance": DeviceClassInfo(
         name="Distance",
         description="Generic distance",
         valid_units=["km", "m", "cm", "mm", "mi", "yd", "in"],
         default_icon="mdi:arrow-left-right",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "speed": DeviceClassInfo(
         name="Speed",
         description="Generic speed",
         valid_units=["m/s", "km/h", "mph", "mm/d", "in/d", "in/h"],
         default_icon="mdi:speedometer",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
-
     # Data & Storage
     "data_rate": DeviceClassInfo(
         name="Data Rate",
         description="Data transfer rate",
-        valid_units=["bit/s", "kbit/s", "Mbit/s", "Gbit/s", "B/s", "kB/s", "MB/s", "GB/s"],
+        valid_units=[
+            "bit/s",
+            "kbit/s",
+            "Mbit/s",
+            "Gbit/s",
+            "B/s",
+            "kB/s",
+            "MB/s",
+            "GB/s",
+        ],
         default_icon="mdi:transfer",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "data_size": DeviceClassInfo(
         name="Data Size",
         description="Data storage size",
         valid_units=["bit", "kbit", "Mbit", "Gbit", "B", "kB", "MB", "GB", "TB", "PB"],
         default_icon="mdi:database",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
-
     # Time & Duration
     "duration": DeviceClassInfo(
         name="Duration",
         description="Time duration",
         valid_units=["d", "h", "min", "s", "ms"],
         default_icon="mdi:progress-clock",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "timestamp": DeviceClassInfo(
         name="Timestamp",
         description="Datetime object or timestamp string",
         valid_units=[""],
         default_icon="mdi:clock",
-        state_class_allowed=False  # Timestamps don't use state_class
+        state_class_allowed=False,  # Timestamps don't use state_class
     ),
-
     # Sound
     "sound_pressure": DeviceClassInfo(
         name="Sound Pressure",
         description="Sound pressure level",
         valid_units=["dB", "dBA"],
         default_icon="mdi:ear-hearing",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
-
     # Weight & Volume
     "weight": DeviceClassInfo(
         name="Weight",
         description="Generic weight",
         valid_units=["kg", "g", "mg", "µg", "oz", "lb"],
         default_icon="mdi:weight",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
     "volume": DeviceClassInfo(
         name="Volume",
         description="Generic volume",
         valid_units=["L", "mL", "gal", "fl. oz.", "m³", "ft³"],
         default_icon="mdi:cup-water",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
-
     # Money
     "monetary": DeviceClassInfo(
         name="Monetary Value",
         description="Currency amount",
         valid_units=["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CNY", "INR"],
         default_icon="mdi:currency-usd",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
-
     # Frequency
     "frequency": DeviceClassInfo(
         name="Frequency",
         description="Frequency measurement",
         valid_units=["Hz", "kHz", "MHz", "GHz"],
         default_icon="mdi:sine-wave",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
-
     # Signal Strength
     "signal_strength": DeviceClassInfo(
         name="Signal Strength",
         description="Signal strength indication",
         valid_units=["dB", "dBm"],
         default_icon="mdi:wifi",
-        state_class_allowed=True
+        state_class_allowed=True,
     ),
-
     # Generic/None
     "none": DeviceClassInfo(
         name="Generic Sensor",
         description="Generic sensor with no specific class",
         valid_units=[""],  # Any unit allowed
         default_icon="mdi:gauge",
-        state_class_allowed=False  # Text sensors should not have state_class
+        state_class_allowed=False,  # Text sensors should not have state_class
     ),
 }
 
@@ -249,7 +249,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:battery",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "battery_charging": DeviceClassInfo(
         name="Battery Charging",
@@ -257,7 +257,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:battery-charging",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "carbon_monoxide": DeviceClassInfo(
         name="Carbon Monoxide",
@@ -265,7 +265,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:smoke-detector",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "cold": DeviceClassInfo(
         name="Cold",
@@ -273,7 +273,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:snowflake",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "connectivity": DeviceClassInfo(
         name="Connectivity",
@@ -281,7 +281,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:connection",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "door": DeviceClassInfo(
         name="Door",
@@ -289,7 +289,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:door",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "garage_door": DeviceClassInfo(
         name="Garage Door",
@@ -297,7 +297,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:garage",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "gas": DeviceClassInfo(
         name="Gas",
@@ -305,7 +305,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:gas-cylinder",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "heat": DeviceClassInfo(
         name="Heat",
@@ -313,7 +313,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:fire",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "light": DeviceClassInfo(
         name="Light",
@@ -321,7 +321,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:brightness-5",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "lock": DeviceClassInfo(
         name="Lock",
@@ -329,7 +329,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:lock",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "moisture": DeviceClassInfo(
         name="Moisture",
@@ -337,7 +337,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:water",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "motion": DeviceClassInfo(
         name="Motion",
@@ -345,7 +345,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:motion-sensor",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "moving": DeviceClassInfo(
         name="Moving",
@@ -353,7 +353,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:axis-arrow",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "occupancy": DeviceClassInfo(
         name="Occupancy",
@@ -361,7 +361,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:home-account",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "opening": DeviceClassInfo(
         name="Opening",
@@ -369,7 +369,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:square",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "plug": DeviceClassInfo(
         name="Plug",
@@ -377,7 +377,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:power-plug",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "power": DeviceClassInfo(
         name="Power",
@@ -385,7 +385,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:power",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "presence": DeviceClassInfo(
         name="Presence",
@@ -393,7 +393,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:home",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "problem": DeviceClassInfo(
         name="Problem",
@@ -401,7 +401,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:alert-circle",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "running": DeviceClassInfo(
         name="Running",
@@ -409,7 +409,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:run",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "safety": DeviceClassInfo(
         name="Safety",
@@ -417,7 +417,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:shield-check",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "smoke": DeviceClassInfo(
         name="Smoke",
@@ -425,7 +425,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:smoke-detector",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "sound": DeviceClassInfo(
         name="Sound",
@@ -433,7 +433,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:music-note",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "tamper": DeviceClassInfo(
         name="Tamper",
@@ -441,7 +441,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:shield-alert",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "update": DeviceClassInfo(
         name="Update",
@@ -449,7 +449,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:package-up",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "vibration": DeviceClassInfo(
         name="Vibration",
@@ -457,7 +457,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:vibrate",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
     "window": DeviceClassInfo(
         name="Window",
@@ -465,7 +465,7 @@ BINARY_SENSOR_DEVICE_CLASSES: Dict[str, DeviceClassInfo] = {
         valid_units=[],
         default_icon="mdi:window-open",
         state_class_allowed=False,
-        sensor_type="binary_sensor"
+        sensor_type="binary_sensor",
     ),
 }
 
@@ -475,11 +475,13 @@ STATE_CLASSES = {
     "measurement": "For values that are measured and can fluctuate (e.g., temperature, power)",
     "total": "For monotonically increasing values (e.g., energy consumed, data transferred)",
     "total_increasing": "For monotonically increasing values that can be reset (e.g., daily energy)",
-    "none": "No state class (for text sensors or when statistical tracking is not needed)"
+    "none": "No state class (for text sensors or when statistical tracking is not needed)",
 }
 
 
-def get_device_class_info(device_class: str, sensor_type: str = "sensor") -> Optional[DeviceClassInfo]:
+def get_device_class_info(
+    device_class: str, sensor_type: str = "sensor"
+) -> Optional[DeviceClassInfo]:
     """Get device class metadata"""
     if sensor_type == "binary_sensor":
         return BINARY_SENSOR_DEVICE_CLASSES.get(device_class)
@@ -505,7 +507,9 @@ def can_use_state_class(device_class: str, sensor_type: str = "sensor") -> bool:
     return info.state_class_allowed if info else False
 
 
-def validate_unit_for_device_class(device_class: str, unit: str, sensor_type: str = "sensor") -> bool:
+def validate_unit_for_device_class(
+    device_class: str, unit: str, sensor_type: str = "sensor"
+) -> bool:
     """
     Validate if a unit is valid for a device class.
     Returns True if valid, False if invalid.
@@ -542,13 +546,13 @@ def export_to_json() -> dict:
             {
                 "value": "sensor",
                 "name": "Sensor",
-                "description": "Numeric or text sensor with optional unit of measurement"
+                "description": "Numeric or text sensor with optional unit of measurement",
             },
             {
                 "value": "binary_sensor",
                 "name": "Binary Sensor",
-                "description": "On/Off or True/False sensor (e.g., door, motion, connectivity)"
-            }
+                "description": "On/Off or True/False sensor (e.g., door, motion, connectivity)",
+            },
         ],
         "sensor_device_classes": {
             key: {
@@ -556,7 +560,7 @@ def export_to_json() -> dict:
                 "description": val.description,
                 "valid_units": val.valid_units,
                 "default_icon": val.default_icon,
-                "state_class_allowed": val.state_class_allowed
+                "state_class_allowed": val.state_class_allowed,
             }
             for key, val in SENSOR_DEVICE_CLASSES.items()
         },
@@ -565,9 +569,9 @@ def export_to_json() -> dict:
                 "name": val.name,
                 "description": val.description,
                 "default_icon": val.default_icon,
-                "state_class_allowed": val.state_class_allowed
+                "state_class_allowed": val.state_class_allowed,
             }
             for key, val in BINARY_SENSOR_DEVICE_CLASSES.items()
         },
-        "state_classes": STATE_CLASSES
+        "state_classes": STATE_CLASSES,
     }

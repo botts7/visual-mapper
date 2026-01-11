@@ -27,7 +27,9 @@ class AppLabelExtractor:
     3. Fallback to package-based name if extraction fails
     """
 
-    def __init__(self, cache_dir: str = "data/app-labels", enable_extraction: bool = True):
+    def __init__(
+        self, cache_dir: str = "data/app-labels", enable_extraction: bool = True
+    ):
         """
         Initialize label extractor
 
@@ -45,16 +47,20 @@ class AppLabelExtractor:
         # Load disk cache
         self._load_cache()
 
-        logger.info(f"[AppLabelExtractor] Initialized (cache: {cache_dir}, enabled: {enable_extraction})")
+        logger.info(
+            f"[AppLabelExtractor] Initialized (cache: {cache_dir}, enabled: {enable_extraction})"
+        )
 
     def _load_cache(self):
         """Load label cache from disk"""
         cache_file = self.cache_dir / "labels.json"
         if cache_file.exists():
             try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
+                with open(cache_file, "r", encoding="utf-8") as f:
                     self.memory_cache = json.load(f)
-                logger.info(f"[AppLabelExtractor] Loaded {len(self.memory_cache)} cached labels")
+                logger.info(
+                    f"[AppLabelExtractor] Loaded {len(self.memory_cache)} cached labels"
+                )
             except Exception as e:
                 logger.warning(f"[AppLabelExtractor] Failed to load cache: {e}")
                 self.memory_cache = {}
@@ -63,7 +69,7 @@ class AppLabelExtractor:
         """Save label cache to disk"""
         cache_file = self.cache_dir / "labels.json"
         try:
-            with open(cache_file, 'w', encoding='utf-8') as f:
+            with open(cache_file, "w", encoding="utf-8") as f:
                 json.dump(self.memory_cache, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.warning(f"[AppLabelExtractor] Failed to save cache: {e}")
@@ -84,7 +90,9 @@ class AppLabelExtractor:
 
         # Check memory cache first
         if package_name in self.memory_cache:
-            logger.debug(f"[AppLabelExtractor] Cache hit for {package_name}: {self.memory_cache[package_name]}")
+            logger.debug(
+                f"[AppLabelExtractor] Cache hit for {package_name}: {self.memory_cache[package_name]}"
+            )
             return self.memory_cache[package_name]
 
         # Extract from device
@@ -94,10 +102,14 @@ class AppLabelExtractor:
                 # Save to cache
                 self.memory_cache[package_name] = label
                 self._save_cache()
-                logger.info(f"[AppLabelExtractor] Extracted label for {package_name}: {label}")
+                logger.info(
+                    f"[AppLabelExtractor] Extracted label for {package_name}: {label}"
+                )
                 return label
         except Exception as e:
-            logger.debug(f"[AppLabelExtractor] Failed to extract label for {package_name}: {e}")
+            logger.debug(
+                f"[AppLabelExtractor] Failed to extract label for {package_name}: {e}"
+            )
 
         # Fallback to package-based name
         fallback = self._fallback_label(package_name)
@@ -121,21 +133,25 @@ class AppLabelExtractor:
         # This is much faster than dumpsys for each package
         try:
             # Build a shell script that extracts all labels at once
-            script = "for pkg in " + " ".join(package_names[:50]) + "; do "  # Batch first 50
+            script = (
+                "for pkg in " + " ".join(package_names[:50]) + "; do "
+            )  # Batch first 50
             script += "label=$(cmd package resolve-activity --brief -c android.intent.category.LAUNCHER $pkg 2>/dev/null | head -1); "
-            script += "[ -n \"$label\" ] && echo \"$pkg|$label\"; "
+            script += '[ -n "$label" ] && echo "$pkg|$label"; '
             script += "done"
 
             output = await shell_func(script)
 
-            for line in output.strip().split('\n'):
-                if '|' in line:
-                    package, label = line.split('|', 1)
+            for line in output.strip().split("\n"):
+                if "|" in line:
+                    package, label = line.split("|", 1)
                     if label and label != package:
                         results[package.strip()] = label.strip()
 
         except Exception as e:
-            logger.debug(f"[AppLabelExtractor] Batch extraction failed, falling back: {e}")
+            logger.debug(
+                f"[AppLabelExtractor] Batch extraction failed, falling back: {e}"
+            )
 
         # For packages without labels, try dumpsys individually (but limit to avoid slowdown)
         for package_name in package_names[:20]:  # Only try first 20 to avoid timeout
@@ -146,7 +162,9 @@ class AppLabelExtractor:
 
         return results
 
-    async def _extract_label_from_dumpsys(self, shell_func, package_name: str) -> Optional[str]:
+    async def _extract_label_from_dumpsys(
+        self, shell_func, package_name: str
+    ) -> Optional[str]:
         """
         Extract app label using dumpsys package
 
@@ -162,16 +180,20 @@ class AppLabelExtractor:
         """
         try:
             # Try faster method first: pm dump
-            output = await shell_func(f"pm dump {package_name} | grep -E '(label=|versionName)' | head -5")
+            output = await shell_func(
+                f"pm dump {package_name} | grep -E '(label=|versionName)' | head -5"
+            )
 
             if output:
                 # Look for "label=" in output
-                label_match = re.search(r'\blabel=([^\s\n]+)', output)
+                label_match = re.search(r"\blabel=([^\s\n]+)", output)
                 if label_match:
                     label = label_match.group(1)
                     # Clean up label (remove quotes if present)
                     label = label.strip('"').strip("'")
-                    if label and not label.startswith('0x'):  # Ignore resource references
+                    if label and not label.startswith(
+                        "0x"
+                    ):  # Ignore resource references
                         return label
 
             return None
@@ -195,7 +217,7 @@ class AppLabelExtractor:
         - com.activitymanager -> Activitymanager
         """
         # Split by dots and take last segment
-        segments = package_name.split('.')
+        segments = package_name.split(".")
         label = segments[-1] if segments else package_name
 
         # Title case
@@ -225,5 +247,5 @@ class AppLabelExtractor:
         """Get cache statistics"""
         return {
             "total_labels": len(self.memory_cache),
-            "cache_dir": str(self.cache_dir)
+            "cache_dir": str(self.cache_dir),
         }

@@ -16,12 +16,14 @@ logger = logging.getLogger(__name__)
 # Command queue import (lazy to avoid circular imports)
 _command_queue = None
 
+
 def _get_command_queue():
     """Lazy load command queue to avoid circular imports"""
     global _command_queue
     if _command_queue is None:
         try:
             from services.command_queue import get_command_queue
+
             _command_queue = get_command_queue()
         except ImportError:
             logger.warning("[ConnectionMonitor] CommandQueue not available")
@@ -47,7 +49,7 @@ class ConnectionMonitor:
         device_migrator=None,
         mqtt_manager=None,
         check_interval: int = 30,  # seconds
-        max_retry_delay: int = 300  # 5 minutes max backoff
+        max_retry_delay: int = 300,  # 5 minutes max backoff
     ):
         self.adb_bridge = adb_bridge
         self.device_migrator = device_migrator
@@ -56,7 +58,9 @@ class ConnectionMonitor:
         self.max_retry_delay = max_retry_delay
 
         # Device status tracking
-        self.device_status: Dict[str, dict] = {}  # {device_id: {state, last_seen, retry_count, retry_delay}}
+        self.device_status: Dict[str, dict] = (
+            {}
+        )  # {device_id: {state, last_seen, retry_count, retry_delay}}
 
         # Monitoring state
         self._running = False
@@ -90,7 +94,9 @@ class ConnectionMonitor:
                 logger.debug(f"[ConnectionMonitor] No queued commands for {device_id}")
                 return
 
-            logger.info(f"[ConnectionMonitor] Replaying {len(commands)} queued commands for {device_id}")
+            logger.info(
+                f"[ConnectionMonitor] Replaying {len(commands)} queued commands for {device_id}"
+            )
 
             for cmd in commands:
                 try:
@@ -101,17 +107,25 @@ class ConnectionMonitor:
 
                     if success:
                         await queue.mark_completed(cmd.command_id)
-                        logger.info(f"[ConnectionMonitor] Replayed command {cmd.command_id} successfully")
+                        logger.info(
+                            f"[ConnectionMonitor] Replayed command {cmd.command_id} successfully"
+                        )
                     else:
                         await queue.mark_failed(cmd.command_id, "Execution failed")
-                        logger.warning(f"[ConnectionMonitor] Failed to replay command {cmd.command_id}")
+                        logger.warning(
+                            f"[ConnectionMonitor] Failed to replay command {cmd.command_id}"
+                        )
 
                 except Exception as e:
                     await queue.mark_failed(cmd.command_id, str(e))
-                    logger.error(f"[ConnectionMonitor] Error replaying command {cmd.command_id}: {e}")
+                    logger.error(
+                        f"[ConnectionMonitor] Error replaying command {cmd.command_id}: {e}"
+                    )
 
         except Exception as e:
-            logger.error(f"[ConnectionMonitor] Error getting queued commands for {device_id}: {e}")
+            logger.error(
+                f"[ConnectionMonitor] Error getting queued commands for {device_id}: {e}"
+            )
 
     async def _execute_queued_command(self, device_id: str, cmd) -> bool:
         """Execute a queued command on the device"""
@@ -139,7 +153,9 @@ class ConnectionMonitor:
                 return True
 
             else:
-                logger.warning(f"[ConnectionMonitor] Unknown command type: {command_type}")
+                logger.warning(
+                    f"[ConnectionMonitor] Unknown command type: {command_type}"
+                )
                 return False
 
         except Exception as e:
@@ -154,7 +170,9 @@ class ConnectionMonitor:
 
         self._running = True
         self._monitor_task = asyncio.create_task(self._monitor_loop())
-        logger.info(f"[ConnectionMonitor] Started (check interval: {self.check_interval}s)")
+        logger.info(
+            f"[ConnectionMonitor] Started (check interval: {self.check_interval}s)"
+        )
 
     async def stop(self):
         """Stop connection monitoring"""
@@ -178,7 +196,7 @@ class ConnectionMonitor:
                 "last_seen": time.time(),
                 "retry_count": 0,
                 "retry_delay": 10,  # Start with 10 second delay
-                "stable_device_id": stable_device_id
+                "stable_device_id": stable_device_id,
             }
             logger.info(f"[ConnectionMonitor] Now monitoring {device_id}")
 
@@ -205,7 +223,9 @@ class ConnectionMonitor:
         current_devices = list(self.device_status.keys())
         # Only log when there are devices to check (avoid spam in production)
         if current_devices:
-            logger.debug(f"[ConnectionMonitor] Running health checks for {len(current_devices)} devices")
+            logger.debug(
+                f"[ConnectionMonitor] Running health checks for {len(current_devices)} devices"
+            )
 
         for device_id in current_devices:
             try:
@@ -213,9 +233,13 @@ class ConnectionMonitor:
                 # Only log state changes, not every check
                 status = self.device_status.get(device_id)
                 if status and status["state"] == "online" and not is_online:
-                    logger.info(f"[ConnectionMonitor] Device {device_id} health check: online -> offline")
+                    logger.info(
+                        f"[ConnectionMonitor] Device {device_id} health check: online -> offline"
+                    )
                 elif status and status["state"] == "offline" and is_online:
-                    logger.info(f"[ConnectionMonitor] Device {device_id} health check: offline -> online")
+                    logger.info(
+                        f"[ConnectionMonitor] Device {device_id} health check: offline -> online"
+                    )
                 await self._handle_device_state(device_id, is_online)
             except Exception as e:
                 logger.error(f"[ConnectionMonitor] Failed to check {device_id}: {e}")
@@ -228,9 +252,10 @@ class ConnectionMonitor:
         try:
             # Check if device is in ADB devices list with "device" status
             proc = await asyncio.create_subprocess_exec(
-                "adb", "devices",
+                "adb",
+                "devices",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
 
             try:
@@ -241,21 +266,29 @@ class ConnectionMonitor:
                 is_connected = f"{device_id}\tdevice" in devices_output
 
                 if not is_connected:
-                    logger.debug(f"[ConnectionMonitor] Device {device_id} not in devices list or not ready")
-                    logger.debug(f"[ConnectionMonitor] ADB devices output: {devices_output}")
+                    logger.debug(
+                        f"[ConnectionMonitor] Device {device_id} not in devices list or not ready"
+                    )
+                    logger.debug(
+                        f"[ConnectionMonitor] ADB devices output: {devices_output}"
+                    )
 
                 return is_connected
 
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
-                logger.debug(f"[ConnectionMonitor] Health check timeout for {device_id}")
+                logger.debug(
+                    f"[ConnectionMonitor] Health check timeout for {device_id}"
+                )
                 return False
         except FileNotFoundError:
             logger.error("[ConnectionMonitor] ADB command not found")
             return False
         except Exception as e:
-            logger.debug(f"[ConnectionMonitor] Health check failed for {device_id}: {e}")
+            logger.debug(
+                f"[ConnectionMonitor] Health check failed for {device_id}: {e}"
+            )
             return False
 
     async def _handle_device_state(self, device_id: str, is_online: bool):
@@ -270,7 +303,9 @@ class ConnectionMonitor:
 
         # Only log at DEBUG level for detailed troubleshooting
         if previous_state != ("online" if is_online else "offline"):
-            logger.debug(f"[ConnectionMonitor] State transition for {device_id}: {previous_state} -> {'online' if is_online else 'offline'}")
+            logger.debug(
+                f"[ConnectionMonitor] State transition for {device_id}: {previous_state} -> {'online' if is_online else 'offline'}"
+            )
 
         if is_online:
             # Device is responsive
@@ -286,14 +321,18 @@ class ConnectionMonitor:
                 # Update MQTT availability (use stable_device_id if available)
                 if self.mqtt_manager:
                     stable_id = status.get("stable_device_id")
-                    await self.mqtt_manager.publish_availability(device_id, online=True, stable_device_id=stable_id)
+                    await self.mqtt_manager.publish_availability(
+                        device_id, online=True, stable_device_id=stable_id
+                    )
 
                 # Trigger reconnect callbacks
                 for callback in self._on_device_reconnected:
                     try:
                         await callback(device_id)
                     except Exception as e:
-                        logger.error(f"[ConnectionMonitor] Reconnect callback failed: {e}")
+                        logger.error(
+                            f"[ConnectionMonitor] Reconnect callback failed: {e}"
+                        )
 
                 # Phase 2: Replay any queued commands
                 await self._replay_queued_commands(device_id)
@@ -311,14 +350,18 @@ class ConnectionMonitor:
                 # Update MQTT availability (use stable_device_id if available)
                 if self.mqtt_manager:
                     stable_id = status.get("stable_device_id")
-                    await self.mqtt_manager.publish_availability(device_id, online=False, stable_device_id=stable_id)
+                    await self.mqtt_manager.publish_availability(
+                        device_id, online=False, stable_device_id=stable_id
+                    )
 
                 # Trigger disconnect callbacks
                 for callback in self._on_device_disconnected:
                     try:
                         await callback(device_id)
                     except Exception as e:
-                        logger.error(f"[ConnectionMonitor] Disconnect callback failed: {e}")
+                        logger.error(
+                            f"[ConnectionMonitor] Disconnect callback failed: {e}"
+                        )
 
                 # Immediately attempt reconnection
                 await self._attempt_reconnection(device_id)
@@ -331,7 +374,9 @@ class ConnectionMonitor:
         """Attempt to reconnect to an offline device"""
         status = self.device_status.get(device_id)
         if not status:
-            logger.warning(f"[ConnectionMonitor] Cannot retry {device_id} - no status found")
+            logger.warning(
+                f"[ConnectionMonitor] Cannot retry {device_id} - no status found"
+            )
             return
 
         current_time = time.time()
@@ -340,19 +385,25 @@ class ConnectionMonitor:
         # Check if we should retry based on backoff
         if status["retry_count"] > 0:
             if time_since_last_seen < status["retry_delay"]:
-                logger.debug(f"[ConnectionMonitor] Skipping retry for {device_id}: waited {time_since_last_seen:.0f}s, need {status['retry_delay']}s")
+                logger.debug(
+                    f"[ConnectionMonitor] Skipping retry for {device_id}: waited {time_since_last_seen:.0f}s, need {status['retry_delay']}s"
+                )
                 return  # Not time to retry yet
 
         status["retry_count"] += 1
         retry_num = status["retry_count"]
 
-        logger.info(f"[ConnectionMonitor] Attempting to reconnect to {device_id} (attempt #{retry_num}, waited {time_since_last_seen:.0f}s)")
+        logger.info(
+            f"[ConnectionMonitor] Attempting to reconnect to {device_id} (attempt #{retry_num}, waited {time_since_last_seen:.0f}s)"
+        )
 
         # Try direct reconnection
         success = await self._try_direct_reconnect(device_id)
 
         if success:
-            logger.info(f"[ConnectionMonitor] ✅ Successfully reconnected to {device_id}")
+            logger.info(
+                f"[ConnectionMonitor] ✅ Successfully reconnected to {device_id}"
+            )
             status["state"] = "online"
             status["last_seen"] = current_time
             status["retry_count"] = 0
@@ -360,7 +411,9 @@ class ConnectionMonitor:
 
             if self.mqtt_manager:
                 stable_id = status.get("stable_device_id")
-                await self.mqtt_manager.publish_availability(device_id, online=True, stable_device_id=stable_id)
+                await self.mqtt_manager.publish_availability(
+                    device_id, online=True, stable_device_id=stable_id
+                )
 
             for callback in self._on_device_reconnected:
                 try:
@@ -373,11 +426,19 @@ class ConnectionMonitor:
         else:
             # Exponential backoff
             status["retry_delay"] = min(status["retry_delay"] * 2, self.max_retry_delay)
-            logger.debug(f"[ConnectionMonitor] Reconnection failed for {device_id}, will retry in {status['retry_delay']}s")
+            logger.debug(
+                f"[ConnectionMonitor] Reconnection failed for {device_id}, will retry in {status['retry_delay']}s"
+            )
 
             # After several failed attempts, try network scan (if we have stable ID)
-            if retry_num == 3 and status.get("stable_device_id") and self.device_migrator:
-                logger.info(f"[ConnectionMonitor] Searching network for {device_id} with stable ID {status['stable_device_id']}")
+            if (
+                retry_num == 3
+                and status.get("stable_device_id")
+                and self.device_migrator
+            ):
+                logger.info(
+                    f"[ConnectionMonitor] Searching network for {device_id} with stable ID {status['stable_device_id']}"
+                )
                 await self._scan_for_device(status["stable_device_id"])
 
     async def _try_direct_reconnect(self, device_id: str) -> bool:
@@ -385,13 +446,17 @@ class ConnectionMonitor:
         try:
             # Use async subprocess
             proc = await asyncio.create_subprocess_exec(
-                "adb", "connect", device_id,
+                "adb",
+                "connect",
+                device_id,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
 
             try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=10.0
+                )
                 stdout_str = stdout.decode().lower()
 
                 if "connected" in stdout_str or "already connected" in stdout_str:
@@ -405,7 +470,9 @@ class ConnectionMonitor:
                 await proc.wait()
                 return False
         except Exception as e:
-            logger.debug(f"[ConnectionMonitor] Direct reconnect failed for {device_id}: {e}")
+            logger.debug(
+                f"[ConnectionMonitor] Direct reconnect failed for {device_id}: {e}"
+            )
             return False
 
     async def _scan_for_device(self, stable_device_id: str):
@@ -414,7 +481,9 @@ class ConnectionMonitor:
         This handles cases where device IP/port changed.
         """
         try:
-            logger.info(f"[ConnectionMonitor] Scanning network for device with stable ID {stable_device_id}")
+            logger.info(
+                f"[ConnectionMonitor] Scanning network for device with stable ID {stable_device_id}"
+            )
 
             # Trigger ADB discovery (will find devices and auto-migrate if needed)
             await self.adb_bridge.discover_devices()
@@ -434,5 +503,5 @@ class ConnectionMonitor:
             "offline": len(offline),
             "online_devices": online,
             "offline_devices": offline,
-            "details": self.device_status
+            "details": self.device_status,
         }

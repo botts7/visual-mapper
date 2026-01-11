@@ -52,11 +52,13 @@ class SensorManager:
         sensor_file = self._get_sensor_file(device_id)
 
         if not sensor_file.exists():
-            logger.info(f"[SensorManager] No sensor file for {device_id}, creating empty list")
+            logger.info(
+                f"[SensorManager] No sensor file for {device_id}, creating empty list"
+            )
             return SensorList(device_id=device_id, sensors=[])
 
         try:
-            with open(sensor_file, 'r', encoding='utf-8') as f:
+            with open(sensor_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return SensorList(**data)
         except Exception as e:
@@ -69,17 +71,21 @@ class SensorManager:
 
         try:
             sensor_list.last_modified = datetime.now()
-            with open(sensor_file, 'w', encoding='utf-8') as f:
+            with open(sensor_file, "w", encoding="utf-8") as f:
                 json.dump(
-                    sensor_list.model_dump(mode='json'),
+                    sensor_list.model_dump(mode="json"),
                     f,
                     indent=2,
-                    default=str  # Handle datetime serialization
+                    default=str,  # Handle datetime serialization
                 )
-            logger.info(f"[SensorManager] Saved {len(sensor_list.sensors)} sensors for {sensor_list.device_id}")
+            logger.info(
+                f"[SensorManager] Saved {len(sensor_list.sensors)} sensors for {sensor_list.device_id}"
+            )
             return True
         except Exception as e:
-            logger.error(f"[SensorManager] Failed to save sensors for {sensor_list.device_id}: {e}")
+            logger.error(
+                f"[SensorManager] Failed to save sensors for {sensor_list.device_id}: {e}"
+            )
             return False
 
     def create_sensor(self, sensor: SensorDefinition) -> SensorDefinition:
@@ -104,7 +110,9 @@ class SensorManager:
 
         # Check for duplicate ID
         if any(s.sensor_id == sensor.sensor_id for s in sensor_list.sensors):
-            raise ValueError(f"Sensor ID {sensor.sensor_id} already exists for device {sensor.device_id}")
+            raise ValueError(
+                f"Sensor ID {sensor.sensor_id} already exists for device {sensor.device_id}"
+            )
 
         # Set timestamps
         now = datetime.now()
@@ -118,7 +126,9 @@ class SensorManager:
         if not self._save_sensor_list(sensor_list):
             raise RuntimeError(f"Failed to save sensor {sensor.sensor_id}")
 
-        logger.info(f"[SensorManager] Created sensor {sensor.sensor_id} for device {sensor.device_id}")
+        logger.info(
+            f"[SensorManager] Created sensor {sensor.sensor_id} for device {sensor.device_id}"
+        )
         return sensor
 
     def get_sensor(self, device_id: str, sensor_id: str) -> Optional[SensorDefinition]:
@@ -137,20 +147,25 @@ class SensorManager:
         # If not found, search all sensor files (handles stable_device_id queries)
         for sensor_file in self.data_dir.glob("sensors_*.json"):
             try:
-                with open(sensor_file, 'r', encoding='utf-8') as f:
+                with open(sensor_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     file_sensor_list = SensorList(**data)
                     for sensor in file_sensor_list.sensors:
                         if sensor.sensor_id == sensor_id:
                             # Also check device_id or stable_device_id matches
-                            if sensor.device_id == device_id or sensor.stable_device_id == device_id:
+                            if (
+                                sensor.device_id == device_id
+                                or sensor.stable_device_id == device_id
+                            ):
                                 return sensor
             except Exception as e:
                 logger.error(f"[SensorManager] Failed to load {sensor_file}: {e}")
 
         return None
 
-    def get_all_sensors(self, device_id: Optional[str] = None) -> List[SensorDefinition]:
+    def get_all_sensors(
+        self, device_id: Optional[str] = None
+    ) -> List[SensorDefinition]:
         """
         Get all sensors for a device (or all devices if device_id is None)
 
@@ -168,7 +183,7 @@ class SensorManager:
             all_sensors = []
             for sensor_file in self.data_dir.glob("sensors_*.json"):
                 try:
-                    with open(sensor_file, 'r', encoding='utf-8') as f:
+                    with open(sensor_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                         file_sensor_list = SensorList(**data)
                         all_sensors.extend(file_sensor_list.sensors)
@@ -193,13 +208,16 @@ class SensorManager:
         # This handles queries with stable device ID and finds sensors in other files
         for sensor_file in self.data_dir.glob("sensors_*.json"):
             try:
-                with open(sensor_file, 'r', encoding='utf-8') as f:
+                with open(sensor_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     file_sensor_list = SensorList(**data)
                     # Check each sensor's device_id and stable_device_id
                     for sensor in file_sensor_list.sensors:
                         if sensor.sensor_id not in seen_sensor_ids:
-                            if sensor.device_id == device_id or sensor.stable_device_id == device_id:
+                            if (
+                                sensor.device_id == device_id
+                                or sensor.stable_device_id == device_id
+                            ):
                                 all_matching_sensors.append(sensor)
                                 seen_sensor_ids.add(sensor.sensor_id)
             except Exception as e:
@@ -232,7 +250,9 @@ class SensorManager:
                 break
 
         if not found:
-            raise ValueError(f"Sensor {sensor.sensor_id} not found for device {sensor.device_id}")
+            raise ValueError(
+                f"Sensor {sensor.sensor_id} not found for device {sensor.device_id}"
+            )
 
         # Save
         if not self._save_sensor_list(sensor_list):
@@ -260,7 +280,9 @@ class SensorManager:
 
         # Find and remove sensor
         original_count = len(sensor_list.sensors)
-        sensor_list.sensors = [s for s in sensor_list.sensors if s.sensor_id != sensor_id]
+        sensor_list.sensors = [
+            s for s in sensor_list.sensors if s.sensor_id != sensor_id
+        ]
 
         if len(sensor_list.sensors) < original_count:
             # Found and removed - save
@@ -272,7 +294,7 @@ class SensorManager:
         # If not found in direct file, search all sensor files
         for sensor_file in self.data_dir.glob("sensors_*.json"):
             try:
-                with open(sensor_file, 'r', encoding='utf-8') as f:
+                with open(sensor_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     file_sensor_list = SensorList(**data)
 
@@ -280,19 +302,26 @@ class SensorManager:
                 matching_sensor = None
                 for sensor in file_sensor_list.sensors:
                     if sensor.sensor_id == sensor_id:
-                        if sensor.device_id == device_id or sensor.stable_device_id == device_id:
+                        if (
+                            sensor.device_id == device_id
+                            or sensor.stable_device_id == device_id
+                        ):
                             matching_sensor = sensor
                             break
 
                 if matching_sensor:
                     # Remove and save
                     original_count = len(file_sensor_list.sensors)
-                    file_sensor_list.sensors = [s for s in file_sensor_list.sensors if s.sensor_id != sensor_id]
+                    file_sensor_list.sensors = [
+                        s for s in file_sensor_list.sensors if s.sensor_id != sensor_id
+                    ]
 
                     if len(file_sensor_list.sensors) < original_count:
                         if not self._save_sensor_list(file_sensor_list):
                             raise RuntimeError(f"Failed to delete sensor {sensor_id}")
-                        logger.info(f"[SensorManager] Deleted sensor {sensor_id} from {sensor_file.name}")
+                        logger.info(
+                            f"[SensorManager] Deleted sensor {sensor_id} from {sensor_file.name}"
+                        )
                         return True
 
             except Exception as e:
@@ -322,9 +351,9 @@ class SensorManager:
         devices = []
         for sensor_file in self.data_dir.glob("sensors_*.json"):
             try:
-                with open(sensor_file, 'r', encoding='utf-8') as f:
+                with open(sensor_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    devices.append(data.get('device_id'))
+                    devices.append(data.get("device_id"))
             except Exception as e:
                 logger.error(f"[SensorManager] Failed to read {sensor_file}: {e}")
         return devices
@@ -332,9 +361,11 @@ class SensorManager:
     def export_sensors(self, device_id: str) -> Dict:
         """Export all sensors for a device as JSON"""
         sensor_list = self._load_sensor_list(device_id)
-        return sensor_list.model_dump(mode='json')
+        return sensor_list.model_dump(mode="json")
 
-    def import_sensors(self, data: Dict, device_id: Optional[str] = None, replace: bool = False) -> int:
+    def import_sensors(
+        self, data: Dict, device_id: Optional[str] = None, replace: bool = False
+    ) -> int:
         """
         Import sensors from JSON data
 
@@ -374,7 +405,9 @@ class SensorManager:
                 self._save_sensor_list(existing_list)
                 count = added
 
-            logger.info(f"[SensorManager] Imported {count} sensors for device {imported_list.device_id}")
+            logger.info(
+                f"[SensorManager] Imported {count} sensors for device {imported_list.device_id}"
+            )
             return count
 
         except Exception as e:

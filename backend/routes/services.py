@@ -30,16 +30,20 @@ ml_training_process: Optional[subprocess.Popen] = None
 
 class ServiceStatus(BaseModel):
     """Status of a single service"""
+
     name: str
     running: bool
     pid: Optional[int] = None
     uptime: Optional[str] = None
     details: Optional[str] = None
-    docker_mode: Optional[bool] = None  # True if running as Docker container (Start/Stop disabled)
+    docker_mode: Optional[bool] = (
+        None  # True if running as Docker container (Start/Stop disabled)
+    )
 
 
 class AllServicesStatus(BaseModel):
     """Status of all services"""
+
     mqtt: ServiceStatus
     server: ServiceStatus
     ml_training: ServiceStatus
@@ -47,6 +51,7 @@ class AllServicesStatus(BaseModel):
 
 class ServiceCommand(BaseModel):
     """Command to control a service"""
+
     action: str  # start, stop, restart
 
 
@@ -70,16 +75,10 @@ def check_mqtt_status() -> ServiceStatus:
         client.disconnect()
 
         return ServiceStatus(
-            name="MQTT Broker",
-            running=True,
-            details=f"Connected to {broker}:{port}"
+            name="MQTT Broker", running=True, details=f"Connected to {broker}:{port}"
         )
     except Exception as e:
-        return ServiceStatus(
-            name="MQTT Broker",
-            running=False,
-            details=str(e)
-        )
+        return ServiceStatus(name="MQTT Broker", running=False, details=str(e))
 
 
 def check_ml_training_status() -> ServiceStatus:
@@ -95,7 +94,7 @@ def check_ml_training_status() -> ServiceStatus:
                 name="ML Training Server",
                 running=True,
                 pid=ml_training_process.pid,
-                details="Running via subprocess"
+                details="Running via subprocess",
             )
         else:
             # Process exited
@@ -113,20 +112,18 @@ def check_ml_training_status() -> ServiceStatus:
                 running=True,
                 pid=None,
                 details="Running via Docker container",
-                docker_mode=True  # Start/Stop disabled in Docker mode
+                docker_mode=True,  # Start/Stop disabled in Docker mode
             )
         else:
             return ServiceStatus(
                 name="ML Training Server",
                 running=False,
                 details="Docker container mode but MQTT disconnected",
-                docker_mode=True  # Start/Stop disabled in Docker mode
+                docker_mode=True,  # Start/Stop disabled in Docker mode
             )
 
     return ServiceStatus(
-        name="ML Training Server",
-        running=False,
-        details="Not running"
+        name="ML Training Server", running=False, details="Not running"
     )
 
 
@@ -136,7 +133,7 @@ def check_server_status() -> ServiceStatus:
         name="Main Server",
         running=True,
         pid=os.getpid(),
-        details="FastAPI server running"
+        details="FastAPI server running",
     )
 
 
@@ -146,7 +143,7 @@ async def get_all_services_status():
     return AllServicesStatus(
         mqtt=check_mqtt_status(),
         server=check_server_status(),
-        ml_training=check_ml_training_status()
+        ml_training=check_ml_training_status(),
     )
 
 
@@ -175,7 +172,7 @@ async def start_ml_training():
                 name="ML Training Server",
                 running=True,
                 pid=ml_training_process.pid,
-                details="Already running"
+                details="Already running",
             )
         else:
             # Process exited, clear it
@@ -193,7 +190,9 @@ async def start_ml_training():
 
         # Check if script exists
         if not os.path.exists(ml_script):
-            raise HTTPException(status_code=500, detail=f"ML script not found: {ml_script}")
+            raise HTTPException(
+                status_code=500, detail=f"ML script not found: {ml_script}"
+            )
 
         # Build command with optional auth
         cmd = [sys.executable, ml_script, "--broker", broker, "--port", str(port)]
@@ -212,11 +211,12 @@ async def start_ml_training():
             stdout=log_file,
             stderr=subprocess.STDOUT,
             cwd=backend_dir,
-            env={**os.environ, "PYTHONUNBUFFERED": "1"}
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
         )
 
         # Give it a moment to start and check if it's still running
         import time
+
         time.sleep(1)
 
         poll = ml_training_process.poll()
@@ -227,7 +227,10 @@ async def start_ml_training():
                 lines = f.readlines()
                 last_lines = "".join(lines[-20:]) if lines else "No output"
             ml_training_process = None
-            raise HTTPException(status_code=500, detail=f"ML server exited immediately (code {poll}). Check logs: {last_lines[-500:]}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"ML server exited immediately (code {poll}). Check logs: {last_lines[-500:]}",
+            )
 
         logger.info(f"Started ML training server with PID {ml_training_process.pid}")
 
@@ -235,7 +238,7 @@ async def start_ml_training():
             name="ML Training Server",
             running=True,
             pid=ml_training_process.pid,
-            details="Started successfully"
+            details="Started successfully",
         )
     except HTTPException:
         raise
@@ -251,9 +254,7 @@ async def stop_ml_training():
 
     if ml_training_process is None:
         return ServiceStatus(
-            name="ML Training Server",
-            running=False,
-            details="Not running"
+            name="ML Training Server", running=False, details="Not running"
         )
 
     try:
@@ -274,9 +275,7 @@ async def stop_ml_training():
         logger.info(f"Stopped ML training server (PID {pid})")
 
         return ServiceStatus(
-            name="ML Training Server",
-            running=False,
-            details=f"Stopped (was PID {pid})"
+            name="ML Training Server", running=False, details=f"Stopped (was PID {pid})"
         )
     except Exception as e:
         logger.error(f"Failed to stop ML training server: {e}")

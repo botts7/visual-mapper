@@ -28,7 +28,7 @@ class FlowManager:
         self,
         storage_dir: str = "config/flows",
         template_dir: str = "config/flow_templates",
-        data_dir: str = "data"
+        data_dir: str = "data",
     ):
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -71,7 +71,7 @@ class FlowManager:
             return FlowList(device_id=device_id, flows=[])
 
         try:
-            with open(flow_file, 'r') as f:
+            with open(flow_file, "r") as f:
                 data = json.load(f)
                 return FlowList(**data)
         except Exception as e:
@@ -85,9 +85,11 @@ class FlowManager:
         try:
             # Ensure parent directory exists
             flow_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(flow_file, 'w') as f:
+            with open(flow_file, "w") as f:
                 json.dump(flow_list.dict(), f, indent=2, default=str)
-            logger.info(f"[FlowManager] Saved {len(flow_list.flows)} flows to {flow_file.absolute()}")
+            logger.info(
+                f"[FlowManager] Saved {len(flow_list.flows)} flows to {flow_file.absolute()}"
+            )
         except Exception as e:
             logger.error(f"[FlowManager] Failed to save flows for {device_id}: {e}")
 
@@ -111,7 +113,9 @@ class FlowManager:
             # Save
             self._save_flows(flow.device_id, flow_list)
 
-            logger.info(f"[FlowManager] Created flow {flow.flow_id} for {flow.device_id}")
+            logger.info(
+                f"[FlowManager] Created flow {flow.flow_id} for {flow.device_id}"
+            )
             return True
 
         except Exception as e:
@@ -148,7 +152,7 @@ class FlowManager:
         matching_flows = []
         for flow_file in self.storage_dir.glob("flows_*.json"):
             try:
-                with open(flow_file, 'r') as f:
+                with open(flow_file, "r") as f:
                     data = json.load(f)
                     flow_list = FlowList(**data)
                     # Check each flow's stable_device_id
@@ -172,7 +176,7 @@ class FlowManager:
         # Get all device flow files
         for flow_file in self.storage_dir.glob("flows_*.json"):
             try:
-                with open(flow_file, 'r') as f:
+                with open(flow_file, "r") as f:
                     data = json.load(f)
                     flow_list = FlowList(**data)
                     all_flows.extend(flow_list.flows)
@@ -236,7 +240,9 @@ class FlowManager:
         try:
             flow = sensor_to_simple_flow(sensor)
             if self.create_flow(flow):
-                logger.info(f"[FlowManager] Created simple flow for sensor {sensor.sensor_id}")
+                logger.info(
+                    f"[FlowManager] Created simple flow for sensor {sensor.sensor_id}"
+                )
                 return flow
             return None
 
@@ -249,7 +255,9 @@ class FlowManager:
         all_flows = self.get_device_flows(device_id)
         return [f for f in all_flows if f.enabled]
 
-    def get_flows_for_sensor(self, device_id: str, sensor_id: str) -> List[SensorCollectionFlow]:
+    def get_flows_for_sensor(
+        self, device_id: str, sensor_id: str
+    ) -> List[SensorCollectionFlow]:
         """
         Find all flows that capture a specific sensor
         Useful for determining if a sensor is already in a flow
@@ -274,7 +282,9 @@ class FlowManager:
         Returns: List of suggested optimized flows
         """
         # Get all simple flows (auto-generated from sensors)
-        simple_flows = [f for f in self.get_all_flows(device_id) if f.flow_id.startswith("simple_")]
+        simple_flows = [
+            f for f in self.get_all_flows(device_id) if f.flow_id.startswith("simple_")
+        ]
 
         # Group by target app
         app_groups: Dict[str, List[SensorCollectionFlow]] = {}
@@ -297,7 +307,9 @@ class FlowManager:
 
         for app, flows in app_groups.items():
             if len(flows) > 1:  # Only optimize if multiple sensors for same app
-                logger.info(f"[FlowManager] Optimization opportunity: {len(flows)} sensors for {app}")
+                logger.info(
+                    f"[FlowManager] Optimization opportunity: {len(flows)} sensors for {app}"
+                )
                 # TODO: Create optimized flow combining all sensors
                 # This would require more sophisticated merging logic
 
@@ -317,14 +329,18 @@ class FlowManager:
 
             # Ensure device_id matches
             if flow_list.device_id != device_id:
-                logger.warning(f"[FlowManager] Device ID mismatch in import, updating to {device_id}")
+                logger.warning(
+                    f"[FlowManager] Device ID mismatch in import, updating to {device_id}"
+                )
                 flow_list.device_id = device_id
 
             # Save
             self._flows[device_id] = flow_list
             self._save_flows(device_id, flow_list)
 
-            logger.info(f"[FlowManager] Imported {len(flow_list.flows)} flows for {device_id}")
+            logger.info(
+                f"[FlowManager] Imported {len(flow_list.flows)} flows for {device_id}"
+            )
             return True
 
         except Exception as e:
@@ -347,7 +363,7 @@ class FlowManager:
         description: str,
         steps: List[Dict],
         tags: Optional[List[str]] = None,
-        category: Optional[str] = "custom"
+        category: Optional[str] = "custom",
     ) -> bool:
         """
         Save a flow as a reusable template
@@ -375,12 +391,12 @@ class FlowManager:
                 "tags": tags or [],
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat(),
-                "version": "1.0.0"
+                "version": "1.0.0",
             }
 
             # Save to file
             template_file = self._get_template_file(template_id)
-            with open(template_file, 'w') as f:
+            with open(template_file, "w") as f:
                 json.dump(template, f, indent=2)
 
             # Update cache
@@ -409,16 +425,20 @@ class FlowManager:
         template_file = self._get_template_file(template_id)
         if template_file.exists():
             try:
-                with open(template_file, 'r') as f:
+                with open(template_file, "r") as f:
                     template = json.load(f)
                     self._templates[template_id] = template
                     return template
             except Exception as e:
-                logger.error(f"[FlowManager] Failed to load template {template_id}: {e}")
+                logger.error(
+                    f"[FlowManager] Failed to load template {template_id}: {e}"
+                )
 
         return None
 
-    def list_templates(self, category: str = None, tags: List[str] = None) -> List[Dict]:
+    def list_templates(
+        self, category: str = None, tags: List[str] = None
+    ) -> List[Dict]:
         """
         List all available templates (builtin + user-created), optionally filtered
 
@@ -442,21 +462,23 @@ class FlowManager:
                 if not builtin_tags.intersection(set(tags)):
                     continue
 
-            templates.append({
-                "template_id": builtin.get("template_id"),
-                "name": builtin.get("name"),
-                "description": builtin.get("description"),
-                "category": builtin.get("category"),
-                "tags": builtin.get("tags", []),
-                "step_count": len(builtin.get("steps", [])),
-                "steps": builtin.get("steps", []),  # Include steps for preview
-                "builtin": True
-            })
+            templates.append(
+                {
+                    "template_id": builtin.get("template_id"),
+                    "name": builtin.get("name"),
+                    "description": builtin.get("description"),
+                    "category": builtin.get("category"),
+                    "tags": builtin.get("tags", []),
+                    "step_count": len(builtin.get("steps", [])),
+                    "steps": builtin.get("steps", []),  # Include steps for preview
+                    "builtin": True,
+                }
+            )
 
         # Load user templates from disk
         for template_file in self.template_dir.glob("*.json"):
             try:
-                with open(template_file, 'r') as f:
+                with open(template_file, "r") as f:
                     template = json.load(f)
 
                     # Apply filters
@@ -469,23 +491,29 @@ class FlowManager:
                             continue
 
                     # Return metadata with steps for preview
-                    templates.append({
-                        "template_id": template.get("template_id"),
-                        "name": template.get("name"),
-                        "description": template.get("description"),
-                        "category": template.get("category"),
-                        "tags": template.get("tags", []),
-                        "step_count": len(template.get("steps", [])),
-                        "steps": template.get("steps", []),
-                        "created_at": template.get("created_at"),
-                        "version": template.get("version"),
-                        "builtin": False
-                    })
+                    templates.append(
+                        {
+                            "template_id": template.get("template_id"),
+                            "name": template.get("name"),
+                            "description": template.get("description"),
+                            "category": template.get("category"),
+                            "tags": template.get("tags", []),
+                            "step_count": len(template.get("steps", [])),
+                            "steps": template.get("steps", []),
+                            "created_at": template.get("created_at"),
+                            "version": template.get("version"),
+                            "builtin": False,
+                        }
+                    )
 
             except Exception as e:
-                logger.warning(f"[FlowManager] Failed to load template {template_file}: {e}")
+                logger.warning(
+                    f"[FlowManager] Failed to load template {template_file}: {e}"
+                )
 
-        return sorted(templates, key=lambda t: (not t.get("builtin", False), t.get("name", "")))
+        return sorted(
+            templates, key=lambda t: (not t.get("builtin", False), t.get("name", ""))
+        )
 
     def delete_template(self, template_id: str) -> bool:
         """Delete a template"""
@@ -511,7 +539,7 @@ class FlowManager:
         device_id: str,
         flow_name: str = None,
         flow_id: str = None,
-        variable_overrides: Dict[str, str] = None
+        variable_overrides: Dict[str, str] = None,
     ) -> Optional[SensorCollectionFlow]:
         """
         Create a new flow from a template
@@ -539,7 +567,9 @@ class FlowManager:
                 flow_id = f"from_template_{template_id}_{uuid.uuid4().hex[:8]}"
 
             if not flow_name:
-                flow_name = f"{template.get('name', 'Template')} - {device_id.split(':')[0]}"
+                flow_name = (
+                    f"{template.get('name', 'Template')} - {device_id.split(':')[0]}"
+                )
 
             # Deep copy steps and apply variable overrides
             steps_json = json.dumps(template.get("steps", []))
@@ -552,16 +582,19 @@ class FlowManager:
 
             # Create flow
             from .flow_models import FlowStep
+
             flow = SensorCollectionFlow(
                 flow_id=flow_id,
                 device_id=device_id,
                 name=flow_name,
                 description=f"Created from template: {template.get('name')}",
                 steps=[FlowStep(**step) for step in steps],
-                enabled=True
+                enabled=True,
             )
 
-            logger.info(f"[FlowManager] Created flow from template: {flow_id} from {template_id}")
+            logger.info(
+                f"[FlowManager] Created flow from template: {flow_id} from {template_id}"
+            )
             return flow
 
         except Exception as e:
@@ -575,7 +608,7 @@ class FlowManager:
         template_name: str,
         template_id: str = None,
         category: str = "custom",
-        tags: List[str] = None
+        tags: List[str] = None,
     ) -> bool:
         """
         Save an existing flow as a template
@@ -598,6 +631,7 @@ class FlowManager:
 
         if not template_id:
             import uuid
+
             template_id = f"template_{uuid.uuid4().hex[:8]}"
 
         # Convert steps to dicts
@@ -609,7 +643,7 @@ class FlowManager:
             description=f"Template created from flow: {flow.name}",
             steps=steps,
             category=category,
-            tags=tags
+            tags=tags,
         )
 
     def get_builtin_templates(self) -> List[Dict]:
@@ -625,10 +659,18 @@ class FlowManager:
                 "description": "Launch an app and wait for it to load",
                 "category": "navigation",
                 "steps": [
-                    {"step_type": "launch_app", "package": "${app_package}", "description": "Launch app"},
-                    {"step_type": "wait", "duration": 2000, "description": "Wait for app to load"}
+                    {
+                        "step_type": "launch_app",
+                        "package": "${app_package}",
+                        "description": "Launch app",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 2000,
+                        "description": "Wait for app to load",
+                    },
                 ],
-                "tags": ["basic", "app_launch"]
+                "tags": ["basic", "app_launch"],
             },
             {
                 "template_id": "builtin_scroll_capture",
@@ -636,11 +678,27 @@ class FlowManager:
                 "description": "Scroll down and capture sensors",
                 "category": "data_collection",
                 "steps": [
-                    {"step_type": "swipe", "start_x": 540, "start_y": 1500, "end_x": 540, "end_y": 500, "duration": 500, "description": "Scroll down"},
-                    {"step_type": "wait", "duration": 1000, "description": "Wait for content"},
-                    {"step_type": "capture_sensors", "sensor_ids": ["${sensor_id}"], "description": "Capture sensor"}
+                    {
+                        "step_type": "swipe",
+                        "start_x": 540,
+                        "start_y": 1500,
+                        "end_x": 540,
+                        "end_y": 500,
+                        "duration": 500,
+                        "description": "Scroll down",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 1000,
+                        "description": "Wait for content",
+                    },
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": ["${sensor_id}"],
+                        "description": "Capture sensor",
+                    },
                 ],
-                "tags": ["scroll", "capture"]
+                "tags": ["scroll", "capture"],
             },
             {
                 "template_id": "builtin_loop_scroll",
@@ -653,13 +711,23 @@ class FlowManager:
                         "iterations": 3,
                         "loop_variable": "scroll_count",
                         "loop_steps": [
-                            {"step_type": "swipe", "start_x": 540, "start_y": 1500, "end_x": 540, "end_y": 500, "duration": 500},
+                            {
+                                "step_type": "swipe",
+                                "start_x": 540,
+                                "start_y": 1500,
+                                "end_x": 540,
+                                "end_y": 500,
+                                "duration": 500,
+                            },
                             {"step_type": "wait", "duration": 1000},
-                            {"step_type": "capture_sensors", "sensor_ids": ["${sensor_id}"]}
-                        ]
+                            {
+                                "step_type": "capture_sensors",
+                                "sensor_ids": ["${sensor_id}"],
+                            },
+                        ],
                     }
                 ],
-                "tags": ["loop", "scroll", "capture"]
+                "tags": ["loop", "scroll", "capture"],
             },
             {
                 "template_id": "builtin_conditional_check",
@@ -671,14 +739,23 @@ class FlowManager:
                         "step_type": "conditional",
                         "condition": "element_exists:text=${check_text}",
                         "true_steps": [
-                            {"step_type": "tap", "x": "${tap_x}", "y": "${tap_y}", "description": "Element found - tap it"}
+                            {
+                                "step_type": "tap",
+                                "x": "${tap_x}",
+                                "y": "${tap_y}",
+                                "description": "Element found - tap it",
+                            }
                         ],
                         "false_steps": [
-                            {"step_type": "wait", "duration": 2000, "description": "Element not found - wait"}
-                        ]
+                            {
+                                "step_type": "wait",
+                                "duration": 2000,
+                                "description": "Element not found - wait",
+                            }
+                        ],
                     }
                 ],
-                "tags": ["conditional", "element_check"]
+                "tags": ["conditional", "element_check"],
             },
             {
                 "template_id": "builtin_refresh_capture",
@@ -687,11 +764,19 @@ class FlowManager:
                 "category": "data_collection",
                 "steps": [
                     {"step_type": "pull_refresh", "description": "Pull to refresh"},
-                    {"step_type": "wait", "duration": 2000, "description": "Wait for refresh"},
-                    {"step_type": "capture_sensors", "sensor_ids": ["${sensor_id}"], "description": "Capture refreshed data"}
+                    {
+                        "step_type": "wait",
+                        "duration": 2000,
+                        "description": "Wait for refresh",
+                    },
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": ["${sensor_id}"],
+                        "description": "Capture refreshed data",
+                    },
                 ],
-                "tags": ["refresh", "capture"]
-            }
+                "tags": ["refresh", "capture"],
+            },
         ]
 
     def get_bundled_app_flows(self) -> List[Dict]:
@@ -715,12 +800,24 @@ class FlowManager:
                 "name": "Weather Basic Capture",
                 "description": "Capture current temperature and conditions from any weather app",
                 "steps": [
-                    {"step_type": "launch_app", "package": "com.weather.Weather", "description": "Open weather app"},
-                    {"step_type": "wait", "duration": 3000, "description": "Wait for data to load"},
-                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture weather data"}
+                    {
+                        "step_type": "launch_app",
+                        "package": "com.weather.Weather",
+                        "description": "Open weather app",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 3000,
+                        "description": "Wait for data to load",
+                    },
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": [],
+                        "description": "Capture weather data",
+                    },
                 ],
                 "sensors": [],
-                "tags": ["weather", "temperature", "basic"]
+                "tags": ["weather", "temperature", "basic"],
             },
             # =================================================================
             # SMART HOME / EV APPS
@@ -732,12 +829,24 @@ class FlowManager:
                 "name": "Tesla Vehicle Status",
                 "description": "Capture Tesla vehicle status - battery, range, climate",
                 "steps": [
-                    {"step_type": "launch_app", "package": "com.teslamotors.tesla", "description": "Open Tesla app"},
-                    {"step_type": "wait", "duration": 5000, "description": "Wait for vehicle data"},
-                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture vehicle status"}
+                    {
+                        "step_type": "launch_app",
+                        "package": "com.teslamotors.tesla",
+                        "description": "Open Tesla app",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 5000,
+                        "description": "Wait for vehicle data",
+                    },
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": [],
+                        "description": "Capture vehicle status",
+                    },
                 ],
                 "sensors": [],
-                "tags": ["ev", "tesla", "vehicle", "battery"]
+                "tags": ["ev", "tesla", "vehicle", "battery"],
             },
             # =================================================================
             # FITNESS / HEALTH APPS
@@ -749,12 +858,24 @@ class FlowManager:
                 "name": "Fitbit Daily Stats",
                 "description": "Capture daily steps, heart rate, and sleep data",
                 "steps": [
-                    {"step_type": "launch_app", "package": "com.fitbit.FitbitMobile", "description": "Open Fitbit"},
-                    {"step_type": "wait", "duration": 4000, "description": "Wait for sync"},
-                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture daily stats"}
+                    {
+                        "step_type": "launch_app",
+                        "package": "com.fitbit.FitbitMobile",
+                        "description": "Open Fitbit",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 4000,
+                        "description": "Wait for sync",
+                    },
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": [],
+                        "description": "Capture daily stats",
+                    },
                 ],
                 "sensors": [],
-                "tags": ["fitness", "health", "steps", "heart_rate"]
+                "tags": ["fitness", "health", "steps", "heart_rate"],
             },
             {
                 "bundle_id": "samsung_health_stats",
@@ -763,12 +884,24 @@ class FlowManager:
                 "name": "Samsung Health Daily Stats",
                 "description": "Capture steps, heart rate, and activity from Samsung Health",
                 "steps": [
-                    {"step_type": "launch_app", "package": "com.sec.android.app.shealth", "description": "Open Samsung Health"},
-                    {"step_type": "wait", "duration": 4000, "description": "Wait for data"},
-                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture health stats"}
+                    {
+                        "step_type": "launch_app",
+                        "package": "com.sec.android.app.shealth",
+                        "description": "Open Samsung Health",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 4000,
+                        "description": "Wait for data",
+                    },
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": [],
+                        "description": "Capture health stats",
+                    },
                 ],
                 "sensors": [],
-                "tags": ["fitness", "health", "samsung", "steps"]
+                "tags": ["fitness", "health", "samsung", "steps"],
             },
             # =================================================================
             # MUSIC / MEDIA APPS
@@ -780,12 +913,24 @@ class FlowManager:
                 "name": "Spotify Now Playing",
                 "description": "Capture currently playing track info",
                 "steps": [
-                    {"step_type": "launch_app", "package": "com.spotify.music", "description": "Open Spotify"},
-                    {"step_type": "wait", "duration": 2000, "description": "Wait for app"},
-                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture now playing"}
+                    {
+                        "step_type": "launch_app",
+                        "package": "com.spotify.music",
+                        "description": "Open Spotify",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 2000,
+                        "description": "Wait for app",
+                    },
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": [],
+                        "description": "Capture now playing",
+                    },
                 ],
                 "sensors": [],
-                "tags": ["music", "spotify", "media", "now_playing"]
+                "tags": ["music", "spotify", "media", "now_playing"],
             },
             # =================================================================
             # FINANCE / BANKING APPS
@@ -797,12 +942,24 @@ class FlowManager:
                 "name": "Robinhood Portfolio Value",
                 "description": "Capture portfolio value and daily change",
                 "steps": [
-                    {"step_type": "launch_app", "package": "com.robinhood.android", "description": "Open Robinhood"},
-                    {"step_type": "wait", "duration": 4000, "description": "Wait for data"},
-                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture portfolio"}
+                    {
+                        "step_type": "launch_app",
+                        "package": "com.robinhood.android",
+                        "description": "Open Robinhood",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 4000,
+                        "description": "Wait for data",
+                    },
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": [],
+                        "description": "Capture portfolio",
+                    },
                 ],
                 "sensors": [],
-                "tags": ["finance", "stocks", "portfolio", "investing"]
+                "tags": ["finance", "stocks", "portfolio", "investing"],
             },
             # =================================================================
             # UTILITY APPS
@@ -814,14 +971,35 @@ class FlowManager:
                 "name": "Run Speed Test",
                 "description": "Run internet speed test and capture results",
                 "steps": [
-                    {"step_type": "launch_app", "package": "org.zwanoo.android.speedtest", "description": "Open Speedtest"},
-                    {"step_type": "wait", "duration": 2000, "description": "Wait for app"},
-                    {"step_type": "tap", "x": 540, "y": 1200, "description": "Tap GO button"},
-                    {"step_type": "wait", "duration": 45000, "description": "Wait for test to complete"},
-                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture speed results"}
+                    {
+                        "step_type": "launch_app",
+                        "package": "org.zwanoo.android.speedtest",
+                        "description": "Open Speedtest",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 2000,
+                        "description": "Wait for app",
+                    },
+                    {
+                        "step_type": "tap",
+                        "x": 540,
+                        "y": 1200,
+                        "description": "Tap GO button",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 45000,
+                        "description": "Wait for test to complete",
+                    },
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": [],
+                        "description": "Capture speed results",
+                    },
                 ],
                 "sensors": [],
-                "tags": ["network", "speedtest", "internet", "utility"]
+                "tags": ["network", "speedtest", "internet", "utility"],
             },
             # =================================================================
             # HOME AUTOMATION APPS
@@ -833,12 +1011,24 @@ class FlowManager:
                 "name": "SmartThings Device Status",
                 "description": "Capture SmartThings device states",
                 "steps": [
-                    {"step_type": "launch_app", "package": "com.samsung.android.oneconnect", "description": "Open SmartThings"},
-                    {"step_type": "wait", "duration": 3000, "description": "Wait for devices"},
-                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture device states"}
+                    {
+                        "step_type": "launch_app",
+                        "package": "com.samsung.android.oneconnect",
+                        "description": "Open SmartThings",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 3000,
+                        "description": "Wait for devices",
+                    },
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": [],
+                        "description": "Capture device states",
+                    },
                 ],
                 "sensors": [],
-                "tags": ["smarthome", "iot", "samsung", "automation"]
+                "tags": ["smarthome", "iot", "samsung", "automation"],
             },
             {
                 "bundle_id": "tuya_device_status",
@@ -847,11 +1037,23 @@ class FlowManager:
                 "name": "Tuya Device Status",
                 "description": "Capture Tuya/Smart Life device states",
                 "steps": [
-                    {"step_type": "launch_app", "package": "com.tuya.smart", "description": "Open Tuya"},
-                    {"step_type": "wait", "duration": 3000, "description": "Wait for devices"},
-                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture device states"}
+                    {
+                        "step_type": "launch_app",
+                        "package": "com.tuya.smart",
+                        "description": "Open Tuya",
+                    },
+                    {
+                        "step_type": "wait",
+                        "duration": 3000,
+                        "description": "Wait for devices",
+                    },
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": [],
+                        "description": "Capture device states",
+                    },
                 ],
                 "sensors": [],
-                "tags": ["smarthome", "iot", "tuya", "automation"]
-            }
+                "tags": ["smarthome", "iot", "tuya", "automation"],
+            },
         ]

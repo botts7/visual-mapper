@@ -43,8 +43,8 @@ async def api_root():
             "shell_batch": "/api/shell/{device_id}/batch",
             "shell_benchmark": "/api/shell/{device_id}/benchmark",
             "maintenance_server_restart": "/api/maintenance/server/restart",
-            "maintenance_metrics": "/api/maintenance/metrics"
-        }
+            "maintenance_metrics": "/api/maintenance/metrics",
+        },
     }
 
 

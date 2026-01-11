@@ -35,5 +35,5 @@ async def health_check():
         "version": APP_VERSION,
         "message": "Visual Mapper is running",
         "mqtt_connected": mqtt_connected,
-        "mqtt_status": mqtt_status
+        "mqtt_status": mqtt_status,
     }

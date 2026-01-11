@@ -40,6 +40,7 @@ class PairingRequest(BaseModel):
 # CONNECTION MANAGEMENT ENDPOINTS
 # =============================================================================
 
+
 @router.post("/connect")
 async def connect_device(request: ConnectDeviceRequest):
     """Connect to Android device via TCP/IP"""
@@ -55,7 +56,7 @@ async def connect_device(request: ConnectDeviceRequest):
             "device_id": device_id,
             "connected": True,
             "success": True,  # Frontend expects success: true
-            "message": f"Connected to {device_id}"
+            "message": f"Connected to {device_id}",
         }
     except Exception as e:
         logger.error(f"[API] Connection failed: {e}")
@@ -75,16 +76,11 @@ async def pair_device(request: PairingRequest):
 
         # Step 1: Pair with pairing port using code
         success = await deps.adb_bridge.pair_device(
-            host,
-            request.pairing_port,
-            request.pairing_code
+            host, request.pairing_port, request.pairing_code
         )
 
         if not success:
-            return {
-                "success": False,
-                "message": "Pairing failed - check code and port"
-            }
+            return {"success": False, "message": "Pairing failed - check code and port"}
 
         # Step 2: Connect on connection port after successful pairing
         # Use connection_port if provided, else use pairing_port (some devices use same)
@@ -95,7 +91,7 @@ async def pair_device(request: PairingRequest):
         return {
             "success": True,
             "device_id": device_id,
-            "message": f"Paired and connected to {device_id}"
+            "message": f"Paired and connected to {device_id}",
         }
 
     except HTTPException:
@@ -115,7 +111,7 @@ async def disconnect_device(request: DisconnectDeviceRequest):
         return {
             "device_id": request.device_id,
             "disconnected": True,
-            "message": f"Disconnected from {request.device_id}"
+            "message": f"Disconnected from {request.device_id}",
         }
     except Exception as e:
         logger.error(f"[API] Disconnection failed: {e}")
@@ -136,11 +132,10 @@ async def get_announced_devices():
     deps = get_deps()
     try:
         # Get announced devices from MQTT manager
-        announced = deps.mqtt_manager.get_announced_devices() if deps.mqtt_manager else []
-        return {
-            "devices": announced,
-            "count": len(announced)
-        }
+        announced = (
+            deps.mqtt_manager.get_announced_devices() if deps.mqtt_manager else []
+        )
+        return {"devices": announced, "count": len(announced)}
     except Exception as e:
         logger.error(f"[API] Failed to get announced devices: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -150,6 +145,7 @@ async def get_announced_devices():
 # DEVICE IDENTITY ENDPOINTS
 # =============================================================================
 
+
 @router.get("/known-devices")
 async def get_known_devices():
     """Get all known devices with their stable identifiers."""
@@ -157,10 +153,7 @@ async def get_known_devices():
         deps = get_deps()
         resolver = get_device_identity_resolver(deps.data_dir)
         devices = resolver.get_all_devices()
-        return {
-            "devices": devices,
-            "count": len(devices)
-        }
+        return {"devices": devices, "count": len(devices)}
     except Exception as e:
         logger.error(f"[API] Failed to get known devices: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -188,7 +181,9 @@ async def get_device_identity(device_id: str):
 
         # Get current connection if device is connected
         current_conn = resolver.get_connection_id(stable_id)
-        is_connected = current_conn in deps.adb_bridge.devices if deps.adb_bridge else False
+        is_connected = (
+            current_conn in deps.adb_bridge.devices if deps.adb_bridge else False
+        )
 
         return {
             "device_id": device_id,
@@ -198,7 +193,7 @@ async def get_device_identity(device_id: str):
             "model": info.get("model") if info else None,
             "manufacturer": info.get("manufacturer") if info else None,
             "last_seen": info.get("last_seen") if info else None,
-            "connection_history": info.get("connection_history", []) if info else []
+            "connection_history": info.get("connection_history", []) if info else [],
         }
     except Exception as e:
         logger.error(f"[API] Failed to get device identity: {e}")

@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DeviceStatus:
     """Tracked status for a device"""
+
     device_id: str
     online: bool
     last_seen: float
@@ -55,7 +56,7 @@ class ConnectionMonitor:
         self,
         mqtt_manager,
         command_queue: Optional[CommandQueue] = None,
-        debounce_seconds: float = 5.0
+        debounce_seconds: float = 5.0,
     ):
         """
         Initialize the connection monitor.
@@ -74,7 +75,9 @@ class ConnectionMonitor:
         self._pending_offline: Dict[str, asyncio.Task] = {}
 
         # Command sender callback
-        self._command_sender: Optional[Callable[[str, str, dict], Awaitable[bool]]] = None
+        self._command_sender: Optional[Callable[[str, str, dict], Awaitable[bool]]] = (
+            None
+        )
 
         # Connection event callbacks
         self._on_connect_callbacks: list = []
@@ -93,7 +96,9 @@ class ConnectionMonitor:
         """
         self._command_sender = sender
 
-    def on_device_connect(self, callback: Callable[[str, DeviceStatus], Awaitable[None]]):
+    def on_device_connect(
+        self, callback: Callable[[str, DeviceStatus], Awaitable[None]]
+    ):
         """Register callback for device connection events"""
         self._on_connect_callbacks.append(callback)
 
@@ -158,7 +163,7 @@ class ConnectionMonitor:
             last_seen=now,
             app_version=status_data.get("app_version"),
             capabilities=status_data.get("capabilities", []),
-            platform=status_data.get("platform", "android")
+            platform=status_data.get("platform", "android"),
         )
         self._devices[device_id] = status
 
@@ -182,7 +187,9 @@ class ConnectionMonitor:
     async def _replay_queued_commands(self, device_id: str):
         """Replay queued commands for a device"""
         if not self._command_sender:
-            logger.warning("[ConnectionMonitor] No command sender configured, skipping replay")
+            logger.warning(
+                "[ConnectionMonitor] No command sender configured, skipping replay"
+            )
             return
 
         try:
@@ -192,28 +199,36 @@ class ConnectionMonitor:
                 logger.debug(f"[ConnectionMonitor] No pending commands for {device_id}")
                 return
 
-            logger.info(f"[ConnectionMonitor] Replaying {len(commands)} queued commands for {device_id}")
+            logger.info(
+                f"[ConnectionMonitor] Replaying {len(commands)} queued commands for {device_id}"
+            )
 
             for cmd in commands:
                 try:
                     await self.command_queue.mark_processing(cmd.command_id)
 
                     success = await self._command_sender(
-                        device_id,
-                        cmd.command_type,
-                        cmd.payload
+                        device_id, cmd.command_type, cmd.payload
                     )
 
                     if success:
                         await self.command_queue.mark_completed(cmd.command_id)
-                        logger.info(f"[ConnectionMonitor] Replayed command {cmd.command_id} successfully")
+                        logger.info(
+                            f"[ConnectionMonitor] Replayed command {cmd.command_id} successfully"
+                        )
                     else:
-                        await self.command_queue.mark_failed(cmd.command_id, "Send failed")
-                        logger.warning(f"[ConnectionMonitor] Failed to replay command {cmd.command_id}")
+                        await self.command_queue.mark_failed(
+                            cmd.command_id, "Send failed"
+                        )
+                        logger.warning(
+                            f"[ConnectionMonitor] Failed to replay command {cmd.command_id}"
+                        )
 
                 except Exception as e:
                     await self.command_queue.mark_failed(cmd.command_id, str(e))
-                    logger.error(f"[ConnectionMonitor] Error replaying command {cmd.command_id}: {e}")
+                    logger.error(
+                        f"[ConnectionMonitor] Error replaying command {cmd.command_id}: {e}"
+                    )
 
         except Exception as e:
             logger.error(f"[ConnectionMonitor] Error getting queued commands: {e}")
@@ -234,7 +249,9 @@ class ConnectionMonitor:
                     try:
                         await callback(device_id)
                     except Exception as e:
-                        logger.error(f"[ConnectionMonitor] Disconnect callback error: {e}")
+                        logger.error(
+                            f"[ConnectionMonitor] Disconnect callback error: {e}"
+                        )
 
                 logger.info(f"[ConnectionMonitor] Device {device_id} marked offline")
 
@@ -270,13 +287,17 @@ class ConnectionMonitor:
                 stale_threshold = time.time() - 120
                 for device_id, status in list(self._devices.items()):
                     if status.online and status.last_seen < stale_threshold:
-                        logger.info(f"[ConnectionMonitor] Device {device_id} stale, marking offline")
+                        logger.info(
+                            f"[ConnectionMonitor] Device {device_id} stale, marking offline"
+                        )
                         self.mark_device_offline(device_id)
 
                 # Cleanup old commands
                 deleted = await self.command_queue.cleanup_old_commands(24)
                 if deleted > 0:
-                    logger.info(f"[ConnectionMonitor] Cleaned up {deleted} old commands")
+                    logger.info(
+                        f"[ConnectionMonitor] Cleaned up {deleted} old commands"
+                    )
 
             except asyncio.CancelledError:
                 break

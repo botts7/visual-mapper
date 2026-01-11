@@ -46,11 +46,7 @@ async def execute_shell_command(device_id: str, request: ShellExecuteRequest):
     try:
         shell = await deps.shell_pool.get_shell(device_id)
         success, output = await shell.execute(request.command)
-        return {
-            "success": success,
-            "output": output,
-            "session": shell.stats
-        }
+        return {"success": success, "output": output, "session": shell.stats}
     except Exception as e:
         logger.error(f"[Shell] Execute error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -69,7 +65,7 @@ async def execute_shell_batch(device_id: str, request: ShellBatchRequest):
         return {
             "success": True,
             "results": [{"success": r[0], "output": r[1]} for r in results],
-            "session": shell.stats
+            "session": shell.stats,
         }
     except Exception as e:
         logger.error(f"[Shell] Batch execute error: {e}")
@@ -89,7 +85,7 @@ async def benchmark_shell_session(device_id: str, iterations: int = 10):
     results = {
         "persistent_shell": {"times_ms": [], "avg_ms": 0},
         "regular_adb": {"times_ms": [], "avg_ms": 0},
-        "improvement_percent": 0
+        "improvement_percent": 0,
     }
 
     # Benchmark persistent shell
@@ -109,9 +105,13 @@ async def benchmark_shell_session(device_id: str, iterations: int = 10):
         for _ in range(iterations):
             start = time.time()
             proc = await asyncio.create_subprocess_exec(
-                'adb', '-s', device_id, 'shell', test_command,
+                "adb",
+                "-s",
+                device_id,
+                "shell",
+                test_command,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             await proc.communicate()
             elapsed = (time.time() - start) * 1000
@@ -123,15 +123,22 @@ async def benchmark_shell_session(device_id: str, iterations: int = 10):
     # Calculate averages
     if results["persistent_shell"]["times_ms"]:
         results["persistent_shell"]["avg_ms"] = round(
-            sum(results["persistent_shell"]["times_ms"]) / len(results["persistent_shell"]["times_ms"]), 1
+            sum(results["persistent_shell"]["times_ms"])
+            / len(results["persistent_shell"]["times_ms"]),
+            1,
         )
     if results["regular_adb"]["times_ms"]:
         results["regular_adb"]["avg_ms"] = round(
-            sum(results["regular_adb"]["times_ms"]) / len(results["regular_adb"]["times_ms"]), 1
+            sum(results["regular_adb"]["times_ms"])
+            / len(results["regular_adb"]["times_ms"]),
+            1,
         )
 
     # Calculate improvement
-    if results["regular_adb"]["avg_ms"] > 0 and results["persistent_shell"]["avg_ms"] > 0:
+    if (
+        results["regular_adb"]["avg_ms"] > 0
+        and results["persistent_shell"]["avg_ms"] > 0
+    ):
         improvement = (
             (results["regular_adb"]["avg_ms"] - results["persistent_shell"]["avg_ms"])
             / results["regular_adb"]["avg_ms"]

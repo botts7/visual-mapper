@@ -18,6 +18,7 @@ router = APIRouter(prefix="/api/maintenance", tags=["maintenance"])
 # SERVER MANAGEMENT ENDPOINTS
 # =============================================================================
 
+
 @router.post("/server/restart")
 async def restart_adb_server():
     """Restart ADB server to fix zombie processes and connection issues"""
@@ -39,6 +40,7 @@ async def get_adb_server_status():
 # =============================================================================
 # DEVICE OPTIMIZATION ENDPOINTS
 # =============================================================================
+
 
 @router.post("/{device_id}/trim-cache")
 async def trim_device_cache(device_id: str):
@@ -101,6 +103,7 @@ async def reset_device_display(device_id: str):
 # BACKGROUND LIMIT ENDPOINTS
 # =============================================================================
 
+
 @router.get("/{device_id}/background-limit")
 async def get_background_limit(device_id: str):
     """Get current background process limit"""
@@ -123,6 +126,7 @@ async def set_background_limit(device_id: str, limit: int = 4):
 # METRICS ENDPOINTS
 # =============================================================================
 
+
 @router.get("/metrics")
 async def get_all_connection_metrics():
     """Get connection health metrics for all devices"""
@@ -140,5 +144,9 @@ async def get_device_connection_metrics(device_id: str):
         raise HTTPException(status_code=503, detail="ADB Maintenance not initialized")
     metrics = deps.adb_maintenance.get_connection_metrics(device_id)
     if not metrics:
-        return {"success": True, "metrics": None, "message": "No metrics yet for this device"}
+        return {
+            "success": True,
+            "metrics": None,
+            "message": "No metrics yet for this device",
+        }
     return {"success": True, "metrics": metrics}

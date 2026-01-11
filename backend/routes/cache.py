@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/cache", tags=["cache"])
 
 # === UI Cache Endpoints ===
 
+
 @router.get("/ui/stats")
 async def get_ui_cache_stats():
     """Get UI hierarchy cache statistics"""
@@ -34,7 +35,11 @@ async def clear_ui_cache(device_id: str = None):
     deps.adb_bridge.clear_ui_cache(device_id)
     return {
         "success": True,
-        "message": f"UI cache cleared for {device_id}" if device_id else "UI cache cleared for all devices"
+        "message": (
+            f"UI cache cleared for {device_id}"
+            if device_id
+            else "UI cache cleared for all devices"
+        ),
     }
 
 
@@ -54,6 +59,7 @@ async def update_ui_cache_settings(enabled: bool = None, ttl_ms: float = None):
 
 
 # === Screenshot Cache Endpoints ===
+
 
 @router.get("/screenshot/stats")
 async def get_screenshot_cache_stats():
@@ -81,6 +87,7 @@ async def update_screenshot_cache_settings(enabled: bool = None, ttl_ms: float =
 
 # === Combined Cache Endpoints ===
 
+
 @router.get("/all/stats")
 async def get_all_cache_stats():
     """Get all cache statistics (UI + Screenshot)"""
@@ -90,5 +97,5 @@ async def get_all_cache_stats():
     return {
         "success": True,
         "ui_cache": deps.adb_bridge.get_ui_cache_stats(),
-        "screenshot_cache": deps.adb_bridge.get_screenshot_cache_stats()
+        "screenshot_cache": deps.adb_bridge.get_screenshot_cache_stats(),
     }

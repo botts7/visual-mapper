@@ -7,6 +7,7 @@ Priority:
 
 Adapted from v3 with improvements: uses BaseADBConnection types, centralized config.
 """
+
 import asyncio
 import logging
 import socket
@@ -44,7 +45,7 @@ class ADBManager:
             Result from function
         """
         # Check if hass has the async_add_executor_job method (HA instance)
-        if hasattr(self.hass, 'async_add_executor_job'):
+        if hasattr(self.hass, "async_add_executor_job"):
             return await self.hass.async_add_executor_job(func)
         else:
             # Running as standalone addon - use asyncio
@@ -57,11 +58,14 @@ class ADBManager:
             True if ADB server is reachable on localhost:5037
         """
         try:
+
             def _test():
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(2)
                 # Try localhost (add-on uses host_network: true)
-                result = sock.connect_ex((config.ADB_SERVER_HOST, config.ADB_SERVER_PORT))
+                result = sock.connect_ex(
+                    (config.ADB_SERVER_HOST, config.ADB_SERVER_PORT)
+                )
                 sock.close()
                 return result == 0
 
@@ -94,15 +98,15 @@ class ADBManager:
 
             def _check_adb():
                 result = subprocess.run(
-                    ["adb", "version"],
-                    capture_output=True,
-                    timeout=2
+                    ["adb", "version"], capture_output=True, timeout=2
                 )
                 return result.returncode == 0
 
             is_available = await self._run_in_executor(_check_adb)
             if is_available:
-                _LOGGER.info("✅ System ADB binary also available (fallback TLS support)")
+                _LOGGER.info(
+                    "✅ System ADB binary also available (fallback TLS support)"
+                )
                 return True, "hybrid_adb"
             else:
                 _LOGGER.info("ℹ️  Install ADB Server add-on for TLS support")

@@ -26,6 +26,7 @@ CV2_AVAILABLE = False
 if feature_manager.is_enabled("real_icons_enabled"):
     try:
         import cv2
+
         CV2_AVAILABLE = True
     except ImportError:
         pass
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 class CaptureBackend(Enum):
     """Available capture backends."""
+
     ADBUTILS = "adbutils"
     ADB_BRIDGE = "adb_bridge"
     SCRCPY = "scrcpy"
@@ -43,6 +45,7 @@ class CaptureBackend(Enum):
 @dataclass
 class StreamMetrics:
     """Metrics for stream performance tracking."""
+
     frames_sent: int = 0
     frames_dropped: int = 0
     total_capture_time_ms: float = 0
@@ -77,13 +80,14 @@ class StreamMetrics:
             "last_capture_time_ms": round(self.last_capture_time_ms, 1),
             "last_encode_time_ms": round(self.last_encode_time_ms, 1),
             "uptime_seconds": round(time.time() - self.start_time, 1),
-            "recent_errors": self.errors[-5:] if self.errors else []
+            "recent_errors": self.errors[-5:] if self.errors else [],
         }
 
 
 @dataclass
 class QualityPreset:
     """Quality preset for streaming."""
+
     name: str
     max_size: int  # Max dimension (0 = original)
     jpeg_quality: int  # JPEG quality (1-100)
@@ -92,10 +96,10 @@ class QualityPreset:
 
 QUALITY_PRESETS = {
     # Values aligned with routes/streaming.py (authoritative source)
-    "high": QualityPreset("high", 0, 85, 5),       # Native resolution, ~5 FPS
-    "medium": QualityPreset("medium", 720, 75, 12), # 720p, ~12 FPS
-    "low": QualityPreset("low", 480, 65, 18),       # 480p, ~18 FPS
-    "fast": QualityPreset("fast", 360, 55, 25),     # 360p, ~25 FPS
+    "high": QualityPreset("high", 0, 85, 5),  # Native resolution, ~5 FPS
+    "medium": QualityPreset("medium", 720, 75, 12),  # 720p, ~12 FPS
+    "low": QualityPreset("low", 480, 65, 18),  # 480p, ~18 FPS
+    "fast": QualityPreset("fast", 360, 55, 25),  # 360p, ~25 FPS
     "ultrafast": QualityPreset("ultrafast", 240, 45, 30),  # 240p, ~30 FPS (WiFi)
 }
 
@@ -132,6 +136,7 @@ class StreamManager:
         if device_id not in self._adbutils_devices:
             try:
                 from adbutils import adb
+
                 device = adb.device(serial=device_id)
                 self._adbutils_devices[device_id] = device
             except Exception as e:
@@ -157,8 +162,9 @@ class StreamManager:
             if pil_image:
                 # Convert PIL to bytes
                 import io
+
                 buffer = io.BytesIO()
-                pil_image.save(buffer, format='PNG')
+                pil_image.save(buffer, format="PNG")
                 return buffer.getvalue()
             return None
         except Exception as e:
@@ -169,7 +175,7 @@ class StreamManager:
         self,
         device_id: str,
         quality: str = "medium",
-        backend: CaptureBackend = CaptureBackend.ADB_BRIDGE
+        backend: CaptureBackend = CaptureBackend.ADB_BRIDGE,
     ) -> Optional[bytes]:
         """
         Capture screenshot with quality settings.
@@ -195,7 +201,7 @@ class StreamManager:
 
             if raw_png is None and self.adb_bridge:
                 # Use isolated stream capture (doesn't block screenshot operations)
-                if hasattr(self.adb_bridge, 'capture_stream_frame'):
+                if hasattr(self.adb_bridge, "capture_stream_frame"):
                     raw_png = await self.adb_bridge.capture_stream_frame(device_id)
                 else:
                     # Fallback to regular capture for older versions
@@ -257,7 +263,7 @@ class StreamManager:
 
             # Encode to JPEG
             encode_params = [cv2.IMWRITE_JPEG_QUALITY, preset.jpeg_quality]
-            _, jpeg = cv2.imencode('.jpg', img, encode_params)
+            _, jpeg = cv2.imencode(".jpg", img, encode_params)
             return jpeg.tobytes()
 
         def encode_pil():
@@ -273,8 +279,8 @@ class StreamManager:
                     img = img.resize(new_size, Image.LANCZOS)
 
             # Convert to RGB (JPEGs don't support RGBA)
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
+            if img.mode != "RGB":
+                img = img.convert("RGB")
 
             # Encode to JPEG
             buffer = io.BytesIO()
@@ -284,6 +290,7 @@ class StreamManager:
         if cv2_available:
             try:
                 import cv2
+
                 return await loop.run_in_executor(None, encode_cv2)
             except Exception as e:
                 logger.warning(f"OpenCV JPEG encoding failed, falling back to PIL: {e}")
@@ -294,7 +301,7 @@ class StreamManager:
         self,
         device_id: str,
         quality: str = "medium",
-        on_frame: Optional[Callable[[bytes], None]] = None
+        on_frame: Optional[Callable[[bytes], None]] = None,
     ) -> bool:
         """
         Start streaming for a device.
@@ -355,7 +362,7 @@ class StreamManager:
         self.active_streams[device_id] = asyncio.create_task(stream_loop())
 
         # Notify adb_bridge that streaming started (for isolation tracking)
-        if self.adb_bridge and hasattr(self.adb_bridge, 'start_stream'):
+        if self.adb_bridge and hasattr(self.adb_bridge, "start_stream"):
             self.adb_bridge.start_stream(device_id)
 
         logger.info(f"Started stream for {device_id} at {preset.name} quality")
@@ -372,7 +379,7 @@ class StreamManager:
             del self.active_streams[device_id]
 
             # Notify adb_bridge that streaming stopped
-            if self.adb_bridge and hasattr(self.adb_bridge, 'stop_stream'):
+            if self.adb_bridge and hasattr(self.adb_bridge, "stop_stream"):
                 self.adb_bridge.stop_stream(device_id)
 
             logger.info(f"Stopped stream for {device_id}")
@@ -404,14 +411,11 @@ class StreamManager:
     def get_all_metrics(self) -> Dict[str, Dict[str, Any]]:
         """Get metrics for all devices."""
         return {
-            device_id: metrics.to_dict()
-            for device_id, metrics in self.metrics.items()
+            device_id: metrics.to_dict() for device_id, metrics in self.metrics.items()
         }
 
     async def benchmark_capture(
-        self,
-        device_id: str,
-        iterations: int = 5
+        self, device_id: str, iterations: int = 5
     ) -> Dict[str, Any]:
         """
         Benchmark capture performance for different backends.
@@ -423,11 +427,7 @@ class StreamManager:
         Returns:
             Dictionary with benchmark results
         """
-        results = {
-            "device_id": device_id,
-            "iterations": iterations,
-            "backends": {}
-        }
+        results = {"device_id": device_id, "iterations": iterations, "backends": {}}
 
         # Test adbutils backend
         try:
@@ -444,10 +444,13 @@ class StreamManager:
                     "min_ms": round(min(times), 1),
                     "max_ms": round(max(times), 1),
                     "avg_ms": round(sum(times) / len(times), 1),
-                    "successful": len(times)
+                    "successful": len(times),
                 }
             else:
-                results["backends"]["adbutils"] = {"available": False, "error": "No successful captures"}
+                results["backends"]["adbutils"] = {
+                    "available": False,
+                    "error": "No successful captures",
+                }
         except Exception as e:
             results["backends"]["adbutils"] = {"available": False, "error": str(e)}
 
@@ -467,22 +470,28 @@ class StreamManager:
                         "min_ms": round(min(times), 1),
                         "max_ms": round(max(times), 1),
                         "avg_ms": round(sum(times) / len(times), 1),
-                        "successful": len(times)
+                        "successful": len(times),
                     }
                 else:
-                    results["backends"]["adb_bridge"] = {"available": False, "error": "No successful captures"}
+                    results["backends"]["adb_bridge"] = {
+                        "available": False,
+                        "error": "No successful captures",
+                    }
             except Exception as e:
-                results["backends"]["adb_bridge"] = {"available": False, "error": str(e)}
+                results["backends"]["adb_bridge"] = {
+                    "available": False,
+                    "error": str(e),
+                }
 
         # Check scrcpy availability
         results["backends"]["scrcpy"] = {
             "available": self._check_scrcpy_available(),
-            "note": "Install scrcpy for 30-60 FPS streaming"
+            "note": "Install scrcpy for 30-60 FPS streaming",
         }
 
         # Recommend best backend
         best_backend = None
-        best_time = float('inf')
+        best_time = float("inf")
 
         for name, data in results["backends"].items():
             if data.get("available") and "avg_ms" in data:
@@ -491,7 +500,9 @@ class StreamManager:
                     best_backend = name
 
         results["recommended_backend"] = best_backend
-        results["best_avg_ms"] = round(best_time, 1) if best_time < float('inf') else None
+        results["best_avg_ms"] = (
+            round(best_time, 1) if best_time < float("inf") else None
+        )
 
         return results
 

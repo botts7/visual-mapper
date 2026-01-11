@@ -28,7 +28,9 @@ class NavigationMiner:
     new recordings. Useful for bootstrapping navigation knowledge.
     """
 
-    def __init__(self, navigation_manager: NavigationManager, flow_manager: FlowManager = None):
+    def __init__(
+        self, navigation_manager: NavigationManager, flow_manager: FlowManager = None
+    ):
         """
         Initialize NavigationMiner
 
@@ -40,10 +42,7 @@ class NavigationMiner:
         self.flow_manager = flow_manager or FlowManager()
 
     def mine_package(
-        self,
-        package: str,
-        device_id: str = None,
-        limit: int = None
+        self, package: str, device_id: str = None, limit: int = None
     ) -> Dict[str, Any]:
         """
         Mine all flows for a package and build navigation graph
@@ -70,11 +69,19 @@ class NavigationMiner:
                 "package": package,
                 "flows_processed": 0,
                 "screens_discovered": 0,
-                "transitions_discovered": 0
+                "transitions_discovered": 0,
             }
 
-        screens_before = len(self.nav_manager.get_graph(package).screens) if self.nav_manager.get_graph(package) else 0
-        transitions_before = len(self.nav_manager.get_graph(package).transitions) if self.nav_manager.get_graph(package) else 0
+        screens_before = (
+            len(self.nav_manager.get_graph(package).screens)
+            if self.nav_manager.get_graph(package)
+            else 0
+        )
+        transitions_before = (
+            len(self.nav_manager.get_graph(package).transitions)
+            if self.nav_manager.get_graph(package)
+            else 0
+        )
 
         for flow in all_flows:
             self._mine_flow(flow)
@@ -89,13 +96,15 @@ class NavigationMiner:
             "screens_discovered": screens_after - screens_before,
             "transitions_discovered": transitions_after - transitions_before,
             "total_screens": screens_after,
-            "total_transitions": transitions_after
+            "total_transitions": transitions_after,
         }
 
         logger.info(f"[NavigationMiner] Mining complete: {result}")
         return result
 
-    def _get_flows_for_package(self, package: str, device_id: str = None) -> List[SensorCollectionFlow]:
+    def _get_flows_for_package(
+        self, package: str, device_id: str = None
+    ) -> List[SensorCollectionFlow]:
         """Get all flows that use the specified package"""
         flows = []
 
@@ -149,12 +158,15 @@ class NavigationMiner:
                 # After launch, next step should be home screen
                 if i + 1 < len(flow.steps):
                     next_step = flow.steps[i + 1]
-                    if next_step.screen_activity and next_step.screen_package == current_package:
+                    if (
+                        next_step.screen_activity
+                        and next_step.screen_package == current_package
+                    ):
                         # Mark as home screen
                         self.nav_manager.set_home_screen(
                             package=current_package,
                             activity=next_step.screen_activity,
-                            ui_elements=[]  # No UI elements from mined flows
+                            ui_elements=[],  # No UI elements from mined flows
                         )
                 continue
 
@@ -168,7 +180,7 @@ class NavigationMiner:
                 package=step.screen_package,
                 activity=step.screen_activity,
                 ui_elements=[],
-                learned_from="mining"
+                learned_from="mining",
             )
             current_screen_id = screen.screen_id
 
@@ -182,7 +194,7 @@ class NavigationMiner:
                         source_screen_id=prev_screen_id,
                         target_screen_id=current_screen_id,
                         action=action,
-                        learned_from="mining"
+                        learned_from="mining",
                     )
 
             prev_step = step
@@ -196,10 +208,7 @@ class NavigationMiner:
         """
         if step.step_type == "tap":
             return TransitionAction(
-                action_type="tap",
-                x=step.x,
-                y=step.y,
-                description=step.description
+                action_type="tap", x=step.x, y=step.y, description=step.description
             )
 
         elif step.step_type == "swipe":
@@ -211,28 +220,28 @@ class NavigationMiner:
                 end_x=step.end_x,
                 end_y=step.end_y,
                 swipe_direction=direction,
-                description=step.description
+                description=step.description,
             )
 
         elif step.step_type == "go_back":
             return TransitionAction(
                 action_type="go_back",
                 keycode="KEYCODE_BACK",
-                description="Press back button"
+                description="Press back button",
             )
 
         elif step.step_type == "go_home":
             return TransitionAction(
                 action_type="go_home",
                 keycode="KEYCODE_HOME",
-                description="Press home button"
+                description="Press home button",
             )
 
         elif step.step_type == "keyevent":
             return TransitionAction(
                 action_type="keyevent",
                 keycode=step.keycode,
-                description=step.description
+                description=step.description,
             )
 
         # No action for wait, capture_sensors, etc.
@@ -283,7 +292,4 @@ class NavigationMiner:
         for package in packages:
             results[package] = self.mine_package(package)
 
-        return {
-            "packages_mined": len(packages),
-            "results": results
-        }
+        return {"packages_mined": len(packages), "results": results}

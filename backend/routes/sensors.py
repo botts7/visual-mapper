@@ -21,7 +21,7 @@ from core.mqtt.ha_device_classes import (
     validate_unit_for_device_class,
     can_use_state_class,
     get_device_class_info,
-    export_to_json as export_device_classes
+    export_to_json as export_device_classes,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,7 @@ router = APIRouter(prefix="/api", tags=["sensors"])
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
 
 def validate_sensor_config(sensor: SensorDefinition) -> Optional[str]:
     """
@@ -63,11 +64,21 @@ def validate_sensor_config(sensor: SensorDefinition) -> Optional[str]:
             return "Sensors with state_class='measurement' must have a unit_of_measurement (e.g. %, °C, W). Either add a unit or change state_class to 'none'."
 
     # Rule 5: Validate unit matches device class expectations
-    if sensor.device_class and sensor.device_class != "none" and sensor.unit_of_measurement:
-        if not validate_unit_for_device_class(sensor.device_class, sensor.unit_of_measurement, sensor.sensor_type):
+    if (
+        sensor.device_class
+        and sensor.device_class != "none"
+        and sensor.unit_of_measurement
+    ):
+        if not validate_unit_for_device_class(
+            sensor.device_class, sensor.unit_of_measurement, sensor.sensor_type
+        ):
             device_info = get_device_class_info(sensor.device_class, sensor.sensor_type)
             if device_info and device_info.valid_units:
-                expected_units = ", ".join(device_info.valid_units) if device_info.valid_units else "no unit"
+                expected_units = (
+                    ", ".join(device_info.valid_units)
+                    if device_info.valid_units
+                    else "no unit"
+                )
                 return f"Device class '{sensor.device_class}' expects units: {expected_units}. Got: '{sensor.unit_of_measurement}'"
 
     return None  # Valid
@@ -77,6 +88,7 @@ def validate_sensor_config(sensor: SensorDefinition) -> Optional[str]:
 # SENSOR CRUD ENDPOINTS
 # =============================================================================
 
+
 @router.get("/sensors")
 async def get_all_sensors():
     """Get all sensors across all devices (for dashboard stats)"""
@@ -84,7 +96,7 @@ async def get_all_sensors():
     try:
         logger.info("[API] Getting all sensors")
         all_sensors = deps.sensor_manager.get_all_sensors()
-        return [s.model_dump(mode='json') for s in all_sensors]
+        return [s.model_dump(mode="json") for s in all_sensors]
     except Exception as e:
         logger.error(f"[API] Get all sensors failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -110,7 +122,9 @@ async def create_sensor(sensor: SensorDefinition, auto_reuse: bool = True):
     """
     deps = get_deps()
     try:
-        logger.info(f"[API] Creating sensor for device {sensor.device_id} (auto_reuse={auto_reuse})")
+        logger.info(
+            f"[API] Creating sensor for device {sensor.device_id} (auto_reuse={auto_reuse})"
+        )
 
         # Get stable device ID if not already set (survives IP/port changes)
         if not sensor.stable_device_id:
@@ -125,25 +139,32 @@ async def create_sensor(sensor: SensorDefinition, auto_reuse: bool = True):
         if auto_reuse:
             try:
                 from routes.deduplication import get_dedup_service
+
                 dedup_service = get_dedup_service()
 
                 # Convert sensor to dict for comparison
-                sensor_data = sensor.model_dump(mode='json')
+                sensor_data = sensor.model_dump(mode="json")
                 device_id = sensor.stable_device_id or sensor.device_id
 
                 # Find matching sensor with ≥55% similarity (resource_id=35% + extraction=20% = 55%)
-                match = dedup_service.find_matching_sensor(device_id, sensor_data, threshold=0.55)
+                match = dedup_service.find_matching_sensor(
+                    device_id, sensor_data, threshold=0.55
+                )
 
                 if match:
-                    logger.info(f"[API] Auto-reusing existing sensor: {match.sensor_id} ({match.friendly_name})")
+                    logger.info(
+                        f"[API] Auto-reusing existing sensor: {match.sensor_id} ({match.friendly_name})"
+                    )
                     return {
                         "success": True,
                         "reused": True,
-                        "sensor": match.model_dump(mode='json'),
-                        "message": f"Reused existing sensor: {match.friendly_name}"
+                        "sensor": match.model_dump(mode="json"),
+                        "message": f"Reused existing sensor: {match.friendly_name}",
                     }
             except Exception as e:
-                logger.warning(f"[API] Auto-reuse check failed, creating new sensor: {e}")
+                logger.warning(
+                    f"[API] Auto-reuse check failed, creating new sensor: {e}"
+                )
 
         # No match found or auto_reuse disabled - create new sensor
         created_sensor = deps.sensor_manager.create_sensor(sensor)
@@ -151,7 +172,9 @@ async def create_sensor(sensor: SensorDefinition, auto_reuse: bool = True):
         # Publish MQTT discovery for the new sensor
         if deps.mqtt_manager:
             # Ensure device info is cached for friendly MQTT names
-            device_id_for_info = created_sensor.stable_device_id or created_sensor.device_id
+            device_id_for_info = (
+                created_sensor.stable_device_id or created_sensor.device_id
+            )
             try:
                 model = await deps.adb_bridge.get_device_model(sensor.device_id)
                 if model:
@@ -162,20 +185,28 @@ async def create_sensor(sensor: SensorDefinition, auto_reuse: bool = True):
             try:
                 success = await deps.mqtt_manager.publish_discovery(created_sensor)
                 if success:
-                    logger.info(f"[API] Published MQTT discovery for new sensor {created_sensor.sensor_id}")
+                    logger.info(
+                        f"[API] Published MQTT discovery for new sensor {created_sensor.sensor_id}"
+                    )
                     # Also publish initial state if available
                     if created_sensor.current_value:
-                        await deps.mqtt_manager.publish_state(created_sensor, created_sensor.current_value)
+                        await deps.mqtt_manager.publish_state(
+                            created_sensor, created_sensor.current_value
+                        )
                 else:
-                    logger.warning(f"[API] Failed to publish MQTT discovery for {created_sensor.sensor_id}")
+                    logger.warning(
+                        f"[API] Failed to publish MQTT discovery for {created_sensor.sensor_id}"
+                    )
             except Exception as e:
-                logger.error(f"[API] MQTT discovery failed for {created_sensor.sensor_id}: {e}")
+                logger.error(
+                    f"[API] MQTT discovery failed for {created_sensor.sensor_id}: {e}"
+                )
 
         return {
             "success": True,
             "reused": False,
-            "sensor": created_sensor.model_dump(mode='json'),
-            "message": f"Created new sensor: {created_sensor.friendly_name}"
+            "sensor": created_sensor.model_dump(mode="json"),
+            "message": f"Created new sensor: {created_sensor.friendly_name}",
         }
     except ValueError as e:
         logger.error(f"[API] Sensor creation failed: {e}")
@@ -196,7 +227,7 @@ async def get_sensor_update_status(device_id: str):
                 "device_id": device_id,
                 "running": False,
                 "paused": False,
-                "status": "disabled"
+                "status": "disabled",
             }
 
         is_running = deps.sensor_updater.is_running(device_id)
@@ -214,7 +245,7 @@ async def get_sensor_update_status(device_id: str):
             "device_id": device_id,
             "running": is_running,
             "paused": is_paused,
-            "status": status
+            "status": status,
         }
     except Exception as e:
         logger.error(f"[API] Failed to get sensor update status for {device_id}: {e}")
@@ -231,8 +262,8 @@ async def get_sensors(device_id: str):
         return {
             "success": True,
             "device_id": device_id,
-            "sensors": [s.model_dump(mode='json') for s in sensors],
-            "count": len(sensors)
+            "sensors": [s.model_dump(mode="json") for s in sensors],
+            "count": len(sensors),
         }
     except Exception as e:
         logger.error(f"[API] Get sensors failed: {e}")
@@ -248,10 +279,7 @@ async def get_sensor(device_id: str, sensor_id: str):
         sensor = deps.sensor_manager.get_sensor(device_id, sensor_id)
         if not sensor:
             raise HTTPException(status_code=404, detail=f"Sensor {sensor_id} not found")
-        return {
-            "success": True,
-            "sensor": sensor.model_dump(mode='json')
-        }
+        return {"success": True, "sensor": sensor.model_dump(mode="json")}
     except HTTPException:
         raise
     except Exception as e:
@@ -279,19 +307,25 @@ async def update_sensor(sensor: SensorDefinition):
             try:
                 mqtt_updated = await deps.mqtt_manager.publish_discovery(updated_sensor)
                 if mqtt_updated:
-                    logger.info(f"[API] Republished MQTT discovery for {sensor.sensor_id}")
+                    logger.info(
+                        f"[API] Republished MQTT discovery for {sensor.sensor_id}"
+                    )
                     # Also publish current state if available
                     if updated_sensor.current_value:
-                        await deps.mqtt_manager.publish_state(updated_sensor, updated_sensor.current_value)
+                        await deps.mqtt_manager.publish_state(
+                            updated_sensor, updated_sensor.current_value
+                        )
                 else:
-                    logger.warning(f"[API] Failed to republish MQTT discovery for {sensor.sensor_id}")
+                    logger.warning(
+                        f"[API] Failed to republish MQTT discovery for {sensor.sensor_id}"
+                    )
             except Exception as e:
                 logger.error(f"[API] MQTT republish failed for {sensor.sensor_id}: {e}")
 
         return {
             "success": True,
-            "sensor": updated_sensor.model_dump(mode='json'),
-            "mqtt_updated": mqtt_updated
+            "sensor": updated_sensor.model_dump(mode="json"),
+            "mqtt_updated": mqtt_updated,
         }
     except HTTPException:
         raise
@@ -323,19 +357,24 @@ async def delete_sensor(device_id: str, sensor_id: str):
                 if mqtt_removed:
                     logger.info(f"[API] Removed sensor {sensor_id} from Home Assistant")
                 else:
-                    logger.warning(f"[API] Failed to remove sensor {sensor_id} from Home Assistant")
+                    logger.warning(
+                        f"[API] Failed to remove sensor {sensor_id} from Home Assistant"
+                    )
             except Exception as e:
                 logger.error(f"[API] MQTT removal failed for {sensor_id}: {e}")
 
         # Delete from local storage
         success = deps.sensor_manager.delete_sensor(device_id, sensor_id)
         if not success:
-            raise HTTPException(status_code=500, detail=f"Failed to delete sensor {sensor_id}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to delete sensor {sensor_id}"
+            )
 
         return {
             "success": True,
             "mqtt_removed": mqtt_removed,
-            "message": f"Sensor {sensor_id} deleted" + (" and removed from Home Assistant" if mqtt_removed else "")
+            "message": f"Sensor {sensor_id} deleted"
+            + (" and removed from Home Assistant" if mqtt_removed else ""),
         }
     except HTTPException:
         raise
@@ -357,11 +396,15 @@ async def cleanup_orphaned_sensors(device_id: str, confirm: bool = False):
         deps = get_deps()
         all_sensors = deps.sensor_manager.get_all_sensors(device_id)
         all_flows = deps.flow_manager.get_all_flows() if deps.flow_manager else []
-        flows = [f for f in all_flows if f.device_id == device_id or f.stable_device_id == device_id]
+        flows = [
+            f
+            for f in all_flows
+            if f.device_id == device_id or f.stable_device_id == device_id
+        ]
         used_sensor_ids = set()
         for flow in flows:
             for step in flow.steps:
-                if step.step_type == 'capture_sensors' and step.sensor_ids:
+                if step.step_type == "capture_sensors" and step.sensor_ids:
                     used_sensor_ids.update(step.sensor_ids)
         orphaned = [s for s in all_sensors if s.sensor_id not in used_sensor_ids]
         return {
@@ -369,7 +412,7 @@ async def cleanup_orphaned_sensors(device_id: str, confirm: bool = False):
             "would_delete": len(orphaned),
             "would_keep": len(all_sensors) - len(orphaned),
             "orphaned_ids": [s.sensor_id for s in orphaned[:20]],
-            "message": f"Would delete {len(orphaned)} orphaned sensors. Add ?confirm=true to actually delete."
+            "message": f"Would delete {len(orphaned)} orphaned sensors. Add ?confirm=true to actually delete.",
         }
     deps = get_deps()
     try:
@@ -383,15 +426,21 @@ async def cleanup_orphaned_sensors(device_id: str, confirm: bool = False):
         # Get all flows to find used sensor IDs
         all_flows = deps.flow_manager.get_all_flows() if deps.flow_manager else []
         # Filter to flows for this device (by device_id or stable_device_id)
-        flows = [f for f in all_flows if f.device_id == device_id or f.stable_device_id == device_id]
+        flows = [
+            f
+            for f in all_flows
+            if f.device_id == device_id or f.stable_device_id == device_id
+        ]
         used_sensor_ids = set()
 
         for flow in flows:
             for step in flow.steps:
-                if step.step_type == 'capture_sensors' and step.sensor_ids:
+                if step.step_type == "capture_sensors" and step.sensor_ids:
                     used_sensor_ids.update(step.sensor_ids)
 
-        logger.info(f"[API] Found {len(all_sensors)} total sensors, {len(flows)} flows, {len(used_sensor_ids)} sensor IDs used in flows")
+        logger.info(
+            f"[API] Found {len(all_sensors)} total sensors, {len(flows)} flows, {len(used_sensor_ids)} sensor IDs used in flows"
+        )
 
         # Find orphaned sensors
         orphaned = [s for s in all_sensors if s.sensor_id not in used_sensor_ids]
@@ -399,7 +448,9 @@ async def cleanup_orphaned_sensors(device_id: str, confirm: bool = False):
 
         # Log some examples
         if orphaned:
-            logger.info(f"[API] Example orphaned: {[s.sensor_id for s in orphaned[:5]]}")
+            logger.info(
+                f"[API] Example orphaned: {[s.sensor_id for s in orphaned[:5]]}"
+            )
 
         # Delete orphaned sensors
         deleted_count = 0
@@ -411,10 +462,14 @@ async def cleanup_orphaned_sensors(device_id: str, confirm: bool = False):
                     try:
                         await deps.mqtt_manager.remove_discovery(sensor)
                     except Exception as e:
-                        logger.warning(f"[API] MQTT removal failed for {sensor.sensor_id}: {e}")
+                        logger.warning(
+                            f"[API] MQTT removal failed for {sensor.sensor_id}: {e}"
+                        )
 
                 # Delete from storage - use the sensor's actual device_id
-                success = deps.sensor_manager.delete_sensor(sensor.device_id, sensor.sensor_id)
+                success = deps.sensor_manager.delete_sensor(
+                    sensor.device_id, sensor.sensor_id
+                )
                 if success:
                     deleted_count += 1
                 else:
@@ -427,7 +482,8 @@ async def cleanup_orphaned_sensors(device_id: str, confirm: bool = False):
             "deleted": deleted_count,
             "failed": len(failed),
             "failed_ids": failed[:10],  # Return first 10 failed IDs
-            "message": f"Deleted {deleted_count} orphaned sensors" + (f", {len(failed)} failed" if failed else "")
+            "message": f"Deleted {deleted_count} orphaned sensors"
+            + (f", {len(failed)} failed" if failed else ""),
         }
 
     except Exception as e:
@@ -438,6 +494,7 @@ async def cleanup_orphaned_sensors(device_id: str, confirm: bool = False):
 # =============================================================================
 # TEXT EXTRACTION TESTING
 # =============================================================================
+
 
 @router.post("/test/extract")
 async def test_extraction(request: dict):
@@ -475,21 +532,24 @@ async def test_extraction(request: dict):
             "success": True,
             "extracted_value": result,
             "original_text": text,
-            "method_used": extraction_rule.method
+            "method_used": extraction_rule.method,
         }
     except Exception as e:
         logger.error(f"[API] Test extraction failed: {e}")
         return {
             "success": False,
             "error": str(e),
-            "extracted_value": request.get("extraction_rule", {}).get("fallback_value", ""),
-            "original_text": request.get("text", "")
+            "extracted_value": request.get("extraction_rule", {}).get(
+                "fallback_value", ""
+            ),
+            "original_text": request.get("text", ""),
         }
 
 
 # =============================================================================
 # MIGRATION ENDPOINTS
 # =============================================================================
+
 
 @router.post("/sensors/migrate-stable-ids")
 async def migrate_sensor_stable_ids():
@@ -535,17 +595,23 @@ async def migrate_sensor_stable_ids():
                     sensor.stable_device_id = stable_id
                     deps.sensor_manager.update_sensor(sensor)
                     migrated += 1
-                    logger.debug(f"[API] Migrated sensor {sensor.sensor_id} to stable ID {stable_id}")
+                    logger.debug(
+                        f"[API] Migrated sensor {sensor.sensor_id} to stable ID {stable_id}"
+                    )
 
                     # Republish MQTT discovery with new stable ID
                     if deps.mqtt_manager:
                         await deps.mqtt_manager.publish_discovery(sensor)
                 except Exception as e:
-                    logger.error(f"[API] Failed to migrate sensor {sensor.sensor_id}: {e}")
+                    logger.error(
+                        f"[API] Failed to migrate sensor {sensor.sensor_id}: {e}"
+                    )
                     failed += 1
 
         if migrated > 0:
-            logger.info(f"[API] Republished MQTT discoveries for {migrated} migrated sensors")
+            logger.info(
+                f"[API] Republished MQTT discoveries for {migrated} migrated sensors"
+            )
 
         return {
             "success": True,
@@ -553,7 +619,7 @@ async def migrate_sensor_stable_ids():
             "migrated": migrated,
             "already_set": already_set,
             "failed": failed,
-            "message": f"Migrated {migrated} sensors across {devices_processed} devices"
+            "message": f"Migrated {migrated} sensors across {devices_processed} devices",
         }
     except Exception as e:
         logger.error(f"[API] Sensor migration failed: {e}")
@@ -563,6 +629,7 @@ async def migrate_sensor_stable_ids():
 # =============================================================================
 # SENSOR UPDATE CONTROL (PAUSE/RESUME)
 # =============================================================================
+
 
 @router.post("/sensors/pause/{device_id}")
 async def pause_sensor_updates(device_id: str):
@@ -585,14 +652,14 @@ async def pause_sensor_updates(device_id: str):
                 "success": True,
                 "device_id": device_id,
                 "paused": True,
-                "message": f"Sensor updates paused for {device_id}"
+                "message": f"Sensor updates paused for {device_id}",
             }
         else:
             return {
                 "success": False,
                 "device_id": device_id,
                 "paused": False,
-                "message": f"No sensor update loop running for {device_id}"
+                "message": f"No sensor update loop running for {device_id}",
             }
     except HTTPException:
         raise
@@ -619,13 +686,13 @@ async def resume_sensor_updates(device_id: str):
                 "success": True,
                 "device_id": device_id,
                 "paused": False,
-                "message": f"Sensor updates resumed for {device_id}"
+                "message": f"Sensor updates resumed for {device_id}",
             }
         else:
             return {
                 "success": False,
                 "device_id": device_id,
-                "message": f"Device {device_id} was not paused"
+                "message": f"Device {device_id} was not paused",
             }
     except HTTPException:
         raise

@@ -34,7 +34,7 @@ class NavigationMqttHandler:
         self._stats = {
             "transitions_received": 0,
             "transitions_learned": 0,
-            "transitions_failed": 0
+            "transitions_failed": 0,
         }
         logger.info("[NavigationMqttHandler] Initialized")
 
@@ -53,8 +53,10 @@ class NavigationMqttHandler:
 
         try:
             data = json.loads(payload)
-            logger.debug(f"[NavigationMqttHandler] Received transition from {device_id}: "
-                        f"{data.get('before_activity')} -> {data.get('after_activity')}")
+            logger.debug(
+                f"[NavigationMqttHandler] Received transition from {device_id}: "
+                f"{data.get('before_activity')} -> {data.get('after_activity')}"
+            )
 
             # Parse action from payload
             action_data = data.get("action", {})
@@ -73,7 +75,7 @@ class NavigationMqttHandler:
                 swipe_direction=action_data.get("swipe_direction"),
                 keycode=action_data.get("keycode"),
                 text=action_data.get("text"),
-                description=action_data.get("description")
+                description=action_data.get("description"),
             )
 
             # Build LearnTransitionRequest
@@ -86,7 +88,7 @@ class NavigationMqttHandler:
                 after_ui_elements=data.get("after_ui_elements", []),
                 action=action,
                 device_id=device_id,
-                transition_time_ms=data.get("transition_time_ms")
+                transition_time_ms=data.get("transition_time_ms"),
             )
 
             # Learn the transition
@@ -94,13 +96,17 @@ class NavigationMqttHandler:
 
             if success:
                 self._stats["transitions_learned"] += 1
-                logger.info(f"[NavigationMqttHandler] Learned transition: "
-                           f"{request.before_activity} -> {request.after_activity} "
-                           f"via {action.action_type}")
+                logger.info(
+                    f"[NavigationMqttHandler] Learned transition: "
+                    f"{request.before_activity} -> {request.after_activity} "
+                    f"via {action.action_type}"
+                )
             else:
                 self._stats["transitions_failed"] += 1
-                logger.warning(f"[NavigationMqttHandler] Failed to learn transition: "
-                              f"{request.before_activity} -> {request.after_activity}")
+                logger.warning(
+                    f"[NavigationMqttHandler] Failed to learn transition: "
+                    f"{request.before_activity} -> {request.after_activity}"
+                )
 
             return success
 
@@ -127,6 +133,6 @@ class NavigationMqttHandler:
         self._stats = {
             "transitions_received": 0,
             "transitions_learned": 0,
-            "transitions_failed": 0
+            "transitions_failed": 0,
         }
         logger.info("[NavigationMqttHandler] Stats reset")

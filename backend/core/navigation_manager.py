@@ -54,7 +54,9 @@ class NavigationManager:
         # In-memory cache of loaded graphs
         self._graph_cache: Dict[str, NavigationGraph] = {}
 
-        logger.info(f"[NavigationManager] Initialized with config_dir: {self.config_dir}")
+        logger.info(
+            f"[NavigationManager] Initialized with config_dir: {self.config_dir}"
+        )
 
     # =========================================================================
     # File Operations
@@ -73,7 +75,7 @@ class NavigationManager:
             return None
 
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             graph = NavigationGraph(**data)
             logger.debug(f"[NavigationManager] Loaded graph for {package} from {path}")
@@ -89,13 +91,17 @@ class NavigationManager:
             # Update timestamp
             graph.updated_at = datetime.now()
 
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(graph.model_dump(mode='json'), f, indent=2, default=str)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(graph.model_dump(mode="json"), f, indent=2, default=str)
 
-            logger.debug(f"[NavigationManager] Saved graph for {graph.package} to {path}")
+            logger.debug(
+                f"[NavigationManager] Saved graph for {graph.package} to {path}"
+            )
             return True
         except Exception as e:
-            logger.error(f"[NavigationManager] Failed to save graph for {graph.package}: {e}")
+            logger.error(
+                f"[NavigationManager] Failed to save graph for {graph.package}: {e}"
+            )
             return False
 
     # =========================================================================
@@ -123,7 +129,9 @@ class NavigationManager:
 
         return graph
 
-    def get_or_create_graph(self, package: str, device_id: str = None) -> NavigationGraph:
+    def get_or_create_graph(
+        self, package: str, device_id: str = None
+    ) -> NavigationGraph:
         """
         Get existing graph or create a new one
 
@@ -140,11 +148,13 @@ class NavigationManager:
 
         # Create new graph
         graph = NavigationGraph(
-            graph_id=hashlib.sha256(f"{package}_{datetime.now().isoformat()}".encode()).hexdigest()[:16],
+            graph_id=hashlib.sha256(
+                f"{package}_{datetime.now().isoformat()}".encode()
+            ).hexdigest()[:16],
             package=package,
             device_id=device_id,
             created_at=datetime.now(),
-            updated_at=datetime.now()
+            updated_at=datetime.now(),
         )
 
         self._graph_cache[package] = graph
@@ -188,7 +198,9 @@ class NavigationManager:
                 logger.info(f"[NavigationManager] Deleted graph for {package}")
                 return True
             except Exception as e:
-                logger.error(f"[NavigationManager] Failed to delete graph for {package}: {e}")
+                logger.error(
+                    f"[NavigationManager] Failed to delete graph for {package}: {e}"
+                )
                 return False
 
         return True
@@ -203,9 +215,9 @@ class NavigationManager:
         packages = []
         for path in self.config_dir.glob("nav_*.json"):
             try:
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                packages.append(data.get('package', 'unknown'))
+                packages.append(data.get("package", "unknown"))
             except Exception:
                 pass
         return packages
@@ -221,7 +233,7 @@ class NavigationManager:
         ui_elements: List[Dict] = None,
         display_name: str = None,
         learned_from: str = "recording",
-        is_home_screen: bool = False
+        is_home_screen: bool = False,
     ) -> ScreenNode:
         """
         Add or update a screen in the navigation graph
@@ -262,18 +274,21 @@ class NavigationManager:
                 screen_id=screen_id,
                 package=package,
                 activity=activity,
-                display_name=display_name or activity.split('.')[-1],  # Use class name as default
+                display_name=display_name
+                or activity.split(".")[-1],  # Use class name as default
                 ui_landmarks=landmarks,
                 learned_from=learned_from,
                 is_home_screen=is_home_screen,
-                visit_count=1
+                visit_count=1,
             )
             graph.screens[screen_id] = screen
 
             if is_home_screen:
                 graph.home_screen_id = screen_id
 
-            logger.info(f"[NavigationManager] Added screen: {screen.display_name} ({screen_id[:8]}...)")
+            logger.info(
+                f"[NavigationManager] Added screen: {screen.display_name} ({screen_id[:8]}...)"
+            )
 
         self.save_graph(graph)
         return screen
@@ -286,10 +301,7 @@ class NavigationManager:
         return graph.screens.get(screen_id)
 
     def identify_current_screen(
-        self,
-        package: str,
-        activity: str,
-        ui_elements: List[Dict] = None
+        self, package: str, activity: str, ui_elements: List[Dict] = None
     ) -> Optional[ScreenNode]:
         """
         Identify which known screen matches the current state
@@ -331,7 +343,7 @@ class NavigationManager:
         source_screen_id: str,
         target_screen_id: str,
         action: TransitionAction,
-        learned_from: str = "recording"
+        learned_from: str = "recording",
     ) -> Optional[ScreenTransition]:
         """
         Add or update a transition between screens
@@ -349,7 +361,9 @@ class NavigationManager:
         graph = self.get_or_create_graph(package)
 
         # Generate transition ID
-        transition_id = generate_transition_id(source_screen_id, target_screen_id, action)
+        transition_id = generate_transition_id(
+            source_screen_id, target_screen_id, action
+        )
 
         # Check if transition exists
         existing = None
@@ -362,7 +376,9 @@ class NavigationManager:
             # Update existing transition
             existing.usage_count += 1
             existing.last_used = datetime.now()
-            logger.debug(f"[NavigationManager] Updated transition: {transition_id[:8]}... (count: {existing.usage_count})")
+            logger.debug(
+                f"[NavigationManager] Updated transition: {transition_id[:8]}... (count: {existing.usage_count})"
+            )
         else:
             # Create new transition
             transition = ScreenTransition(
@@ -371,23 +387,29 @@ class NavigationManager:
                 target_screen_id=target_screen_id,
                 action=action,
                 learned_from=learned_from,
-                usage_count=1
+                usage_count=1,
             )
             graph.transitions.append(transition)
             existing = transition
-            logger.info(f"[NavigationManager] Added transition: {source_screen_id[:8]}... -> {target_screen_id[:8]}...")
+            logger.info(
+                f"[NavigationManager] Added transition: {source_screen_id[:8]}... -> {target_screen_id[:8]}..."
+            )
 
         self.save_graph(graph)
         return existing
 
-    def get_transitions_from(self, package: str, screen_id: str) -> List[ScreenTransition]:
+    def get_transitions_from(
+        self, package: str, screen_id: str
+    ) -> List[ScreenTransition]:
         """Get all transitions FROM a screen"""
         graph = self.get_graph(package)
         if not graph:
             return []
         return [t for t in graph.transitions if t.source_screen_id == screen_id]
 
-    def get_transitions_to(self, package: str, screen_id: str) -> List[ScreenTransition]:
+    def get_transitions_to(
+        self, package: str, screen_id: str
+    ) -> List[ScreenTransition]:
         """Get all transitions TO a screen"""
         graph = self.get_graph(package)
         if not graph:
@@ -395,11 +417,7 @@ class NavigationManager:
         return [t for t in graph.transitions if t.target_screen_id == screen_id]
 
     def update_transition_stats(
-        self,
-        package: str,
-        transition_id: str,
-        success: bool,
-        time_ms: int = None
+        self, package: str, transition_id: str, success: bool, time_ms: int = None
     ):
         """
         Update transition statistics after use
@@ -422,7 +440,9 @@ class NavigationManager:
 
                 # Update success rate (exponential moving average)
                 alpha = 0.2  # Weight for new observation
-                t.success_rate = alpha * (1.0 if success else 0.0) + (1 - alpha) * t.success_rate
+                t.success_rate = (
+                    alpha * (1.0 if success else 0.0) + (1 - alpha) * t.success_rate
+                )
 
                 # Update average time
                 if time_ms:
@@ -438,10 +458,7 @@ class NavigationManager:
     # =========================================================================
 
     def find_path(
-        self,
-        package: str,
-        from_screen_id: str,
-        to_screen_id: str
+        self, package: str, from_screen_id: str, to_screen_id: str
     ) -> Optional[NavigationPath]:
         """
         Find the best path from one screen to another
@@ -471,7 +488,7 @@ class NavigationManager:
                 to_screen_id=to_screen_id,
                 transitions=[],
                 total_cost=0,
-                estimated_time_ms=0
+                estimated_time_ms=0,
             )
 
         # Build adjacency list
@@ -486,7 +503,7 @@ class NavigationManager:
                 adjacency[t.source_screen_id].append((t.target_screen_id, t, cost))
 
         # Dijkstra's algorithm
-        distances = {screen_id: float('inf') for screen_id in graph.screens}
+        distances = {screen_id: float("inf") for screen_id in graph.screens}
         distances[from_screen_id] = 0
         predecessors: Dict[str, Tuple[str, ScreenTransition]] = {}
 
@@ -513,7 +530,7 @@ class NavigationManager:
                     to_screen_id=to_screen_id,
                     transitions=path_transitions,
                     total_cost=current_dist,
-                    estimated_time_ms=total_time
+                    estimated_time_ms=total_time,
                 )
 
             if current_dist > distances[current]:
@@ -526,7 +543,9 @@ class NavigationManager:
                     predecessors[neighbor] = (current, transition)
                     heapq.heappush(pq, (distance, neighbor))
 
-        logger.warning(f"[NavigationManager] No path found from {from_screen_id[:8]}... to {to_screen_id[:8]}...")
+        logger.warning(
+            f"[NavigationManager] No path found from {from_screen_id[:8]}... to {to_screen_id[:8]}..."
+        )
         return None
 
     def _calculate_transition_cost(self, transition: ScreenTransition) -> float:
@@ -586,7 +605,7 @@ class NavigationManager:
                 package=package,
                 activity=request.before_activity,
                 ui_elements=request.before_ui_elements,
-                learned_from="recording"
+                learned_from="recording",
             )
 
             # Add/update target screen
@@ -594,7 +613,7 @@ class NavigationManager:
                 package=package,
                 activity=request.after_activity,
                 ui_elements=request.after_ui_elements,
-                learned_from="recording"
+                learned_from="recording",
             )
 
             # Add transition
@@ -603,7 +622,7 @@ class NavigationManager:
                 source_screen_id=source_screen.screen_id,
                 target_screen_id=target_screen.screen_id,
                 action=request.action,
-                learned_from="recording"
+                learned_from="recording",
             )
 
             logger.info(
@@ -613,10 +632,14 @@ class NavigationManager:
             return True
 
         except Exception as e:
-            logger.error(f"[NavigationManager] Failed to learn transition: {e}", exc_info=True)
+            logger.error(
+                f"[NavigationManager] Failed to learn transition: {e}", exc_info=True
+            )
             return False
 
-    def set_home_screen(self, package: str, activity: str, ui_elements: List[Dict] = None):
+    def set_home_screen(
+        self, package: str, activity: str, ui_elements: List[Dict] = None
+    ):
         """
         Set the home screen for an app
 
@@ -631,7 +654,9 @@ class NavigationManager:
         for existing_screen in graph.screens.values():
             if existing_screen.is_home_screen:
                 existing_screen.is_home_screen = False
-                logger.debug(f"[NavigationManager] Cleared home flag from: {existing_screen.display_name}")
+                logger.debug(
+                    f"[NavigationManager] Cleared home flag from: {existing_screen.display_name}"
+                )
 
         # Now add/update the new home screen
         screen = self.add_screen(
@@ -639,14 +664,16 @@ class NavigationManager:
             activity=activity,
             ui_elements=ui_elements,
             learned_from="recording",
-            is_home_screen=True
+            is_home_screen=True,
         )
 
         # Ensure graph home_screen_id is set
         graph.home_screen_id = screen.screen_id
         self.save_graph(graph)
 
-        logger.info(f"[NavigationManager] Set home screen for {package}: {screen.display_name}")
+        logger.info(
+            f"[NavigationManager] Set home screen for {package}: {screen.display_name}"
+        )
 
     # =========================================================================
     # Statistics & Debugging
@@ -666,7 +693,7 @@ class NavigationManager:
             "created_at": graph.created_at.isoformat() if graph.created_at else None,
             "updated_at": graph.updated_at.isoformat() if graph.updated_at else None,
             "total_recordings": graph.total_recordings,
-            "total_navigations": graph.total_navigations
+            "total_navigations": graph.total_navigations,
         }
 
     def export_graph_as_dot(self, package: str) -> Optional[str]:
@@ -685,7 +712,7 @@ class NavigationManager:
 
         # Add nodes
         for screen_id, screen in graph.screens.items():
-            label = screen.display_name or screen.activity.split('.')[-1]
+            label = screen.display_name or screen.activity.split(".")[-1]
             style = "style=filled,fillcolor=lightgreen" if screen.is_home_screen else ""
             lines.append(f'  "{screen_id[:8]}" [label="{label}" {style}];')
 

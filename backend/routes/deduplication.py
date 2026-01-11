@@ -16,17 +16,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["deduplication"])
 
+
 # Dependency to get deduplication service
 def get_dedup_service():
     from routes import get_deps
+
     deps = get_deps()
-    if not hasattr(deps, 'dedup_service') or deps.dedup_service is None:
+    if not hasattr(deps, "dedup_service") or deps.dedup_service is None:
         # Create service if not exists
         from services.deduplication_service import DeduplicationService
+
         deps.dedup_service = DeduplicationService(
             sensor_manager=deps.sensor_manager,
             action_manager=deps.action_manager,
-            flow_manager=deps.flow_manager
+            flow_manager=deps.flow_manager,
         )
     return deps.dedup_service
 
@@ -35,10 +38,10 @@ def get_dedup_service():
 # SENSOR SIMILARITY
 # =============================================================================
 
+
 @router.post("/dedup/sensors/check")
 async def check_sensor_similarity(
-    request: Dict[str, Any],
-    service = Depends(get_dedup_service)
+    request: Dict[str, Any], service=Depends(get_dedup_service)
 ):
     """
     Check if a sensor being created is similar to existing sensors.
@@ -69,7 +72,7 @@ async def check_sensor_similarity(
             "has_similar": len(matches) > 0,
             "matches": [m.to_dict() for m in matches],
             "recommendation": matches[0].recommendation.value if matches else None,
-            "best_match": matches[0].to_dict() if matches else None
+            "best_match": matches[0].to_dict() if matches else None,
         }
 
     except HTTPException:
@@ -83,10 +86,10 @@ async def check_sensor_similarity(
 # ACTION SIMILARITY
 # =============================================================================
 
+
 @router.post("/dedup/actions/check")
 async def check_action_similarity(
-    request: Dict[str, Any],
-    service = Depends(get_dedup_service)
+    request: Dict[str, Any], service=Depends(get_dedup_service)
 ):
     """
     Check if an action being created is similar to existing actions.
@@ -104,7 +107,7 @@ async def check_action_similarity(
             "has_similar": len(matches) > 0,
             "matches": [m.to_dict() for m in matches],
             "recommendation": matches[0].recommendation.value if matches else None,
-            "best_match": matches[0].to_dict() if matches else None
+            "best_match": matches[0].to_dict() if matches else None,
         }
 
     except HTTPException:
@@ -118,10 +121,10 @@ async def check_action_similarity(
 # FLOW OVERLAP
 # =============================================================================
 
+
 @router.post("/dedup/flows/check")
 async def check_flow_overlap(
-    request: Dict[str, Any],
-    service = Depends(get_dedup_service)
+    request: Dict[str, Any], service=Depends(get_dedup_service)
 ):
     """
     Check if a flow being created overlaps with existing flows.
@@ -139,14 +142,20 @@ async def check_flow_overlap(
             "has_overlapping": len(matches) > 0,
             "matches": [m.to_dict() for m in matches],
             "recommendation": matches[0].recommendation.value if matches else None,
-            "overlapping_sensors": list(set(
-                sid for m in matches
-                for sid in m.details.get("existing_sensors", [])
-            )),
-            "overlapping_screens": list(set(
-                screen for m in matches
-                for screen in m.details.get("existing_screens", [])
-            ))
+            "overlapping_sensors": list(
+                set(
+                    sid
+                    for m in matches
+                    for sid in m.details.get("existing_sensors", [])
+                )
+            ),
+            "overlapping_screens": list(
+                set(
+                    screen
+                    for m in matches
+                    for screen in m.details.get("existing_screens", [])
+                )
+            ),
         }
 
     except HTTPException:
@@ -160,10 +169,10 @@ async def check_flow_overlap(
 # OPTIMIZATION SUGGESTIONS
 # =============================================================================
 
+
 @router.get("/dedup/optimize/{device_id}")
 async def get_optimization_suggestions(
-    device_id: str,
-    service = Depends(get_dedup_service)
+    device_id: str, service=Depends(get_dedup_service)
 ):
     """
     Get all optimization suggestions for a device.
@@ -181,9 +190,7 @@ async def get_optimization_suggestions(
 
 
 @router.get("/dedup/stats")
-async def get_deduplication_stats(
-    service = Depends(get_dedup_service)
-):
+async def get_deduplication_stats(service=Depends(get_dedup_service)):
     """
     Get deduplication service statistics.
     """
@@ -196,9 +203,9 @@ async def get_deduplication_stats(
             "thresholds": {
                 "high_similarity": service.HIGH_SIMILARITY,
                 "medium_similarity": service.MEDIUM_SIMILARITY,
-                "low_similarity": service.LOW_SIMILARITY
+                "low_similarity": service.LOW_SIMILARITY,
             },
-            "bounds_tolerance_px": service.BOUNDS_TOLERANCE
+            "bounds_tolerance_px": service.BOUNDS_TOLERANCE,
         }
 
     except Exception as e:

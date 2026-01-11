@@ -45,8 +45,10 @@ def get_navigation_manager():
 # Request/Response Models
 # ============================================================================
 
+
 class AddScreenRequest(BaseModel):
     """Request to manually add a screen"""
+
     activity: str
     display_name: Optional[str] = None
     ui_elements: List[Dict[str, Any]] = []
@@ -55,6 +57,7 @@ class AddScreenRequest(BaseModel):
 
 class AddTransitionRequest(BaseModel):
     """Request to manually add a transition"""
+
     source_screen_id: str
     target_screen_id: str
     action: TransitionAction
@@ -62,12 +65,14 @@ class AddTransitionRequest(BaseModel):
 
 class MineFlowsRequest(BaseModel):
     """Request to mine navigation from existing flows"""
+
     device_id: Optional[str] = None
     limit: Optional[int] = None  # Max flows to mine
 
 
 class GraphStatsResponse(BaseModel):
     """Navigation graph statistics"""
+
     package: str
     screen_count: int
     transition_count: int
@@ -79,6 +84,7 @@ class GraphStatsResponse(BaseModel):
 # ============================================================================
 # Graph CRUD Endpoints
 # ============================================================================
+
 
 @router.get("/{package}")
 async def get_navigation_graph(package: str) -> Dict[str, Any]:
@@ -95,12 +101,11 @@ async def get_navigation_graph(package: str) -> Dict[str, Any]:
     graph = manager.get_graph(package)
 
     if not graph:
-        raise HTTPException(status_code=404, detail=f"No navigation graph found for {package}")
+        raise HTTPException(
+            status_code=404, detail=f"No navigation graph found for {package}"
+        )
 
-    return {
-        "success": True,
-        "graph": graph.model_dump(mode='json')
-    }
+    return {"success": True, "graph": graph.model_dump(mode="json")}
 
 
 @router.get("/")
@@ -114,11 +119,7 @@ async def list_navigation_graphs() -> Dict[str, Any]:
     manager = get_navigation_manager()
     packages = manager.list_graphs()
 
-    return {
-        "success": True,
-        "packages": packages,
-        "count": len(packages)
-    }
+    return {"success": True, "packages": packages, "count": len(packages)}
 
 
 @router.delete("/{package}")
@@ -136,12 +137,11 @@ async def delete_navigation_graph(package: str) -> Dict[str, Any]:
     success = manager.delete_graph(package)
 
     if not success:
-        raise HTTPException(status_code=500, detail=f"Failed to delete graph for {package}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete graph for {package}"
+        )
 
-    return {
-        "success": True,
-        "message": f"Deleted navigation graph for {package}"
-    }
+    return {"success": True, "message": f"Deleted navigation graph for {package}"}
 
 
 @router.get("/{package}/stats")
@@ -163,19 +163,19 @@ async def get_graph_stats(package: str, allow_missing: bool = False) -> Dict[str
             return {
                 "success": False,
                 "stats": None,
-                "message": f"No navigation graph found for {package}"
+                "message": f"No navigation graph found for {package}",
             }
-        raise HTTPException(status_code=404, detail=f"No navigation graph found for {package}")
+        raise HTTPException(
+            status_code=404, detail=f"No navigation graph found for {package}"
+        )
 
-    return {
-        "success": True,
-        "stats": stats
-    }
+    return {"success": True, "stats": stats}
 
 
 # ============================================================================
 # Screen Endpoints
 # ============================================================================
+
 
 @router.get("/{package}/screens")
 async def list_screens(package: str) -> Dict[str, Any]:
@@ -192,17 +192,13 @@ async def list_screens(package: str) -> Dict[str, Any]:
     graph = manager.get_graph(package)
 
     if not graph:
-        return {
-            "success": True,
-            "screens": [],
-            "count": 0
-        }
+        return {"success": True, "screens": [], "count": 0}
 
     screens = list(graph.screens.values())
     return {
         "success": True,
-        "screens": [s.model_dump(mode='json') for s in screens],
-        "count": len(screens)
+        "screens": [s.model_dump(mode="json") for s in screens],
+        "count": len(screens),
     }
 
 
@@ -226,13 +222,10 @@ async def add_screen(package: str, request: AddScreenRequest) -> Dict[str, Any]:
         ui_elements=request.ui_elements,
         display_name=request.display_name,
         learned_from="teaching",
-        is_home_screen=request.is_home_screen
+        is_home_screen=request.is_home_screen,
     )
 
-    return {
-        "success": True,
-        "screen": screen.model_dump(mode='json')
-    }
+    return {"success": True, "screen": screen.model_dump(mode="json")}
 
 
 @router.get("/{package}/screens/{screen_id}")
@@ -253,10 +246,7 @@ async def get_screen(package: str, screen_id: str) -> Dict[str, Any]:
     if not screen:
         raise HTTPException(status_code=404, detail=f"Screen {screen_id} not found")
 
-    return {
-        "success": True,
-        "screen": screen.model_dump(mode='json')
-    }
+    return {"success": True, "screen": screen.model_dump(mode="json")}
 
 
 @router.put("/{package}/screens/{screen_id}")
@@ -264,7 +254,7 @@ async def update_screen(
     package: str,
     screen_id: str,
     display_name: Optional[str] = None,
-    is_home_screen: Optional[bool] = None
+    is_home_screen: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
     Update screen properties
@@ -300,15 +290,13 @@ async def update_screen(
 
     manager.save_graph(graph)
 
-    return {
-        "success": True,
-        "screen": screen.model_dump(mode='json')
-    }
+    return {"success": True, "screen": screen.model_dump(mode="json")}
 
 
 # ============================================================================
 # Transition Endpoints
 # ============================================================================
+
 
 @router.get("/{package}/transitions")
 async def list_transitions(package: str) -> Dict[str, Any]:
@@ -325,16 +313,12 @@ async def list_transitions(package: str) -> Dict[str, Any]:
     graph = manager.get_graph(package)
 
     if not graph:
-        return {
-            "success": True,
-            "transitions": [],
-            "count": 0
-        }
+        return {"success": True, "transitions": [], "count": 0}
 
     return {
         "success": True,
-        "transitions": [t.model_dump(mode='json') for t in graph.transitions],
-        "count": len(graph.transitions)
+        "transitions": [t.model_dump(mode="json") for t in graph.transitions],
+        "count": len(graph.transitions),
     }
 
 
@@ -357,16 +341,13 @@ async def add_transition(package: str, request: AddTransitionRequest) -> Dict[st
         source_screen_id=request.source_screen_id,
         target_screen_id=request.target_screen_id,
         action=request.action,
-        learned_from="teaching"
+        learned_from="teaching",
     )
 
     if not transition:
         raise HTTPException(status_code=500, detail="Failed to add transition")
 
-    return {
-        "success": True,
-        "transition": transition.model_dump(mode='json')
-    }
+    return {"success": True, "transition": transition.model_dump(mode="json")}
 
 
 @router.delete("/{package}/transitions/{transition_id}")
@@ -389,25 +370,29 @@ async def delete_transition(package: str, transition_id: str) -> Dict[str, Any]:
 
     # Find and remove transition
     original_count = len(graph.transitions)
-    graph.transitions = [t for t in graph.transitions if t.transition_id != transition_id]
+    graph.transitions = [
+        t for t in graph.transitions if t.transition_id != transition_id
+    ]
 
     if len(graph.transitions) == original_count:
-        raise HTTPException(status_code=404, detail=f"Transition {transition_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Transition {transition_id} not found"
+        )
 
     manager.save_graph(graph)
 
-    return {
-        "success": True,
-        "message": f"Deleted transition {transition_id}"
-    }
+    return {"success": True, "message": f"Deleted transition {transition_id}"}
 
 
 # ============================================================================
 # Learning Endpoints
 # ============================================================================
 
+
 @router.post("/{package}/learn-transition")
-async def learn_transition(package: str, request: LearnTransitionRequest) -> Dict[str, Any]:
+async def learn_transition(
+    package: str, request: LearnTransitionRequest
+) -> Dict[str, Any]:
     """
     Learn from an observed screen transition
 
@@ -435,7 +420,7 @@ async def learn_transition(package: str, request: LearnTransitionRequest) -> Dic
         "success": True,
         "message": "Transition learned successfully",
         "from_activity": request.before_activity,
-        "to_activity": request.after_activity
+        "to_activity": request.after_activity,
     }
 
 
@@ -443,7 +428,7 @@ async def learn_transition(package: str, request: LearnTransitionRequest) -> Dic
 async def set_home_screen(
     package: str,
     activity: str = Query(..., description="Home screen activity name"),
-    ui_elements: List[Dict[str, Any]] = Body(default=[])
+    ui_elements: List[Dict[str, Any]] = Body(default=[]),
 ) -> Dict[str, Any]:
     """
     Set the home screen for an app
@@ -459,21 +444,19 @@ async def set_home_screen(
     manager = get_navigation_manager()
     manager.set_home_screen(package, activity, ui_elements)
 
-    return {
-        "success": True,
-        "message": f"Set home screen for {package} to {activity}"
-    }
+    return {"success": True, "message": f"Set home screen for {package} to {activity}"}
 
 
 # ============================================================================
 # Pathfinding Endpoints
 # ============================================================================
 
+
 @router.get("/{package}/path")
 async def find_path(
     package: str,
     from_screen: str = Query(..., description="Source screen ID"),
-    to_screen: str = Query(..., description="Target screen ID")
+    to_screen: str = Query(..., description="Target screen ID"),
 ) -> Dict[str, Any]:
     """
     Find navigation path between two screens
@@ -493,8 +476,7 @@ async def find_path(
 
     if not path:
         raise HTTPException(
-            status_code=404,
-            detail=f"No path found from {from_screen} to {to_screen}"
+            status_code=404, detail=f"No path found from {from_screen} to {to_screen}"
         )
 
     return {
@@ -505,8 +487,8 @@ async def find_path(
             "hop_count": path.hop_count,
             "total_cost": path.total_cost,
             "estimated_time_ms": path.estimated_time_ms,
-            "transitions": [t.model_dump(mode='json') for t in path.transitions]
-        }
+            "transitions": [t.model_dump(mode="json") for t in path.transitions],
+        },
     }
 
 
@@ -514,8 +496,11 @@ async def find_path(
 # Mining Endpoints
 # ============================================================================
 
+
 @router.post("/{package}/mine")
-async def mine_from_flows(package: str, request: MineFlowsRequest = None) -> Dict[str, Any]:
+async def mine_from_flows(
+    package: str, request: MineFlowsRequest = None
+) -> Dict[str, Any]:
     """
     Mine navigation patterns from existing flows
 
@@ -538,13 +523,10 @@ async def mine_from_flows(package: str, request: MineFlowsRequest = None) -> Dic
         result = miner.mine_package(
             package=package,
             device_id=request.device_id if request else None,
-            limit=request.limit if request else None
+            limit=request.limit if request else None,
         )
 
-        return {
-            "success": True,
-            "result": result
-        }
+        return {"success": True, "result": result}
     except Exception as e:
         logger.error(f"Mining failed for {package}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Mining failed: {str(e)}")
@@ -553,6 +535,7 @@ async def mine_from_flows(package: str, request: MineFlowsRequest = None) -> Dic
 # ============================================================================
 # Export/Visualization Endpoints
 # ============================================================================
+
 
 @router.get("/{package}/export/dot")
 async def export_as_dot(package: str) -> Dict[str, Any]:
@@ -573,8 +556,4 @@ async def export_as_dot(package: str) -> Dict[str, Any]:
     if not dot:
         raise HTTPException(status_code=404, detail=f"No graph found for {package}")
 
-    return {
-        "success": True,
-        "format": "dot",
-        "content": dot
-    }
+    return {"success": True, "format": "dot", "content": dot}

@@ -53,7 +53,9 @@ async def register_device(device: DeviceRegistration):
     Stores device information and capabilities.
     """
     try:
-        logger.info(f"[Device Registration] Registering device: {device.deviceId} ({device.deviceName})")
+        logger.info(
+            f"[Device Registration] Registering device: {device.deviceId} ({device.deviceName})"
+        )
 
         device_info = DeviceInfo(
             deviceId=device.deviceId,
@@ -64,19 +66,23 @@ async def register_device(device: DeviceRegistration):
             registeredAt=datetime.now().isoformat(),
             lastHeartbeat=None,
             registered=True,
-            source="companion"
+            source="companion",
         )
 
         registered_devices[device.deviceId] = device_info
 
-        logger.info(f"[Device Registration] Device registered successfully: {device.deviceId}")
-        logger.info(f"[Device Registration] Capabilities: {', '.join(device.capabilities)}")
+        logger.info(
+            f"[Device Registration] Device registered successfully: {device.deviceId}"
+        )
+        logger.info(
+            f"[Device Registration] Capabilities: {', '.join(device.capabilities)}"
+        )
 
         return {
             "success": True,
             "deviceId": device.deviceId,
             "message": f"Device {device.deviceName} registered successfully",
-            "registeredAt": device_info.registeredAt
+            "registeredAt": device_info.registeredAt,
         }
 
     except Exception as e:
@@ -95,16 +101,10 @@ async def device_heartbeat(device_id: str):
         if device_id in registered_devices:
             registered_devices[device_id].lastHeartbeat = datetime.now().isoformat()
             logger.debug(f"[Heartbeat] Received from device: {device_id}")
-            return {
-                "success": True,
-                "message": "Heartbeat received"
-            }
+            return {"success": True, "message": "Heartbeat received"}
         else:
             logger.warning(f"[Heartbeat] Unknown device: {device_id}")
-            return {
-                "success": False,
-                "message": "Device not registered"
-            }
+            return {"success": False, "message": "Device not registered"}
 
     except Exception as e:
         logger.error(f"[Heartbeat] Failed to process heartbeat: {e}")
@@ -118,7 +118,7 @@ async def list_registered_devices():
     """
     return {
         "devices": list(registered_devices.values()),
-        "count": len(registered_devices)
+        "count": len(registered_devices),
     }
 
 
@@ -132,7 +132,9 @@ async def get_device_info(device_id: str):
         if deps.adb_bridge:
             try:
                 devices = await deps.adb_bridge.get_devices()
-                match = next((dev for dev in devices if dev.get("id") == device_id), None)
+                match = next(
+                    (dev for dev in devices if dev.get("id") == device_id), None
+                )
                 if match:
                     return DeviceInfo(
                         deviceId=device_id,
@@ -145,10 +147,12 @@ async def get_device_info(device_id: str):
                         registered=False,
                         source="adb",
                         connectionType=match.get("connection_type"),
-                        connected=match.get("connected")
+                        connected=match.get("connected"),
                     )
             except Exception as e:
-                logger.warning(f"[Device Registration] ADB fallback lookup failed for {device_id}: {e}")
+                logger.warning(
+                    f"[Device Registration] ADB fallback lookup failed for {device_id}: {e}"
+                )
         raise HTTPException(status_code=404, detail="Device not found")
 
     return registered_devices[device_id]
@@ -165,7 +169,4 @@ async def unregister_device(device_id: str):
     device = registered_devices.pop(device_id)
     logger.info(f"[Device Registration] Device unregistered: {device_id}")
 
-    return {
-        "success": True,
-        "message": f"Device {device.deviceName} unregistered"
-    }
+    return {"success": True, "message": f"Device {device.deviceName} unregistered"}

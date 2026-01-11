@@ -45,14 +45,18 @@ class DeviceIdentityResolver:
 
         # In-memory mappings
         self._conn_to_stable: Dict[str, str] = {}  # connection_id -> stable_device_id
-        self._stable_to_conn: Dict[str, str] = {}  # stable_device_id -> connection_id (current)
-        self._device_info: Dict[str, Dict] = {}    # stable_device_id -> device metadata
+        self._stable_to_conn: Dict[str, str] = (
+            {}
+        )  # stable_device_id -> connection_id (current)
+        self._device_info: Dict[str, Dict] = {}  # stable_device_id -> device metadata
 
         # Legacy ID mappings for migration
         self._legacy_to_stable: Dict[str, str] = {}  # old_id -> new_stable_id
 
         self._load_mapping()
-        logger.info(f"[DeviceIdentity] Initialized with {len(self._stable_to_conn)} known devices")
+        logger.info(
+            f"[DeviceIdentity] Initialized with {len(self._stable_to_conn)} known devices"
+        )
 
     def _load_mapping(self):
         """Load mappings from disk"""
@@ -60,7 +64,7 @@ class DeviceIdentityResolver:
             return
 
         try:
-            with open(self.mapping_file, 'r', encoding='utf-8') as f:
+            with open(self.mapping_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             self._conn_to_stable = data.get("conn_to_stable", {})
@@ -68,7 +72,9 @@ class DeviceIdentityResolver:
             self._device_info = data.get("device_info", {})
             self._legacy_to_stable = data.get("legacy_to_stable", {})
 
-            logger.debug(f"[DeviceIdentity] Loaded {len(self._stable_to_conn)} device mappings")
+            logger.debug(
+                f"[DeviceIdentity] Loaded {len(self._stable_to_conn)} device mappings"
+            )
         except Exception as e:
             logger.error(f"[DeviceIdentity] Failed to load mapping: {e}")
 
@@ -80,9 +86,9 @@ class DeviceIdentityResolver:
                 "stable_to_conn": self._stable_to_conn,
                 "device_info": self._device_info,
                 "legacy_to_stable": self._legacy_to_stable,
-                "updated_at": datetime.now().isoformat()
+                "updated_at": datetime.now().isoformat(),
             }
-            with open(self.mapping_file, 'w', encoding='utf-8') as f:
+            with open(self.mapping_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
             logger.debug("[DeviceIdentity] Saved device mappings")
         except Exception as e:
@@ -93,7 +99,7 @@ class DeviceIdentityResolver:
         connection_id: str,
         stable_device_id: str,
         device_model: Optional[str] = None,
-        device_manufacturer: Optional[str] = None
+        device_manufacturer: Optional[str] = None,
     ) -> bool:
         """
         Register a device connection with its stable ID.
@@ -121,26 +127,36 @@ class DeviceIdentityResolver:
             if stable_device_id not in self._device_info:
                 self._device_info[stable_device_id] = {}
 
-            self._device_info[stable_device_id].update({
-                "current_connection": connection_id,
-                "last_seen": datetime.now().isoformat(),
-                "model": device_model or self._device_info[stable_device_id].get("model"),
-                "manufacturer": device_manufacturer or self._device_info[stable_device_id].get("manufacturer")
-            })
+            self._device_info[stable_device_id].update(
+                {
+                    "current_connection": connection_id,
+                    "last_seen": datetime.now().isoformat(),
+                    "model": device_model
+                    or self._device_info[stable_device_id].get("model"),
+                    "manufacturer": device_manufacturer
+                    or self._device_info[stable_device_id].get("manufacturer"),
+                }
+            )
 
             # Track connection history
             history = self._device_info[stable_device_id].get("connection_history", [])
             if connection_id not in history:
                 history.append(connection_id)
                 # Keep last 10 connections
-                self._device_info[stable_device_id]["connection_history"] = history[-10:]
+                self._device_info[stable_device_id]["connection_history"] = history[
+                    -10:
+                ]
 
             self._save_mapping()
 
             if is_new:
-                logger.info(f"[DeviceIdentity] New device registered: {stable_device_id} via {connection_id}")
+                logger.info(
+                    f"[DeviceIdentity] New device registered: {stable_device_id} via {connection_id}"
+                )
             elif old_conn != connection_id:
-                logger.info(f"[DeviceIdentity] Device {stable_device_id} reconnected: {old_conn} -> {connection_id}")
+                logger.info(
+                    f"[DeviceIdentity] Device {stable_device_id} reconnected: {old_conn} -> {connection_id}"
+                )
 
             return is_new or old_conn != connection_id
 
@@ -211,7 +227,9 @@ class DeviceIdentityResolver:
         """
         with self._lock:
             self._legacy_to_stable[legacy_id] = stable_device_id
-            logger.info(f"[DeviceIdentity] Registered legacy mapping: {legacy_id} -> {stable_device_id}")
+            logger.info(
+                f"[DeviceIdentity] Registered legacy mapping: {legacy_id} -> {stable_device_id}"
+            )
             self._save_mapping()
 
     def get_device_info(self, stable_device_id: str) -> Optional[Dict]:
@@ -224,14 +242,16 @@ class DeviceIdentityResolver:
         with self._lock:
             devices = []
             for stable_id, info in self._device_info.items():
-                devices.append({
-                    "stable_device_id": stable_id,
-                    "current_connection": info.get("current_connection"),
-                    "model": info.get("model"),
-                    "manufacturer": info.get("manufacturer"),
-                    "last_seen": info.get("last_seen"),
-                    "connection_count": len(info.get("connection_history", []))
-                })
+                devices.append(
+                    {
+                        "stable_device_id": stable_id,
+                        "current_connection": info.get("current_connection"),
+                        "model": info.get("model"),
+                        "manufacturer": info.get("manufacturer"),
+                        "last_seen": info.get("last_seen"),
+                        "connection_count": len(info.get("connection_history", [])),
+                    }
+                )
             return devices
 
     def sanitize_for_filename(self, device_id: str) -> str:
@@ -247,7 +267,12 @@ class DeviceIdentityResolver:
         # First resolve to stable ID
         stable_id = self.resolve_any_id(device_id)
         # Then sanitize
-        return stable_id.replace(":", "_").replace(".", "_").replace("/", "_").replace(" ", "_")
+        return (
+            stable_id.replace(":", "_")
+            .replace(".", "_")
+            .replace("/", "_")
+            .replace(" ", "_")
+        )
 
     def sanitize_for_mqtt(self, device_id: str) -> str:
         """
@@ -261,7 +286,8 @@ class DeviceIdentityResolver:
         """
         stable_id = self.resolve_any_id(device_id)
         import re
-        return re.sub(r'[^a-zA-Z0-9_-]', '_', stable_id)
+
+        return re.sub(r"[^a-zA-Z0-9_-]", "_", stable_id)
 
 
 # Singleton instance for global access

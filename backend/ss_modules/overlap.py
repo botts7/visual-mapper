@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Optional cv2 import - fall back to PIL-only methods if not available
 try:
     import cv2
+
     CV2_AVAILABLE = True
 except ImportError:
     CV2_AVAILABLE = False
@@ -30,7 +31,9 @@ except ImportError:
 class OverlapDetector:
     """Detects overlap between screenshots for stitching."""
 
-    def __init__(self, fixed_element_threshold: float = 0.98, match_threshold: float = 0.75):
+    def __init__(
+        self, fixed_element_threshold: float = 0.98, match_threshold: float = 0.75
+    ):
         """
         Initialize overlap detector.
 
@@ -78,7 +81,9 @@ class OverlapDetector:
                 else:
                     # Found where content differs - fixed element ends here
                     if last_similar_height > 0:
-                        logger.info(f"  Detected fixed top element: {last_similar_height}px")
+                        logger.info(
+                            f"  Detected fixed top element: {last_similar_height}px"
+                        )
                         return last_similar_height
                     else:
                         # Even first check was different - fullscreen app with no fixed header
@@ -87,7 +92,9 @@ class OverlapDetector:
 
             # If we checked all and they were all similar, use last known similar height
             if last_similar_height > 0:
-                logger.info(f"  Detected fixed top element: {last_similar_height}px (max checked)")
+                logger.info(
+                    f"  Detected fixed top element: {last_similar_height}px (max checked)"
+                )
                 return last_similar_height
 
             # No fixed header detected
@@ -135,7 +142,9 @@ class OverlapDetector:
                     # Found where content starts to differ
                     # Fixed footer is everything that was still similar
                     if last_similar_height > 0:
-                        logger.info(f"  Detected fixed footer: {last_similar_height}px (diff at {check_height}px)")
+                        logger.info(
+                            f"  Detected fixed footer: {last_similar_height}px (diff at {check_height}px)"
+                        )
                         return last_similar_height
                     else:
                         # No fixed footer at all - likely fullscreen app
@@ -157,7 +166,9 @@ class OverlapDetector:
             logger.warning(f"  Fixed element detection failed: {e}")
             return 0  # Assume no footer on error - safer for fullscreen apps
 
-    def find_overlap_by_image(self, img1: Image.Image, img2: Image.Image, screen_height: int) -> int:
+    def find_overlap_by_image(
+        self, img1: Image.Image, img2: Image.Image, screen_height: int
+    ) -> int:
         """
         Find scroll offset by matching the bottom of img1 with the top of img2.
         Uses template matching on a strip from img1's bottom.
@@ -170,8 +181,8 @@ class OverlapDetector:
             img1_height = img1.size[1]
 
             # Convert to numpy arrays and ensure RGB (not RGBA)
-            arr1 = np.array(img1.convert('RGB'))
-            arr2 = np.array(img2.convert('RGB'))
+            arr1 = np.array(img1.convert("RGB"))
+            arr2 = np.array(img2.convert("RGB"))
 
             # Take a strip from the MIDDLE portion of img1 (avoiding header and footer)
             # This strip should appear somewhere in img2 after scrolling
@@ -187,7 +198,9 @@ class OverlapDetector:
             strip_end = strip_start + strip_height
 
             strip = arr1[strip_start:strip_end, :, :]
-            logger.info(f"  Template matching: strip from y={strip_start}-{strip_end} in img1")
+            logger.info(
+                f"  Template matching: strip from y={strip_start}-{strip_end} in img1"
+            )
 
             # Search for this strip in img2 (skip header area)
             search_start = 80  # Skip status bar
@@ -197,8 +210,10 @@ class OverlapDetector:
             best_match_score = 0
 
             # Slide the template down img2 and find best match
-            for y in range(search_start, search_end - strip_height, 10):  # Step by 10 for speed
-                region = arr2[y:y + strip_height, :, :]
+            for y in range(
+                search_start, search_end - strip_height, 10
+            ):  # Step by 10 for speed
+                region = arr2[y : y + strip_height, :, :]
 
                 # Calculate similarity (simple mean absolute difference)
                 diff = np.abs(strip.astype(float) - region.astype(float))
@@ -211,7 +226,9 @@ class OverlapDetector:
             if best_match_score > 0.85:  # Good match threshold
                 # scroll_offset = where strip was in img1 - where it is in img2
                 scroll_offset = strip_start - best_match_y
-                logger.info(f"  Template match found: y={best_match_y} in img2, score={best_match_score:.3f}")
+                logger.info(
+                    f"  Template match found: y={best_match_y} in img2, score={best_match_score:.3f}"
+                )
                 logger.info(f"  Calculated scroll_offset: {scroll_offset}px")
 
                 if scroll_offset > 0:
@@ -219,7 +236,9 @@ class OverlapDetector:
 
             # Fallback: assume ~50% scroll based on typical swipe distance
             fallback = int(screen_height * 0.5)
-            logger.warning(f"  Template matching failed (best score: {best_match_score:.3f}). Using fallback: {fallback}px")
+            logger.warning(
+                f"  Template matching failed (best score: {best_match_score:.3f}). Using fallback: {fallback}px"
+            )
             return fallback
 
         except Exception as e:
@@ -227,10 +246,7 @@ class OverlapDetector:
             return int(screen_height * 0.5)
 
     def find_overlap_offset(
-        self,
-        template: Image.Image,
-        img2: Image.Image,
-        search_height: int
+        self, template: Image.Image, img2: Image.Image, search_height: int
     ) -> Tuple[Optional[int], Optional[float]]:
         """
         Find Y-offset where template appears in img2
@@ -254,26 +270,32 @@ class OverlapDetector:
             search_region = img2.crop((0, 0, width2, actual_search_height))
 
             # Convert PIL to numpy arrays
-            template_np = np.array(template.convert('RGB'))
-            search_np = np.array(search_region.convert('RGB'))
+            template_np = np.array(template.convert("RGB"))
+            search_np = np.array(search_region.convert("RGB"))
 
             # Convert to grayscale for better matching (using PIL)
-            template_gray = np.array(template.convert('L'))
-            search_gray = np.array(search_region.convert('L'))
+            template_gray = np.array(template.convert("L"))
+            search_gray = np.array(search_region.convert("L"))
 
             if CV2_AVAILABLE:
                 # Use OpenCV template matching
-                result = cv2.matchTemplate(search_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+                result = cv2.matchTemplate(
+                    search_gray, template_gray, cv2.TM_CCOEFF_NORMED
+                )
                 min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
                 offset_y = max_loc[1]
 
                 # Try REVERSE direction - swap template and search
                 if max_val < 0.9 and template_height < search_gray.shape[0]:
                     reverse_template = search_gray[:template_height, :]
-                    result_rev = cv2.matchTemplate(search_gray, reverse_template, cv2.TM_CCOEFF_NORMED)
+                    result_rev = cv2.matchTemplate(
+                        search_gray, reverse_template, cv2.TM_CCOEFF_NORMED
+                    )
                     _, rev_max_val, _, rev_max_loc = cv2.minMaxLoc(result_rev)
 
-                    logger.info(f"  Reverse match: y={rev_max_loc[1]}, conf={rev_max_val:.3f} (forward was {max_val:.3f})")
+                    logger.info(
+                        f"  Reverse match: y={rev_max_loc[1]}, conf={rev_max_val:.3f} (forward was {max_val:.3f})"
+                    )
 
                     if rev_max_val > max_val + 0.1 and rev_max_loc[1] > 50:
                         offset_y = rev_max_loc[1]
@@ -284,19 +306,27 @@ class OverlapDetector:
                 if max_val < 0.85:
                     template_edges = cv2.Canny(template_gray, 50, 150)
                     search_edges = cv2.Canny(search_gray, 50, 150)
-                    result_edges = cv2.matchTemplate(search_edges, template_edges, cv2.TM_CCOEFF_NORMED)
+                    result_edges = cv2.matchTemplate(
+                        search_edges, template_edges, cv2.TM_CCOEFF_NORMED
+                    )
                     _, edge_max_val, _, edge_max_loc = cv2.minMaxLoc(result_edges)
                     edge_y = edge_max_loc[1]
 
-                    logger.info(f"  Edge-based match: y={edge_y}, conf={edge_max_val:.3f} (grayscale was {max_val:.3f})")
+                    logger.info(
+                        f"  Edge-based match: y={edge_y}, conf={edge_max_val:.3f} (grayscale was {max_val:.3f})"
+                    )
 
                     if edge_y > 50 and abs(edge_y - offset_y) < 200:
                         if edge_max_val > max_val or max_val < 0.7:
                             offset_y = edge_y
                             max_val = edge_max_val
-                            logger.info(f"  Using edge-based detection (better for gradient backgrounds)")
+                            logger.info(
+                                f"  Using edge-based detection (better for gradient backgrounds)"
+                            )
                     else:
-                        logger.info(f"  Edge result rejected (y={edge_y} too close to 0 or too different from grayscale={offset_y})")
+                        logger.info(
+                            f"  Edge result rejected (y={edge_y} too close to 0 or too different from grayscale={offset_y})"
+                        )
             else:
                 # PIL-only fallback: simple sliding window comparison
                 logger.info("  Using PIL-only template matching (cv2 not available)")
@@ -305,7 +335,7 @@ class OverlapDetector:
 
                 # Slide template down search region
                 for y in range(0, actual_search_height - template_height, 5):
-                    region = search_gray[y:y + template_height, :]
+                    region = search_gray[y : y + template_height, :]
                     if region.shape != template_gray.shape:
                         continue
 
@@ -321,7 +351,9 @@ class OverlapDetector:
 
             # Quality check
             if max_val < self.match_threshold:
-                logger.warning(f"  Low match quality: {max_val:.3f} (threshold: {self.match_threshold})")
+                logger.warning(
+                    f"  Low match quality: {max_val:.3f} (threshold: {self.match_threshold})"
+                )
 
             logger.info(f"  Template match: y={offset_y}, confidence={max_val:.3f}")
 
@@ -330,6 +362,7 @@ class OverlapDetector:
         except Exception as e:
             logger.error(f"  Template matching failed: {e}")
             import traceback
+
             traceback.print_exc()
             return None, None
 
@@ -338,7 +371,7 @@ class OverlapDetector:
         img1: Image.Image,
         img2: Image.Image,
         screen_height: int,
-        known_scroll: int
+        known_scroll: int,
     ) -> Tuple[int, int]:
         """
         Detect where new content starts in img2 by template matching with img1.
@@ -371,9 +404,13 @@ class OverlapDetector:
             if fixed_footer < 0:
                 fixed_footer = 0
             elif fixed_footer > 250:
-                logger.info(f"  Footer detection capped: {fixed_footer}px -> 250px (likely mis-detection)")
+                logger.info(
+                    f"  Footer detection capped: {fixed_footer}px -> 250px (likely mis-detection)"
+                )
                 fixed_footer = 250  # Cap to prevent over-cropping
-            logger.info(f"  Using fixed_footer={fixed_footer}px (0=fullscreen/gesture possible)")
+            logger.info(
+                f"  Using fixed_footer={fixed_footer}px (0=fullscreen/gesture possible)"
+            )
 
             # Detect fixed header
             fixed_header = self.detect_fixed_top_height(img1, img2)
@@ -386,9 +423,13 @@ class OverlapDetector:
             if fixed_header < 0:
                 fixed_header = 0
             elif fixed_header > 120:
-                logger.info(f"  Header detection capped: {fixed_header}px -> 120px (likely mis-detection)")
+                logger.info(
+                    f"  Header detection capped: {fixed_header}px -> 120px (likely mis-detection)"
+                )
                 fixed_header = 120
-            logger.info(f"  Detected fixed_header={fixed_header}px (0=fullscreen possible)")
+            logger.info(
+                f"  Detected fixed_header={fixed_header}px (0=fullscreen possible)"
+            )
 
             # SIMPLE CALCULATION based on scroll distance
             # After scrolling known_scroll pixels, the overlap is:
@@ -403,7 +444,9 @@ class OverlapDetector:
             # Take a strip from img1 (just above footer) and find it in img2
 
             scrollable_height = screen_height - fixed_header - fixed_footer
-            logger.info(f"  Scrollable height: {scrollable_height}px (header={fixed_header}, footer={fixed_footer})")
+            logger.info(
+                f"  Scrollable height: {scrollable_height}px (header={fixed_header}, footer={fixed_footer})"
+            )
 
             # QUICK CHECK: If images are very similar, page barely scrolled
             img_similarity = self.compare_images(img1, img2)
@@ -414,13 +457,15 @@ class OverlapDetector:
                 estimated_scroll = int(known_scroll * (1.0 - img_similarity) * 5)
                 if estimated_scroll < 50:
                     estimated_scroll = 50  # At least 50px
-                logger.info(f"  OVERLAP: Images very similar! Using conservative scroll: {estimated_scroll}px")
+                logger.info(
+                    f"  OVERLAP: Images very similar! Using conservative scroll: {estimated_scroll}px"
+                )
                 new_content_start = screen_height - fixed_footer - estimated_scroll
                 return (new_content_start, fixed_footer)
 
             # Convert images to numpy for fast comparison
-            arr1 = np.array(img1.convert('RGB'))
-            arr2 = np.array(img2.convert('RGB'))
+            arr1 = np.array(img1.convert("RGB"))
+            arr2 = np.array(img2.convert("RGB"))
 
             strip_height = 60  # Strip height for matching
             scrollable_start = fixed_header
@@ -437,13 +482,18 @@ class OverlapDetector:
             scroll_estimates = []
             for rel_pos in strip_positions:
                 strip_y = scrollable_start + rel_pos
-                strip_y = max(scrollable_start + 50, min(strip_y, scrollable_end - strip_height - 20))
+                strip_y = max(
+                    scrollable_start + 50,
+                    min(strip_y, scrollable_end - strip_height - 20),
+                )
 
-                reference_strip = arr1[strip_y:strip_y + strip_height, :, :]
+                reference_strip = arr1[strip_y : strip_y + strip_height, :, :]
 
                 # Search for this strip in img2
                 # Use known_scroll to guide search range
-                expected_y = strip_y - known_scroll if known_scroll > 0 else strip_y // 2
+                expected_y = (
+                    strip_y - known_scroll if known_scroll > 0 else strip_y // 2
+                )
 
                 # Search in full scrollable range if expected is out of bounds
                 search_start = max(fixed_header, expected_y - 300)
@@ -457,8 +507,10 @@ class OverlapDetector:
                 best_score = 0
 
                 for y in range(search_start, search_end, 5):
-                    candidate = arr2[y:y + strip_height, :, :]
-                    diff = np.abs(reference_strip.astype(float) - candidate.astype(float))
+                    candidate = arr2[y : y + strip_height, :, :]
+                    diff = np.abs(
+                        reference_strip.astype(float) - candidate.astype(float)
+                    )
                     similarity = 1.0 - (np.mean(diff) / 255.0)
                     if similarity > best_score:
                         best_score = similarity
@@ -466,7 +518,9 @@ class OverlapDetector:
 
                 if best_score > 0.9 and best_y > 0:
                     detected_scroll = strip_y - best_y
-                    scroll_estimates.append((strip_y, best_y, detected_scroll, best_score))
+                    scroll_estimates.append(
+                        (strip_y, best_y, detected_scroll, best_score)
+                    )
 
             # Analyze scroll estimates for consistency
             if len(scroll_estimates) >= 2:
@@ -474,13 +528,17 @@ class OverlapDetector:
                 scroll_range = max(scrolls) - min(scrolls)
                 avg_scroll = sum(scrolls) / len(scrolls)
 
-                logger.info(f"  MULTI-STRIP: {len(scroll_estimates)} strips, scrolls={scrolls}, range={scroll_range}px")
+                logger.info(
+                    f"  MULTI-STRIP: {len(scroll_estimates)} strips, scrolls={scrolls}, range={scroll_range}px"
+                )
 
                 # If strips disagree significantly (>100px range), match is unreliable
                 if scroll_range > 100:
                     min_scroll = min(scrolls)
                     max_scroll = max(scrolls)
-                    logger.info(f"  MULTI-STRIP: Inconsistent matches! min={min_scroll}, max={max_scroll}")
+                    logger.info(
+                        f"  MULTI-STRIP: Inconsistent matches! min={min_scroll}, max={max_scroll}"
+                    )
 
                     # Strategy: lower scroll -> higher new_content_start -> LESS content added
                     # To avoid duplicates, we want to add LESS content when unsure
@@ -493,7 +551,11 @@ class OverlapDetector:
                     # Consistent = within 100px of commanded OR within 15% of previous captures (~530px)
                     # Use a tighter bound for consistency
                     expected_scroll = known_scroll if known_scroll > 0 else 450
-                    consistent_scrolls = [s for s in scrolls if abs(s - expected_scroll) < 100 or (s >= 450 and s <= 600)]
+                    consistent_scrolls = [
+                        s
+                        for s in scrolls
+                        if abs(s - expected_scroll) < 100 or (s >= 450 and s <= 600)
+                    ]
                     low_scrolls = [s for s in scrolls if s < expected_scroll * 0.6]
 
                     if consistent_scrolls and low_scrolls:
@@ -504,24 +566,30 @@ class OverlapDetector:
                             # Use median of valid scrolls (more robust than min)
                             valid_scrolls.sort()
                             actual_scroll = valid_scrolls[len(valid_scrolls) // 2]
-                            logger.info(f"  MULTI-STRIP: Mixed results, using median of valid: {actual_scroll}px (valid: {valid_scrolls}, all: {scrolls})")
+                            logger.info(
+                                f"  MULTI-STRIP: Mixed results, using median of valid: {actual_scroll}px (valid: {valid_scrolls}, all: {scrolls})"
+                            )
                         else:
                             actual_scroll = min(scrolls)
-                            logger.info(f"  MULTI-STRIP: No valid scrolls, using minimum: {actual_scroll}px (all: {scrolls})")
+                            logger.info(
+                                f"  MULTI-STRIP: No valid scrolls, using minimum: {actual_scroll}px (all: {scrolls})"
+                            )
                     elif low_scrolls and not consistent_scrolls:
                         # All scrolls are low - page likely at bottom
                         actual_scroll = min(scrolls)
-                        logger.info(f"  MULTI-STRIP: All low scrolls, page at bottom: {actual_scroll}px")
+                        logger.info(
+                            f"  MULTI-STRIP: All low scrolls, page at bottom: {actual_scroll}px"
+                        )
                     else:
                         # General inconsistency with mostly high values - use median
-                        actual_scroll = int(sorted(scrolls)[len(scrolls)//2])
+                        actual_scroll = int(sorted(scrolls)[len(scrolls) // 2])
                         logger.info(f"  MULTI-STRIP: Using median: {actual_scroll}px")
 
                     best_match_y = -1
                     best_match_score = 0.5  # Mark as unreliable
                 else:
                     # Use the median scroll estimate
-                    actual_scroll = int(sorted(scrolls)[len(scrolls)//2])
+                    actual_scroll = int(sorted(scrolls)[len(scrolls) // 2])
                     best_match_y = scroll_estimates[0][1]
                     best_match_score = max(e[3] for e in scroll_estimates)
             elif len(scroll_estimates) == 1:
@@ -534,15 +602,21 @@ class OverlapDetector:
                 best_match_y = -1
                 best_match_score = 0
 
-            logger.info(f"  OVERLAP: Best match y={best_match_y}, similarity={best_match_score:.3f}")
+            logger.info(
+                f"  OVERLAP: Best match y={best_match_y}, similarity={best_match_score:.3f}"
+            )
 
             if best_match_score > 0.92:
                 # Good match found - actual_scroll already calculated by multi-strip above
-                logger.info(f"  OVERLAP: actual_scroll={actual_scroll}px (commanded: {known_scroll}px)")
+                logger.info(
+                    f"  OVERLAP: actual_scroll={actual_scroll}px (commanded: {known_scroll}px)"
+                )
 
                 # SANITY CHECK: If actual_scroll is very different from known_scroll,
                 # the page might have hit the bottom or the match might be wrong
-                scroll_diff = abs(actual_scroll - known_scroll) if known_scroll > 0 else 0
+                scroll_diff = (
+                    abs(actual_scroll - known_scroll) if known_scroll > 0 else 0
+                )
                 if known_scroll > 0 and actual_scroll > 0:
                     scroll_ratio = actual_scroll / known_scroll
                 else:
@@ -551,13 +625,17 @@ class OverlapDetector:
                 # Check for suspicious results
                 if scroll_diff > 100:
                     # More than 100px difference from commanded scroll - suspicious
-                    logger.info(f"  SUSPICIOUS: actual_scroll={actual_scroll} differs from commanded={known_scroll} by {scroll_diff}px")
+                    logger.info(
+                        f"  SUSPICIOUS: actual_scroll={actual_scroll} differs from commanded={known_scroll} by {scroll_diff}px"
+                    )
 
                     # If actual scroll is LESS than expected, page might have hit bottom
                     # OR the row matching found a wrong match in repetitive content
                     if actual_scroll < known_scroll * 0.75:
                         # Page scrolled less than 75% of commanded - likely at end of page
-                        logger.info(f"  END-OF-PAGE: actual_scroll ({actual_scroll}) < 75% of commanded ({known_scroll})")
+                        logger.info(
+                            f"  END-OF-PAGE: actual_scroll ({actual_scroll}) < 75% of commanded ({known_scroll})"
+                        )
 
                         # Trust the actual scroll detection - it tells us exactly how much we scrolled
                         # new_content_start = where content in current capture starts being NEW
@@ -566,17 +644,23 @@ class OverlapDetector:
 
                         if new_content_start < fixed_header:
                             new_content_start = fixed_header
-                        logger.info(f"  END-OF-PAGE: Using actual scroll, new_content_start={new_content_start}")
+                        logger.info(
+                            f"  END-OF-PAGE: Using actual scroll, new_content_start={new_content_start}"
+                        )
                         return (new_content_start, fixed_footer)
 
                     # If actual scroll is MORE than expected, match might be wrong
                     if actual_scroll > known_scroll * 1.5:
-                        logger.warning(f"  MATCH possibly wrong: actual > 1.5x commanded, using commanded scroll")
+                        logger.warning(
+                            f"  MATCH possibly wrong: actual > 1.5x commanded, using commanded scroll"
+                        )
                         # Use commanded scroll as fallback
                         new_content_start = screen_height - fixed_footer - known_scroll
                         if new_content_start < fixed_header:
                             new_content_start = fixed_header
-                        logger.info(f"  Fallback new content starts at y={new_content_start}")
+                        logger.info(
+                            f"  Fallback new content starts at y={new_content_start}"
+                        )
                         return (new_content_start, fixed_footer)
 
                 # New content in img2 starts where img1's bottom content ends
@@ -584,7 +668,9 @@ class OverlapDetector:
                 # This appears at (screen_height - fixed_footer - actual_scroll) in img2's coordinate
                 # So new content starts just after this point
                 new_content_start = screen_height - fixed_footer - actual_scroll
-                logger.info(f"  OVERLAP: new_content_start = {screen_height} - {fixed_footer} - {actual_scroll} = {new_content_start}")
+                logger.info(
+                    f"  OVERLAP: new_content_start = {screen_height} - {fixed_footer} - {actual_scroll} = {new_content_start}"
+                )
                 if new_content_start < fixed_header:
                     new_content_start = fixed_header
                     logger.info(f"  OVERLAP: Clamped to fixed_header={fixed_header}")
@@ -594,15 +680,21 @@ class OverlapDetector:
                 # Use actual_scroll if it was calculated, otherwise fall back to known_scroll
                 if actual_scroll != known_scroll:
                     # Multi-strip gave us a value - use it
-                    logger.info(f"  OVERLAP: Using multi-strip actual_scroll={actual_scroll} (score was low)")
+                    logger.info(
+                        f"  OVERLAP: Using multi-strip actual_scroll={actual_scroll} (score was low)"
+                    )
                     new_content_start = screen_height - fixed_footer - actual_scroll
-                    logger.info(f"  OVERLAP: new_content_start = {screen_height} - {fixed_footer} - {actual_scroll} = {new_content_start}")
+                    logger.info(
+                        f"  OVERLAP: new_content_start = {screen_height} - {fixed_footer} - {actual_scroll} = {new_content_start}"
+                    )
                     if new_content_start < fixed_header:
                         new_content_start = fixed_header
                     return (new_content_start, fixed_footer)
 
                 # Fallback to calculation
-                logger.warning(f"  Row matching weak ({best_match_score:.3f}), using calculated fallback")
+                logger.warning(
+                    f"  Row matching weak ({best_match_score:.3f}), using calculated fallback"
+                )
                 overlap = scrollable_height - known_scroll
                 if overlap < 0:
                     overlap = 0
@@ -613,6 +705,7 @@ class OverlapDetector:
         except Exception as e:
             logger.error(f"  Overlap detection failed: {e}")
             import traceback
+
             traceback.print_exc()
             # Ultimate fallback - use 100px as safe footer estimate
             return (screen_height - known_scroll, 100)
@@ -636,8 +729,8 @@ class OverlapDetector:
             # Convert to grayscale for comparison
             if len(arr1.shape) == 3:
                 # Use PIL for grayscale conversion (works without cv2)
-                gray1 = np.array(img1.convert('L'))
-                gray2 = np.array(img2.convert('L'))
+                gray1 = np.array(img1.convert("L"))
+                gray2 = np.array(img2.convert("L"))
             else:
                 gray1, gray2 = arr1, arr2
 

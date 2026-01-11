@@ -48,7 +48,7 @@ class DeviceIconScraper:
 
     def _sanitize_device_id(self, device_id: str) -> str:
         """Sanitize device ID for use in file paths (Windows doesn't allow colons)"""
-        return device_id.replace(':', '_')
+        return device_id.replace(":", "_")
 
     async def scrape_device_icons(self, device_id: str, max_apps: int = None) -> int:
         """
@@ -73,6 +73,7 @@ class DeviceIconScraper:
 
             # 3. Wait for UI to settle
             import asyncio
+
             await asyncio.sleep(2)
 
             # 4. Get UI hierarchy and screenshot
@@ -80,7 +81,9 @@ class DeviceIconScraper:
             screenshot = await self.adb_bridge.capture_screenshot(device_id)
 
             if not hierarchy_xml or not screenshot:
-                logger.error("[DeviceIconScraper] Failed to get UI hierarchy or screenshot")
+                logger.error(
+                    "[DeviceIconScraper] Failed to get UI hierarchy or screenshot"
+                )
                 return 0
 
             # 5. Parse hierarchy and extract icon positions
@@ -94,7 +97,11 @@ class DeviceIconScraper:
 
             screenshot_img = Image.open(io.BytesIO(screenshot))
 
-            for package_name, bounds in list(icon_mappings.items())[:max_apps] if max_apps else icon_mappings.items():
+            for package_name, bounds in (
+                list(icon_mappings.items())[:max_apps]
+                if max_apps
+                else icon_mappings.items()
+            ):
                 try:
                     # Crop icon from screenshot
                     icon_img = screenshot_img.crop(bounds)
@@ -104,12 +111,18 @@ class DeviceIconScraper:
                     icon_img.save(cache_path, "PNG")
 
                     success_count += 1
-                    logger.debug(f"[DeviceIconScraper] ✅ Scraped icon for {package_name}")
+                    logger.debug(
+                        f"[DeviceIconScraper] ✅ Scraped icon for {package_name}"
+                    )
 
                 except Exception as e:
-                    logger.warning(f"[DeviceIconScraper] ❌ Failed to scrape {package_name}: {e}")
+                    logger.warning(
+                        f"[DeviceIconScraper] ❌ Failed to scrape {package_name}: {e}"
+                    )
 
-            logger.info(f"[DeviceIconScraper] ✅ Scraped {success_count}/{len(icon_mappings)} icons from {device_id}")
+            logger.info(
+                f"[DeviceIconScraper] ✅ Scraped {success_count}/{len(icon_mappings)} icons from {device_id}"
+            )
 
             # 7. Return to home
             await self._return_home(device_id)
@@ -132,9 +145,13 @@ class DeviceIconScraper:
         Returns:
             Icon PNG data or None if not cached
         """
-        cache_path = self.cache_dir / self._sanitize_device_id(device_id) / f"{package_name}.png"
+        cache_path = (
+            self.cache_dir / self._sanitize_device_id(device_id) / f"{package_name}.png"
+        )
         if cache_path.exists():
-            logger.debug(f"[DeviceIconScraper] Cache hit for {device_id}/{package_name}")
+            logger.debug(
+                f"[DeviceIconScraper] Cache hit for {device_id}/{package_name}"
+            )
             return cache_path.read_bytes()
         return None
 
@@ -151,7 +168,9 @@ class DeviceIconScraper:
         """
         device_cache_dir = self.cache_dir / self._sanitize_device_id(device_id)
         if not device_cache_dir.exists():
-            logger.info(f"[DeviceIconScraper] No cache exists for {device_id}, needs initial scrape")
+            logger.info(
+                f"[DeviceIconScraper] No cache exists for {device_id}, needs initial scrape"
+            )
             return True
 
         # Get cached package names
@@ -161,7 +180,9 @@ class DeviceIconScraper:
         # Check for new apps
         new_apps = current_packages - cached_packages
         if new_apps:
-            logger.info(f"[DeviceIconScraper] Detected {len(new_apps)} new apps on {device_id}")
+            logger.info(
+                f"[DeviceIconScraper] Detected {len(new_apps)} new apps on {device_id}"
+            )
             return True
 
         return False
@@ -188,7 +209,9 @@ class DeviceIconScraper:
         except:
             pass
 
-    def _parse_app_drawer_hierarchy(self, hierarchy_xml: str, apps: List[dict]) -> Dict[str, Tuple[int, int, int, int]]:
+    def _parse_app_drawer_hierarchy(
+        self, hierarchy_xml: str, apps: List[dict]
+    ) -> Dict[str, Tuple[int, int, int, int]]:
         """
         Parse UI hierarchy to find app icons and their screen positions
 
@@ -205,21 +228,23 @@ class DeviceIconScraper:
             root = ET.fromstring(hierarchy_xml)
 
             # Build package name mapping (both package and label)
-            package_map = {app['package'].lower(): app['package'] for app in apps}
-            label_map = {app['label'].lower(): app['package'] for app in apps if 'label' in app}
+            package_map = {app["package"].lower(): app["package"] for app in apps}
+            label_map = {
+                app["label"].lower(): app["package"] for app in apps if "label" in app
+            }
 
             # Find all nodes that could be app icons
             # Strategy: Look for ImageView/TextView pairs or containers with app info
-            for node in root.iter('node'):
+            for node in root.iter("node"):
                 package_name = None
-                bounds_str = node.get('bounds')
+                bounds_str = node.get("bounds")
 
                 if not bounds_str:
                     continue
 
                 # Strategy 1: Check text/content-desc for app name
-                text = (node.get('text') or '').lower()
-                content_desc = (node.get('content-desc') or '').lower()
+                text = (node.get("text") or "").lower()
+                content_desc = (node.get("content-desc") or "").lower()
 
                 # Try to match by label
                 if text in label_map:
@@ -228,19 +253,19 @@ class DeviceIconScraper:
                     package_name = label_map[content_desc]
 
                 # Strategy 2: Check resource-id for package hints
-                resource_id = node.get('resource-id') or ''
+                resource_id = node.get("resource-id") or ""
                 for pkg in package_map.keys():
                     if pkg in resource_id.lower():
                         package_name = package_map[pkg]
                         break
 
                 # Strategy 3: For ImageView, look at parent/sibling text nodes
-                if not package_name and node.get('class') == 'android.widget.ImageView':
-                    parent = node.find('..')
+                if not package_name and node.get("class") == "android.widget.ImageView":
+                    parent = node.find("..")
                     if parent is not None:
                         for sibling in parent:
-                            sib_text = (sibling.get('text') or '').lower()
-                            sib_desc = (sibling.get('content-desc') or '').lower()
+                            sib_text = (sibling.get("text") or "").lower()
+                            sib_desc = (sibling.get("content-desc") or "").lower()
                             if sib_text in label_map:
                                 package_name = label_map[sib_text]
                                 break
@@ -253,7 +278,9 @@ class DeviceIconScraper:
                     bounds = self._parse_bounds(bounds_str)
                     if bounds:
                         icon_mappings[package_name] = bounds
-                        logger.debug(f"[DeviceIconScraper] Mapped {package_name} to bounds {bounds}")
+                        logger.debug(
+                            f"[DeviceIconScraper] Mapped {package_name} to bounds {bounds}"
+                        )
 
         except Exception as e:
             logger.error(f"[DeviceIconScraper] Failed to parse hierarchy: {e}")
@@ -272,8 +299,8 @@ class DeviceIconScraper:
         """
         try:
             # Remove brackets and split
-            bounds_str = bounds_str.replace('][', ',').replace('[', '').replace(']', '')
-            coords = [int(x) for x in bounds_str.split(',')]
+            bounds_str = bounds_str.replace("][", ",").replace("[", "").replace("]", "")
+            coords = [int(x) for x in bounds_str.split(",")]
             if len(coords) == 4:
                 return tuple(coords)
         except:
@@ -292,20 +319,22 @@ class DeviceIconScraper:
                     "total_icons": len(cache_files),
                     "total_size_bytes": total_size,
                     "total_size_mb": round(total_size / 1024 / 1024, 2),
-                    "cache_dir": str(device_cache_dir)
+                    "cache_dir": str(device_cache_dir),
                 }
 
         # All devices
         all_devices = [d for d in self.cache_dir.iterdir() if d.is_dir()]
         total_icons = sum(len(list(d.glob("*.png"))) for d in all_devices)
-        total_size = sum(sum(f.stat().st_size for f in d.glob("*.png")) for d in all_devices)
+        total_size = sum(
+            sum(f.stat().st_size for f in d.glob("*.png")) for d in all_devices
+        )
 
         return {
             "total_devices": len(all_devices),
             "total_icons": total_icons,
             "total_size_bytes": total_size,
             "total_size_mb": round(total_size / 1024 / 1024, 2),
-            "cache_dir": str(self.cache_dir)
+            "cache_dir": str(self.cache_dir),
         }
 
     def clear_cache(self, device_id: str = None, package_name: str = None):
@@ -320,7 +349,9 @@ class DeviceIconScraper:
             cache_path = self.cache_dir / device_id / f"{package_name}.png"
             if cache_path.exists():
                 cache_path.unlink()
-                logger.info(f"[DeviceIconScraper] Cleared cache for {device_id}/{package_name}")
+                logger.info(
+                    f"[DeviceIconScraper] Cleared cache for {device_id}/{package_name}"
+                )
         elif device_id:
             device_cache_dir = self.cache_dir / device_id
             if device_cache_dir.exists():

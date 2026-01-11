@@ -57,34 +57,34 @@ class RouteDependencies:
     # =========================================================================
     # CORE MANAGERS (Always initialized)
     # =========================================================================
-    adb_bridge: 'ADBBridge'
-    device_migrator: 'DeviceMigrator'
-    sensor_manager: 'SensorManager'
-    text_extractor: 'TextExtractor'
-    action_manager: 'ActionManager'
-    action_executor: 'ActionExecutor'
+    adb_bridge: "ADBBridge"
+    device_migrator: "DeviceMigrator"
+    sensor_manager: "SensorManager"
+    text_extractor: "TextExtractor"
+    action_manager: "ActionManager"
+    action_executor: "ActionExecutor"
 
     # =========================================================================
     # OPTIONAL MANAGERS (Initialized at startup if enabled)
     # =========================================================================
-    mqtt_manager: Optional['MQTTManager'] = None
-    sensor_updater: Optional['SensorUpdater'] = None
-    flow_manager: Optional['FlowManager'] = None
-    flow_executor: Optional['FlowExecutor'] = None
-    flow_scheduler: Optional['FlowScheduler'] = None
-    performance_monitor: Optional['PerformanceMonitor'] = None
-    screenshot_stitcher: Optional['ScreenshotStitcher'] = None
-    app_icon_extractor: Optional['AppIconExtractor'] = None
-    playstore_icon_scraper: Optional['PlayStoreIconScraper'] = None
-    device_icon_scraper: Optional['DeviceIconScraper'] = None
-    icon_background_fetcher: Optional['IconBackgroundFetcher'] = None
-    app_name_background_fetcher: Optional['AppNameBackgroundFetcher'] = None
-    stream_manager: Optional['StreamManager'] = None
-    adb_maintenance: Optional['ADBMaintenance'] = None
-    shell_pool: Optional['PersistentShellPool'] = None
-    connection_monitor: Optional['ConnectionMonitor'] = None
-    device_security_manager: Optional['DeviceSecurityManager'] = None
-    navigation_manager: Optional['NavigationManager'] = None
+    mqtt_manager: Optional["MQTTManager"] = None
+    sensor_updater: Optional["SensorUpdater"] = None
+    flow_manager: Optional["FlowManager"] = None
+    flow_executor: Optional["FlowExecutor"] = None
+    flow_scheduler: Optional["FlowScheduler"] = None
+    performance_monitor: Optional["PerformanceMonitor"] = None
+    screenshot_stitcher: Optional["ScreenshotStitcher"] = None
+    app_icon_extractor: Optional["AppIconExtractor"] = None
+    playstore_icon_scraper: Optional["PlayStoreIconScraper"] = None
+    device_icon_scraper: Optional["DeviceIconScraper"] = None
+    icon_background_fetcher: Optional["IconBackgroundFetcher"] = None
+    app_name_background_fetcher: Optional["AppNameBackgroundFetcher"] = None
+    stream_manager: Optional["StreamManager"] = None
+    adb_maintenance: Optional["ADBMaintenance"] = None
+    shell_pool: Optional["PersistentShellPool"] = None
+    connection_monitor: Optional["ConnectionMonitor"] = None
+    device_security_manager: Optional["DeviceSecurityManager"] = None
+    navigation_manager: Optional["NavigationManager"] = None
     feature_manager: Optional[object] = None  # FeatureManager instance
     data_dir: Optional[str] = "data"
 
@@ -146,7 +146,7 @@ def get_deps() -> RouteDependencies:
 
 # Export public API
 __all__ = [
-    'RouteDependencies',
-    'set_dependencies',
-    'get_deps',
+    "RouteDependencies",
+    "set_dependencies",
+    "get_deps",
 ]

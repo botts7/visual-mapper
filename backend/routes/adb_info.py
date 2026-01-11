@@ -25,8 +25,8 @@ async def get_devices():
         # Update MQTT device info cache with device models for friendly names
         if deps.mqtt_manager:
             for device in devices:
-                device_id = device.get('id')
-                model = device.get('model')
+                device_id = device.get("id")
+                model = device.get("model")
                 if device_id and model:
                     deps.mqtt_manager.set_device_info(device_id, model=model)
 
@@ -90,12 +90,14 @@ async def scan_network(network_range: str = None):
 
         duration_ms = (time.time() - start_time) * 1000
 
-        logger.info(f"[API] Network scan complete: Found {len(devices)} devices in {duration_ms:.0f}ms")
+        logger.info(
+            f"[API] Network scan complete: Found {len(devices)} devices in {duration_ms:.0f}ms"
+        )
 
         return {
             "devices": devices,
             "total": len(devices),
-            "scan_duration_ms": round(duration_ms, 1)
+            "scan_duration_ms": round(duration_ms, 1),
         }
     except Exception as e:
         logger.error(f"[API] Network scan failed: {e}")
@@ -113,7 +115,7 @@ async def get_screen_state(device_id: str):
             "success": True,
             "device_id": device_id,
             "screen_on": is_on,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"[API] Screen state check failed: {e}")
@@ -133,7 +135,7 @@ async def get_lock_status(device_id: str):
             "device_id": device_id,
             "is_locked": is_locked,
             "screen_on": is_screen_on,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"[API] Lock status check failed: {e}")
@@ -151,7 +153,7 @@ async def get_current_activity(device_id: str):
             "success": True,
             "device_id": device_id,
             "activity": activity,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"[API] Get activity failed: {e}")
@@ -172,8 +174,9 @@ async def get_stable_device_id(device_id: str, force_refresh: bool = False):
             "success": True,
             "device_id": device_id,
             "stable_device_id": stable_id,
-            "cached": not force_refresh and deps.adb_bridge.get_cached_serial(device_id) is not None,
-            "timestamp": time.time()
+            "cached": not force_refresh
+            and deps.adb_bridge.get_cached_serial(device_id) is not None,
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"[API] Get stable device ID failed: {e}")
@@ -196,13 +199,15 @@ async def get_current_screen(device_id: str):
         logger.info(f"[API] Getting current screen info for {device_id}")
 
         # Get activity info as dict (with package breakdown)
-        activity_info = await deps.adb_bridge.get_current_activity(device_id, as_dict=True)
+        activity_info = await deps.adb_bridge.get_current_activity(
+            device_id, as_dict=True
+        )
 
         return {
             "success": True,
             "device_id": device_id,
             "activity": activity_info,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"[API] Get screen info failed: {e}")

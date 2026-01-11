@@ -64,8 +64,8 @@ PRIORITY_APPS = [
 # NOTE: com.android.settings and com.android.vending are blocked by Android app's sensitive blacklist
 # NOTE: com.google.android.apps.maps blocked due to READ_CONTACTS permission
 DEFAULT_APPS = [
-    "com.google.android.youtube",     # YouTube
-    "com.google.android.deskclock",   # Clock app
+    "com.google.android.youtube",  # YouTube
+    "com.google.android.deskclock",  # Clock app
     "com.google.android.calculator",  # Calculator app
     # Add more apps below:
     # "com.example.app",
@@ -75,89 +75,78 @@ DEFAULT_APPS = [
 # Includes: system apps, personal data apps, sensitive apps
 SKIP_APPS = [
     # System apps
-    "com.android.inputmethod",        # Keyboards
+    "com.android.inputmethod",  # Keyboards
     "com.google.android.inputmethod",
     "com.samsung.android.honeyboard",
-    "com.visualmapper.companion",     # Our own app!
-    "com.android.systemui",           # System UI
-    "com.android.launcher",           # Launchers
+    "com.visualmapper.companion",  # Our own app!
+    "com.android.systemui",  # System UI
+    "com.android.launcher",  # Launchers
     "com.sec.android.app.launcher",
     "com.google.android.apps.nexuslauncher",
-
     # Email apps - PERSONAL DATA
-    "com.google.android.gm",          # Gmail
-    "com.microsoft.office.outlook",   # Outlook
-    "com.samsung.android.email",      # Samsung Email
+    "com.google.android.gm",  # Gmail
+    "com.microsoft.office.outlook",  # Outlook
+    "com.samsung.android.email",  # Samsung Email
     "com.yahoo.mobile.client.android.mail",  # Yahoo Mail
-    "mail",                           # Generic mail apps
-
+    "mail",  # Generic mail apps
     # Messaging apps - PERSONAL DATA
-    "com.whatsapp",                   # WhatsApp
-    "com.facebook.orca",              # Messenger
-    "org.telegram.messenger",         # Telegram
-    "com.discord",                    # Discord
-    "com.viber.voip",                 # Viber
+    "com.whatsapp",  # WhatsApp
+    "com.facebook.orca",  # Messenger
+    "org.telegram.messenger",  # Telegram
+    "com.discord",  # Discord
+    "com.viber.voip",  # Viber
     "com.samsung.android.messaging",  # Samsung Messages
     "com.google.android.apps.messaging",  # Google Messages
-    "message",                        # Generic messaging apps
-    "sms",                            # SMS apps
-    "chat",                           # Chat apps
-
+    "message",  # Generic messaging apps
+    "sms",  # SMS apps
+    "chat",  # Chat apps
     # Banking & Finance - SENSITIVE
-    "banking",                        # Any banking app
+    "banking",  # Any banking app
     "bank",
     "finance",
     "wallet",
-    "com.paypal",                     # PayPal
-    "com.venmo",                      # Venmo
-    "com.squareup.cash",              # Cash App
-
+    "com.paypal",  # PayPal
+    "com.venmo",  # Venmo
+    "com.squareup.cash",  # Cash App
     # Social Media - PERSONAL DATA
-    "com.facebook.katana",            # Facebook
-    "com.instagram.android",          # Instagram
-    "com.twitter.android",            # Twitter/X
-    "com.snapchat.android",           # Snapchat
-    "com.linkedin.android",           # LinkedIn
-    "com.tiktok",                     # TikTok
-
+    "com.facebook.katana",  # Facebook
+    "com.instagram.android",  # Instagram
+    "com.twitter.android",  # Twitter/X
+    "com.snapchat.android",  # Snapchat
+    "com.linkedin.android",  # LinkedIn
+    "com.tiktok",  # TikTok
     # Authentication & Security
-    "authenticator",                  # 2FA apps
-    "password",                       # Password managers
+    "authenticator",  # 2FA apps
+    "password",  # Password managers
     "com.google.android.apps.authenticator2",
     "com.authy.authy",
     "com.lastpass.lpandroid",
     "com.onepassword",
-
     # Photos & Personal Media
-    "com.google.android.apps.photos", # Google Photos
-    "com.samsung.android.gallery",    # Samsung Gallery
-    "gallery",                        # Generic gallery apps
-    "photo",                          # Photo apps
-
+    "com.google.android.apps.photos",  # Google Photos
+    "com.samsung.android.gallery",  # Samsung Gallery
+    "gallery",  # Generic gallery apps
+    "photo",  # Photo apps
     # Health & Fitness - PERSONAL DATA
     "health",
     "fitness",
     "com.google.android.apps.fitness",
-
     # Dating apps - PERSONAL DATA
     "dating",
     "com.tinder",
     "com.bumble",
-
     # Notes & Documents - PERSONAL DATA
-    "com.google.android.keep",        # Google Keep
-    "com.evernote",                   # Evernote
-    "com.microsoft.office",           # Office apps
-    "notes",                          # Note apps
-    "document",                       # Document apps
-
+    "com.google.android.keep",  # Google Keep
+    "com.evernote",  # Evernote
+    "com.microsoft.office",  # Office apps
+    "notes",  # Note apps
+    "document",  # Document apps
     # Phone & Contacts - PERSONAL DATA
-    "com.android.contacts",           # Contacts
-    "com.android.dialer",             # Phone dialer
+    "com.android.contacts",  # Contacts
+    "com.android.dialer",  # Phone dialer
     "contacts",
     "dialer",
     "phone",
-
     # Calendar - PERSONAL DATA
     "calendar",
     "com.google.android.calendar",
@@ -165,10 +154,10 @@ SKIP_APPS = [
 
 # Exploration settings
 EXPLORATION_CONFIG = {
-    "maxDepth": 8,           # Max navigation depth
-    "maxElements": 40,       # Max elements per screen
+    "maxDepth": 8,  # Max navigation depth
+    "maxElements": 40,  # Max elements per screen
     "transitionWait": 2500,  # Wait time between taps (ms)
-    "timeout": 300000,       # 5 minute timeout per app
+    "timeout": 300000,  # 5 minute timeout per app
 }
 
 # Time to wait for each app exploration (seconds)
@@ -181,6 +170,7 @@ AUTO_DISCOVER_COUNT = 5  # How many random apps to add when using --auto
 # ============================================================================
 # MQTT Client
 # ============================================================================
+
 
 class ExplorationController:
     """Controls app exploration via MQTT"""
@@ -220,10 +210,10 @@ class ExplorationController:
     def _on_message(self, client, userdata, msg):
         try:
             topic = msg.topic
-            payload = msg.payload.decode('utf-8')
+            payload = msg.payload.decode("utf-8")
 
             # Extract device ID from topic
-            parts = topic.split('/')
+            parts = topic.split("/")
             if len(parts) >= 2 and parts[0] == "visual_mapper":
                 topic_device_id = parts[1]
 
@@ -232,34 +222,52 @@ class ExplorationController:
                     try:
                         status = json.loads(payload)
                         # Track accessibility status
-                        self.accessibility_enabled = status.get("accessibility_enabled", False)
+                        self.accessibility_enabled = status.get(
+                            "accessibility_enabled", False
+                        )
 
                         # Use topic device ID - this is what we need to publish to
                         # Prefer device IDs that look like IP-based (our app uses these)
-                        if topic_device_id and '_' in topic_device_id:
+                        if topic_device_id and "_" in topic_device_id:
                             # IP-based device ID like 192_168_86_129_46747
                             if self.device_id != topic_device_id:
                                 self.device_id = topic_device_id
-                                acc_status = "enabled" if self.accessibility_enabled else "DISABLED"
-                                print(f"[OK] Found device: {self.device_id} (accessibility: {acc_status})")
+                                acc_status = (
+                                    "enabled"
+                                    if self.accessibility_enabled
+                                    else "DISABLED"
+                                )
+                                print(
+                                    f"[OK] Found device: {self.device_id} (accessibility: {acc_status})"
+                                )
                         elif self.device_id is None:
                             # Fallback to any device ID
                             self.device_id = topic_device_id
-                            acc_status = "enabled" if self.accessibility_enabled else "DISABLED"
-                            print(f"[OK] Found device: {self.device_id} (accessibility: {acc_status})")
+                            acc_status = (
+                                "enabled" if self.accessibility_enabled else "DISABLED"
+                            )
+                            print(
+                                f"[OK] Found device: {self.device_id} (accessibility: {acc_status})"
+                            )
                     except json.JSONDecodeError:
                         pass
 
                 # Exploration status (handle both old and new topic formats)
-                if topic.endswith("/explore/status") or topic.startswith("visualmapper/exploration/status/"):
+                if topic.endswith("/explore/status") or topic.startswith(
+                    "visualmapper/exploration/status/"
+                ):
                     try:
                         status = json.loads(payload)
                         self.last_status = status
                         state = status.get("status", "")
 
                         # Handle both field naming conventions
-                        screens = status.get("screens", status.get("screens_explored", 0))
-                        elements = status.get("elements", status.get("elements_explored", 0))
+                        screens = status.get(
+                            "screens", status.get("screens_explored", 0)
+                        )
+                        elements = status.get(
+                            "elements", status.get("elements_explored", 0)
+                        )
                         queue = status.get("queue_size", 0)
                         message = status.get("message", status.get("error", ""))
                         pkg = status.get("package", "")
@@ -267,12 +275,16 @@ class ExplorationController:
                         if state == "completed":
                             self.exploration_complete = True
                             self.exploration_active = False
-                            print(f"\n  [OK] Exploration complete: {screens} screens, {elements} elements")
+                            print(
+                                f"\n  [OK] Exploration complete: {screens} screens, {elements} elements"
+                            )
 
                         elif state in ("failed", "cancelled"):
                             self.exploration_complete = True
                             self.exploration_active = False
-                            print(f"\n  [X] Exploration {state}: {message or 'Unknown error'}")
+                            print(
+                                f"\n  [X] Exploration {state}: {message or 'Unknown error'}"
+                            )
 
                         elif state == "started":
                             self.exploration_active = True
@@ -281,7 +293,10 @@ class ExplorationController:
 
                         elif state == "exploring":
                             self.exploration_active = True
-                            print(f"  -> Exploring: {screens} screens, {elements} elements, {queue} queued", end='\r')
+                            print(
+                                f"  -> Exploring: {screens} screens, {elements} elements, {queue} queued",
+                                end="\r",
+                            )
 
                     except json.JSONDecodeError:
                         pass
@@ -322,10 +337,14 @@ class ExplorationController:
                 # because the app caches this at startup
                 if not self.accessibility_enabled:
                     print("  [!] App reports accessibility disabled (may be stale)")
-                    print("  [OK] Proceeding anyway - accessibility was enabled via ADB")
+                    print(
+                        "  [OK] Proceeding anyway - accessibility was enabled via ADB"
+                    )
                 return True
             time.sleep(1)
-        print("[X] No device found. Make sure the Android app is running and connected to MQTT.")
+        print(
+            "[X] No device found. Make sure the Android app is running and connected to MQTT."
+        )
         return False
 
     def start_exploration(self, package: str, config: Optional[dict] = None) -> bool:
@@ -336,10 +355,7 @@ class ExplorationController:
 
         config = config or EXPLORATION_CONFIG
         topic = f"visual_mapper/{self.device_id}/explore/start"
-        payload = json.dumps({
-            "package": package,
-            "config": config
-        })
+        payload = json.dumps({"package": package, "config": config})
 
         self.exploration_active = True  # Assume it started
         self.exploration_complete = False
@@ -362,7 +378,7 @@ class ExplorationController:
             # Show progress every 10 seconds
             elapsed = int(time.time() - start)
             if elapsed > 0 and elapsed % 10 == 0:
-                print(f"  [...] {elapsed}s / {timeout}s", end='\r')
+                print(f"  [...] {elapsed}s / {timeout}s", end="\r")
             time.sleep(1)
 
         print(f"\n  [OK] Completed {timeout}s exploration")
@@ -422,12 +438,36 @@ SENSITIVE_PERMISSIONS = [
 
 # Sensitive keywords in app label/name
 SENSITIVE_KEYWORDS = [
-    "bank", "banking", "finance", "money", "wallet", "pay", "payment",
-    "mail", "email", "message", "chat", "sms", "text",
-    "password", "vault", "secure", "authenticator", "2fa",
-    "health", "medical", "fitness", "doctor",
-    "dating", "social", "private", "secret",
-    "contact", "calendar", "diary", "journal",
+    "bank",
+    "banking",
+    "finance",
+    "money",
+    "wallet",
+    "pay",
+    "payment",
+    "mail",
+    "email",
+    "message",
+    "chat",
+    "sms",
+    "text",
+    "password",
+    "vault",
+    "secure",
+    "authenticator",
+    "2fa",
+    "health",
+    "medical",
+    "fitness",
+    "doctor",
+    "dating",
+    "social",
+    "private",
+    "secret",
+    "contact",
+    "calendar",
+    "diary",
+    "journal",
 ]
 
 
@@ -439,22 +479,27 @@ def get_app_permissions(package: str) -> List[str]:
             capture_output=True,
             text=True,
             timeout=10,
-            encoding='utf-8',
-            errors='ignore'
+            encoding="utf-8",
+            errors="ignore",
         )
         if result.returncode == 0:
             permissions = []
             in_permissions = False
-            for line in result.stdout.split('\n'):
-                if 'requested permissions:' in line.lower():
+            for line in result.stdout.split("\n"):
+                if "requested permissions:" in line.lower():
                     in_permissions = True
                     continue
                 if in_permissions:
-                    if line.strip().startswith('android.permission.'):
+                    if line.strip().startswith("android.permission."):
                         permissions.append(line.strip())
-                    elif line.strip() and not line.strip().startswith('android.permission'):
+                    elif line.strip() and not line.strip().startswith(
+                        "android.permission"
+                    ):
                         # End of permissions section
-                        if 'install permissions:' not in line.lower() and 'runtime permissions:' not in line.lower():
+                        if (
+                            "install permissions:" not in line.lower()
+                            and "runtime permissions:" not in line.lower()
+                        ):
                             break
             return permissions
     except Exception as e:
@@ -470,12 +515,12 @@ def get_app_label(package: str) -> str:
             capture_output=True,
             text=True,
             timeout=10,
-            encoding='utf-8',
-            errors='ignore'
+            encoding="utf-8",
+            errors="ignore",
         )
         if result.returncode == 0:
-            for line in result.stdout.split('\n'):
-                if 'versionName=' in line:
+            for line in result.stdout.split("\n"):
+                if "versionName=" in line:
                     # Extract just the app info line
                     continue
         # Try using pm command for label
@@ -484,13 +529,13 @@ def get_app_label(package: str) -> str:
             capture_output=True,
             text=True,
             timeout=10,
-            encoding='utf-8',
-            errors='ignore'
+            encoding="utf-8",
+            errors="ignore",
         )
         if result.returncode == 0:
-            for line in result.stdout.split('\n'):
-                if 'application-label:' in line.lower():
-                    return line.split(':')[1].strip().strip("'").lower()
+            for line in result.stdout.split("\n"):
+                if "application-label:" in line.lower():
+                    return line.split(":")[1].strip().strip("'").lower()
     except Exception:
         pass
     return package.lower()
@@ -542,6 +587,7 @@ def is_sensitive_app_intelligent(package: str) -> bool:
 # Global ADB device (set during main())
 ADB_DEVICE = None
 
+
 def get_adb_cmd(args: List[str]) -> List[str]:
     """Build ADB command with device specification if needed"""
     if ADB_DEVICE:
@@ -561,12 +607,12 @@ def get_installed_apps(third_party_only: bool = True) -> List[str]:
             capture_output=True,
             text=True,
             timeout=30,
-            encoding='utf-8',
-            errors='ignore'
+            encoding="utf-8",
+            errors="ignore",
         )
         if result.returncode == 0:
             apps = []
-            for line in result.stdout.strip().split('\n'):
+            for line in result.stdout.strip().split("\n"):
                 if line.startswith("package:"):
                     app = line.replace("package:", "").strip()
                     # Filter out skip apps
@@ -591,14 +637,27 @@ def enable_accessibility_via_adb(restart_app: bool = False) -> bool:
         # Set the accessibility service
         service_name = "com.visualmapper.companion/com.visualmapper.companion.accessibility.VisualMapperAccessibilityService"
 
-        cmd1 = get_adb_cmd(["shell", "settings", "put", "secure", "enabled_accessibility_services", service_name])
+        cmd1 = get_adb_cmd(
+            [
+                "shell",
+                "settings",
+                "put",
+                "secure",
+                "enabled_accessibility_services",
+                service_name,
+            ]
+        )
         subprocess.run(cmd1, capture_output=True, text=True, timeout=10)
 
-        cmd2 = get_adb_cmd(["shell", "settings", "put", "secure", "accessibility_enabled", "1"])
+        cmd2 = get_adb_cmd(
+            ["shell", "settings", "put", "secure", "accessibility_enabled", "1"]
+        )
         subprocess.run(cmd2, capture_output=True, text=True, timeout=10)
 
         # Verify it's enabled
-        cmd3 = get_adb_cmd(["shell", "settings", "get", "secure", "enabled_accessibility_services"])
+        cmd3 = get_adb_cmd(
+            ["shell", "settings", "get", "secure", "enabled_accessibility_services"]
+        )
         result3 = subprocess.run(cmd3, capture_output=True, text=True, timeout=10)
 
         if "visualmapper" not in result3.stdout.lower():
@@ -610,14 +669,21 @@ def enable_accessibility_via_adb(restart_app: bool = False) -> bool:
         # If requested, restart the app to activate the accessibility service
         if restart_app:
             print("  [*] Restarting app to activate accessibility service...")
-            stop_cmd = get_adb_cmd(["shell", "am", "force-stop", "com.visualmapper.companion"])
+            stop_cmd = get_adb_cmd(
+                ["shell", "am", "force-stop", "com.visualmapper.companion"]
+            )
             subprocess.run(stop_cmd, capture_output=True, timeout=10)
             time.sleep(1)
 
-            start_cmd = get_adb_cmd([
-                "shell", "am", "start", "-n",
-                "com.visualmapper.companion/.ui.fragments.MainContainerActivity"
-            ])
+            start_cmd = get_adb_cmd(
+                [
+                    "shell",
+                    "am",
+                    "start",
+                    "-n",
+                    "com.visualmapper.companion/.ui.fragments.MainContainerActivity",
+                ]
+            )
             subprocess.run(start_cmd, capture_output=True, timeout=10)
             print("  [OK] App restarted")
             time.sleep(5)  # Wait for app and accessibility service to initialize
@@ -635,17 +701,24 @@ def restart_visual_mapper_app() -> bool:
 
     try:
         # Force stop the app first
-        stop_cmd = get_adb_cmd(["shell", "am", "force-stop", "com.visualmapper.companion"])
+        stop_cmd = get_adb_cmd(
+            ["shell", "am", "force-stop", "com.visualmapper.companion"]
+        )
         subprocess.run(stop_cmd, capture_output=True, timeout=10)
         print("  [OK] Stopped app")
 
         time.sleep(2)  # Wait for clean shutdown
 
         # Start the app
-        start_cmd = get_adb_cmd([
-            "shell", "am", "start", "-n",
-            "com.visualmapper.companion/.ui.fragments.MainContainerActivity"
-        ])
+        start_cmd = get_adb_cmd(
+            [
+                "shell",
+                "am",
+                "start",
+                "-n",
+                "com.visualmapper.companion/.ui.fragments.MainContainerActivity",
+            ]
+        )
         result = subprocess.run(start_cmd, capture_output=True, text=True, timeout=10)
 
         if "Error" in result.stdout or "Error" in result.stderr:
@@ -705,13 +778,13 @@ def check_adb_device() -> Optional[str]:
             capture_output=True,
             text=True,
             timeout=10,
-            encoding='utf-8',
-            errors='ignore'
+            encoding="utf-8",
+            errors="ignore",
         )
-        lines = result.stdout.strip().split('\n')[1:]  # Skip header
+        lines = result.stdout.strip().split("\n")[1:]  # Skip header
         for line in lines:
-            if '\tdevice' in line:
-                return line.split('\t')[0]
+            if "\tdevice" in line:
+                return line.split("\t")[0]
     except Exception as e:
         print(f"ADB check failed: {e}")
     return None
@@ -720,6 +793,7 @@ def check_adb_device() -> Optional[str]:
 # ============================================================================
 # Main
 # ============================================================================
+
 
 def explore_apps(apps: List[str], controller: ExplorationController):
     """Explore multiple apps for training"""
@@ -752,8 +826,8 @@ def explore_apps(apps: List[str], controller: ExplorationController):
                 capture_output=True,
                 text=True,
                 timeout=10,
-                encoding='utf-8',
-                errors='ignore'
+                encoding="utf-8",
+                errors="ignore",
             )
             if not result.stdout.strip():
                 print(f"  [!] App not installed, skipping")
@@ -789,16 +863,29 @@ def explore_apps(apps: List[str], controller: ExplorationController):
 def main():
     global WAIT_PER_APP  # Declare global at start of function
 
-    parser = argparse.ArgumentParser(description="Automated App Exploration for ML Training")
+    parser = argparse.ArgumentParser(
+        description="Automated App Exploration for ML Training"
+    )
     parser.add_argument("--broker", default=MQTT_BROKER, help="MQTT broker address")
     parser.add_argument("--port", type=int, default=MQTT_PORT, help="MQTT broker port")
     parser.add_argument("--apps", help="Comma-separated list of apps to explore")
-    parser.add_argument("--auto", action="store_true",
-                        help="Auto-discover and select apps (priority + random)")
-    parser.add_argument("--auto-count", type=int, default=AUTO_DISCOVER_COUNT,
-                        help=f"Number of random apps to add in auto mode (default: {AUTO_DISCOVER_COUNT})")
-    parser.add_argument("--discover", action="store_true", help="List installed apps and exit")
-    parser.add_argument("--wait", type=int, default=180, help="Seconds to wait per app (default: 180)")
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Auto-discover and select apps (priority + random)",
+    )
+    parser.add_argument(
+        "--auto-count",
+        type=int,
+        default=AUTO_DISCOVER_COUNT,
+        help=f"Number of random apps to add in auto mode (default: {AUTO_DISCOVER_COUNT})",
+    )
+    parser.add_argument(
+        "--discover", action="store_true", help="List installed apps and exit"
+    )
+    parser.add_argument(
+        "--wait", type=int, default=180, help="Seconds to wait per app (default: 180)"
+    )
 
     args = parser.parse_args()
 
@@ -848,8 +935,8 @@ def main():
                 capture_output=True,
                 text=True,
                 timeout=10,
-                encoding='utf-8',
-                errors='ignore'
+                encoding="utf-8",
+                errors="ignore",
             )
             if result.stdout.strip():
                 installed.append(app)

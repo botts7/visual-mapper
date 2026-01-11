@@ -2,7 +2,7 @@
 Feature Manager - Toggles for heavy dependencies and experimental features
 
 This service manages feature flags for the Visual Mapper system.
-It allows disabling heavy ML components (torch, tensorflow) for 
+It allows disabling heavy ML components (torch, tensorflow) for
 resource-constrained environments (Basic Mode).
 
 Features:
@@ -16,6 +16,7 @@ import logging
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
+
 
 class FeatureManager:
     """
@@ -31,13 +32,15 @@ class FeatureManager:
             "real_icons_enabled": self._get_env_bool("ENABLE_REAL_ICONS", True),
             "advanced_navigation": self._get_env_bool("ADVANCED_NAVIGATION", False),
             "hybrid_execution": self._get_env_bool("HYBRID_EXECUTION", True),
-            "performance_monitoring": self._get_env_bool("PERFORMANCE_MONITORING", True)
+            "performance_monitoring": self._get_env_bool(
+                "PERFORMANCE_MONITORING", True
+            ),
         }
-        
+
         # Log active flags
         active_features = [f for f, enabled in self._flags.items() if enabled]
         disabled_features = [f for f, enabled in self._flags.items() if not enabled]
-        
+
         logger.info(f"[FeatureManager] Enabled features: {active_features}")
         if disabled_features:
             logger.info(f"[FeatureManager] Disabled features: {disabled_features}")
@@ -55,8 +58,10 @@ class FeatureManager:
         """Get all feature flags"""
         return self._flags.copy()
 
+
 # Singleton instance
 _feature_manager = None
+
 
 def get_feature_manager() -> FeatureManager:
     """Get or create singleton FeatureManager"""

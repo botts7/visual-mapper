@@ -24,11 +24,11 @@ class ElementAnalyzer:
     def get_element_fingerprint(self, element: dict) -> Optional[str]:
         """Create a unique fingerprint for an element"""
         # Use resource_id if available, otherwise text + class
-        resource_id = element.get('resource_id', '') or element.get('resource-id', '')
-        text = element.get('text', '')
-        class_name = element.get('class', '')
+        resource_id = element.get("resource_id", "") or element.get("resource-id", "")
+        text = element.get("text", "")
+        class_name = element.get("class", "")
 
-        if resource_id and resource_id != 'null':
+        if resource_id and resource_id != "null":
             return f"id:{resource_id}"
         elif text:
             return f"text:{text[:50]}|{class_name}"
@@ -37,14 +37,14 @@ class ElementAnalyzer:
 
     def get_element_y_center(self, element: dict) -> int:
         """Get the Y center position of an element"""
-        bounds = element.get('bounds', {})
+        bounds = element.get("bounds", {})
         if isinstance(bounds, dict):
-            y = bounds.get('y', 0)
-            height = bounds.get('height', 0)
+            y = bounds.get("y", 0)
+            height = bounds.get("height", 0)
             return y + height // 2
         elif isinstance(bounds, str):
             # Parse "[x1,y1][x2,y2]" format
-            match = re.findall(r'\[(\d+),(\d+)\]', bounds)
+            match = re.findall(r"\[(\d+),(\d+)\]", bounds)
             if len(match) >= 2:
                 y1, y2 = int(match[0][1]), int(match[1][1])
                 return (y1 + y2) // 2
@@ -52,21 +52,18 @@ class ElementAnalyzer:
 
     def get_element_bottom(self, element: dict) -> int:
         """Get the bottom Y position of an element"""
-        bounds = element.get('bounds', {})
+        bounds = element.get("bounds", {})
         if isinstance(bounds, dict):
-            return bounds.get('y', 0) + bounds.get('height', 0)
+            return bounds.get("y", 0) + bounds.get("height", 0)
         elif isinstance(bounds, str):
             # Parse "[x1,y1][x2,y2]" format
-            match = re.findall(r'\[(\d+),(\d+)\]', bounds)
+            match = re.findall(r"\[(\d+),(\d+)\]", bounds)
             if len(match) >= 2:
                 return int(match[1][1])  # y2 from [x1,y1][x2,y2]
         return self.get_element_y_center(element) + 50
 
     def calculate_scroll_from_elements(
-        self,
-        elements1: list,
-        elements2: list,
-        screen_height: int
+        self, elements1: list, elements2: list, screen_height: int
     ) -> Tuple[Optional[int], float]:
         """
         Calculate scroll amount by comparing element positions across screenshots.
@@ -116,16 +113,14 @@ class ElementAnalyzer:
         consistent = sum(1 for s in scroll_amounts if abs(s - median_scroll) < 20)
         confidence = consistent / len(scroll_amounts)
 
-        logger.info(f"  Element-based scroll: {median_scroll}px (confidence: {confidence:.2f}, {len(common_fps)} common elements)")
+        logger.info(
+            f"  Element-based scroll: {median_scroll}px (confidence: {confidence:.2f}, {len(common_fps)} common elements)"
+        )
 
         return median_scroll, confidence
 
     def find_new_content_boundary(
-        self,
-        elements1: list,
-        elements2: list,
-        scroll_amount: int,
-        screen_height: int
+        self, elements1: list, elements2: list, scroll_amount: int, screen_height: int
     ) -> int:
         """
         Find where new content starts in screenshot2.
@@ -154,9 +149,9 @@ class ElementAnalyzer:
             if fp and fp in fp_to_y1:
                 y2 = self.get_element_y_center(elem)
                 # This element was in screenshot1, track its bottom in screenshot2
-                bounds = elem.get('bounds', {})
+                bounds = elem.get("bounds", {})
                 if isinstance(bounds, dict):
-                    y_bottom = bounds.get('y', 0) + bounds.get('height', 0)
+                    y_bottom = bounds.get("y", 0) + bounds.get("height", 0)
                 else:
                     y_bottom = y2 + 50  # Estimate
                 max_y_in_screen2 = max(max_y_in_screen2, y_bottom)
@@ -167,7 +162,9 @@ class ElementAnalyzer:
         logger.debug(f"  New content boundary in screenshot2: y={boundary}")
         return boundary
 
-    def find_overlap_end_y(self, elements_prev: list, elements_curr: list, height: int) -> int:
+    def find_overlap_end_y(
+        self, elements_prev: list, elements_curr: list, height: int
+    ) -> int:
         """
         Find Y position where OVERLAP ENDS in current screenshot.
         PURELY element-based - finds the BOTTOM edge of the LOWEST common element.
@@ -192,13 +189,15 @@ class ElementAnalyzer:
 
         # Find common elements in CURR and track their positions
         # SKIP full-screen containers and very large elements
-        common_elements = []  # List of (fingerprint, y_center_curr, y_bottom_curr, y_center_prev, elem_height)
+        common_elements = (
+            []
+        )  # List of (fingerprint, y_center_curr, y_bottom_curr, y_center_prev, elem_height)
         for elem in elements_curr:
             fp = self.get_element_fingerprint(elem)
             if fp and fp in fp_prev_data:
-                bounds = elem.get('bounds', {})
-                elem_height = bounds.get('height', 0) if isinstance(bounds, dict) else 0
-                elem_y = bounds.get('y', 0) if isinstance(bounds, dict) else 0
+                bounds = elem.get("bounds", {})
+                elem_height = bounds.get("height", 0) if isinstance(bounds, dict) else 0
+                elem_y = bounds.get("y", 0) if isinstance(bounds, dict) else 0
 
                 # Skip full-screen containers (y near 0, height near screen height)
                 if elem_y < 50 and elem_height > height * 0.8:
@@ -211,7 +210,9 @@ class ElementAnalyzer:
                 y_center_curr = self.get_element_y_center(elem)
                 y_bottom_curr = self.get_element_bottom(elem)
                 y_center_prev = fp_prev_data[fp][0]
-                common_elements.append((fp, y_center_curr, y_bottom_curr, y_center_prev))
+                common_elements.append(
+                    (fp, y_center_curr, y_bottom_curr, y_center_prev)
+                )
 
         if not common_elements:
             logger.warning(f"  No common elements found! Using default 30% overlap")
@@ -223,7 +224,9 @@ class ElementAnalyzer:
         # Log all common elements for debugging
         logger.info(f"  Found {len(common_elements)} common elements:")
         for fp, y_curr, y_bottom, y_prev in common_elements[:5]:  # Show top 5
-            logger.debug(f"    {fp[:40]}: prev_y={y_prev}, curr_y={y_curr}, curr_bottom={y_bottom}")
+            logger.debug(
+                f"    {fp[:40]}: prev_y={y_prev}, curr_y={y_curr}, curr_bottom={y_bottom}"
+            )
 
         # The LOWEST common element in CURR marks where overlap ends
         # But exclude elements near the very bottom (likely nav bar)
@@ -235,14 +238,18 @@ class ElementAnalyzer:
                 continue
 
             # This element exists in both - its BOTTOM is where overlap ends
-            logger.info(f"  Overlap element: '{fp[:40]}' at y={y_center_curr}, bottom={y_bottom_curr}")
+            logger.info(
+                f"  Overlap element: '{fp[:40]}' at y={y_center_curr}, bottom={y_bottom_curr}"
+            )
             return y_bottom_curr + 5  # Small buffer
 
         # All common elements were in nav bar - use default
         logger.warning(f"  All common elements in nav bar area, using default")
         return int(height * 0.3)
 
-    def calculate_scroll_offset(self, elements_prev: list, elements_curr: list, height: int) -> int:
+    def calculate_scroll_offset(
+        self, elements_prev: list, elements_curr: list, height: int
+    ) -> int:
         """
         Calculate how many pixels were scrolled between two captures
         by comparing the Y positions of common elements.
@@ -255,7 +262,9 @@ class ElementAnalyzer:
         fp_to_y_curr = {}
 
         logger.info(f"  === OFFSET CALCULATION ===")
-        logger.info(f"  Screen height: {height}, Valid range: {int(height*0.10)}-{int(height*0.80)}")
+        logger.info(
+            f"  Screen height: {height}, Valid range: {int(height*0.10)}-{int(height*0.80)}"
+        )
 
         # Log ALL fingerprinted elements from PREV
         prev_all = {}
@@ -268,7 +277,9 @@ class ElementAnalyzer:
                 if height * 0.10 < y < height * 0.80:
                     fp_to_y_prev[fp] = y
 
-        logger.info(f"  PREV: {len(prev_all)} total fingerprinted, {len(fp_to_y_prev)} in valid Y range")
+        logger.info(
+            f"  PREV: {len(prev_all)} total fingerprinted, {len(fp_to_y_prev)} in valid Y range"
+        )
 
         # Log ALL fingerprinted elements from CURR
         curr_all = {}
@@ -280,14 +291,18 @@ class ElementAnalyzer:
                 if height * 0.10 < y < height * 0.80:
                     fp_to_y_curr[fp] = y
 
-        logger.info(f"  CURR: {len(curr_all)} total fingerprinted, {len(fp_to_y_curr)} in valid Y range")
+        logger.info(
+            f"  CURR: {len(curr_all)} total fingerprinted, {len(fp_to_y_curr)} in valid Y range"
+        )
 
         # Find common elements
         common = set(fp_to_y_prev.keys()) & set(fp_to_y_curr.keys())
 
         # Also check ALL common elements (including fixed ones) for debugging
         all_common = set(prev_all.keys()) & set(curr_all.keys())
-        logger.info(f"  Common elements: {len(common)} in valid range, {len(all_common)} total")
+        logger.info(
+            f"  Common elements: {len(common)} in valid range, {len(all_common)} total"
+        )
 
         # Log some example elements for debugging
         logger.info(f"  Sample PREV elements (in range):")
@@ -302,7 +317,9 @@ class ElementAnalyzer:
             logger.warning("  NO COMMON ELEMENTS in valid Y range!")
             logger.info(f"  Checking ALL common elements...")
             for fp in list(all_common)[:5]:
-                logger.info(f"    {fp[:50]}: prev_y={prev_all[fp]}, curr_y={curr_all[fp]}")
+                logger.info(
+                    f"    {fp[:50]}: prev_y={prev_all[fp]}, curr_y={curr_all[fp]}"
+                )
             return int(height * 0.5)  # Default: assume 50% scroll
 
         # Calculate offset from each common element

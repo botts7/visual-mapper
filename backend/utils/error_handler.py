@@ -17,7 +17,12 @@ logger = logging.getLogger("visual_mapper")
 class VisualMapperError(Exception):
     """Base exception for all Visual Mapper errors"""
 
-    def __init__(self, message: str, code: str = "UNKNOWN_ERROR", details: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        message: str,
+        code: str = "UNKNOWN_ERROR",
+        details: Optional[Dict[str, Any]] = None,
+    ):
         self.message = message
         self.code = code
         self.details = details or {}
@@ -28,77 +33,105 @@ class DeviceNotFoundError(VisualMapperError):
     """Raised when Android device is not found or disconnected"""
 
     def __init__(self, device_id: Optional[str] = None):
-        message = f"Device '{device_id}' not found or disconnected" if device_id else "No Android devices found"
-        super().__init__(message, code="DEVICE_NOT_FOUND", details={"device_id": device_id})
+        message = (
+            f"Device '{device_id}' not found or disconnected"
+            if device_id
+            else "No Android devices found"
+        )
+        super().__init__(
+            message, code="DEVICE_NOT_FOUND", details={"device_id": device_id}
+        )
 
 
 class ADBConnectionError(VisualMapperError):
     """Raised when ADB connection fails"""
 
     def __init__(self, message: str, device_id: Optional[str] = None):
-        super().__init__(message, code="ADB_CONNECTION_ERROR", details={"device_id": device_id})
+        super().__init__(
+            message, code="ADB_CONNECTION_ERROR", details={"device_id": device_id}
+        )
 
 
 class ScreenshotCaptureError(VisualMapperError):
     """Raised when screenshot capture fails"""
 
     def __init__(self, message: str, device_id: Optional[str] = None):
-        super().__init__(message, code="SCREENSHOT_CAPTURE_ERROR", details={"device_id": device_id})
+        super().__init__(
+            message, code="SCREENSHOT_CAPTURE_ERROR", details={"device_id": device_id}
+        )
 
 
 class SensorNotFoundError(VisualMapperError):
     """Raised when sensor is not found"""
 
     def __init__(self, sensor_id: str):
-        super().__init__(f"Sensor '{sensor_id}' not found", code="SENSOR_NOT_FOUND", details={"sensor_id": sensor_id})
+        super().__init__(
+            f"Sensor '{sensor_id}' not found",
+            code="SENSOR_NOT_FOUND",
+            details={"sensor_id": sensor_id},
+        )
 
 
 class SensorValidationError(VisualMapperError):
     """Raised when sensor validation fails"""
 
     def __init__(self, message: str, field: Optional[str] = None):
-        super().__init__(message, code="SENSOR_VALIDATION_ERROR", details={"field": field})
+        super().__init__(
+            message, code="SENSOR_VALIDATION_ERROR", details={"field": field}
+        )
 
 
 class MQTTConnectionError(VisualMapperError):
     """Raised when MQTT connection fails"""
 
     def __init__(self, message: str, broker: Optional[str] = None):
-        super().__init__(message, code="MQTT_CONNECTION_ERROR", details={"broker": broker})
+        super().__init__(
+            message, code="MQTT_CONNECTION_ERROR", details={"broker": broker}
+        )
 
 
 class TextExtractionError(VisualMapperError):
     """Raised when text extraction fails"""
 
     def __init__(self, message: str, method: Optional[str] = None):
-        super().__init__(message, code="TEXT_EXTRACTION_ERROR", details={"method": method})
+        super().__init__(
+            message, code="TEXT_EXTRACTION_ERROR", details={"method": method}
+        )
 
 
 class ActionNotFoundError(VisualMapperError):
     """Raised when action is not found"""
 
     def __init__(self, action_id: str):
-        super().__init__(f"Action '{action_id}' not found", code="ACTION_NOT_FOUND", details={"action_id": action_id})
+        super().__init__(
+            f"Action '{action_id}' not found",
+            code="ACTION_NOT_FOUND",
+            details={"action_id": action_id},
+        )
 
 
 class ActionValidationError(VisualMapperError):
     """Raised when action validation fails"""
 
     def __init__(self, message: str, field: Optional[str] = None):
-        super().__init__(message, code="ACTION_VALIDATION_ERROR", details={"field": field})
+        super().__init__(
+            message, code="ACTION_VALIDATION_ERROR", details={"field": field}
+        )
 
 
 class ActionExecutionError(VisualMapperError):
     """Raised when action execution fails"""
 
     def __init__(self, message: str, action_type: Optional[str] = None):
-        super().__init__(message, code="ACTION_EXECUTION_ERROR", details={"action_type": action_type})
+        super().__init__(
+            message, code="ACTION_EXECUTION_ERROR", details={"action_type": action_type}
+        )
 
 
 def create_error_response(
     error: Exception,
     status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
-    include_traceback: bool = False
+    include_traceback: bool = False,
 ) -> JSONResponse:
     """
     Create a standardized error response
@@ -114,10 +147,7 @@ def create_error_response(
     # Build error response
     error_response = {
         "success": False,
-        "error": {
-            "message": str(error),
-            "type": error.__class__.__name__
-        }
+        "error": {"message": str(error), "type": error.__class__.__name__},
     }
 
     # Add details for VisualMapperError
@@ -132,10 +162,7 @@ def create_error_response(
     # Log the error
     logger.error(f"{error.__class__.__name__}: {error}", exc_info=True)
 
-    return JSONResponse(
-        status_code=status_code,
-        content=error_response
-    )
+    return JSONResponse(status_code=status_code, content=error_response)
 
 
 def handle_api_error(error: Exception) -> JSONResponse:
@@ -218,6 +245,7 @@ def handle_errors(func):
             # code that might raise errors
             pass
     """
+
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)

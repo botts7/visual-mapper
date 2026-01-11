@@ -4,6 +4,7 @@ Connects to ADB server running on network (e.g., Windows PC or ADB Server addon)
 This allows HA container to use ADB via network without installing it locally.
 Adapted from v3 with improvements: inherits from BaseADBConnection, uses centralized config.
 """
+
 import asyncio
 import logging
 import socket
@@ -25,7 +26,9 @@ class NetworkADBConnection(BaseADBConnection):
     - Want to leverage existing ADB infrastructure
     """
 
-    def __init__(self, hass, device_id: str, adb_host: str = None, adb_port: int = None):
+    def __init__(
+        self, hass, device_id: str, adb_host: str = None, adb_port: int = None
+    ):
         """Initialize network ADB connection.
 
         Args:
@@ -44,14 +47,12 @@ class NetworkADBConnection(BaseADBConnection):
         Returns:
             Tuple of (success: bool, error_message: str)
         """
+
         # Step 1: Check if ADB binary exists
         def _check_adb_binary():
             try:
                 result = subprocess.run(
-                    ["which", "adb"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
+                    ["which", "adb"], capture_output=True, text=True, timeout=5
                 )
                 return result.returncode == 0, result.stdout.strip()
             except Exception as e:
@@ -95,7 +96,9 @@ class NetworkADBConnection(BaseADBConnection):
         Returns:
             True if connected successfully, False otherwise
         """
-        _LOGGER.info(f"Connecting to device {self.device_id} via ADB server at {self.adb_host}:{self.adb_port}")
+        _LOGGER.info(
+            f"Connecting to device {self.device_id} via ADB server at {self.adb_host}:{self.adb_port}"
+        )
 
         # Step 1: Verify ADB server is running
         server_ok, server_error = await self._verify_adb_server()
@@ -123,7 +126,9 @@ class NetworkADBConnection(BaseADBConnection):
                         break
 
                 # Wait for connection to establish
-                _LOGGER.info(f"Waiting {config.RETRY_DELAY}s for connection to establish...")
+                _LOGGER.info(
+                    f"Waiting {config.RETRY_DELAY}s for connection to establish..."
+                )
                 await asyncio.sleep(config.RETRY_DELAY)
 
                 # Verify device is in the list
@@ -140,7 +145,9 @@ class NetworkADBConnection(BaseADBConnection):
                             await asyncio.sleep(config.RETRY_DELAY)
                             continue
                     else:
-                        _LOGGER.info(f"✅ Device {self.device_id} connected and online!")
+                        _LOGGER.info(
+                            f"✅ Device {self.device_id} connected and online!"
+                        )
                         self._connected = True
                         return True
                 else:
@@ -157,7 +164,9 @@ class NetworkADBConnection(BaseADBConnection):
                     await asyncio.sleep(config.RETRY_DELAY)
                     continue
 
-        _LOGGER.error(f"Failed to connect after {config.MAX_RETRIES} attempts. Last error: {last_error}")
+        _LOGGER.error(
+            f"Failed to connect after {config.MAX_RETRIES} attempts. Last error: {last_error}"
+        )
         return False
 
     async def _run_adb_connect(self) -> Tuple[bool, str]:
@@ -166,13 +175,14 @@ class NetworkADBConnection(BaseADBConnection):
         Returns:
             Tuple of (success: bool, output_message: str)
         """
+
         def _connect():
             try:
                 result = subprocess.run(
                     ["adb", "connect", self.device_id],
                     capture_output=True,
                     text=True,
-                    timeout=config.CONNECTION_TIMEOUT
+                    timeout=config.CONNECTION_TIMEOUT,
                 )
                 output = result.stdout + result.stderr
                 output = output.strip()
@@ -207,6 +217,7 @@ class NetworkADBConnection(BaseADBConnection):
         Returns:
             Response from ADB server
         """
+
         def _send():
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(10)
@@ -300,7 +311,7 @@ class NetworkADBConnection(BaseADBConnection):
 
             # For other commands, decode as UTF-8 text
             try:
-                return result.decode('utf-8').strip() if result else ""
+                return result.decode("utf-8").strip() if result else ""
             except UnicodeDecodeError:
                 # If decoding fails, return as bytes
                 return result
@@ -333,7 +344,7 @@ class NetworkADBConnection(BaseADBConnection):
                     ["adb", "-s", self.device_id, "pull", remote_path, local_path],
                     capture_output=True,
                     text=True,
-                    timeout=config.PULL_TIMEOUT
+                    timeout=config.PULL_TIMEOUT,
                 )
                 return result.returncode == 0, result.stdout + result.stderr
 
@@ -374,7 +385,7 @@ class NetworkADBConnection(BaseADBConnection):
                     ["adb", "-s", self.device_id, "push", local_path, remote_path],
                     capture_output=True,
                     text=True,
-                    timeout=config.PUSH_TIMEOUT
+                    timeout=config.PUSH_TIMEOUT,
                 )
                 return result.returncode == 0, result.stdout + result.stderr
 

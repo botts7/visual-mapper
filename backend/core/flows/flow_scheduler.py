@@ -41,11 +41,15 @@ class ExecutionRouter:
         self._android_timeout_seconds = 30  # Timeout for Android execution
 
         # Track execution history for reporting
-        self._execution_history: Dict[str, List[Dict]] = {}  # device_id -> list of results
+        self._execution_history: Dict[str, List[Dict]] = (
+            {}
+        )  # device_id -> list of results
         self._max_history_per_device = 50
 
         # Track device capabilities from companion app
-        self._device_capabilities: Dict[str, Dict] = {}  # device_id -> capabilities dict
+        self._device_capabilities: Dict[str, Dict] = (
+            {}
+        )  # device_id -> capabilities dict
 
         logger.info("[ExecutionRouter] Initialized")
 
@@ -57,7 +61,9 @@ class ExecutionRouter:
         if mqtt_manager:
             mqtt_manager.set_flow_result_callback(self._handle_android_flow_result)
             mqtt_manager.set_companion_status_callback(self._handle_device_status)
-            logger.info("[ExecutionRouter] Registered flow result and status callbacks with MQTT manager")
+            logger.info(
+                "[ExecutionRouter] Registered flow result and status callbacks with MQTT manager"
+            )
 
         logger.info("[ExecutionRouter] MQTT manager configured")
 
@@ -71,7 +77,9 @@ class ExecutionRouter:
             device_id: Android device ID
             status_data: Status data including capabilities
         """
-        logger.info(f"[ExecutionRouter] Received device status: {device_id} - capabilities={status_data.get('capabilities', [])}")
+        logger.info(
+            f"[ExecutionRouter] Received device status: {device_id} - capabilities={status_data.get('capabilities', [])}"
+        )
 
         self._device_capabilities[device_id] = {
             "device_id": device_id,
@@ -80,7 +88,7 @@ class ExecutionRouter:
             "accessibility_enabled": status_data.get("accessibility_enabled", False),
             "capabilities": status_data.get("capabilities", []),
             "timestamp": status_data.get("timestamp"),
-            "last_updated": datetime.now().isoformat()
+            "last_updated": datetime.now().isoformat(),
         }
 
     def get_device_capabilities(self, device_id: str) -> Dict:
@@ -95,7 +103,9 @@ class ExecutionRouter:
         """
         return self._device_capabilities.get(device_id, {})
 
-    def is_android_capable(self, device_id: str, required_capabilities: List[str] = None) -> bool:
+    def is_android_capable(
+        self, device_id: str, required_capabilities: List[str] = None
+    ) -> bool:
         """
         Check if device has Android companion app with required capabilities
 
@@ -125,7 +135,9 @@ class ExecutionRouter:
 
         return True
 
-    def _handle_android_flow_result(self, device_id: str, flow_id: str, result_data: dict):
+    def _handle_android_flow_result(
+        self, device_id: str, flow_id: str, result_data: dict
+    ):
         """
         Handle flow execution result from Android companion app via MQTT
 
@@ -134,7 +146,9 @@ class ExecutionRouter:
             flow_id: Flow ID that was executed
             result_data: Result data from Android app
         """
-        logger.info(f"[ExecutionRouter] Received Android flow result: {device_id}/{flow_id} - success={result_data.get('success')}")
+        logger.info(
+            f"[ExecutionRouter] Received Android flow result: {device_id}/{flow_id} - success={result_data.get('success')}"
+        )
 
         # Store in execution history
         if device_id not in self._execution_history:
@@ -147,13 +161,15 @@ class ExecutionRouter:
             "error": result_data.get("error"),
             "duration_ms": result_data.get("duration", 0),
             "timestamp": result_data.get("timestamp", datetime.now().isoformat()),
-            "executor": "android"
+            "executor": "android",
         }
         self._execution_history[device_id].append(history_entry)
 
         # Trim history to max size
         if len(self._execution_history[device_id]) > self._max_history_per_device:
-            self._execution_history[device_id] = self._execution_history[device_id][-self._max_history_per_device:]
+            self._execution_history[device_id] = self._execution_history[device_id][
+                -self._max_history_per_device :
+            ]
 
         # Resolve pending future if waiting for this result
         execution_key = f"{device_id}/{flow_id}"
@@ -161,7 +177,9 @@ class ExecutionRouter:
             future = self._pending_android_executions.pop(execution_key)
             if not future.done():
                 future.set_result(result_data)
-                logger.debug(f"[ExecutionRouter] Resolved pending execution: {execution_key}")
+                logger.debug(
+                    f"[ExecutionRouter] Resolved pending execution: {execution_key}"
+                )
 
     def get_execution_history(self, device_id: str, limit: int = 20) -> List[Dict]:
         """
@@ -177,7 +195,9 @@ class ExecutionRouter:
         history = self._execution_history.get(device_id, [])
         return list(reversed(history[-limit:]))
 
-    async def execute_flow(self, flow: SensorCollectionFlow, device_lock: asyncio.Lock = None) -> 'ExecutionResult':
+    async def execute_flow(
+        self, flow: SensorCollectionFlow, device_lock: asyncio.Lock = None
+    ) -> "ExecutionResult":
         """
         Execute flow using appropriate method based on execution_method field
 
@@ -188,9 +208,11 @@ class ExecutionRouter:
         Returns:
             ExecutionResult with success status and data
         """
-        execution_method = getattr(flow, 'execution_method', 'server')
+        execution_method = getattr(flow, "execution_method", "server")
 
-        logger.info(f"[ExecutionRouter] Routing flow {flow.flow_id} via {execution_method}")
+        logger.info(
+            f"[ExecutionRouter] Routing flow {flow.flow_id} via {execution_method}"
+        )
 
         if execution_method == "server":
             return await self._execute_on_server(flow, device_lock)
@@ -199,10 +221,14 @@ class ExecutionRouter:
         elif execution_method == "auto":
             return await self._execute_auto(flow, device_lock)
         else:
-            logger.warning(f"[ExecutionRouter] Unknown execution_method '{execution_method}', defaulting to server")
+            logger.warning(
+                f"[ExecutionRouter] Unknown execution_method '{execution_method}', defaulting to server"
+            )
             return await self._execute_on_server(flow, device_lock)
 
-    async def _execute_on_server(self, flow: SensorCollectionFlow, device_lock: asyncio.Lock = None):
+    async def _execute_on_server(
+        self, flow: SensorCollectionFlow, device_lock: asyncio.Lock = None
+    ):
         """Execute flow via server ADB"""
         logger.debug(f"[ExecutionRouter] Executing flow {flow.flow_id} on server (ADB)")
         return await self.flow_executor.execute_flow(flow, device_lock=device_lock)
@@ -210,14 +236,18 @@ class ExecutionRouter:
     async def _execute_on_android(self, flow: SensorCollectionFlow):
         """Execute flow via MQTT command to Android companion app"""
         if not self.mqtt_manager:
-            logger.error("[ExecutionRouter] MQTT manager not configured for Android execution")
+            logger.error(
+                "[ExecutionRouter] MQTT manager not configured for Android execution"
+            )
             return ExecutionResult(success=False, error_message="MQTT not configured")
 
         if not self.mqtt_manager.is_connected():
             logger.error("[ExecutionRouter] MQTT not connected for Android execution")
             return ExecutionResult(success=False, error_message="MQTT not connected")
 
-        logger.debug(f"[ExecutionRouter] Executing flow {flow.flow_id} on Android via MQTT")
+        logger.debug(
+            f"[ExecutionRouter] Executing flow {flow.flow_id} on Android via MQTT"
+        )
 
         try:
             # Create execution request
@@ -230,33 +260,45 @@ class ExecutionRouter:
                         "sensor_id": sensor.sensor_id,
                         "name": sensor.name,
                         "source_type": sensor.source.source_type,
-                        "source_config": sensor.source.model_dump() if hasattr(sensor.source, 'model_dump') else {}
+                        "source_config": (
+                            sensor.source.model_dump()
+                            if hasattr(sensor.source, "model_dump")
+                            else {}
+                        ),
                     }
                     for sensor in flow.sensors
                 ],
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
             # Send MQTT command
             success = await self.mqtt_manager.publish_flow_command(
-                device_id=flow.device_id,
-                flow_id=flow.flow_id,
-                payload=payload
+                device_id=flow.device_id, flow_id=flow.flow_id, payload=payload
             )
 
             if success:
-                logger.info(f"[ExecutionRouter] Sent flow execution command to Android: {flow.flow_id}")
+                logger.info(
+                    f"[ExecutionRouter] Sent flow execution command to Android: {flow.flow_id}"
+                )
                 # Note: Actual result comes back via MQTT callback - this just confirms command sent
                 return ExecutionResult(success=True, execution_method="android")
             else:
-                logger.error(f"[ExecutionRouter] Failed to send flow command to Android: {flow.flow_id}")
-                return ExecutionResult(success=False, error_message="Failed to publish MQTT command")
+                logger.error(
+                    f"[ExecutionRouter] Failed to send flow command to Android: {flow.flow_id}"
+                )
+                return ExecutionResult(
+                    success=False, error_message="Failed to publish MQTT command"
+                )
 
         except Exception as e:
-            logger.error(f"[ExecutionRouter] Android execution error: {e}", exc_info=True)
+            logger.error(
+                f"[ExecutionRouter] Android execution error: {e}", exc_info=True
+            )
             return ExecutionResult(success=False, error_message=str(e))
 
-    async def _execute_auto(self, flow: SensorCollectionFlow, device_lock: asyncio.Lock = None):
+    async def _execute_auto(
+        self, flow: SensorCollectionFlow, device_lock: asyncio.Lock = None
+    ):
         """
         Smart execution with fallback and capability awareness
 
@@ -266,25 +308,30 @@ class ExecutionRouter:
         3. If not available or failed, use fallback
         4. Track which method was used for logging/metrics
         """
-        preferred = getattr(flow, 'preferred_executor', 'android')
-        fallback = getattr(flow, 'fallback_executor', 'server')
+        preferred = getattr(flow, "preferred_executor", "android")
+        fallback = getattr(flow, "fallback_executor", "server")
 
         # Check Android capability
         android_capable = self.is_android_capable(
-            flow.device_id,
-            required_capabilities=["flow_execution", "accessibility"]
+            flow.device_id, required_capabilities=["flow_execution", "accessibility"]
         )
 
-        logger.info(f"[ExecutionRouter] Auto mode: preferred={preferred}, fallback={fallback}, android_capable={android_capable}")
+        logger.info(
+            f"[ExecutionRouter] Auto mode: preferred={preferred}, fallback={fallback}, android_capable={android_capable}"
+        )
 
         # Smart routing: if preferred is android but not capable, start with server
         actual_preferred = preferred
         if preferred == "android" and not android_capable:
-            logger.info(f"[ExecutionRouter] Device not Android-capable, starting with server")
+            logger.info(
+                f"[ExecutionRouter] Device not Android-capable, starting with server"
+            )
             actual_preferred = "server"
         elif preferred == "server" and fallback == "android" and not android_capable:
             # If fallback is android but not capable, warn (will still try server first)
-            logger.debug(f"[ExecutionRouter] Fallback android not available, will stick with server")
+            logger.debug(
+                f"[ExecutionRouter] Fallback android not available, will stick with server"
+            )
 
         # Try preferred executor
         if actual_preferred == "android":
@@ -300,11 +347,15 @@ class ExecutionRouter:
 
             # Don't try android fallback if not capable
             if fallback == "android" and not android_capable:
-                logger.warning(f"[ExecutionRouter] Fallback android requested but device not capable, skipping")
+                logger.warning(
+                    f"[ExecutionRouter] Fallback android requested but device not capable, skipping"
+                )
                 actual_fallback = None
 
             if actual_fallback and actual_fallback != actual_preferred:
-                logger.warning(f"[ExecutionRouter] Preferred executor '{actual_preferred}' failed, trying fallback '{actual_fallback}'")
+                logger.warning(
+                    f"[ExecutionRouter] Preferred executor '{actual_preferred}' failed, trying fallback '{actual_fallback}'"
+                )
 
                 if actual_fallback == "android":
                     result = await self._execute_on_android(flow)
@@ -315,7 +366,9 @@ class ExecutionRouter:
 
                 if result.success:
                     result.used_fallback = True
-                    logger.info(f"[ExecutionRouter] Fallback executor '{actual_fallback}' succeeded")
+                    logger.info(
+                        f"[ExecutionRouter] Fallback executor '{actual_fallback}' succeeded"
+                    )
 
         return result
 
@@ -323,6 +376,7 @@ class ExecutionRouter:
 @dataclass
 class ExecutionResult:
     """Result of flow execution"""
+
     success: bool
     error_message: str = ""
     execution_method: str = "server"
@@ -337,6 +391,7 @@ class ExecutionResult:
 @dataclass
 class QueuedFlow:
     """Represents a flow in the execution queue"""
+
     priority: int
     timestamp: float
     flow: SensorCollectionFlow
@@ -470,10 +525,7 @@ class FlowScheduler:
         logger.info("[FlowScheduler] Scheduler stopped")
 
     async def schedule_flow(
-        self,
-        flow: SensorCollectionFlow,
-        priority: int = 10,
-        reason: str = "periodic"
+        self, flow: SensorCollectionFlow, priority: int = 10, reason: str = "periodic"
     ):
         """
         Add flow to execution queue
@@ -507,15 +559,14 @@ class FlowScheduler:
         # SMART QUEUE: Skip if flow already queued (unless on-demand)
         # On-demand (priority < 5) always allowed - user explicitly wants it
         if reason == "periodic" and flow_id in self._queued_flow_ids[device_id]:
-            logger.info(f"[FlowScheduler] Skipping {flow_id} - already queued (queue_depth={self._queue_depths.get(device_id, 0)})")
+            logger.info(
+                f"[FlowScheduler] Skipping {flow_id} - already queued (queue_depth={self._queue_depths.get(device_id, 0)})"
+            )
             return
 
         # Create queued flow item
         queued = QueuedFlow(
-            priority=priority,
-            timestamp=time.time(),
-            flow=flow,
-            reason=reason
+            priority=priority, timestamp=time.time(), flow=flow, reason=reason
         )
 
         # Track that this flow is now queued
@@ -527,10 +578,15 @@ class FlowScheduler:
         # Update metrics
         self._queue_depths[device_id] = self._queues[device_id].qsize()
 
-        logger.debug(f"[FlowScheduler] Queued flow {flow_id} (priority={priority}, reason={reason}, queue_depth={self._queue_depths[device_id]})")
+        logger.debug(
+            f"[FlowScheduler] Queued flow {flow_id} (priority={priority}, reason={reason}, queue_depth={self._queue_depths[device_id]})"
+        )
 
         # Start scheduler task if not running
-        if device_id not in self._scheduler_tasks or self._scheduler_tasks[device_id].done():
+        if (
+            device_id not in self._scheduler_tasks
+            or self._scheduler_tasks[device_id].done()
+        ):
             task = asyncio.create_task(self._run_device_scheduler(device_id))
             self._scheduler_tasks[device_id] = task
             logger.info(f"[FlowScheduler] Started scheduler task for {device_id}")
@@ -573,7 +629,9 @@ class FlowScheduler:
 
                 # 2. Check if flow still enabled
                 if not queued.flow.enabled:
-                    logger.info(f"[FlowScheduler] Skipping disabled flow: {queued.flow.flow_id}")
+                    logger.info(
+                        f"[FlowScheduler] Skipping disabled flow: {queued.flow.flow_id}"
+                    )
                     queue.task_done()
                     continue
 
@@ -581,25 +639,35 @@ class FlowScheduler:
                 # NOTE: Device may have multiple IDs (USB serial vs WiFi IP) - check all
                 try:
                     from main import wizard_active_devices
+
                     wizard_active = device_id in wizard_active_devices
 
                     # Also check alternative IDs (WiFi IP vs USB serial mismatch)
                     if not wizard_active:
                         try:
-                            connected = await self.flow_executor.adb_bridge.get_connected_devices()
+                            connected = (
+                                await self.flow_executor.adb_bridge.get_connected_devices()
+                            )
                             for dev in connected:
-                                dev_id = dev.get('id', '')
-                                wifi_ip = dev.get('wifi_ip', '')
+                                dev_id = dev.get("id", "")
+                                wifi_ip = dev.get("wifi_ip", "")
                                 if dev_id == device_id or wifi_ip == device_id:
-                                    if dev_id in wizard_active_devices or wifi_ip in wizard_active_devices:
+                                    if (
+                                        dev_id in wizard_active_devices
+                                        or wifi_ip in wizard_active_devices
+                                    ):
                                         wizard_active = True
-                                        logger.info(f"[FlowScheduler] Device {device_id} matched wizard via {dev_id}/{wifi_ip}")
+                                        logger.info(
+                                            f"[FlowScheduler] Device {device_id} matched wizard via {dev_id}/{wifi_ip}"
+                                        )
                                         break
                         except Exception:
                             pass
 
                     if wizard_active:
-                        logger.info(f"[FlowScheduler] Skipping flow {queued.flow.flow_id} - wizard active on {device_id}")
+                        logger.info(
+                            f"[FlowScheduler] Skipping flow {queued.flow.flow_id} - wizard active on {device_id}"
+                        )
                         queue.task_done()
                         continue
                 except ImportError:
@@ -607,7 +675,9 @@ class FlowScheduler:
 
                 # 3. Acquire device lock (only needed for server/ADB execution)
                 async with lock:
-                    logger.info(f"[FlowScheduler] Executing flow {queued.flow.flow_id} (priority={queued.priority}, reason={queued.reason}, method={getattr(queued.flow, 'execution_method', 'server')})")
+                    logger.info(
+                        f"[FlowScheduler] Executing flow {queued.flow.flow_id} (priority={queued.priority}, reason={queued.reason}, method={getattr(queued.flow, 'execution_method', 'server')})"
+                    )
 
                     try:
                         # ============================================
@@ -616,7 +686,9 @@ class FlowScheduler:
                         unlocked = await self._auto_unlock_if_needed(device_id)
                         if not unlocked:
                             # Re-queue instead of skipping - device may unlock soon
-                            logger.warning(f"[FlowScheduler] Flow {queued.flow.flow_id} deferred - device locked, re-queuing in 10s")
+                            logger.warning(
+                                f"[FlowScheduler] Flow {queued.flow.flow_id} deferred - device locked, re-queuing in 10s"
+                            )
                             queue.task_done()
 
                             # Re-queue with slight delay (don't block the queue)
@@ -626,50 +698,77 @@ class FlowScheduler:
                                 if self._running and queued.flow.enabled:
                                     # Lower priority (higher number) for retries to let other flows go first
                                     retry_priority = min(queued.priority + 5, 20)
-                                    await self.schedule_flow(queued.flow, priority=retry_priority, reason="retry_after_locked")
-                                    logger.info(f"[FlowScheduler] Re-queued flow {queued.flow.flow_id} after device lock")
+                                    await self.schedule_flow(
+                                        queued.flow,
+                                        priority=retry_priority,
+                                        reason="retry_after_locked",
+                                    )
+                                    logger.info(
+                                        f"[FlowScheduler] Re-queued flow {queued.flow.flow_id} after device lock"
+                                    )
 
                             asyncio.create_task(requeue_after_delay())
                             continue
 
                         # 4. Execute flow via execution router (handles server/android/auto routing)
-                        result = await self.execution_router.execute_flow(queued.flow, device_lock=lock)
+                        result = await self.execution_router.execute_flow(
+                            queued.flow, device_lock=lock
+                        )
 
                         # 5. Update metrics
                         self._last_execution[device_id] = datetime.now()
-                        self._total_executions[device_id] = self._total_executions.get(device_id, 0) + 1
+                        self._total_executions[device_id] = (
+                            self._total_executions.get(device_id, 0) + 1
+                        )
 
                         if result.success:
-                            method = getattr(result, 'execution_method', 'server')
-                            fallback = getattr(result, 'used_fallback', False)
+                            method = getattr(result, "execution_method", "server")
+                            fallback = getattr(result, "used_fallback", False)
                             fallback_msg = " (fallback)" if fallback else ""
-                            logger.debug(f"[FlowScheduler] Flow {queued.flow.flow_id} completed successfully via {method}{fallback_msg}")
+                            logger.debug(
+                                f"[FlowScheduler] Flow {queued.flow.flow_id} completed successfully via {method}{fallback_msg}"
+                            )
 
                             # ============================================
                             # AUTO-LOCK: After successful flow execution
                             # ============================================
                             if await self.should_lock_device(device_id):
                                 try:
-                                    await self.flow_executor.adb_bridge.sleep_screen(device_id)
-                                    logger.info(f"[FlowScheduler] Locked device {device_id} (no flow scheduled soon)")
+                                    await self.flow_executor.adb_bridge.sleep_screen(
+                                        device_id
+                                    )
+                                    logger.info(
+                                        f"[FlowScheduler] Locked device {device_id} (no flow scheduled soon)"
+                                    )
                                 except Exception as lock_error:
-                                    logger.warning(f"[FlowScheduler] Failed to lock device: {lock_error}")
+                                    logger.warning(
+                                        f"[FlowScheduler] Failed to lock device: {lock_error}"
+                                    )
                         else:
-                            logger.warning(f"[FlowScheduler] Flow {queued.flow.flow_id} failed: {result.error_message}")
+                            logger.warning(
+                                f"[FlowScheduler] Flow {queued.flow.flow_id} failed: {result.error_message}"
+                            )
                             # Don't lock on failure - user may need to intervene
 
                     except Exception as e:
-                        logger.error(f"[FlowScheduler] Flow execution error: {e}", exc_info=True)
+                        logger.error(
+                            f"[FlowScheduler] Flow execution error: {e}", exc_info=True
+                        )
 
                 # 6. Update queue depth
                 self._queue_depths[device_id] = queue.qsize()
                 queue.task_done()
 
             except asyncio.CancelledError:
-                logger.info(f"[FlowScheduler] Device scheduler cancelled for {device_id}")
+                logger.info(
+                    f"[FlowScheduler] Device scheduler cancelled for {device_id}"
+                )
                 break
             except Exception as e:
-                logger.error(f"[FlowScheduler] Scheduler error for {device_id}: {e}", exc_info=True)
+                logger.error(
+                    f"[FlowScheduler] Scheduler error for {device_id}: {e}",
+                    exc_info=True,
+                )
                 await asyncio.sleep(1)  # Prevent tight loop on errors
 
         logger.info(f"[FlowScheduler] Device scheduler stopped for {device_id}")
@@ -682,11 +781,16 @@ class FlowScheduler:
         at the configured update_interval_seconds
         """
         # Get all devices
-        devices = list(set(
-            flow.device_id
-            for flows in [self.flow_manager.get_device_flows(d) for d in self._get_all_device_ids()]
-            for flow in flows
-        ))
+        devices = list(
+            set(
+                flow.device_id
+                for flows in [
+                    self.flow_manager.get_device_flows(d)
+                    for d in self._get_all_device_ids()
+                ]
+                for flow in flows
+            )
+        )
 
         total_flows = 0
 
@@ -699,7 +803,9 @@ class FlowScheduler:
                 self._periodic_tasks[flow.flow_id] = task
                 total_flows += 1
 
-        logger.info(f"[FlowScheduler] Started periodic scheduling for {total_flows} flows across {len(devices)} devices")
+        logger.info(
+            f"[FlowScheduler] Started periodic scheduling for {total_flows} flows across {len(devices)} devices"
+        )
 
     async def _run_periodic_flow(self, flow: SensorCollectionFlow):
         """
@@ -711,12 +817,15 @@ class FlowScheduler:
             flow: Flow to schedule periodically (used for initial flow_id/device_id)
         """
         import time
+
         # Store IDs - we'll re-read flow from disk each iteration
         flow_id = flow.flow_id
         device_id = flow.device_id
         initial_interval = flow.update_interval_seconds
 
-        logger.debug(f"[FlowScheduler] Starting periodic scheduling for {flow_id} (interval={initial_interval}s)")
+        logger.debug(
+            f"[FlowScheduler] Starting periodic scheduling for {flow_id} (interval={initial_interval}s)"
+        )
 
         while self._running:
             try:
@@ -725,11 +834,15 @@ class FlowScheduler:
 
                 # Check if flow still exists and is enabled
                 if not current_flow:
-                    logger.info(f"[FlowScheduler] Flow {flow_id} no longer exists, stopping periodic task")
+                    logger.info(
+                        f"[FlowScheduler] Flow {flow_id} no longer exists, stopping periodic task"
+                    )
                     break
 
                 if not current_flow.enabled:
-                    logger.info(f"[FlowScheduler] Flow {flow_id} is disabled, stopping periodic task")
+                    logger.info(
+                        f"[FlowScheduler] Flow {flow_id} is disabled, stopping periodic task"
+                    )
                     break
 
                 # Track execution start time to account for execution duration
@@ -746,22 +859,31 @@ class FlowScheduler:
                     priority = 15  # Low priority
 
                 # Schedule flow (use current_flow, not stale reference)
-                await self.schedule_flow(current_flow, priority=priority, reason="periodic")
+                await self.schedule_flow(
+                    current_flow, priority=priority, reason="periodic"
+                )
 
                 # Calculate sleep duration, accounting for execution time
                 execution_duration = time.time() - execution_start
                 sleep_duration = max(5, interval - execution_duration)
 
-                logger.debug(f"[FlowScheduler] Flow {flow_id} scheduled (took {execution_duration:.1f}s, sleeping {sleep_duration:.1f}s)")
+                logger.debug(
+                    f"[FlowScheduler] Flow {flow_id} scheduled (took {execution_duration:.1f}s, sleeping {sleep_duration:.1f}s)"
+                )
 
                 # Wait for adjusted interval
                 await asyncio.sleep(sleep_duration)
 
             except asyncio.CancelledError:
-                logger.debug(f"[FlowScheduler] Periodic scheduling cancelled for {flow_id}")
+                logger.debug(
+                    f"[FlowScheduler] Periodic scheduling cancelled for {flow_id}"
+                )
                 break
             except Exception as e:
-                logger.error(f"[FlowScheduler] Periodic scheduling error for {flow_id}: {e}", exc_info=True)
+                logger.error(
+                    f"[FlowScheduler] Periodic scheduling error for {flow_id}: {e}",
+                    exc_info=True,
+                )
                 await asyncio.sleep(initial_interval)  # Continue on error
 
     def _get_all_device_ids(self) -> List[str]:
@@ -802,7 +924,9 @@ class FlowScheduler:
 
         # Only restart periodic scheduling if not paused
         if self._paused:
-            logger.info(f"[FlowScheduler] Scheduler is paused - skipping periodic task creation for {device_id}")
+            logger.info(
+                f"[FlowScheduler] Scheduler is paused - skipping periodic task creation for {device_id}"
+            )
             return
 
         # Restart periodic scheduling for enabled flows
@@ -811,7 +935,9 @@ class FlowScheduler:
             task = asyncio.create_task(self._run_periodic_flow(flow))
             self._periodic_tasks[flow.flow_id] = task
 
-        logger.info(f"[FlowScheduler] Reloaded {len(enabled_flows)} flows for {device_id}")
+        logger.info(
+            f"[FlowScheduler] Reloaded {len(enabled_flows)} flows for {device_id}"
+        )
 
     def get_queue_depth(self, device_id: str) -> int:
         """Get current queue depth for a device"""
@@ -832,14 +958,14 @@ class FlowScheduler:
             "queue_depth": self.get_queue_depth(device_id),
             "last_execution": self.get_last_execution(device_id),
             "total_executions": self._total_executions.get(device_id, 0),
-            "scheduler_running": device_id in self._scheduler_tasks and not self._scheduler_tasks[device_id].done()
+            "scheduler_running": device_id in self._scheduler_tasks
+            and not self._scheduler_tasks[device_id].done(),
         }
 
     def get_all_metrics(self) -> Dict[str, Dict]:
         """Get scheduler metrics for all devices"""
         return {
-            device_id: self.get_metrics(device_id)
-            for device_id in self._queues.keys()
+            device_id: self.get_metrics(device_id) for device_id in self._queues.keys()
         }
 
     async def pause(self):
@@ -884,7 +1010,9 @@ class FlowScheduler:
         if was_paused:
             logger.info("[FlowScheduler] Resuming periodic scheduling")
         else:
-            logger.info("[FlowScheduler] Force-resuming periodic scheduling (tasks were empty)")
+            logger.info(
+                "[FlowScheduler] Force-resuming periodic scheduling (tasks were empty)"
+            )
 
         # Restart periodic scheduling
         await self._start_periodic_scheduling()
@@ -901,16 +1029,21 @@ class FlowScheduler:
         for device_id in self._queues.keys():
             device_status[device_id] = {
                 "queue_depth": self.get_queue_depth(device_id),
-                "scheduler_active": device_id in self._scheduler_tasks and not self._scheduler_tasks[device_id].done(),
-                "last_execution": self.get_last_execution(device_id).isoformat() if self.get_last_execution(device_id) else None,
-                "total_executions": self._total_executions.get(device_id, 0)
+                "scheduler_active": device_id in self._scheduler_tasks
+                and not self._scheduler_tasks[device_id].done(),
+                "last_execution": (
+                    self.get_last_execution(device_id).isoformat()
+                    if self.get_last_execution(device_id)
+                    else None
+                ),
+                "total_executions": self._total_executions.get(device_id, 0),
             }
 
         return {
             "running": self._running,
             "paused": self._paused,
             "total_periodic_tasks": len(self._periodic_tasks),
-            "devices": device_status
+            "devices": device_status,
         }
 
     def get_queued_flows(self, device_id: str) -> List[Dict]:
@@ -934,11 +1067,13 @@ class FlowScheduler:
 
         # Since PriorityQueue doesn't allow peeking, return summary info
         # For detailed queue contents, we'd need to track separately
-        return [{
-            "device_id": device_id,
-            "queue_depth": queue_depth,
-            "message": f"{queue_depth} flow(s) queued for execution"
-        }]
+        return [
+            {
+                "device_id": device_id,
+                "queue_depth": queue_depth,
+                "message": f"{queue_depth} flow(s) queued for execution",
+            }
+        ]
 
     async def cancel_queued_flows_for_device(self, device_id: str) -> int:
         """
@@ -976,7 +1111,9 @@ class FlowScheduler:
             self._queued_flow_ids[device_id].clear()
 
         if cancelled > 0:
-            logger.info(f"[FlowScheduler] Cancelled {cancelled} queued flows for {device_id} (wizard opened)")
+            logger.info(
+                f"[FlowScheduler] Cancelled {cancelled} queued flows for {device_id} (wizard opened)"
+            )
         else:
             logger.debug(f"[FlowScheduler] No queued flows to cancel for {device_id}")
 
@@ -1018,27 +1155,38 @@ class FlowScheduler:
         time_since_last = time.time() - last_attempt
         if time_since_last < self._unlock_debounce_seconds:
             remaining = int(self._unlock_debounce_seconds - time_since_last)
-            logger.debug(f"[FlowScheduler] Unlock debounce active for {device_id} ({remaining}s remaining)")
+            logger.debug(
+                f"[FlowScheduler] Unlock debounce active for {device_id} ({remaining}s remaining)"
+            )
             return False
 
         # Check unlock cooldown (prevents device lockout)
         unlock_status = self.flow_executor.adb_bridge.get_unlock_status(device_id)
         if unlock_status.get("in_cooldown"):
             cooldown_remaining = unlock_status.get("cooldown_remaining_seconds", 0)
-            logger.error(f"[FlowScheduler] Unlock in cooldown ({cooldown_remaining}s remaining)")
+            logger.error(
+                f"[FlowScheduler] Unlock in cooldown ({cooldown_remaining}s remaining)"
+            )
             return False
 
         # Get security config (try both device_id and stable_device_id)
         security_config = self.flow_executor.security_manager.get_lock_config(device_id)
         if not security_config:
             try:
-                stable_id = await self.flow_executor.adb_bridge.get_stable_device_id(device_id)
+                stable_id = await self.flow_executor.adb_bridge.get_stable_device_id(
+                    device_id
+                )
                 if stable_id and stable_id != device_id:
-                    security_config = self.flow_executor.security_manager.get_lock_config(stable_id)
+                    security_config = (
+                        self.flow_executor.security_manager.get_lock_config(stable_id)
+                    )
             except:
                 pass
 
-        has_auto_unlock = security_config and security_config.get('strategy') == LockStrategy.AUTO_UNLOCK.value
+        has_auto_unlock = (
+            security_config
+            and security_config.get("strategy") == LockStrategy.AUTO_UNLOCK.value
+        )
 
         # Get passcode if available
         passcode = None
@@ -1046,9 +1194,15 @@ class FlowScheduler:
             passcode = self.flow_executor.security_manager.get_passcode(device_id)
             if not passcode:
                 try:
-                    stable_id = await self.flow_executor.adb_bridge.get_stable_device_id(device_id)
+                    stable_id = (
+                        await self.flow_executor.adb_bridge.get_stable_device_id(
+                            device_id
+                        )
+                    )
                     if stable_id and stable_id != device_id:
-                        passcode = self.flow_executor.security_manager.get_passcode(stable_id)
+                        passcode = self.flow_executor.security_manager.get_passcode(
+                            stable_id
+                        )
                 except:
                     pass
 
@@ -1058,12 +1212,16 @@ class FlowScheduler:
             is_locked = await self.flow_executor.adb_bridge.is_locked(device_id)
             if not is_locked:
                 if attempt > 0:
-                    logger.info(f"[FlowScheduler] Device {device_id} unlocked after {attempt} attempts")
+                    logger.info(
+                        f"[FlowScheduler] Device {device_id} unlocked after {attempt} attempts"
+                    )
                 else:
                     logger.debug(f"[FlowScheduler] Device {device_id} already unlocked")
                 return True
 
-            logger.info(f"[FlowScheduler] Device {device_id} is locked - unlock attempt {attempt + 1}/{MAX_UNLOCK_ATTEMPTS}")
+            logger.info(
+                f"[FlowScheduler] Device {device_id} is locked - unlock attempt {attempt + 1}/{MAX_UNLOCK_ATTEMPTS}"
+            )
 
             # Record unlock attempt time for debounce
             self._last_unlock_attempt[device_id] = time.time()
@@ -1071,10 +1229,15 @@ class FlowScheduler:
             # Step 1: Try swipe unlock (Samsung devices now use unlock_screen_samsung with retry)
             try:
                 logger.info(f"[FlowScheduler] Calling unlock_screen for {device_id}")
-                unlock_success = await self.flow_executor.adb_bridge.unlock_screen(device_id)
+                unlock_success = await self.flow_executor.adb_bridge.unlock_screen(
+                    device_id
+                )
                 await asyncio.sleep(0.8)  # Let screen stabilize
 
-                if unlock_success and not await self.flow_executor.adb_bridge.is_locked(device_id):
+                if (
+                    unlock_success
+                    and not await self.flow_executor.adb_bridge.is_locked(device_id)
+                ):
                     logger.info(f"[FlowScheduler] Device unlocked via swipe")
                     return True
             except Exception as e:
@@ -1084,7 +1247,9 @@ class FlowScheduler:
             if passcode:
                 logger.info(f"[FlowScheduler] Attempting PIN unlock for {device_id}")
                 try:
-                    if await self.flow_executor.adb_bridge.unlock_device(device_id, passcode):
+                    if await self.flow_executor.adb_bridge.unlock_device(
+                        device_id, passcode
+                    ):
                         logger.info(f"[FlowScheduler] Device unlocked with passcode")
                         return True
                     else:
@@ -1104,7 +1269,9 @@ class FlowScheduler:
                 await asyncio.sleep(wait_time)
 
         # All retries exhausted
-        logger.error(f"[FlowScheduler] Failed to unlock device {device_id} after {MAX_UNLOCK_ATTEMPTS} attempts")
+        logger.error(
+            f"[FlowScheduler] Failed to unlock device {device_id} after {MAX_UNLOCK_ATTEMPTS} attempts"
+        )
         return False
 
     def get_time_until_next_flow(self, device_id: str) -> Optional[float]:
@@ -1129,7 +1296,7 @@ class FlowScheduler:
 
         # Calculate time until next execution for each flow
         now = datetime.now()
-        min_time = float('inf')
+        min_time = float("inf")
 
         for flow in flows:
             # Get last execution time
@@ -1145,7 +1312,7 @@ class FlowScheduler:
             if time_until < min_time:
                 min_time = time_until
 
-        return min_time if min_time != float('inf') else None
+        return min_time if min_time != float("inf") else None
 
     async def should_lock_device(self, device_id: str) -> bool:
         """
@@ -1169,15 +1336,19 @@ class FlowScheduler:
 
         security_config = self.flow_executor.security_manager.get_lock_config(device_id)
         if not security_config:
-            logger.debug(f"[FlowScheduler] No security config for {device_id} - skip lock")
+            logger.debug(
+                f"[FlowScheduler] No security config for {device_id} - skip lock"
+            )
             return False
 
-        if security_config.get('strategy') != LockStrategy.AUTO_UNLOCK.value:
-            logger.debug(f"[FlowScheduler] Device {device_id} strategy is {security_config.get('strategy')} - skip lock")
+        if security_config.get("strategy") != LockStrategy.AUTO_UNLOCK.value:
+            logger.debug(
+                f"[FlowScheduler] Device {device_id} strategy is {security_config.get('strategy')} - skip lock"
+            )
             return False
 
         # Get configurable grace period (default 300s = 5 min)
-        grace_period_seconds = security_config.get('sleep_grace_period', 300)
+        grace_period_seconds = security_config.get("sleep_grace_period", 300)
 
         # Check if wizard is active (skip lock if user is working)
         # Use ADB to properly resolve USB vs WiFi device ID mismatches
@@ -1186,33 +1357,48 @@ class FlowScheduler:
 
             # Debug log to help diagnose wizard active issues
             if wizard_active_devices:
-                logger.debug(f"[FlowScheduler] should_lock_device({device_id}): wizard_active_devices={wizard_active_devices}")
+                logger.debug(
+                    f"[FlowScheduler] should_lock_device({device_id}): wizard_active_devices={wizard_active_devices}"
+                )
 
             if device_id in wizard_active_devices:
-                logger.debug(f"[FlowScheduler] Skipping lock - wizard active on {device_id}")
+                logger.debug(
+                    f"[FlowScheduler] Skipping lock - wizard active on {device_id}"
+                )
                 return False
 
             # Check if any active wizard device matches this device (handle WiFi vs USB ID mismatch)
             if wizard_active_devices:
                 try:
-                    connected = await self.flow_executor.adb_bridge.get_connected_devices()
+                    connected = (
+                        await self.flow_executor.adb_bridge.get_connected_devices()
+                    )
                     for dev in connected:
-                        dev_id = dev.get('id', '')
-                        wifi_ip = dev.get('wifi_ip', '')
+                        dev_id = dev.get("id", "")
+                        wifi_ip = dev.get("wifi_ip", "")
                         # Check if this connected device matches our device_id
                         if dev_id == device_id or wifi_ip == device_id:
                             # Now check if either ID is in wizard_active
-                            if dev_id in wizard_active_devices or wifi_ip in wizard_active_devices:
-                                logger.debug(f"[FlowScheduler] Skipping lock - wizard active (USB/WiFi match: {dev_id}/{wifi_ip})")
+                            if (
+                                dev_id in wizard_active_devices
+                                or wifi_ip in wizard_active_devices
+                            ):
+                                logger.debug(
+                                    f"[FlowScheduler] Skipping lock - wizard active (USB/WiFi match: {dev_id}/{wifi_ip})"
+                                )
                                 return False
                 except Exception as e:
-                    logger.debug(f"[FlowScheduler] Error checking device IDs for wizard: {e}")
+                    logger.debug(
+                        f"[FlowScheduler] Error checking device IDs for wizard: {e}"
+                    )
         except ImportError:
             pass
 
         # Check if streaming is active - don't lock during live view
         if self.flow_executor.adb_bridge.is_streaming(device_id):
-            logger.info(f"[FlowScheduler] Skipping lock - streaming active on {device_id}")
+            logger.info(
+                f"[FlowScheduler] Skipping lock - streaming active on {device_id}"
+            )
             return False
 
         # Check time until next flow
@@ -1220,14 +1406,20 @@ class FlowScheduler:
 
         if time_until_next is None:
             # No enabled flows - lock the device
-            logger.debug(f"[FlowScheduler] No enabled flows for {device_id} - will lock")
+            logger.debug(
+                f"[FlowScheduler] No enabled flows for {device_id} - will lock"
+            )
             return True
 
         if time_until_next <= grace_period_seconds:
             # Flow coming soon - don't lock
-            logger.debug(f"[FlowScheduler] Next flow in {time_until_next:.0f}s (< {grace_period_seconds}s grace) - skip lock")
+            logger.debug(
+                f"[FlowScheduler] Next flow in {time_until_next:.0f}s (< {grace_period_seconds}s grace) - skip lock"
+            )
             return False
 
         # No flow soon - lock the device
-        logger.debug(f"[FlowScheduler] Next flow in {time_until_next:.0f}s (> {grace_period_seconds}s grace) - will lock")
+        logger.debug(
+            f"[FlowScheduler] Next flow in {time_until_next:.0f}s (> {grace_period_seconds}s grace) - will lock"
+        )
         return True

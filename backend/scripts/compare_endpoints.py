@@ -64,7 +64,6 @@ def compare_endpoint(path: str) -> Dict[str, Any]:
                 print(new_text[:500])
                 return {"status": "different", "reason": "text_mismatch"}
 
-
         # Compare responses
         if original_data == new_data:
             print(f"\n[OK] IDENTICAL")
@@ -105,12 +104,14 @@ def find_differences(original: Any, new: Any, path: str = "") -> list:
     differences = []
 
     if type(original) != type(new):
-        return [{
-            "path": path,
-            "type": "type_mismatch",
-            "original": type(original).__name__,
-            "new": type(new).__name__
-        }]
+        return [
+            {
+                "path": path,
+                "type": "type_mismatch",
+                "original": type(original).__name__,
+                "new": type(new).__name__,
+            }
+        ]
 
     if isinstance(original, dict):
         # Check keys
@@ -118,11 +119,13 @@ def find_differences(original: Any, new: Any, path: str = "") -> list:
         new_keys = set(new.keys())
 
         if original_keys != new_keys:
-            differences.append({
-                "path": path,
-                "missing_in_new": list(original_keys - new_keys),
-                "extra_in_new": list(new_keys - original_keys)
-            })
+            differences.append(
+                {
+                    "path": path,
+                    "missing_in_new": list(original_keys - new_keys),
+                    "extra_in_new": list(new_keys - original_keys),
+                }
+            )
 
         # Compare values
         for key in original_keys & new_keys:
@@ -131,32 +134,32 @@ def find_differences(original: Any, new: Any, path: str = "") -> list:
 
     elif isinstance(original, list):
         if len(original) != len(new):
-            differences.append({
-                "path": path,
-                "type": "length_mismatch",
-                "original_length": len(original),
-                "new_length": len(new)
-            })
+            differences.append(
+                {
+                    "path": path,
+                    "type": "length_mismatch",
+                    "original_length": len(original),
+                    "new_length": len(new),
+                }
+            )
         else:
             for i, (orig, new_item) in enumerate(zip(original, new)):
                 differences.extend(find_differences(orig, new_item, f"{path}[{i}]"))
 
     else:
         if original != new:
-            differences.append({
-                "path": path,
-                "original_value": original,
-                "new_value": new
-            })
+            differences.append(
+                {"path": path, "original_value": original, "new_value": new}
+            )
 
     return differences
 
 
 def test_meta_routes():
     """Test all extracted routes"""
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("TESTING EXTRACTED ROUTES")
-    print("="*80)
+    print("=" * 80)
 
     results = []
 
@@ -205,9 +208,9 @@ def test_meta_routes():
     # Note: Device-specific and POST endpoints tested separately
 
     # Summary
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("SUMMARY")
-    print("="*80)
+    print("=" * 80)
 
     identical = sum(1 for r in results if r.get("status") == "identical")
     different = sum(1 for r in results if r.get("status") == "different")

@@ -50,9 +50,13 @@ class TextExtractor:
             elif rule.method == ExtractionMethod.AFTER:
                 result = self._extract_after(text, rule.after_text)
             elif rule.method == ExtractionMethod.BETWEEN:
-                result = self._extract_between(text, rule.between_start, rule.between_end)
+                result = self._extract_between(
+                    text, rule.between_start, rule.between_end
+                )
             else:
-                logger.error(f"[TextExtractor] Unknown extraction method: {rule.method}")
+                logger.error(
+                    f"[TextExtractor] Unknown extraction method: {rule.method}"
+                )
                 return rule.fallback_value
 
             # Post-processing
@@ -68,7 +72,9 @@ class TextExtractor:
             logger.error(f"[TextExtractor] Extraction failed: {e}")
             return rule.fallback_value
 
-    def _extract_pipeline(self, text: str, pipeline: List[Dict[str, Any]], fallback: Optional[str]) -> Optional[str]:
+    def _extract_pipeline(
+        self, text: str, pipeline: List[Dict[str, Any]], fallback: Optional[str]
+    ) -> Optional[str]:
         """
         Execute multi-step extraction pipeline
 
@@ -85,7 +91,9 @@ class TextExtractor:
         for step_index, step in enumerate(pipeline):
             method = step.get("method")
             if not method:
-                logger.error(f"[TextExtractor] Pipeline step {step_index} missing 'method'")
+                logger.error(
+                    f"[TextExtractor] Pipeline step {step_index} missing 'method'"
+                )
                 return fallback
 
             try:
@@ -101,18 +109,24 @@ class TextExtractor:
                 elif method == "after":
                     result = self._extract_after(result, step.get("after_text"))
                 elif method == "between":
-                    result = self._extract_between(result, step.get("between_start"), step.get("between_end"))
+                    result = self._extract_between(
+                        result, step.get("between_start"), step.get("between_end")
+                    )
                 else:
                     logger.error(f"[TextExtractor] Unknown pipeline method: {method}")
                     return fallback
 
                 # If any step returns None, pipeline fails
                 if result is None:
-                    logger.warning(f"[TextExtractor] Pipeline step {step_index} ({method}) returned None")
+                    logger.warning(
+                        f"[TextExtractor] Pipeline step {step_index} ({method}) returned None"
+                    )
                     return fallback
 
             except Exception as e:
-                logger.error(f"[TextExtractor] Pipeline step {step_index} ({method}) failed: {e}")
+                logger.error(
+                    f"[TextExtractor] Pipeline step {step_index} ({method}) failed: {e}"
+                )
                 return fallback
 
         return result if result else fallback
@@ -140,7 +154,7 @@ class TextExtractor:
     def _extract_numeric(self, text: str) -> Optional[str]:
         """Extract first numeric value from text"""
         # Match integer or decimal numbers (with optional negative sign)
-        match = re.search(r'-?\d+\.?\d*', text)
+        match = re.search(r"-?\d+\.?\d*", text)
         return match.group(0) if match else None
 
     def _extract_before(self, text: str, before_text: Optional[str]) -> Optional[str]:
@@ -165,12 +179,16 @@ class TextExtractor:
         if index == -1:
             return None
 
-        return text[index + len(after_text):].strip()
+        return text[index + len(after_text) :].strip()
 
-    def _extract_between(self, text: str, start: Optional[str], end: Optional[str]) -> Optional[str]:
+    def _extract_between(
+        self, text: str, start: Optional[str], end: Optional[str]
+    ) -> Optional[str]:
         """Extract text between two substrings"""
         if not start or not end:
-            logger.warning("[TextExtractor] Missing start or end text for BETWEEN method")
+            logger.warning(
+                "[TextExtractor] Missing start or end text for BETWEEN method"
+            )
             return None
 
         start_index = text.find(start)
@@ -188,7 +206,7 @@ class TextExtractor:
         """Remove unit suffix from numeric value"""
         # Remove common units: %, °C, °F, km/h, mph, V, A, W, etc.
         # Keep only numbers and decimal points
-        match = re.match(r'(-?\d+\.?\d*)', text)
+        match = re.match(r"(-?\d+\.?\d*)", text)
         return match.group(1) if match else text
 
 
@@ -202,7 +220,7 @@ class ElementTextExtractor:
         self,
         elements: List[Dict[str, Any]],
         element_index: int,
-        rule: TextExtractionRule
+        rule: TextExtractionRule,
     ) -> Optional[str]:
         """
         Extract text from UI element
@@ -216,14 +234,18 @@ class ElementTextExtractor:
             Extracted text or None
         """
         if not elements or element_index < 0 or element_index >= len(elements):
-            logger.warning(f"[ElementTextExtractor] Invalid element index {element_index}")
+            logger.warning(
+                f"[ElementTextExtractor] Invalid element index {element_index}"
+            )
             return rule.fallback_value
 
         element = elements[element_index]
-        text = element.get('text', '')
+        text = element.get("text", "")
 
         if not text:
-            logger.warning(f"[ElementTextExtractor] Element {element_index} has no text")
+            logger.warning(
+                f"[ElementTextExtractor] Element {element_index} has no text"
+            )
             return rule.fallback_value
 
         return self.extractor.extract(text, rule)
@@ -232,7 +254,7 @@ class ElementTextExtractor:
         self,
         elements: List[Dict[str, Any]],
         bounds: Dict[str, int],
-        rule: TextExtractionRule
+        rule: TextExtractionRule,
     ) -> Optional[str]:
         """
         Extract text from all elements within bounds
@@ -248,9 +270,9 @@ class ElementTextExtractor:
         # Find all elements within bounds
         matching_elements = []
         for element in elements:
-            elem_bounds = element.get('bounds', {})
+            elem_bounds = element.get("bounds", {})
             if self._is_within_bounds(elem_bounds, bounds):
-                if element.get('text'):
+                if element.get("text"):
                     matching_elements.append(element)
 
         if not matching_elements:
@@ -258,7 +280,7 @@ class ElementTextExtractor:
             return rule.fallback_value
 
         # Concatenate text from all matching elements
-        combined_text = ' '.join(elem.get('text', '') for elem in matching_elements)
+        combined_text = " ".join(elem.get("text", "") for elem in matching_elements)
 
         return self.extractor.extract(combined_text, rule)
 
@@ -266,23 +288,23 @@ class ElementTextExtractor:
         self,
         elem_bounds: Dict[str, int],
         target_bounds: Dict[str, int],
-        tolerance: int = 5
+        tolerance: int = 5,
     ) -> bool:
         """Check if element bounds are within target bounds"""
         if not elem_bounds:
             return False
 
-        ex, ey = elem_bounds.get('x', 0), elem_bounds.get('y', 0)
-        ew, eh = elem_bounds.get('width', 0), elem_bounds.get('height', 0)
+        ex, ey = elem_bounds.get("x", 0), elem_bounds.get("y", 0)
+        ew, eh = elem_bounds.get("width", 0), elem_bounds.get("height", 0)
 
-        tx, ty = target_bounds.get('x', 0), target_bounds.get('y', 0)
-        tw, th = target_bounds.get('width', 0), target_bounds.get('height', 0)
+        tx, ty = target_bounds.get("x", 0), target_bounds.get("y", 0)
+        tw, th = target_bounds.get("width", 0), target_bounds.get("height", 0)
 
         # Check if element center is within target bounds (with tolerance)
         elem_center_x = ex + ew // 2
         elem_center_y = ey + eh // 2
 
         return (
-            tx - tolerance <= elem_center_x <= tx + tw + tolerance and
-            ty - tolerance <= elem_center_y <= ty + th + tolerance
+            tx - tolerance <= elem_center_x <= tx + tw + tolerance
+            and ty - tolerance <= elem_center_y <= ty + th + tolerance
         )

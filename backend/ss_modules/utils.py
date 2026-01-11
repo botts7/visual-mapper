@@ -16,18 +16,16 @@ logger = logging.getLogger(__name__)
 
 def get_element_y_center(elem: dict) -> int:
     """Get the Y center position of an element."""
-    bounds = elem.get('bounds', {})
+    bounds = elem.get("bounds", {})
     if isinstance(bounds, dict):
-        y = bounds.get('y', 0)
-        height = bounds.get('height', 0)
+        y = bounds.get("y", 0)
+        height = bounds.get("height", 0)
         return y + height // 2
     return 0
 
 
 def remove_consecutive_duplicates(
-    img: Image.Image,
-    elements: list,
-    screen_height: int
+    img: Image.Image, elements: list, screen_height: int
 ) -> Tuple[Image.Image, list]:
     """
     Post-process to remove CONSECUTIVE duplicate content anywhere in the image.
@@ -52,7 +50,7 @@ def remove_consecutive_duplicates(
     logger.info(f"  === SCANNING FOR CONSECUTIVE DUPLICATES ===")
     logger.info(f"  Image size: {width}x{height}")
 
-    arr = np.array(img.convert('RGB'))
+    arr = np.array(img.convert("RGB"))
     strip_height = 150  # Height of strip to compare
 
     # Only compare CENTER 60% of width (skip edges with consistent UI)
@@ -70,7 +68,7 @@ def remove_consecutive_duplicates(
     # Check every 25px for thorough coverage
     y = header_skip
     while y < height - strip_height - 150:  # Need room for offset check
-        strip1 = arr[y:y + strip_height, left_margin:right_margin, :]
+        strip1 = arr[y : y + strip_height, left_margin:right_margin, :]
 
         # Skip dark/blank regions (variance < 1500 = not real content)
         # Netflix and similar apps have lots of dark background that matches
@@ -86,7 +84,7 @@ def remove_consecutive_duplicates(
             if later_y + strip_height > height:
                 continue
 
-            strip2 = arr[later_y:later_y + strip_height, left_margin:right_margin, :]
+            strip2 = arr[later_y : later_y + strip_height, left_margin:right_margin, :]
 
             # Also check second strip has content
             strip2_variance = np.var(strip2)
@@ -109,9 +107,18 @@ def remove_consecutive_duplicates(
                 # Extend the duplicate region as long as it keeps matching
                 check_y = dup_start
                 original_y = y
-                while check_y + strip_height <= height and original_y + strip_height <= dup_start:
-                    check_strip = arr[check_y:check_y + strip_height, left_margin:right_margin, :]
-                    orig_strip = arr[original_y:original_y + strip_height, left_margin:right_margin, :]
+                while (
+                    check_y + strip_height <= height
+                    and original_y + strip_height <= dup_start
+                ):
+                    check_strip = arr[
+                        check_y : check_y + strip_height, left_margin:right_margin, :
+                    ]
+                    orig_strip = arr[
+                        original_y : original_y + strip_height,
+                        left_margin:right_margin,
+                        :,
+                    ]
 
                     match_score = np.sum(check_strip == orig_strip) / check_strip.size
                     if match_score > 0.90:
@@ -122,7 +129,9 @@ def remove_consecutive_duplicates(
                         break
 
                 if dup_end > dup_start + 50:  # Minimum 50px duplicate
-                    logger.info(f"  CONSECUTIVE DUP: y={y} repeats at y={dup_start}-{dup_end} ({score*100:.1f}%)")
+                    logger.info(
+                        f"  CONSECUTIVE DUP: y={y} repeats at y={dup_start}-{dup_end} ({score*100:.1f}%)"
+                    )
                     duplicates_to_remove.append((dup_start, dup_end))
                     y = dup_end  # Skip past this duplicate
                     break
@@ -131,7 +140,9 @@ def remove_consecutive_duplicates(
 
     # Remove duplicates (from bottom to top to preserve y-coordinates)
     if duplicates_to_remove:
-        logger.info(f"  Found {len(duplicates_to_remove)} duplicate region(s) to remove")
+        logger.info(
+            f"  Found {len(duplicates_to_remove)} duplicate region(s) to remove"
+        )
 
         # Sort by start position descending (process from bottom up)
         duplicates_to_remove.sort(key=lambda x: x[0], reverse=True)
@@ -141,13 +152,14 @@ def remove_consecutive_duplicates(
 
         for dup_start, dup_end in duplicates_to_remove:
             dup_height = dup_end - dup_start
-            logger.info(f"  Removing duplicate region y={dup_start}-{dup_end} ({dup_height}px)")
+            logger.info(
+                f"  Removing duplicate region y={dup_start}-{dup_end} ({dup_height}px)"
+            )
 
             # Create new array without the duplicate region
-            new_arr = np.vstack([
-                current_arr[:dup_start, :, :],
-                current_arr[dup_end:, :, :]
-            ])
+            new_arr = np.vstack(
+                [current_arr[:dup_start, :, :], current_arr[dup_end:, :, :]]
+            )
             current_arr = new_arr
             total_removed += dup_height
 
@@ -162,18 +174,20 @@ def remove_consecutive_duplicates(
                 elif y_center >= dup_end:
                     # Element is after duplicate - adjust Y position
                     adjusted_elem = elem.copy()
-                    bounds = adjusted_elem.get('bounds', {})
+                    bounds = adjusted_elem.get("bounds", {})
                     if isinstance(bounds, dict):
                         bounds = bounds.copy()
-                        bounds['y'] = bounds.get('y', 0) - dup_height
-                        adjusted_elem['bounds'] = bounds
+                        bounds["y"] = bounds.get("y", 0) - dup_height
+                        adjusted_elem["bounds"] = bounds
                     new_elements.append(adjusted_elem)
                 # Elements inside the duplicate region are dropped
 
             elements = new_elements
 
         new_height = current_arr.shape[0]
-        logger.info(f"  TOTAL REMOVED: {total_removed}px, new height: {height}px -> {new_height}px")
+        logger.info(
+            f"  TOTAL REMOVED: {total_removed}px, new height: {height}px -> {new_height}px"
+        )
         logger.info(f"  Elements: after filtering: {len(elements)}")
 
         result_img = Image.fromarray(current_arr)
@@ -189,14 +203,14 @@ def estimate_from_patterns(elements: list) -> Optional[dict]:
     Look for patterns like "Episode 5 of 8", "3/10", "Item 2 of 5"
     """
     patterns = [
-        r'(\d+)\s*of\s*(\d+)',           # "5 of 8", "Episode 5 of 8"
-        r'(\d+)\s*/\s*(\d+)',             # "5/8", "3/10"
-        r'(\d+)\s*out of\s*(\d+)',        # "5 out of 8"
-        r'Episode\s*(\d+).*?(\d+)\s*episodes',  # "Episode 5...8 episodes"
+        r"(\d+)\s*of\s*(\d+)",  # "5 of 8", "Episode 5 of 8"
+        r"(\d+)\s*/\s*(\d+)",  # "5/8", "3/10"
+        r"(\d+)\s*out of\s*(\d+)",  # "5 out of 8"
+        r"Episode\s*(\d+).*?(\d+)\s*episodes",  # "Episode 5...8 episodes"
     ]
 
     for elem in elements:
-        text = str(elem.get('text', '')) + ' ' + str(elem.get('content_desc', ''))
+        text = str(elem.get("text", "")) + " " + str(elem.get("content_desc", ""))
 
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
@@ -204,11 +218,13 @@ def estimate_from_patterns(elements: list) -> Optional[dict]:
                 current = int(match.group(1))
                 total = int(match.group(2))
                 if 1 <= current <= total <= 1000:  # Sanity check
-                    logger.info(f"[Pattern] Found '{match.group()}' -> {current} of {total}")
+                    logger.info(
+                        f"[Pattern] Found '{match.group()}' -> {current} of {total}"
+                    )
                     return {
-                        'current_item': current,
-                        'total_items': total,
-                        'source_text': text[:50]
+                        "current_item": current,
+                        "total_items": total,
+                        "source_text": text[:50],
                     }
 
     return None
@@ -228,76 +244,80 @@ def estimate_from_numbered_items(elements: list) -> Optional[dict]:
 
     # Patterns for numbered items
     patterns = [
-        r'Episode\s*(\d+)',          # "Episode 5" - prioritize full episode containers
-        r'Chapter\s*(\d+)',          # "Chapter 3"
-        r'Item\s*(\d+)',             # "Item 7"
-        r'^(\d+)\.\s+\w',           # "1. Title"
-        r'^(\d+)\)\s+\w',           # "1) Title"
-        r'^#(\d+)',                  # "#5"
+        r"Episode\s*(\d+)",  # "Episode 5" - prioritize full episode containers
+        r"Chapter\s*(\d+)",  # "Chapter 3"
+        r"Item\s*(\d+)",  # "Item 7"
+        r"^(\d+)\.\s+\w",  # "1. Title"
+        r"^(\d+)\)\s+\w",  # "1) Title"
+        r"^#(\d+)",  # "#5"
     ]
 
     # FIRST PASS: Check content_desc (usually full containers with correct height)
     for elem in elements:
-        content_desc = str(elem.get('content_desc', ''))
-        bounds = elem.get('bounds', {})
+        content_desc = str(elem.get("content_desc", ""))
+        bounds = elem.get("bounds", {})
 
         for pattern in patterns:
             match = re.search(pattern, content_desc, re.IGNORECASE)
             if match:
                 num = int(match.group(1))
                 if 1 <= num <= 1000 and num not in seen_numbers:
-                    y_pos = bounds.get('y', 0) if isinstance(bounds, dict) else 0
-                    height = bounds.get('height', 0) if isinstance(bounds, dict) else 0
+                    y_pos = bounds.get("y", 0) if isinstance(bounds, dict) else 0
+                    height = bounds.get("height", 0) if isinstance(bounds, dict) else 0
                     # Only add if height is reasonable (full card, not just text)
                     if height > 100:
                         seen_numbers.add(num)
-                        numbered_items.append({
-                            'number': num,
-                            'text': content_desc[:40],
-                            'height': height,
-                            'y': y_pos,
-                            'source': 'content_desc'
-                        })
+                        numbered_items.append(
+                            {
+                                "number": num,
+                                "text": content_desc[:40],
+                                "height": height,
+                                "y": y_pos,
+                                "source": "content_desc",
+                            }
+                        )
                 break
 
     # SECOND PASS: Check text (fallback for apps without content_desc)
     for elem in elements:
-        text = str(elem.get('text', ''))
-        bounds = elem.get('bounds', {})
+        text = str(elem.get("text", ""))
+        bounds = elem.get("bounds", {})
 
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 num = int(match.group(1))
                 if 1 <= num <= 1000 and num not in seen_numbers:
-                    y_pos = bounds.get('y', 0) if isinstance(bounds, dict) else 0
-                    height = bounds.get('height', 0) if isinstance(bounds, dict) else 0
+                    y_pos = bounds.get("y", 0) if isinstance(bounds, dict) else 0
+                    height = bounds.get("height", 0) if isinstance(bounds, dict) else 0
                     seen_numbers.add(num)
-                    numbered_items.append({
-                        'number': num,
-                        'text': text[:30],
-                        'height': height,
-                        'y': y_pos,
-                        'source': 'text'
-                    })
+                    numbered_items.append(
+                        {
+                            "number": num,
+                            "text": text[:30],
+                            "height": height,
+                            "y": y_pos,
+                            "source": "text",
+                        }
+                    )
                 break
 
     if not numbered_items:
         return None
 
     # Find the highest number (likely total count)
-    max_num = max(item['number'] for item in numbered_items)
-    numbers_found = sorted(set(item['number'] for item in numbered_items))
+    max_num = max(item["number"] for item in numbered_items)
+    numbers_found = sorted(set(item["number"] for item in numbered_items))
 
     # Calculate average height of numbered items
-    heights = [item['height'] for item in numbered_items if item['height'] > 50]
+    heights = [item["height"] for item in numbered_items if item["height"] > 50]
     avg_height = sum(heights) / len(heights) if heights else 200
 
     # Find the Y position of the FIRST visible numbered item
     # This helps estimate header height more accurately
-    first_item = min(numbered_items, key=lambda x: x['number'])
-    first_item_y = first_item.get('y', 0)
-    first_item_num = first_item.get('number', 1)
+    first_item = min(numbered_items, key=lambda x: x["number"])
+    first_item_y = first_item.get("y", 0)
+    first_item_num = first_item.get("number", 1)
 
     # Calculate where item #1 would start (extrapolate backward)
     # If we see item 6 at y=200, and items are ~230px each, then item 1 starts at y=200 - (5*230)
@@ -305,17 +325,21 @@ def estimate_from_numbered_items(elements: list) -> Optional[dict]:
     # Header is everything above where item 1 would be
     estimated_header = max(0, estimated_item1_y)
 
-    logger.info(f"[Numbered] Found items: {numbers_found}, max={max_num}, avg_height={avg_height:.0f}px")
-    logger.info(f"[Numbered] First visible: #{first_item_num} at y={first_item_y}, estimated header={estimated_header:.0f}px")
+    logger.info(
+        f"[Numbered] Found items: {numbers_found}, max={max_num}, avg_height={avg_height:.0f}px"
+    )
+    logger.info(
+        f"[Numbered] First visible: #{first_item_num} at y={first_item_y}, estimated header={estimated_header:.0f}px"
+    )
 
     return {
-        'max_number': max_num,
-        'numbers_found': numbers_found,
-        'items_visible': len(numbered_items),
-        'avg_height': int(avg_height),
-        'first_item_y': first_item_y,
-        'first_item_num': first_item_num,
-        'estimated_header': int(estimated_header)
+        "max_number": max_num,
+        "numbers_found": numbers_found,
+        "items_visible": len(numbered_items),
+        "avg_height": int(avg_height),
+        "first_item_y": first_item_y,
+        "first_item_num": first_item_num,
+        "estimated_header": int(estimated_header),
     }
 
 
@@ -328,11 +352,11 @@ def estimate_from_bounds(elements: list, screen_height: int) -> Optional[dict]:
     scrollable_bottom = screen_height
 
     for elem in elements:
-        if elem.get('scrollable') == 'true' or elem.get('scrollable') == True:
-            bounds = elem.get('bounds', {})
+        if elem.get("scrollable") == "true" or elem.get("scrollable") == True:
+            bounds = elem.get("bounds", {})
             if isinstance(bounds, dict):
-                scrollable_top = bounds.get('y', 0)
-                scrollable_bottom = scrollable_top + bounds.get('height', screen_height)
+                scrollable_top = bounds.get("y", 0)
+                scrollable_bottom = scrollable_top + bounds.get("height", screen_height)
                 break
 
     scrollable_height = scrollable_bottom - scrollable_top
@@ -340,23 +364,25 @@ def estimate_from_bounds(elements: list, screen_height: int) -> Optional[dict]:
     # Find items within scrollable area
     items_in_scroll = []
     for elem in elements:
-        bounds = elem.get('bounds', {})
+        bounds = elem.get("bounds", {})
         if isinstance(bounds, dict):
-            y = bounds.get('y', 0)
-            h = bounds.get('height', 0)
+            y = bounds.get("y", 0)
+            h = bounds.get("height", 0)
             # Items with reasonable height within scroll area
             if scrollable_top <= y < scrollable_bottom and 50 < h < 400:
-                items_in_scroll.append({'y': y, 'height': h})
+                items_in_scroll.append({"y": y, "height": h})
 
     if not items_in_scroll:
         return None
 
     # Calculate stats
-    heights = [item['height'] for item in items_in_scroll]
+    heights = [item["height"] for item in items_in_scroll]
     avg_height = sum(heights) / len(heights)
 
     # Estimate header content (above scrollable area)
-    header_estimate = scrollable_top + 400  # scrollable_top + some buffer for title/desc
+    header_estimate = (
+        scrollable_top + 400
+    )  # scrollable_top + some buffer for title/desc
 
     # Estimate total: visible items usually represent 30-50% of total
     # Use conservative 2.5x multiplier
@@ -364,12 +390,12 @@ def estimate_from_bounds(elements: list, screen_height: int) -> Optional[dict]:
     estimated_total = header_estimate + (estimated_items * avg_height)
 
     return {
-        'scrollable_area': scrollable_height,
-        'scrollable_top': scrollable_top,
-        'visible_items': len(items_in_scroll),
-        'avg_item_height': int(avg_height),
-        'header_estimate': header_estimate,
-        'estimated_total': int(estimated_total)
+        "scrollable_area": scrollable_height,
+        "scrollable_top": scrollable_top,
+        "visible_items": len(items_in_scroll),
+        "avg_item_height": int(avg_height),
+        "header_estimate": header_estimate,
+        "estimated_total": int(estimated_total),
     }
 
 
@@ -378,12 +404,12 @@ def get_scrollable_container_info(elements: list) -> Optional[dict]:
     Get info about the scrollable container.
     """
     for elem in elements:
-        if elem.get('scrollable') == 'true' or elem.get('scrollable') == True:
-            bounds = elem.get('bounds', {})
+        if elem.get("scrollable") == "true" or elem.get("scrollable") == True:
+            bounds = elem.get("bounds", {})
             if isinstance(bounds, dict):
                 return {
-                    'class': elem.get('class', 'unknown'),
-                    'bounds': bounds,
-                    'resource_id': elem.get('resource_id', '')
+                    "class": elem.get("class", "unknown"),
+                    "bounds": bounds,
+                    "resource_id": elem.get("resource_id", ""),
                 }
     return None

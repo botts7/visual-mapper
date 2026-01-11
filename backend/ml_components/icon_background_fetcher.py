@@ -70,7 +70,9 @@ class IconBackgroundFetcher:
 
         # Add to queue
         self.queue.append((device_id, package_name))
-        logger.info(f"[IconBackgroundFetcher] Queued: {package_name} (queue size: {len(self.queue)})")
+        logger.info(
+            f"[IconBackgroundFetcher] Queued: {package_name} (queue size: {len(self.queue)})"
+        )
 
         # Start worker if not running
         if not self.running:
@@ -112,6 +114,7 @@ class IconBackgroundFetcher:
                 wizard_active = False
                 try:
                     from main import wizard_active_devices
+
                     wizard_active = device_id in wizard_active_devices
                 except ImportError:
                     pass  # wizard_active_devices not available
@@ -121,7 +124,9 @@ class IconBackgroundFetcher:
 
                 try:
                     # Pass wizard_active flag - allows Play Store fetch but skips APK extraction
-                    await self._fetch_icon(device_id, package_name, skip_adb=wizard_active)
+                    await self._fetch_icon(
+                        device_id, package_name, skip_adb=wizard_active
+                    )
                 finally:
                     # Remove from processing
                     self.processing.discard(key)
@@ -135,7 +140,9 @@ class IconBackgroundFetcher:
 
         logger.info("[IconBackgroundFetcher] Worker loop stopped")
 
-    async def _fetch_icon(self, device_id: str, package_name: str, skip_adb: bool = False):
+    async def _fetch_icon(
+        self, device_id: str, package_name: str, skip_adb: bool = False
+    ):
         """
         Fetch icon from Play Store or APK extraction
 
@@ -144,34 +151,52 @@ class IconBackgroundFetcher:
             package_name: App package name
             skip_adb: If True, skip APK extraction (ADB busy with wizard)
         """
-        logger.debug(f"[IconBackgroundFetcher] Fetching icon: {package_name} (skip_adb={skip_adb})")
+        logger.debug(
+            f"[IconBackgroundFetcher] Fetching icon: {package_name} (skip_adb={skip_adb})"
+        )
 
         try:
             # Step 1: Try Play Store (fast, high quality, no ADB needed)
             # NOTE: playstore_scraper.get_icon() uses blocking HTTP calls (google_play_scraper + requests)
             # Must run in thread pool to avoid blocking asyncio event loop
             if self.playstore_scraper:
-                icon_data = await asyncio.to_thread(self.playstore_scraper.get_icon, package_name)
+                icon_data = await asyncio.to_thread(
+                    self.playstore_scraper.get_icon, package_name
+                )
                 if icon_data:
-                    logger.info(f"[IconBackgroundFetcher] ✅ Play Store cached: {package_name}")
+                    logger.info(
+                        f"[IconBackgroundFetcher] ✅ Play Store cached: {package_name}"
+                    )
                     return
 
             # Step 2: Try APK extraction (slow, requires ADB)
             # NOTE: APK extraction also involves blocking I/O, run in thread
             if self.apk_extractor and not skip_adb:
-                icon_data = await asyncio.to_thread(self.apk_extractor.get_icon, device_id, package_name)
+                icon_data = await asyncio.to_thread(
+                    self.apk_extractor.get_icon, device_id, package_name
+                )
                 if icon_data:
-                    logger.info(f"[IconBackgroundFetcher] ✅ APK extracted: {package_name}")
+                    logger.info(
+                        f"[IconBackgroundFetcher] ✅ APK extracted: {package_name}"
+                    )
                     return
             elif skip_adb:
-                logger.debug(f"[IconBackgroundFetcher] Skipping APK extraction (wizard active): {package_name}")
+                logger.debug(
+                    f"[IconBackgroundFetcher] Skipping APK extraction (wizard active): {package_name}"
+                )
 
-            logger.warning(f"[IconBackgroundFetcher] ❌ Failed to fetch icon: {package_name}")
+            logger.warning(
+                f"[IconBackgroundFetcher] ❌ Failed to fetch icon: {package_name}"
+            )
 
         except Exception as e:
-            logger.error(f"[IconBackgroundFetcher] Fetch failed for {package_name}: {e}")
+            logger.error(
+                f"[IconBackgroundFetcher] Fetch failed for {package_name}: {e}"
+            )
 
-    async def prefetch_all_apps(self, device_id: str, packages: list[str], max_apps: Optional[int] = None):
+    async def prefetch_all_apps(
+        self, device_id: str, packages: list[str], max_apps: Optional[int] = None
+    ):
         """
         Prefetch icons for all apps on device (background batch job)
 
@@ -180,7 +205,9 @@ class IconBackgroundFetcher:
             packages: List of package names
             max_apps: Maximum number of apps to prefetch (None = all)
         """
-        logger.info(f"[IconBackgroundFetcher] Prefetching icons for {len(packages)} apps")
+        logger.info(
+            f"[IconBackgroundFetcher] Prefetching icons for {len(packages)} apps"
+        )
 
         # Add all packages to queue
         packages_to_fetch = packages[:max_apps] if max_apps else packages
@@ -188,12 +215,14 @@ class IconBackgroundFetcher:
         for package_name in packages_to_fetch:
             self.request_icon(device_id, package_name)
 
-        logger.info(f"[IconBackgroundFetcher] Queued {len(packages_to_fetch)} apps for prefetch")
+        logger.info(
+            f"[IconBackgroundFetcher] Queued {len(packages_to_fetch)} apps for prefetch"
+        )
 
     def get_queue_stats(self) -> dict:
         """Get background queue statistics"""
         return {
             "queue_size": len(self.queue),
             "processing_count": len(self.processing),
-            "is_running": self.running
+            "is_running": self.running,
         }

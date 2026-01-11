@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class FlowStepLog:
     """Log entry for a single step execution"""
+
     step_index: int
     step_type: str
     description: Optional[str]
@@ -30,12 +31,15 @@ class FlowStepLog:
     success: bool = False
     error: Optional[str] = None
     duration_ms: Optional[int] = None
-    details: Optional[Dict[str, Any]] = None  # Additional context (e.g., captured sensor values)
+    details: Optional[Dict[str, Any]] = (
+        None  # Additional context (e.g., captured sensor values)
+    )
 
 
 @dataclass
 class FlowExecutionLog:
     """Complete log for a single flow execution"""
+
     execution_id: str  # UUID for this execution
     flow_id: str
     device_id: str
@@ -75,22 +79,26 @@ class FlowExecutionHistory:
         # Load existing history from disk
         self._load_all_history()
 
-        logger.info(f"[FlowExecutionHistory] Initialized with storage: {self.storage_dir}")
+        logger.info(
+            f"[FlowExecutionHistory] Initialized with storage: {self.storage_dir}"
+        )
 
     def _get_history_file(self, flow_id: str) -> Path:
         """Get path to history file for a flow"""
         # Use flow_id as filename (safe for filesystem)
-        safe_flow_id = flow_id.replace(':', '_').replace('/', '_')
+        safe_flow_id = flow_id.replace(":", "_").replace("/", "_")
         return self.storage_dir / f"{safe_flow_id}.json"
 
     def _load_all_history(self):
         """Load all existing flow history files into cache"""
         for history_file in self.storage_dir.glob("*.json"):
             try:
-                flow_id = history_file.stem.replace('_', ':')  # Reverse sanitization
+                flow_id = history_file.stem.replace("_", ":")  # Reverse sanitization
                 self._load_history(flow_id)
             except Exception as e:
-                logger.warning(f"[FlowExecutionHistory] Failed to load {history_file}: {e}")
+                logger.warning(
+                    f"[FlowExecutionHistory] Failed to load {history_file}: {e}"
+                )
 
     def _load_history(self, flow_id: str):
         """Load history for a specific flow from disk"""
@@ -100,24 +108,30 @@ class FlowExecutionHistory:
             return
 
         try:
-            with open(history_file, 'r', encoding='utf-8') as f:
+            with open(history_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 executions = [self._dict_to_log(log_dict) for log_dict in data]
                 # Keep only recent executions in cache
-                self._cache[flow_id] = deque(executions[-self._cache_size:], maxlen=self._cache_size)
-                logger.debug(f"[FlowExecutionHistory] Loaded {len(executions)} executions for {flow_id}")
+                self._cache[flow_id] = deque(
+                    executions[-self._cache_size :], maxlen=self._cache_size
+                )
+                logger.debug(
+                    f"[FlowExecutionHistory] Loaded {len(executions)} executions for {flow_id}"
+                )
         except Exception as e:
-            logger.error(f"[FlowExecutionHistory] Failed to load history for {flow_id}: {e}")
+            logger.error(
+                f"[FlowExecutionHistory] Failed to load history for {flow_id}: {e}"
+            )
             self._cache[flow_id] = deque(maxlen=self._cache_size)
 
     def _dict_to_log(self, log_dict: Dict) -> FlowExecutionLog:
         """Convert dict to FlowExecutionLog"""
         # Convert step dicts to FlowStepLog objects
         steps = []
-        if 'steps' in log_dict and log_dict['steps']:
-            steps = [FlowStepLog(**step) for step in log_dict['steps']]
+        if "steps" in log_dict and log_dict["steps"]:
+            steps = [FlowStepLog(**step) for step in log_dict["steps"]]
 
-        log_dict['steps'] = steps
+        log_dict["steps"] = steps
         return FlowExecutionLog(**log_dict)
 
     def _log_to_dict(self, log: FlowExecutionLog) -> Dict:
@@ -138,12 +152,16 @@ class FlowExecutionHistory:
             # Keep only last 1000 executions in file storage
             logs = logs[-1000:]
 
-            with open(history_file, 'w', encoding='utf-8') as f:
+            with open(history_file, "w", encoding="utf-8") as f:
                 json.dump(logs, f, indent=2)
 
-            logger.debug(f"[FlowExecutionHistory] Saved {len(logs)} executions for {flow_id}")
+            logger.debug(
+                f"[FlowExecutionHistory] Saved {len(logs)} executions for {flow_id}"
+            )
         except Exception as e:
-            logger.error(f"[FlowExecutionHistory] Failed to save history for {flow_id}: {e}")
+            logger.error(
+                f"[FlowExecutionHistory] Failed to save history for {flow_id}: {e}"
+            )
 
     def add_execution(self, log: FlowExecutionLog):
         """Add a new execution log"""
@@ -186,7 +204,9 @@ class FlowExecutionHistory:
 
         return self._cache[flow_id][-1]
 
-    def get_execution(self, flow_id: str, execution_id: str) -> Optional[FlowExecutionLog]:
+    def get_execution(
+        self, flow_id: str, execution_id: str
+    ) -> Optional[FlowExecutionLog]:
         """Get a specific execution by ID"""
         history = self.get_history(flow_id, limit=1000)
         for log in history:
@@ -204,7 +224,7 @@ class FlowExecutionHistory:
                 "failure_count": 0,
                 "success_rate": 0.0,
                 "avg_duration_ms": 0,
-                "last_execution": None
+                "last_execution": None,
             }
 
         success_count = sum(1 for log in history if log.success)
@@ -213,7 +233,11 @@ class FlowExecutionHistory:
 
         # Calculate average duration (only for completed executions)
         completed = [log for log in history if log.duration_ms is not None]
-        avg_duration = sum(log.duration_ms for log in completed) / len(completed) if completed else 0
+        avg_duration = (
+            sum(log.duration_ms for log in completed) / len(completed)
+            if completed
+            else 0
+        )
 
         latest = history[-1]
 
@@ -228,8 +252,8 @@ class FlowExecutionHistory:
                 "started_at": latest.started_at,
                 "success": latest.success,
                 "error": latest.error,
-                "duration_ms": latest.duration_ms
-            }
+                "duration_ms": latest.duration_ms,
+            },
         }
 
     def cleanup_old_logs(self, days: int = 30):
@@ -243,7 +267,8 @@ class FlowExecutionHistory:
             history = list(self._cache[flow_id])
             # Filter logs newer than cutoff
             kept_logs = [
-                log for log in history
+                log
+                for log in history
                 if datetime.fromisoformat(log.started_at) > cutoff_date
             ]
 
@@ -253,5 +278,7 @@ class FlowExecutionHistory:
                 self._save_history(flow_id)
                 deleted_count += deleted
 
-        logger.info(f"[FlowExecutionHistory] Cleaned up {deleted_count} old execution logs")
+        logger.info(
+            f"[FlowExecutionHistory] Cleaned up {deleted_count} old execution logs"
+        )
         return deleted_count

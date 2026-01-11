@@ -3,6 +3,7 @@ Pure Python ADB Connection Manager.
 Uses adb-shell library - no binary dependencies required.
 Adapted from v3 with improvements: inherits from BaseADBConnection, uses centralized config.
 """
+
 import asyncio
 import logging
 import os
@@ -56,7 +57,7 @@ class PythonADBConnection(BaseADBConnection):
         # Use config for key directory
         adb_dir = os.path.expanduser(config.ADB_KEY_DIR)
 
-        if hasattr(self.hass, 'config'):
+        if hasattr(self.hass, "config"):
             # Home Assistant integration mode
             adbkey_path = self.hass.config.path(".storage", "visual_mapper_adbkey")
         else:
@@ -72,10 +73,11 @@ class PythonADBConnection(BaseADBConnection):
 
         # Load private and public keys asynchronously
         try:
+
             def _read_keys():
                 with open(adbkey_path) as f:
                     priv = f.read()
-                with open(adbkey_path + '.pub') as f:
+                with open(adbkey_path + ".pub") as f:
                     pub = f.read()
                 return priv, pub
 
@@ -88,7 +90,9 @@ class PythonADBConnection(BaseADBConnection):
             _LOGGER.error(f"Failed to load ADB keys: {e}")
             raise
 
-    async def pair_with_code(self, pairing_host: str, pairing_port: int, pairing_code: str) -> bool:
+    async def pair_with_code(
+        self, pairing_host: str, pairing_port: int, pairing_code: str
+    ) -> bool:
         """Pair with device using pairing code (for wireless ADB).
 
         This uses system ADB binary for pairing since adb-shell doesn't support it.
@@ -109,10 +113,7 @@ class PythonADBConnection(BaseADBConnection):
                 """Check if ADB binary exists at path."""
                 try:
                     result = subprocess.run(
-                        [path, "version"],
-                        capture_output=True,
-                        timeout=2,
-                        text=True
+                        [path, "version"], capture_output=True, timeout=2, text=True
                     )
                     return result.returncode == 0
                 except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -141,11 +142,10 @@ class PythonADBConnection(BaseADBConnection):
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    text=True
+                    text=True,
                 )
                 output, _ = proc.communicate(
-                    input=f"{pairing_code}\n",
-                    timeout=config.PAIRING_TIMEOUT
+                    input=f"{pairing_code}\n", timeout=config.PAIRING_TIMEOUT
                 )
                 return proc.returncode, output
 
@@ -154,7 +154,9 @@ class PythonADBConnection(BaseADBConnection):
             _LOGGER.debug(f"Pairing output: {output}")
 
             # Check for success indicators
-            if returncode == 0 and ("Successfully paired" in output or "success" in output.lower()):
+            if returncode == 0 and (
+                "Successfully paired" in output or "success" in output.lower()
+            ):
                 _LOGGER.info(f"✅ Successfully paired with {pairing_host}")
                 return True
             else:
@@ -188,7 +190,7 @@ class PythonADBConnection(BaseADBConnection):
                 self._device = AdbDeviceTcpAsync(
                     host=self.host,
                     port=self.port,
-                    default_transport_timeout_s=config.TRANSPORT_TIMEOUT
+                    default_transport_timeout_s=config.TRANSPORT_TIMEOUT,
                 )
 
                 # Try connecting with TLS first (for Android 11+ wireless debugging)
@@ -197,7 +199,7 @@ class PythonADBConnection(BaseADBConnection):
                     await self._device.connect(
                         rsa_keys=[self._signer],
                         auth_timeout_s=config.AUTH_TIMEOUT,
-                        transport_timeout_s=config.TRANSPORT_TIMEOUT
+                        transport_timeout_s=config.TRANSPORT_TIMEOUT,
                     )
                     _LOGGER.debug("✅ TLS connection established")
                 except Exception as tls_error:
@@ -209,11 +211,10 @@ class PythonADBConnection(BaseADBConnection):
                     self._device = AdbDeviceTcpAsync(
                         host=self.host,
                         port=self.port,
-                        default_transport_timeout_s=config.TRANSPORT_TIMEOUT
+                        default_transport_timeout_s=config.TRANSPORT_TIMEOUT,
                     )
                     await self._device.connect(
-                        rsa_keys=[self._signer],
-                        auth_timeout_s=config.AUTH_TIMEOUT
+                        rsa_keys=[self._signer], auth_timeout_s=config.AUTH_TIMEOUT
                     )
                     _LOGGER.debug("✅ Non-TLS connection established")
 

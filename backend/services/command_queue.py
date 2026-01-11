@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 class CommandPriority(Enum):
     """Command priority levels for ordering"""
+
     LOW = 0
     NORMAL = 1
     HIGH = 2
@@ -37,6 +38,7 @@ class CommandPriority(Enum):
 
 class CommandStatus(Enum):
     """Command status in queue"""
+
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
@@ -47,6 +49,7 @@ class CommandStatus(Enum):
 @dataclass
 class QueuedCommand:
     """A command waiting to be sent to a device"""
+
     command_id: str
     device_id: str
     command_type: str
@@ -90,7 +93,9 @@ class CommandQueue:
                 await queue.mark_failed(cmd.command_id, "Send failed")
     """
 
-    def __init__(self, db_path: str = "data/command_queue.db", default_ttl_seconds: int = 3600):
+    def __init__(
+        self, db_path: str = "data/command_queue.db", default_ttl_seconds: int = 3600
+    ):
         self.db_path = Path(db_path)
         self.default_ttl = default_ttl_seconds
         self._lock = Lock()
@@ -102,7 +107,8 @@ class CommandQueue:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         with sqlite3.connect(str(self.db_path)) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS command_queue (
                     command_id TEXT PRIMARY KEY,
                     device_id TEXT NOT NULL,
@@ -117,14 +123,20 @@ class CommandQueue:
                     error_message TEXT,
                     updated_at REAL
                 )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_device_status ON command_queue(device_id, status)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_expires ON command_queue(expires_at)")
+            """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_device_status ON command_queue(device_id, status)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_expires ON command_queue(expires_at)"
+            )
             conn.commit()
 
     def _generate_id(self) -> str:
         """Generate unique command ID"""
         import uuid
+
         return f"cmd_{uuid.uuid4().hex[:12]}"
 
     async def enqueue(
@@ -133,7 +145,7 @@ class CommandQueue:
         command_type: str,
         payload: Dict[str, Any],
         priority: CommandPriority = CommandPriority.NORMAL,
-        ttl_seconds: Optional[int] = None
+        ttl_seconds: Optional[int] = None,
     ) -> str:
         """
         Add a command to the queue.
@@ -160,25 +172,37 @@ class CommandQueue:
             payload=payload,
             priority=priority.value,
             created_at=now,
-            expires_at=expires_at
+            expires_at=expires_at,
         )
 
         with self._lock:
             with sqlite3.connect(str(self.db_path)) as conn:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO command_queue (
                         command_id, device_id, command_type, payload, priority,
                         created_at, expires_at, status, retry_count, max_retries, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    cmd.command_id, cmd.device_id, cmd.command_type,
-                    json.dumps(cmd.payload), cmd.priority,
-                    cmd.created_at, cmd.expires_at, cmd.status,
-                    cmd.retry_count, cmd.max_retries, now
-                ))
+                """,
+                    (
+                        cmd.command_id,
+                        cmd.device_id,
+                        cmd.command_type,
+                        json.dumps(cmd.payload),
+                        cmd.priority,
+                        cmd.created_at,
+                        cmd.expires_at,
+                        cmd.status,
+                        cmd.retry_count,
+                        cmd.max_retries,
+                        now,
+                    ),
+                )
                 conn.commit()
 
-        logger.info(f"[CommandQueue] Enqueued {command_type} for {device_id}: {command_id}")
+        logger.info(
+            f"[CommandQueue] Enqueued {command_type} for {device_id}: {command_id}"
+        )
         return command_id
 
     async def get_pending_commands(self, device_id: str) -> List[QueuedCommand]:
@@ -197,41 +221,56 @@ class CommandQueue:
         with self._lock:
             with sqlite3.connect(str(self.db_path)) as conn:
                 # First, expire old commands
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE command_queue
                     SET status = ?, updated_at = ?
                     WHERE expires_at < ? AND status = ?
-                """, (CommandStatus.EXPIRED.value, now, now, CommandStatus.PENDING.value))
+                """,
+                    (
+                        CommandStatus.EXPIRED.value,
+                        now,
+                        now,
+                        CommandStatus.PENDING.value,
+                    ),
+                )
 
                 # Then get pending commands
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT command_id, device_id, command_type, payload, priority,
                            created_at, expires_at, status, retry_count, max_retries, error_message
                     FROM command_queue
                     WHERE device_id = ? AND status = ?
                     ORDER BY priority DESC, created_at ASC
-                """, (device_id, CommandStatus.PENDING.value))
+                """,
+                    (device_id, CommandStatus.PENDING.value),
+                )
 
                 rows = cursor.fetchall()
                 conn.commit()
 
         commands = []
         for row in rows:
-            commands.append(QueuedCommand(
-                command_id=row[0],
-                device_id=row[1],
-                command_type=row[2],
-                payload=json.loads(row[3]),
-                priority=row[4],
-                created_at=row[5],
-                expires_at=row[6],
-                status=row[7],
-                retry_count=row[8],
-                max_retries=row[9],
-                error_message=row[10]
-            ))
+            commands.append(
+                QueuedCommand(
+                    command_id=row[0],
+                    device_id=row[1],
+                    command_type=row[2],
+                    payload=json.loads(row[3]),
+                    priority=row[4],
+                    created_at=row[5],
+                    expires_at=row[6],
+                    status=row[7],
+                    retry_count=row[8],
+                    max_retries=row[9],
+                    error_message=row[10],
+                )
+            )
 
-        logger.debug(f"[CommandQueue] Found {len(commands)} pending commands for {device_id}")
+        logger.debug(
+            f"[CommandQueue] Found {len(commands)} pending commands for {device_id}"
+        )
         return commands
 
     async def mark_processing(self, command_id: str) -> bool:
@@ -254,7 +293,7 @@ class CommandQueue:
                 # Get current retry count
                 cursor = conn.execute(
                     "SELECT retry_count, max_retries FROM command_queue WHERE command_id = ?",
-                    (command_id,)
+                    (command_id,),
                 )
                 row = cursor.fetchone()
 
@@ -266,20 +305,42 @@ class CommandQueue:
 
                 if retry_count >= max_retries:
                     # No more retries, mark as failed
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE command_queue
                         SET status = ?, error_message = ?, retry_count = ?, updated_at = ?
                         WHERE command_id = ?
-                    """, (CommandStatus.FAILED.value, error_message, retry_count, now, command_id))
-                    logger.warning(f"[CommandQueue] Command {command_id} failed permanently: {error_message}")
+                    """,
+                        (
+                            CommandStatus.FAILED.value,
+                            error_message,
+                            retry_count,
+                            now,
+                            command_id,
+                        ),
+                    )
+                    logger.warning(
+                        f"[CommandQueue] Command {command_id} failed permanently: {error_message}"
+                    )
                 else:
                     # Keep pending for retry
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE command_queue
                         SET status = ?, error_message = ?, retry_count = ?, updated_at = ?
                         WHERE command_id = ?
-                    """, (CommandStatus.PENDING.value, error_message, retry_count, now, command_id))
-                    logger.info(f"[CommandQueue] Command {command_id} will retry ({retry_count}/{max_retries})")
+                    """,
+                        (
+                            CommandStatus.PENDING.value,
+                            error_message,
+                            retry_count,
+                            now,
+                            command_id,
+                        ),
+                    )
+                    logger.info(
+                        f"[CommandQueue] Command {command_id} will retry ({retry_count}/{max_retries})"
+                    )
 
                 conn.commit()
 
@@ -291,10 +352,13 @@ class CommandQueue:
 
         with self._lock:
             with sqlite3.connect(str(self.db_path)) as conn:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     UPDATE command_queue SET status = ?, updated_at = ?
                     WHERE command_id = ?
-                """, (status.value, now, command_id))
+                """,
+                    (status.value, now, command_id),
+                )
                 conn.commit()
                 return cursor.rowcount > 0
 
@@ -305,16 +369,21 @@ class CommandQueue:
         with self._lock:
             with sqlite3.connect(str(self.db_path)) as conn:
                 if device_id:
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         SELECT status, COUNT(*) FROM command_queue
                         WHERE device_id = ?
                         GROUP BY status
-                    """, (device_id,))
+                    """,
+                        (device_id,),
+                    )
                 else:
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         SELECT status, COUNT(*) FROM command_queue
                         GROUP BY status
-                    """)
+                    """
+                    )
 
                 stats = {row[0]: row[1] for row in cursor.fetchall()}
 
@@ -325,7 +394,7 @@ class CommandQueue:
             "completed": stats.get(CommandStatus.COMPLETED.value, 0),
             "failed": stats.get(CommandStatus.FAILED.value, 0),
             "expired": stats.get(CommandStatus.EXPIRED.value, 0),
-            "total": sum(stats.values())
+            "total": sum(stats.values()),
         }
 
     async def cleanup_old_commands(self, max_age_hours: int = 24) -> int:
@@ -334,15 +403,18 @@ class CommandQueue:
 
         with self._lock:
             with sqlite3.connect(str(self.db_path)) as conn:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     DELETE FROM command_queue
                     WHERE status IN (?, ?, ?) AND created_at < ?
-                """, (
-                    CommandStatus.COMPLETED.value,
-                    CommandStatus.FAILED.value,
-                    CommandStatus.EXPIRED.value,
-                    cutoff
-                ))
+                """,
+                    (
+                        CommandStatus.COMPLETED.value,
+                        CommandStatus.FAILED.value,
+                        CommandStatus.EXPIRED.value,
+                        cutoff,
+                    ),
+                )
                 deleted = cursor.rowcount
                 conn.commit()
 
@@ -350,29 +422,50 @@ class CommandQueue:
             logger.info(f"[CommandQueue] Cleaned up {deleted} old commands")
         return deleted
 
-    async def cancel_pending(self, device_id: str, command_type: Optional[str] = None) -> int:
+    async def cancel_pending(
+        self, device_id: str, command_type: Optional[str] = None
+    ) -> int:
         """Cancel pending commands for a device"""
         now = time.time()
 
         with self._lock:
             with sqlite3.connect(str(self.db_path)) as conn:
                 if command_type:
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         UPDATE command_queue
                         SET status = ?, updated_at = ?
                         WHERE device_id = ? AND command_type = ? AND status = ?
-                    """, (CommandStatus.EXPIRED.value, now, device_id, command_type, CommandStatus.PENDING.value))
+                    """,
+                        (
+                            CommandStatus.EXPIRED.value,
+                            now,
+                            device_id,
+                            command_type,
+                            CommandStatus.PENDING.value,
+                        ),
+                    )
                 else:
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         UPDATE command_queue
                         SET status = ?, updated_at = ?
                         WHERE device_id = ? AND status = ?
-                    """, (CommandStatus.EXPIRED.value, now, device_id, CommandStatus.PENDING.value))
+                    """,
+                        (
+                            CommandStatus.EXPIRED.value,
+                            now,
+                            device_id,
+                            CommandStatus.PENDING.value,
+                        ),
+                    )
 
                 cancelled = cursor.rowcount
                 conn.commit()
 
-        logger.info(f"[CommandQueue] Cancelled {cancelled} pending commands for {device_id}")
+        logger.info(
+            f"[CommandQueue] Cancelled {cancelled} pending commands for {device_id}"
+        )
         return cancelled
 
 

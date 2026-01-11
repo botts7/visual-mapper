@@ -19,8 +19,9 @@ class TransitionAction(BaseModel):
     """
     Defines the action that causes a screen transition
     """
-    action_type: Literal["tap", "swipe", "keyevent", "go_back", "go_home", "text"] = Field(
-        ..., description="Type of action that triggers transition"
+
+    action_type: Literal["tap", "swipe", "keyevent", "go_back", "go_home", "text"] = (
+        Field(..., description="Type of action that triggers transition")
     )
 
     # Tap coordinates
@@ -28,10 +29,14 @@ class TransitionAction(BaseModel):
     y: Optional[int] = Field(None, description="Y coordinate for tap")
 
     # Element identification (more reliable than coordinates)
-    element_resource_id: Optional[str] = Field(None, description="Resource ID of tapped element")
+    element_resource_id: Optional[str] = Field(
+        None, description="Resource ID of tapped element"
+    )
     element_text: Optional[str] = Field(None, description="Text of tapped element")
     element_class: Optional[str] = Field(None, description="Class of tapped element")
-    element_content_desc: Optional[str] = Field(None, description="Content description of element")
+    element_content_desc: Optional[str] = Field(
+        None, description="Content description of element"
+    )
 
     # Swipe parameters
     start_x: Optional[int] = Field(None, description="Swipe start X")
@@ -43,13 +48,17 @@ class TransitionAction(BaseModel):
     )
 
     # Keyevent
-    keycode: Optional[str] = Field(None, description="Android keycode (e.g., KEYCODE_BACK)")
+    keycode: Optional[str] = Field(
+        None, description="Android keycode (e.g., KEYCODE_BACK)"
+    )
 
     # Text input
     text: Optional[str] = Field(None, description="Text to type")
 
     # Human-readable description
-    description: Optional[str] = Field(None, description="Human-readable description of action")
+    description: Optional[str] = Field(
+        None, description="Human-readable description of action"
+    )
 
 
 class ScreenNode(BaseModel):
@@ -60,6 +69,7 @@ class ScreenNode(BaseModel):
     - Activity name (primary)
     - UI landmarks (secondary, for sub-screen differentiation)
     """
+
     screen_id: str = Field(..., description="Unique ID (hash of activity + landmarks)")
     package: str = Field(..., description="App package name")
     activity: str = Field(..., description="Android activity name")
@@ -70,7 +80,7 @@ class ScreenNode(BaseModel):
     # UI landmarks for sub-screen identification
     ui_landmarks: List[Dict[str, Any]] = Field(
         default_factory=list,
-        description="Key UI elements that identify this screen (toolbar titles, tab labels, etc.)"
+        description="Key UI elements that identify this screen (toolbar titles, tab labels, etc.)",
     )
 
     # Metadata
@@ -82,25 +92,36 @@ class ScreenNode(BaseModel):
     visit_count: int = Field(0, description="Number of times this screen was visited")
 
     # Flags
-    is_home_screen: bool = Field(False, description="Is this the app's home/main screen?")
-    is_transient: bool = Field(False, description="Is this a transient screen (dialog, toast)?")
+    is_home_screen: bool = Field(
+        False, description="Is this the app's home/main screen?"
+    )
+    is_transient: bool = Field(
+        False, description="Is this a transient screen (dialog, toast)?"
+    )
 
 
 class ScreenTransition(BaseModel):
     """
     Represents a navigation edge from one screen to another
     """
+
     transition_id: str = Field(..., description="Unique transition ID")
     source_screen_id: str = Field(..., description="Source screen ID")
     target_screen_id: str = Field(..., description="Target screen ID")
 
     # The action that causes this transition
-    action: TransitionAction = Field(..., description="Action that triggers this transition")
+    action: TransitionAction = Field(
+        ..., description="Action that triggers this transition"
+    )
 
     # Statistics for pathfinding weight calculation
-    success_rate: float = Field(1.0, ge=0.0, le=1.0, description="Success rate (0.0-1.0)")
+    success_rate: float = Field(
+        1.0, ge=0.0, le=1.0, description="Success rate (0.0-1.0)"
+    )
     usage_count: int = Field(0, description="Number of times this transition was used")
-    avg_transition_time_ms: int = Field(500, description="Average time to complete transition")
+    avg_transition_time_ms: int = Field(
+        500, description="Average time to complete transition"
+    )
 
     # Metadata
     learned_from: Literal["recording", "teaching", "mining"] = Field(
@@ -118,6 +139,7 @@ class NavigationGraph(BaseModel):
     Stores all known screens and transitions for a specific app package.
     Used by FlowExecutor to navigate to required screens.
     """
+
     graph_id: str = Field(..., description="Unique graph ID")
     package: str = Field(..., description="App package name")
 
@@ -127,12 +149,10 @@ class NavigationGraph(BaseModel):
 
     # Graph data
     screens: Dict[str, ScreenNode] = Field(
-        default_factory=dict,
-        description="Screen nodes keyed by screen_id"
+        default_factory=dict, description="Screen nodes keyed by screen_id"
     )
     transitions: List[ScreenTransition] = Field(
-        default_factory=list,
-        description="All known transitions"
+        default_factory=list, description="All known transitions"
     )
 
     # Special screens
@@ -147,7 +167,9 @@ class NavigationGraph(BaseModel):
 
     # Statistics
     total_recordings: int = Field(0, description="Flows that contributed to this graph")
-    total_navigations: int = Field(0, description="Times this graph was used for navigation")
+    total_navigations: int = Field(
+        0, description="Times this graph was used for navigation"
+    )
 
 
 class NavigationPath(BaseModel):
@@ -156,11 +178,11 @@ class NavigationPath(BaseModel):
 
     Returned by pathfinding algorithms
     """
+
     from_screen_id: str
     to_screen_id: str
     transitions: List[ScreenTransition] = Field(
-        default_factory=list,
-        description="Ordered list of transitions to execute"
+        default_factory=list, description="Ordered list of transitions to execute"
     )
     total_cost: float = Field(0.0, description="Path cost (lower is better)")
     estimated_time_ms: int = Field(0, description="Estimated time to traverse path")
@@ -176,20 +198,20 @@ class LearnTransitionRequest(BaseModel):
     Request model for learning a screen transition
     Used by flow recorder to report observed transitions
     """
+
     # Before state
     before_activity: str = Field(..., description="Activity before action")
     before_package: str = Field(..., description="Package before action")
     before_ui_elements: List[Dict[str, Any]] = Field(
         default_factory=list,
-        description="UI elements before action (for landmark extraction)"
+        description="UI elements before action (for landmark extraction)",
     )
 
     # After state
     after_activity: str = Field(..., description="Activity after action")
     after_package: str = Field(..., description="Package after action")
     after_ui_elements: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="UI elements after action"
+        default_factory=list, description="UI elements after action"
     )
 
     # The action performed
@@ -197,12 +219,15 @@ class LearnTransitionRequest(BaseModel):
 
     # Optional metadata
     device_id: Optional[str] = Field(None, description="Device ID")
-    transition_time_ms: Optional[int] = Field(None, description="How long the transition took")
+    transition_time_ms: Optional[int] = Field(
+        None, description="How long the transition took"
+    )
 
 
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
 
 def compute_screen_id(activity: str, ui_landmarks: List[Dict[str, Any]] = None) -> str:
     """
@@ -223,9 +248,11 @@ def compute_screen_id(activity: str, ui_landmarks: List[Dict[str, Any]] = None) 
     for landmark in ui_landmarks:
         # Priority: text > resource_id > content_desc
         # Handle both underscore and hyphen variants
-        text = landmark.get('text', '')
-        resource_id = landmark.get('resource_id', '') or landmark.get('resource-id', '')
-        content_desc = landmark.get('content_desc', '') or landmark.get('content-desc', '')
+        text = landmark.get("text", "")
+        resource_id = landmark.get("resource_id", "") or landmark.get("resource-id", "")
+        content_desc = landmark.get("content_desc", "") or landmark.get(
+            "content-desc", ""
+        )
 
         if text:
             landmark_strs.append(f"text:{text}")
@@ -264,50 +291,45 @@ def extract_ui_landmarks(ui_elements: List[Dict[str, Any]]) -> List[Dict[str, An
 
     for el in ui_elements:
         # Handle both underscore and hyphen variants (ADB uses hyphen, some parsers use underscore)
-        resource_id = el.get('resource_id', '') or el.get('resource-id', '') or ''
-        class_name = el.get('class', '') or ''
-        text = el.get('text', '') or ''
-        content_desc = el.get('content_desc', '') or el.get('content-desc', '') or ''
+        resource_id = el.get("resource_id", "") or el.get("resource-id", "") or ""
+        class_name = el.get("class", "") or ""
+        text = el.get("text", "") or ""
+        content_desc = el.get("content_desc", "") or el.get("content-desc", "") or ""
 
         # Skip empty elements
         if not text and not content_desc:
             continue
 
         # Toolbar titles (high priority)
-        if 'toolbar' in resource_id.lower() or 'action_bar' in resource_id.lower():
-            landmarks.append({
-                'type': 'toolbar',
-                'text': text,
-                'resource_id': resource_id
-            })
+        if "toolbar" in resource_id.lower() or "action_bar" in resource_id.lower():
+            landmarks.append(
+                {"type": "toolbar", "text": text, "resource_id": resource_id}
+            )
             continue
 
         # Tab labels
-        if 'tab' in resource_id.lower() or 'TabLayout' in class_name:
-            landmarks.append({
-                'type': 'tab',
-                'text': text,
-                'resource_id': resource_id
-            })
+        if "tab" in resource_id.lower() or "TabLayout" in class_name:
+            landmarks.append({"type": "tab", "text": text, "resource_id": resource_id})
             continue
 
         # Title-like TextViews (heuristic: short text, likely a header)
-        if 'TextView' in class_name and text:
+        if "TextView" in class_name and text:
             # Titles are usually short (< 50 chars) and don't contain newlines
-            if len(text) < 50 and '\n' not in text:
+            if len(text) < 50 and "\n" not in text:
                 # Check for title-like resource IDs
-                if any(kw in resource_id.lower() for kw in ['title', 'header', 'name', 'label']):
-                    landmarks.append({
-                        'type': 'title',
-                        'text': text,
-                        'resource_id': resource_id
-                    })
+                if any(
+                    kw in resource_id.lower()
+                    for kw in ["title", "header", "name", "label"]
+                ):
+                    landmarks.append(
+                        {"type": "title", "text": text, "resource_id": resource_id}
+                    )
 
     # Deduplicate
     seen = set()
     unique_landmarks = []
     for lm in landmarks:
-        key = (lm.get('text'), lm.get('resource_id'))
+        key = (lm.get("text"), lm.get("resource_id"))
         if key not in seen:
             seen.add(key)
             unique_landmarks.append(lm)
@@ -315,7 +337,9 @@ def extract_ui_landmarks(ui_elements: List[Dict[str, Any]]) -> List[Dict[str, An
     return unique_landmarks
 
 
-def generate_transition_id(source_id: str, target_id: str, action: TransitionAction) -> str:
+def generate_transition_id(
+    source_id: str, target_id: str, action: TransitionAction
+) -> str:
     """
     Generate a unique transition ID
 

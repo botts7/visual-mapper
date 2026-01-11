@@ -25,6 +25,7 @@ class PerformanceAlert:
     - error: Confirmed issue (action required)
     - critical: Severe issue (immediate action required)
     """
+
     device_id: str
     severity: str  # info, warning, error, critical
     message: str
@@ -44,7 +45,7 @@ class PerformanceAlert:
             "timestamp": self.timestamp.isoformat(),
             "flow_id": self.flow_id,
             "metric_name": self.metric_name,
-            "metric_value": self.metric_value
+            "metric_value": self.metric_value,
         }
 
 
@@ -99,9 +100,7 @@ class PerformanceMonitor:
         logger.info("[PerformanceMonitor] Initialized")
 
     async def record_execution(
-        self,
-        flow: SensorCollectionFlow,
-        result: FlowExecutionResult
+        self, flow: SensorCollectionFlow, result: FlowExecutionResult
     ):
         """
         Record execution result and check for performance issues
@@ -116,14 +115,16 @@ class PerformanceMonitor:
         if device_id not in self._execution_history:
             self._execution_history[device_id] = deque(maxlen=100)
 
-        self._execution_history[device_id].append({
-            "flow_id": result.flow_id,
-            "success": result.success,
-            "execution_time_ms": result.execution_time_ms,
-            "executed_steps": result.executed_steps,
-            "timestamp": datetime.now(),
-            "error_message": result.error_message
-        })
+        self._execution_history[device_id].append(
+            {
+                "flow_id": result.flow_id,
+                "success": result.success,
+                "execution_time_ms": result.execution_time_ms,
+                "executed_steps": result.executed_steps,
+                "timestamp": datetime.now(),
+                "error_message": result.error_message,
+            }
+        )
 
         # 2. Check queue depth
         await self._check_queue_depth(device_id)
@@ -134,8 +135,10 @@ class PerformanceMonitor:
         # 4. Check failure rate
         await self._check_failure_rate(device_id)
 
-        logger.debug(f"[PerformanceMonitor] Recorded execution for {flow.flow_id}: "
-                    f"success={result.success}, time={result.execution_time_ms}ms")
+        logger.debug(
+            f"[PerformanceMonitor] Recorded execution for {flow.flow_id}: "
+            f"success={result.success}, time={result.execution_time_ms}ms"
+        )
 
     async def _check_queue_depth(self, device_id: str):
         """
@@ -155,10 +158,10 @@ class PerformanceMonitor:
                     "Increase update intervals for low-priority flows",
                     "Disable unused flows",
                     "Consider splitting sensors across multiple devices",
-                    f"Current queue: {queue_depth} flows (critical threshold: {self.QUEUE_DEPTH_CRITICAL})"
+                    f"Current queue: {queue_depth} flows (critical threshold: {self.QUEUE_DEPTH_CRITICAL})",
                 ],
                 metric_name="queue_depth",
-                metric_value=queue_depth
+                metric_value=queue_depth,
             )
         elif queue_depth >= self.QUEUE_DEPTH_WARNING:
             await self._create_alert(
@@ -168,17 +171,14 @@ class PerformanceMonitor:
                 recommendations=[
                     "Review flow update intervals",
                     "Consider disabling low-priority flows",
-                    f"Current queue: {queue_depth} flows (warning threshold: {self.QUEUE_DEPTH_WARNING})"
+                    f"Current queue: {queue_depth} flows (warning threshold: {self.QUEUE_DEPTH_WARNING})",
                 ],
                 metric_name="queue_depth",
-                metric_value=queue_depth
+                metric_value=queue_depth,
             )
 
     async def _check_backlog(
-        self,
-        device_id: str,
-        flow: SensorCollectionFlow,
-        result: FlowExecutionResult
+        self, device_id: str, flow: SensorCollectionFlow, result: FlowExecutionResult
     ):
         """
         Check if flow execution time is too long relative to update interval
@@ -204,11 +204,11 @@ class PerformanceMonitor:
                     f"Increase update interval to {int(execution_time_s * 2.5)}s or more",
                     "Optimize flow steps (reduce waits, remove unnecessary steps)",
                     "Consider splitting into multiple faster flows",
-                    f"Current ratio: {ratio:.1%} (threshold: {self.BACKLOG_RATIO:.0%})"
+                    f"Current ratio: {ratio:.1%} (threshold: {self.BACKLOG_RATIO:.0%})",
                 ],
                 flow_id=flow.flow_id,
                 metric_name="execution_time_ratio",
-                metric_value=ratio
+                metric_value=ratio,
             )
 
     async def _check_failure_rate(self, device_id: str):
@@ -236,10 +236,10 @@ class PerformanceMonitor:
                     "Review flow validation steps",
                     "Check for app crashes or permission issues",
                     "Review recent error messages in flow history",
-                    f"Recent failures: {int(failure_rate * len(recent))}/{len(recent)}"
+                    f"Recent failures: {int(failure_rate * len(recent))}/{len(recent)}",
                 ],
                 metric_name="failure_rate",
-                metric_value=failure_rate
+                metric_value=failure_rate,
             )
         elif failure_rate >= self.FAILURE_RATE_WARNING:
             await self._create_alert(
@@ -249,10 +249,10 @@ class PerformanceMonitor:
                 recommendations=[
                     "Monitor device connection stability",
                     "Review flow validation logic",
-                    f"Recent failures: {int(failure_rate * len(recent))}/{len(recent)}"
+                    f"Recent failures: {int(failure_rate * len(recent))}/{len(recent)}",
                 ],
                 metric_name="failure_rate",
-                metric_value=failure_rate
+                metric_value=failure_rate,
             )
 
     async def _create_alert(
@@ -263,7 +263,7 @@ class PerformanceMonitor:
         recommendations: List[str],
         flow_id: Optional[str] = None,
         metric_name: Optional[str] = None,
-        metric_value: Optional[Any] = None
+        metric_value: Optional[Any] = None,
     ):
         """
         Create performance alert with cooldown to prevent spam
@@ -284,8 +284,10 @@ class PerformanceMonitor:
         if alert_key in self._last_alert_time:
             time_since_last = (now - self._last_alert_time[alert_key]).total_seconds()
             if time_since_last < self.ALERT_COOLDOWN_SECONDS:
-                logger.debug(f"[PerformanceMonitor] Alert cooldown active for {alert_key} "
-                           f"({time_since_last:.0f}s / {self.ALERT_COOLDOWN_SECONDS}s)")
+                logger.debug(
+                    f"[PerformanceMonitor] Alert cooldown active for {alert_key} "
+                    f"({time_since_last:.0f}s / {self.ALERT_COOLDOWN_SECONDS}s)"
+                )
                 return
 
         # Create alert
@@ -297,7 +299,7 @@ class PerformanceMonitor:
             timestamp=now,
             flow_id=flow_id,
             metric_name=metric_name,
-            metric_value=metric_value
+            metric_value=metric_value,
         )
 
         # Store alert
@@ -314,14 +316,16 @@ class PerformanceMonitor:
             try:
                 await self.mqtt_manager.publish_alert(alert)
             except Exception as e:
-                logger.error(f"[PerformanceMonitor] Failed to publish alert to MQTT: {e}")
+                logger.error(
+                    f"[PerformanceMonitor] Failed to publish alert to MQTT: {e}"
+                )
 
         # Log alert
         log_level = {
             "info": logging.INFO,
             "warning": logging.WARNING,
             "error": logging.ERROR,
-            "critical": logging.CRITICAL
+            "critical": logging.CRITICAL,
         }.get(severity, logging.WARNING)
 
         logger.log(log_level, f"[PerformanceMonitor] {severity.upper()}: {message}")
@@ -342,7 +346,7 @@ class PerformanceMonitor:
             return {
                 "device_id": device_id,
                 "no_data": True,
-                "message": "No execution history available"
+                "message": "No execution history available",
             }
 
         # Convert deque to list for easier processing
@@ -352,13 +356,16 @@ class PerformanceMonitor:
         # Calculate metrics
         total_executions = len(history_list)
         successful_executions = sum(1 for r in history_list if r["success"])
-        success_rate = successful_executions / total_executions if total_executions > 0 else 0
+        success_rate = (
+            successful_executions / total_executions if total_executions > 0 else 0
+        )
 
-        avg_execution_time = int(sum(r["execution_time_ms"] for r in history_list) / total_executions)
+        avg_execution_time = int(
+            sum(r["execution_time_ms"] for r in history_list) / total_executions
+        )
 
         recent_success_rate = (
-            sum(1 for r in recent if r["success"]) / len(recent)
-            if recent else 0
+            sum(1 for r in recent if r["success"]) / len(recent) if recent else 0
         )
 
         # Get slowest flows
@@ -378,7 +385,9 @@ class PerformanceMonitor:
             "avg_execution_time_ms": avg_execution_time,
             "recent_alerts": recent_alerts,
             "slowest_flows": slowest_flows,
-            "last_execution": history_list[-1]["timestamp"].isoformat() if history_list else None
+            "last_execution": (
+                history_list[-1]["timestamp"].isoformat() if history_list else None
+            ),
         }
 
     def get_all_metrics(self) -> Dict[str, Dict[str, Any]]:
@@ -392,12 +401,11 @@ class PerformanceMonitor:
             self.scheduler._queues.keys()
         )
 
-        return {
-            device_id: self.get_metrics(device_id)
-            for device_id in all_device_ids
-        }
+        return {device_id: self.get_metrics(device_id) for device_id in all_device_ids}
 
-    def _get_slowest_flows(self, device_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def _get_slowest_flows(
+        self, device_id: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
         """
         Get slowest flows for a device
 
@@ -426,7 +434,7 @@ class PerformanceMonitor:
             {
                 "flow_id": flow_id,
                 "avg_time_ms": int(sum(times) / len(times)),
-                "execution_count": len(times)
+                "execution_count": len(times),
             }
             for flow_id, times in flow_times.items()
         ]
@@ -436,7 +444,9 @@ class PerformanceMonitor:
 
         return flow_averages[:limit]
 
-    def get_recent_alerts(self, device_id: Optional[str] = None, limit: int = 10) -> List[Dict]:
+    def get_recent_alerts(
+        self, device_id: Optional[str] = None, limit: int = 10
+    ) -> List[Dict]:
         """
         Get recent alerts
 

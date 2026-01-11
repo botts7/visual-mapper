@@ -2,6 +2,7 @@
 Base ADB Connection - Abstract interface for all connection types.
 This eliminates code duplication from v3 reference implementation.
 """
+
 import asyncio
 import logging
 from abc import ABC, abstractmethod
@@ -40,7 +41,7 @@ class BaseADBConnection(ABC):
         Returns:
             Result from function execution
         """
-        if hasattr(self.hass, 'async_add_executor_job'):
+        if hasattr(self.hass, "async_add_executor_job"):
             # Home Assistant integration mode
             return await self.hass.async_add_executor_job(func, *args)
         else:

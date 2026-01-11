@@ -30,7 +30,7 @@ class SensorUpdater:
         self,
         adb_bridge: ADBBridge,
         sensor_manager: SensorManager,
-        mqtt_manager: MQTTManager
+        mqtt_manager: MQTTManager,
     ):
         self.adb_bridge = adb_bridge
         self.sensor_manager = sensor_manager
@@ -41,7 +41,9 @@ class SensorUpdater:
         # Track running update tasks per device
         self._update_tasks: Dict[str, asyncio.Task] = {}
         self._running_devices: Set[str] = set()
-        self._paused_devices: Set[str] = set()  # NEW: Devices with paused sensor updates
+        self._paused_devices: Set[str] = (
+            set()
+        )  # NEW: Devices with paused sensor updates
 
         logger.info("[SensorUpdater] Initialized")
 
@@ -59,7 +61,9 @@ class SensorUpdater:
     async def start_device_updates(self, device_id: str) -> bool:
         """Start sensor update loop for a device"""
         if device_id in self._running_devices:
-            logger.warning(f"[SensorUpdater] Update loop already running for {device_id}")
+            logger.warning(
+                f"[SensorUpdater] Update loop already running for {device_id}"
+            )
             return False
 
         try:
@@ -67,7 +71,9 @@ class SensorUpdater:
             stable_device_id = self._get_stable_device_id(device_id)
 
             # Publish device online status
-            await self.mqtt_manager.publish_availability(device_id, online=True, stable_device_id=stable_device_id)
+            await self.mqtt_manager.publish_availability(
+                device_id, online=True, stable_device_id=stable_device_id
+            )
 
             # Start background task
             task = asyncio.create_task(self._device_update_loop(device_id))
@@ -78,7 +84,9 @@ class SensorUpdater:
             return True
 
         except Exception as e:
-            logger.error(f"[SensorUpdater] Failed to start updates for {device_id}: {e}")
+            logger.error(
+                f"[SensorUpdater] Failed to start updates for {device_id}: {e}"
+            )
             return False
 
     async def stop_device_updates(self, device_id: str) -> bool:
@@ -105,7 +113,9 @@ class SensorUpdater:
             stable_device_id = self._get_stable_device_id(device_id)
 
             # Publish device offline status
-            await self.mqtt_manager.publish_availability(device_id, online=False, stable_device_id=stable_device_id)
+            await self.mqtt_manager.publish_availability(
+                device_id, online=False, stable_device_id=stable_device_id
+            )
 
             logger.info(f"[SensorUpdater] Stopped update loop for {device_id}")
             return True
@@ -140,7 +150,9 @@ class SensorUpdater:
         Used during wizard editing and live streaming to avoid ADB contention
         """
         if device_id not in self._running_devices:
-            logger.warning(f"[SensorUpdater] Cannot pause - no update loop running for {device_id}")
+            logger.warning(
+                f"[SensorUpdater] Cannot pause - no update loop running for {device_id}"
+            )
             return False
 
         self._paused_devices.add(device_id)
@@ -184,29 +196,45 @@ class SensorUpdater:
                 enabled_sensors = [s for s in sensors if s.enabled]
 
                 if not enabled_sensors:
-                    logger.debug(f"[SensorUpdater] No enabled sensors for {device_id}, waiting...")
+                    logger.debug(
+                        f"[SensorUpdater] No enabled sensors for {device_id}, waiting..."
+                    )
                     await asyncio.sleep(30)  # Check every 30s if sensors are added
                     continue
 
                 # Find minimum update interval
                 min_interval = min(s.update_interval_seconds for s in enabled_sensors)
-                logger.debug(f"[SensorUpdater] {device_id}: {len(enabled_sensors)} enabled sensors, update interval={min_interval}s")
+                logger.debug(
+                    f"[SensorUpdater] {device_id}: {len(enabled_sensors)} enabled sensors, update interval={min_interval}s"
+                )
 
                 # Capture screenshot
                 try:
-                    screenshot_bytes = await self.adb_bridge.capture_screenshot(device_id)
-                    logger.debug(f"[SensorUpdater] {device_id}: Screenshot captured ({len(screenshot_bytes)} bytes)")
+                    screenshot_bytes = await self.adb_bridge.capture_screenshot(
+                        device_id
+                    )
+                    logger.debug(
+                        f"[SensorUpdater] {device_id}: Screenshot captured ({len(screenshot_bytes)} bytes)"
+                    )
                 except Exception as e:
-                    logger.error(f"[SensorUpdater] {device_id}: Failed to capture screenshot: {e}")
+                    logger.error(
+                        f"[SensorUpdater] {device_id}: Failed to capture screenshot: {e}"
+                    )
                     await asyncio.sleep(min_interval)
                     continue
 
                 # Extract UI elements (bounds_only=True for 30-40% faster parsing)
                 try:
-                    ui_elements = await self.adb_bridge.get_ui_elements(device_id, bounds_only=True)
-                    logger.debug(f"[SensorUpdater] {device_id}: Extracted {len(ui_elements)} UI elements (fast mode)")
+                    ui_elements = await self.adb_bridge.get_ui_elements(
+                        device_id, bounds_only=True
+                    )
+                    logger.debug(
+                        f"[SensorUpdater] {device_id}: Extracted {len(ui_elements)} UI elements (fast mode)"
+                    )
                 except Exception as e:
-                    logger.error(f"[SensorUpdater] {device_id}: Failed to extract UI elements: {e}")
+                    logger.error(
+                        f"[SensorUpdater] {device_id}: Failed to extract UI elements: {e}"
+                    )
                     await asyncio.sleep(min_interval)
                     continue
 
@@ -215,7 +243,9 @@ class SensorUpdater:
                     try:
                         await self._update_sensor(sensor, screenshot_bytes, ui_elements)
                     except Exception as e:
-                        logger.error(f"[SensorUpdater] {device_id}: Failed to update sensor {sensor.sensor_id}: {e}")
+                        logger.error(
+                            f"[SensorUpdater] {device_id}: Failed to update sensor {sensor.sensor_id}: {e}"
+                        )
                         # Continue with other sensors even if one fails
 
                 # Wait until next update
@@ -225,7 +255,9 @@ class SensorUpdater:
                 logger.info(f"[SensorUpdater] Update loop cancelled for {device_id}")
                 raise
             except Exception as e:
-                logger.error(f"[SensorUpdater] Unexpected error in update loop for {device_id}: {e}")
+                logger.error(
+                    f"[SensorUpdater] Unexpected error in update loop for {device_id}: {e}"
+                )
                 await asyncio.sleep(30)  # Wait before retrying
 
     async def _update_sensor(self, sensor, screenshot_bytes, ui_elements):
@@ -235,12 +267,18 @@ class SensorUpdater:
             if sensor.source.source_type == "element":
                 # Extract text from element
                 element = next(
-                    (el for el in ui_elements if el.get("resource_id") == sensor.source.element_resource_id),
-                    None
+                    (
+                        el
+                        for el in ui_elements
+                        if el.get("resource_id") == sensor.source.element_resource_id
+                    ),
+                    None,
                 )
                 if not element:
                     # Use DEBUG level - this is expected when screen is off or app isn't on right screen
-                    logger.debug(f"[SensorUpdater] Element not found for sensor {sensor.sensor_id}")
+                    logger.debug(
+                        f"[SensorUpdater] Element not found for sensor {sensor.sensor_id}"
+                    )
                     # Use fallback value if configured
                     if sensor.extraction_rule.fallback_value:
                         extracted_value = sensor.extraction_rule.fallback_value
@@ -251,17 +289,23 @@ class SensorUpdater:
                     # Get text from element
                     source_text = element.get("text", "")
                     if not source_text:
-                        logger.warning(f"[SensorUpdater] No text in element for sensor {sensor.sensor_id}")
+                        logger.warning(
+                            f"[SensorUpdater] No text in element for sensor {sensor.sensor_id}"
+                        )
                         if sensor.extraction_rule.fallback_value:
                             extracted_value = sensor.extraction_rule.fallback_value
                         else:
                             return
 
                     # Apply extraction rules
-                    extracted_value = self.text_extractor.extract(source_text, sensor.extraction_rule)
+                    extracted_value = self.text_extractor.extract(
+                        source_text, sensor.extraction_rule
+                    )
 
             else:
-                logger.warning(f"[SensorUpdater] Unsupported source type: {sensor.source.source_type}")
+                logger.warning(
+                    f"[SensorUpdater] Unsupported source type: {sensor.source.source_type}"
+                )
                 return
 
             # Publish to MQTT
@@ -269,13 +313,11 @@ class SensorUpdater:
                 "last_updated": datetime.now().isoformat(),
                 "source_element": sensor.source.element_resource_id,
                 "extraction_method": sensor.extraction_rule.method,
-                "device_id": sensor.device_id
+                "device_id": sensor.device_id,
             }
 
             await self.mqtt_manager.publish_sensor_update(
-                sensor,
-                str(extracted_value),
-                attributes
+                sensor, str(extracted_value), attributes
             )
 
             # Update sensor's current_value and last_updated in memory (for API)
@@ -283,8 +325,12 @@ class SensorUpdater:
             sensor.last_updated = datetime.now()
             self.sensor_manager.update_sensor(sensor)
 
-            logger.debug(f"[SensorUpdater] Updated {sensor.sensor_id}: {extracted_value}")
+            logger.debug(
+                f"[SensorUpdater] Updated {sensor.sensor_id}: {extracted_value}"
+            )
 
         except Exception as e:
-            logger.error(f"[SensorUpdater] Failed to update sensor {sensor.sensor_id}: {e}")
+            logger.error(
+                f"[SensorUpdater] Failed to update sensor {sensor.sensor_id}: {e}"
+            )
             raise

@@ -36,6 +36,7 @@ class StopAppRequest(BaseModel):
 # APP INFO ENDPOINTS
 # =============================================================================
 
+
 @router.get("/apps/{device_id}")
 async def get_installed_apps(device_id: str):
     """Get list of installed apps on device"""
@@ -48,7 +49,7 @@ async def get_installed_apps(device_id: str):
             "device_id": device_id,
             "apps": apps,
             "count": len(apps),
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"[API] Get apps failed: {e}")
@@ -56,7 +57,9 @@ async def get_installed_apps(device_id: str):
 
 
 @router.get("/app-icon/{device_id}/{package_name}")
-async def get_app_icon(device_id: str, package_name: str, skip_extraction: bool = False):
+async def get_app_icon(
+    device_id: str, package_name: str, skip_extraction: bool = False
+):
     """
     Get app icon - multi-tier approach for optimal performance
 
@@ -78,6 +81,7 @@ async def get_app_icon(device_id: str, package_name: str, skip_extraction: bool 
         Icon image data (PNG/WebP/SVG)
     """
     from fastapi.responses import Response
+
     deps = get_deps()
 
     # Tier 0: Check device-specific cache (INSTANT + BEST QUALITY)
@@ -90,27 +94,41 @@ async def get_app_icon(device_id: str, package_name: str, skip_extraction: bool 
         icon_data = deps.device_icon_scraper.get_icon(device_id, package_name)
         if icon_data:
             logger.debug(f"[API] Tier 0: Device-specific cache hit for {package_name}")
-            return Response(content=icon_data, media_type="image/png", headers={"X-Icon-Source": "device-scraper"})
+            return Response(
+                content=icon_data,
+                media_type="image/png",
+                headers={"X-Icon-Source": "device-scraper"},
+            )
 
     # Tier 1: Check Play Store cache (INSTANT)
     if deps.playstore_icon_scraper:
         from pathlib import Path
+
         playstore_cache = Path(f"data/app-icons-playstore/{package_name}.png")
         if playstore_cache.exists():
             icon_data = playstore_cache.read_bytes()
             logger.debug(f"[API] Tier 1: Play Store cache hit for {package_name}")
-            return Response(content=icon_data, media_type="image/png", headers={"X-Icon-Source": "playstore"})
+            return Response(
+                content=icon_data,
+                media_type="image/png",
+                headers={"X-Icon-Source": "playstore"},
+            )
 
     # Tier 2: Check APK extraction cache (INSTANT)
     if deps.app_icon_extractor:
         from pathlib import Path
         import glob
+
         apk_cache_pattern = f"data/app-icons/{package_name}_*.png"
         apk_caches = glob.glob(apk_cache_pattern)
         if apk_caches:
             icon_data = Path(apk_caches[0]).read_bytes()
             logger.debug(f"[API] Tier 2: APK cache hit for {package_name}")
-            return Response(content=icon_data, media_type="image/png", headers={"X-Icon-Source": "apk-extraction"})
+            return Response(
+                content=icon_data,
+                media_type="image/png",
+                headers={"X-Icon-Source": "apk-extraction"},
+            )
 
     # Tier 3: Not in cache - Trigger background fetch and return SVG immediately
     # Background fetch will populate cache for next request (smart progressive loading)
@@ -119,20 +137,27 @@ async def get_app_icon(device_id: str, package_name: str, skip_extraction: bool 
         logger.debug(f"[API] Tier 3: Background fetch requested for {package_name}")
 
     # Tier 4: SVG fallback (INSTANT - return immediately while background fetch happens)
-    first_letter = package_name.split('.')[-1][0].upper() if package_name else 'A'
+    first_letter = package_name.split(".")[-1][0].upper() if package_name else "A"
     hash_val = hash(package_name) % 360
-    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
         <rect width="48" height="48" fill="hsl({hash_val}, 70%, 60%)" rx="8"/>
         <text x="24" y="32" font-family="Arial, sans-serif" font-size="24" font-weight="bold"
               fill="white" text-anchor="middle">{first_letter}</text>
-    </svg>'''
-    logger.debug(f"[API] Tier 4: SVG fallback for {package_name} (background fetch in progress)")
-    return Response(content=svg, media_type="image/svg+xml", headers={"X-Icon-Source": "svg-placeholder"})
+    </svg>"""
+    logger.debug(
+        f"[API] Tier 4: SVG fallback for {package_name} (background fetch in progress)"
+    )
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={"X-Icon-Source": "svg-placeholder"},
+    )
 
 
 # =============================================================================
 # APP CONTROL ENDPOINTS
 # =============================================================================
+
 
 @router.post("/launch")
 async def launch_app(request: LaunchAppRequest):
@@ -148,11 +173,14 @@ async def launch_app(request: LaunchAppRequest):
     try:
         # Force-stop first if requested (ensures fresh app start)
         if request.force_restart:
-            logger.info(f"[API] Force-stopping {request.package} before launch (fresh start)")
+            logger.info(
+                f"[API] Force-stopping {request.package} before launch (fresh start)"
+            )
             try:
                 await deps.adb_bridge.stop_app(request.device_id, request.package)
                 # Brief pause to let the app fully stop
                 import asyncio
+
                 await asyncio.sleep(0.5)
             except Exception as e:
                 logger.warning(f"[API] Force-stop failed (continuing with launch): {e}")
@@ -165,7 +193,7 @@ async def launch_app(request: LaunchAppRequest):
             "device_id": request.device_id,
             "package": request.package,
             "force_restart": request.force_restart,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"[API] Launch app failed: {e}")
@@ -184,7 +212,7 @@ async def stop_app(request: StopAppRequest):
             "success": success,
             "device_id": request.device_id,
             "package": request.package,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"[API] Stop app failed: {e}")
@@ -194,6 +222,7 @@ async def stop_app(request: StopAppRequest):
 # =============================================================================
 # ICON MANAGEMENT ENDPOINTS
 # =============================================================================
+
 
 @router.post("/prefetch-icons/{device_id}")
 async def prefetch_app_icons(device_id: str, max_apps: Optional[int] = None):
@@ -217,26 +246,32 @@ async def prefetch_app_icons(device_id: str, max_apps: Optional[int] = None):
     deps = get_deps()
     try:
         if not deps.icon_background_fetcher:
-            raise HTTPException(status_code=500, detail="Background icon fetcher not initialized")
+            raise HTTPException(
+                status_code=500, detail="Background icon fetcher not initialized"
+            )
 
         logger.info(f"[API] Starting background icon prefetch for {device_id}")
 
         # Get list of installed apps
         apps = await deps.adb_bridge.get_installed_apps(device_id)
-        packages = [app['package'] for app in apps]
+        packages = [app["package"] for app in apps]
 
         # Queue all apps for background fetch
-        await deps.icon_background_fetcher.prefetch_all_apps(device_id, packages, max_apps)
+        await deps.icon_background_fetcher.prefetch_all_apps(
+            device_id, packages, max_apps
+        )
 
         queue_stats = deps.icon_background_fetcher.get_queue_stats()
 
-        logger.info(f"[API] ✅ Queued {len(packages[:max_apps] if max_apps else packages)} apps for prefetch")
+        logger.info(
+            f"[API] ✅ Queued {len(packages[:max_apps] if max_apps else packages)} apps for prefetch"
+        )
 
         return {
             "success": True,
             "apps_queued": len(packages[:max_apps] if max_apps else packages),
             "total_apps": len(packages),
-            "queue_stats": queue_stats
+            "queue_stats": queue_stats,
         }
 
     except Exception as e:
@@ -259,14 +294,18 @@ async def get_icon_queue_stats():
     deps = get_deps()
     try:
         if not deps.icon_background_fetcher:
-            raise HTTPException(status_code=500, detail="Background icon fetcher not initialized")
+            raise HTTPException(
+                status_code=500, detail="Background icon fetcher not initialized"
+            )
 
         stats = deps.icon_background_fetcher.get_queue_stats()
         return stats
 
     except Exception as e:
         logger.error(f"[API] Failed to get queue stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get queue stats: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get queue stats: {str(e)}"
+        )
 
 
 @router.get("/app-name-queue-stats")
@@ -288,14 +327,18 @@ async def get_app_name_queue_stats():
     deps = get_deps()
     try:
         if not deps.app_name_background_fetcher:
-            raise HTTPException(status_code=500, detail="Background app name fetcher not initialized")
+            raise HTTPException(
+                status_code=500, detail="Background app name fetcher not initialized"
+            )
 
         stats = deps.app_name_background_fetcher.get_queue_stats()
         return stats
 
     except Exception as e:
         logger.error(f"[API] Failed to get app name queue stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get app name queue stats: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get app name queue stats: {str(e)}"
+        )
 
 
 @router.post("/prefetch-app-names/{device_id}")
@@ -326,13 +369,15 @@ async def prefetch_app_names(device_id: str, max_apps: Optional[int] = None):
     deps = get_deps()
     try:
         if not deps.app_name_background_fetcher:
-            raise HTTPException(status_code=500, detail="Background app name fetcher not initialized")
+            raise HTTPException(
+                status_code=500, detail="Background app name fetcher not initialized"
+            )
 
         logger.info(f"[API] Starting app name prefetch for {device_id}")
 
         # Get list of installed apps (returns list of dicts with 'package' key)
         apps = await deps.adb_bridge.get_installed_apps(device_id)
-        packages = [app['package'] for app in apps]
+        packages = [app["package"] for app in apps]
 
         # Queue app name prefetch (non-blocking)
         await deps.app_name_background_fetcher.prefetch_all_apps(packages, max_apps)
@@ -340,17 +385,21 @@ async def prefetch_app_names(device_id: str, max_apps: Optional[int] = None):
         # Get stats
         stats = deps.app_name_background_fetcher.get_queue_stats()
 
-        logger.info(f"[API] ✅ Queued {stats['total_requested']} apps for name prefetch")
+        logger.info(
+            f"[API] ✅ Queued {stats['total_requested']} apps for name prefetch"
+        )
 
         return {
             "success": True,
-            "queued_count": stats['total_requested'],
-            "stats": stats
+            "queued_count": stats["total_requested"],
+            "stats": stats,
         }
 
     except Exception as e:
         logger.error(f"[API] App name prefetch failed: {e}")
-        raise HTTPException(status_code=500, detail=f"App name prefetch failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"App name prefetch failed: {str(e)}"
+        )
 
 
 @router.post("/scrape-device-icons/{device_id}")
@@ -378,12 +427,16 @@ async def scrape_device_icons(device_id: str, max_apps: Optional[int] = None):
     deps = get_deps()
     try:
         if not deps.device_icon_scraper:
-            raise HTTPException(status_code=500, detail="Device icon scraper not initialized")
+            raise HTTPException(
+                status_code=500, detail="Device icon scraper not initialized"
+            )
 
         logger.info(f"[API] Starting device icon scraping for {device_id}")
 
         # Scrape icons from device
-        icons_scraped = await deps.device_icon_scraper.scrape_device_icons(device_id, max_apps)
+        icons_scraped = await deps.device_icon_scraper.scrape_device_icons(
+            device_id, max_apps
+        )
 
         # Get cache stats
         cache_stats = deps.device_icon_scraper.get_cache_stats(device_id)
@@ -393,7 +446,7 @@ async def scrape_device_icons(device_id: str, max_apps: Optional[int] = None):
         return {
             "success": True,
             "icons_scraped": icons_scraped,
-            "cache_stats": cache_stats
+            "cache_stats": cache_stats,
         }
     except Exception as e:
         logger.error(f"[API] Device icon scraping failed: {e}")
@@ -415,11 +468,13 @@ async def check_icon_cache(device_id: str):
     deps = get_deps()
     try:
         if not deps.device_icon_scraper:
-            raise HTTPException(status_code=500, detail="Device icon scraper not initialized")
+            raise HTTPException(
+                status_code=500, detail="Device icon scraper not initialized"
+            )
 
         # Get installed apps
         apps = await deps.adb_bridge.get_installed_apps(device_id)
-        app_packages = [app['package'] for app in apps]
+        app_packages = [app["package"] for app in apps]
 
         # Check if update needed
         needs_update = deps.device_icon_scraper.should_update(device_id, app_packages)
@@ -429,16 +484,21 @@ async def check_icon_cache(device_id: str):
 
         # Calculate new apps count
         from pathlib import Path
-        safe_device_id = device_id.replace(':', '_')
+
+        safe_device_id = device_id.replace(":", "_")
         device_cache_dir = Path(f"data/device-icons/{safe_device_id}")
-        cached_packages = {f.stem for f in device_cache_dir.glob("*.png")} if device_cache_dir.exists() else set()
+        cached_packages = (
+            {f.stem for f in device_cache_dir.glob("*.png")}
+            if device_cache_dir.exists()
+            else set()
+        )
         new_apps_count = len(set(app_packages) - cached_packages)
 
         return {
             "needs_update": needs_update,
             "cache_stats": cache_stats,
             "new_apps_count": new_apps_count,
-            "total_apps": len(app_packages)
+            "total_apps": len(app_packages),
         }
     except Exception as e:
         logger.error(f"[API] Check icon cache failed: {e}")
@@ -466,7 +526,9 @@ async def get_icon_cache_stats(device_id: Optional[str] = None):
 
         # Device scraper stats
         if deps.device_icon_scraper:
-            stats["device_scraper"] = deps.device_icon_scraper.get_cache_stats(device_id)
+            stats["device_scraper"] = deps.device_icon_scraper.get_cache_stats(
+                device_id
+            )
 
         # Play Store scraper stats
         if deps.playstore_icon_scraper:

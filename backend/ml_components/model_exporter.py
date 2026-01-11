@@ -23,7 +23,9 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 from services.feature_manager import get_feature_manager
@@ -32,6 +34,7 @@ from services.feature_manager import get_feature_manager
 feature_manager = get_feature_manager()
 try:
     import numpy as np
+
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
@@ -41,6 +44,7 @@ TF_AVAILABLE = False
 if feature_manager.is_enabled("ml_enabled"):
     try:
         import tensorflow as tf
+
         TF_AVAILABLE = True
         logger.info(f"TensorFlow version: {tf.__version__}")
     except ImportError:
@@ -51,6 +55,7 @@ else:
 
 
 # === Feature Engineering ===
+
 
 def hash_to_features(hash_str: str, dim: int = 16) -> np.ndarray:
     """
@@ -94,10 +99,10 @@ def prepare_training_data(q_table: Dict[str, float]) -> Tuple[np.ndarray, np.nda
     y_list = []
 
     for key, q_value in q_table.items():
-        if '|' not in key:
+        if "|" not in key:
             continue
 
-        parts = key.split('|', 1)
+        parts = key.split("|", 1)
         if len(parts) != 2:
             continue
 
@@ -130,23 +135,24 @@ if TF_AVAILABLE:
         - Hidden 2: 32 neurons, ReLU
         - Output: 1 (Q-value)
         """
-        model = tf.keras.Sequential([
-            tf.keras.layers.Input(shape=(input_dim,)),
-            tf.keras.layers.Dense(64, activation='relu', name='dense1'),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dense(32, activation='relu', name='dense2'),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dense(1, name='output')
-        ])
+        model = tf.keras.Sequential(
+            [
+                tf.keras.layers.Input(shape=(input_dim,)),
+                tf.keras.layers.Dense(64, activation="relu", name="dense1"),
+                tf.keras.layers.BatchNormalization(),
+                tf.keras.layers.Dense(32, activation="relu", name="dense2"),
+                tf.keras.layers.BatchNormalization(),
+                tf.keras.layers.Dense(1, name="output"),
+            ]
+        )
 
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-            loss='mse',
-            metrics=['mae']
+            loss="mse",
+            metrics=["mae"],
         )
 
         return model
-
 
     def train_model(
         model,
@@ -154,41 +160,32 @@ if TF_AVAILABLE:
         y: np.ndarray,
         epochs: int = 100,
         batch_size: int = 32,
-        validation_split: float = 0.2
+        validation_split: float = 0.2,
     ):
         """Train the Q-network on Q-table data."""
 
         callbacks = [
             tf.keras.callbacks.EarlyStopping(
-                monitor='val_loss',
-                patience=10,
-                restore_best_weights=True
+                monitor="val_loss", patience=10, restore_best_weights=True
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_loss',
-                factor=0.5,
-                patience=5,
-                min_lr=1e-6
-            )
+                monitor="val_loss", factor=0.5, patience=5, min_lr=1e-6
+            ),
         ]
 
         history = model.fit(
-            X, y,
+            X,
+            y,
             epochs=epochs,
             batch_size=batch_size,
             validation_split=validation_split,
             callbacks=callbacks,
-            verbose=1
+            verbose=1,
         )
 
         return history
 
-
-    def export_to_tflite(
-        model,
-        output_path: str,
-        quantize: bool = True
-    ) -> bytes:
+    def export_to_tflite(model, output_path: str, quantize: bool = True) -> bytes:
         """
         Export Keras model to TFLite format.
 
@@ -210,23 +207,26 @@ if TF_AVAILABLE:
         tflite_model = converter.convert()
 
         # Save to file
-        with open(output_path, 'wb') as f:
+        with open(output_path, "wb") as f:
             f.write(tflite_model)
 
-        logger.info(f"Exported TFLite model: {output_path} ({len(tflite_model):,} bytes)")
+        logger.info(
+            f"Exported TFLite model: {output_path} ({len(tflite_model):,} bytes)"
+        )
         return tflite_model
 
 
 # === Q-Table Loading ===
 
+
 def load_q_table(path: str) -> Dict[str, float]:
     """Load Q-table from JSON file (matches ml_training_server.py format)."""
-    with open(path, 'r') as f:
+    with open(path, "r") as f:
         data = json.load(f)
 
     # Handle both direct Q-table and wrapped format
-    if 'q_table' in data:
-        q_table = data['q_table']
+    if "q_table" in data:
+        q_table = data["q_table"]
     else:
         q_table = data
 
@@ -251,23 +251,19 @@ def create_bootstrap_q_table() -> Dict[str, float]:
         ("nav|drawer|top", 0.9),
         ("nav|home|bottom", 0.7),
         ("nav|settings|bottom", 0.7),
-
         # Buttons that lead to screens
         ("Button|enter|center", 0.6),
         ("Button|next|center", 0.7),
         ("Button|continue|center", 0.7),
         ("Button|more|bottom", 0.5),
         ("Button|details|center", 0.6),
-
         # List items (usually expandable)
         ("RecyclerView|item*|top", 0.5),
         ("RecyclerView|item*|center", 0.5),
         ("ListView|row*|center", 0.5),
-
         # Tab layouts
         ("TabLayout|tab*|top", 0.6),
         ("BottomNavigation|*|bottom", 0.7),
-
         # Cards and tiles
         ("CardView|card*|center", 0.5),
         ("MaterialCardView|*|center", 0.5),
@@ -280,13 +276,11 @@ def create_bootstrap_q_table() -> Dict[str, float]:
         ("Button|close|top", -0.5),
         ("ImageButton|back|top", -0.2),
         ("ImageButton|close|top", -0.5),
-
         # Dangerous patterns
         ("Button|logout|*", -1.0),
         ("Button|exit|*", -1.0),
         ("Button|delete|*", -0.8),
         ("Button|sign_out|*", -1.0),
-
         # Usually uninteresting elements
         ("TextView|*|center", -0.05),
         ("ImageView|*|center", -0.1),
@@ -311,10 +305,9 @@ def create_bootstrap_q_table() -> Dict[str, float]:
 
 # === Main Export Pipeline ===
 
+
 def export_q_table_to_tflite(
-    input_path: str,
-    output_path: str,
-    epochs: int = 100
+    input_path: str, output_path: str, epochs: int = 100
 ) -> Optional[str]:
     """
     Full pipeline: Load Q-table → Train NN → Export TFLite
@@ -340,7 +333,9 @@ def export_q_table_to_tflite(
         q_table = load_q_table(input_path)
 
         if len(q_table) < 10:
-            logger.warning(f"Q-table only has {len(q_table)} entries - model may not generalize well")
+            logger.warning(
+                f"Q-table only has {len(q_table)} entries - model may not generalize well"
+            )
 
         # Prepare training data
         X, y = prepare_training_data(q_table)
@@ -358,18 +353,20 @@ def export_q_table_to_tflite(
         history = train_model(model, X, y_normalized, epochs=epochs)
 
         # Report training results
-        final_loss = history.history['loss'][-1]
-        final_val_loss = history.history.get('val_loss', [final_loss])[-1]
-        logger.info(f"Training complete: loss={final_loss:.4f}, val_loss={final_val_loss:.4f}")
+        final_loss = history.history["loss"][-1]
+        final_val_loss = history.history.get("val_loss", [final_loss])[-1]
+        logger.info(
+            f"Training complete: loss={final_loss:.4f}, val_loss={final_val_loss:.4f}"
+        )
 
         # Export to TFLite
-        os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
         export_to_tflite(model, output_path, quantize=True)
 
         # Also save normalization params for inference
-        norm_path = output_path.replace('.tflite', '_norm.json')
-        with open(norm_path, 'w') as f:
-            json.dump({'mean': float(y_mean), 'std': float(y_std)}, f)
+        norm_path = output_path.replace(".tflite", "_norm.json")
+        with open(norm_path, "w") as f:
+            json.dump({"mean": float(y_mean), "std": float(y_std)}, f)
         logger.info(f"Saved normalization params: {norm_path}")
 
         return output_path
@@ -390,9 +387,9 @@ def create_bootstrap_model(output_path: str) -> Optional[str]:
         q_table = create_bootstrap_q_table()
 
         # Save bootstrap Q-table for reference
-        bootstrap_json = output_path.replace('.tflite', '_qtable.json')
-        with open(bootstrap_json, 'w') as f:
-            json.dump({'q_table': q_table}, f, indent=2)
+        bootstrap_json = output_path.replace(".tflite", "_qtable.json")
+        with open(bootstrap_json, "w") as f:
+            json.dump({"q_table": q_table}, f, indent=2)
         logger.info(f"Saved bootstrap Q-table: {bootstrap_json}")
 
         # Prepare training data
@@ -405,7 +402,7 @@ def create_bootstrap_model(output_path: str) -> Optional[str]:
         history = train_model(model, X, y, epochs=200, validation_split=0.1)
 
         # Export
-        os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
         export_to_tflite(model, output_path, quantize=True)
 
         logger.info(f"Bootstrap model created: {output_path}")
@@ -418,37 +415,35 @@ def create_bootstrap_model(output_path: str) -> Optional[str]:
 
 # === CLI ===
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Export Q-table to TFLite model for Android inference"
     )
     parser.add_argument(
-        "--input", "-i",
+        "--input",
+        "-i",
         type=str,
         default="data/exploration_q_table.json",
-        help="Input Q-table JSON file"
+        help="Input Q-table JSON file",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=str,
         default="models/q_network.tflite",
-        help="Output TFLite model file"
+        help="Output TFLite model file",
     )
-    parser.add_argument(
-        "--epochs", "-e",
-        type=int,
-        default=100,
-        help="Training epochs"
-    )
+    parser.add_argument("--epochs", "-e", type=int, default=100, help="Training epochs")
     parser.add_argument(
         "--bootstrap",
         action="store_true",
-        help="Create bootstrap model from common UI patterns"
+        help="Create bootstrap model from common UI patterns",
     )
     parser.add_argument(
         "--android-assets",
         action="store_true",
-        help="Also copy model to Android assets folder"
+        help="Also copy model to Android assets folder",
     )
 
     args = parser.parse_args()
@@ -472,14 +467,18 @@ def main():
         os.makedirs(android_assets_path, exist_ok=True)
 
         import shutil
+
         dest = os.path.join(android_assets_path, os.path.basename(output))
         shutil.copy(output, dest)
         logger.info(f"Copied to Android assets: {dest}")
 
         # Also copy normalization params if they exist
-        norm_path = output.replace('.tflite', '_norm.json')
+        norm_path = output.replace(".tflite", "_norm.json")
         if os.path.exists(norm_path):
-            shutil.copy(norm_path, os.path.join(android_assets_path, os.path.basename(norm_path)))
+            shutil.copy(
+                norm_path,
+                os.path.join(android_assets_path, os.path.basename(norm_path)),
+            )
 
     logger.info("Export complete!")
 

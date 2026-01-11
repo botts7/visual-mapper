@@ -5,6 +5,7 @@ Historically, tests and routes imported `server` as the FastAPI entrypoint.
 The refactor moved the entrypoint to `main.py`, so this module forwards
 attribute access/assignment to `main` to keep older imports working.
 """
+
 from __future__ import annotations
 
 import sys

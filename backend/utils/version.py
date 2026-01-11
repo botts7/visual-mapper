@@ -4,10 +4,12 @@ Centralized Version Management for Visual Mapper
 Reads version from .build-version file to ensure consistency
 across all modules (API, MQTT, logs, etc.)
 """
+
 from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 def get_version() -> str:
     """
@@ -23,7 +25,8 @@ def get_version() -> str:
     """
     version_paths = [
         Path("/app/.build-version"),  # Docker container
-        Path(__file__).parent.parent.parent / ".build-version",  # Local dev (backend/../)
+        Path(__file__).parent.parent.parent
+        / ".build-version",  # Local dev (backend/../)
         Path(__file__).parent.parent / ".build-version",  # Alternative layout
     ]
 

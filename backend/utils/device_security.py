@@ -190,7 +190,9 @@ class DeviceSecurityManager:
         # Encrypt passcode if provided
         if passcode:
             try:
-                config["encrypted_passcode"] = self.encrypt_passcode(device_id, passcode)
+                config["encrypted_passcode"] = self.encrypt_passcode(
+                    device_id, passcode
+                )
             except Exception as e:
                 logger.error(f"Failed to encrypt passcode: {e}")
                 return False

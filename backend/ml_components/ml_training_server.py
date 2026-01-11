@@ -84,13 +84,11 @@ def atomic_write_json(path, data: dict, indent: int = 2) -> None:
 
     # Write to temp file in same directory (same filesystem = atomic replace)
     fd, temp_path = tempfile.mkstemp(
-        suffix='.tmp',
-        prefix=path.stem + '_',
-        dir=path.parent
+        suffix=".tmp", prefix=path.stem + "_", dir=path.parent
     )
 
     try:
-        with os.fdopen(fd, 'w') as f:
+        with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=indent)
 
         # Atomic replace (overwrites target if exists)
@@ -108,13 +106,17 @@ def atomic_write_json(path, data: dict, indent: int = 2) -> None:
 # Optional feature manager import (not available when running standalone)
 try:
     from services.feature_manager import get_feature_manager
+
     FEATURE_MANAGER_AVAILABLE = True
 except ImportError:
     FEATURE_MANAGER_AVAILABLE = False
+
     def get_feature_manager():
         return None
 
+
 # === Hardware Detection ===
+
 
 def detect_hardware():
     """Detect available hardware acceleration"""
@@ -127,7 +129,7 @@ def detect_hardware():
         "npu_available": False,
         "onnx_available": False,
         "coral_available": False,
-        "coral_devices": 0
+        "coral_devices": 0,
     }
 
     # Check feature manager if available (skip when running standalone)
@@ -139,6 +141,7 @@ def detect_hardware():
     # Check for ONNX Runtime with DirectML (best for Windows NPU)
     try:
         import onnxruntime as ort
+
         providers = ort.get_available_providers()
         hw_info["onnx_available"] = True
         hw_info["onnx_providers"] = providers
@@ -152,6 +155,7 @@ def detect_hardware():
     # Check for PyTorch with DirectML
     try:
         import torch
+
         hw_info["torch_available"] = True
         hw_info["torch_version"] = torch.__version__
 
@@ -163,6 +167,7 @@ def detect_hardware():
         # Check for torch-directml
         try:
             import torch_directml
+
             hw_info["directml_available"] = True
             hw_info["npu_available"] = True
             hw_info["dml_device_count"] = torch_directml.device_count()
@@ -176,6 +181,7 @@ def detect_hardware():
     # Check for Coral Edge TPU
     try:
         from pycoral.utils.edgetpu import list_edge_tpus
+
         edge_tpus = list_edge_tpus()
         if edge_tpus:
             hw_info["coral_available"] = True
@@ -190,11 +196,14 @@ def detect_hardware():
 
     return hw_info
 
+
 HW_INFO = detect_hardware()
 
 # Try to import PyTorch
 feature_manager = get_feature_manager()
-ml_enabled = feature_manager.is_enabled("ml_enabled") if feature_manager else True  # Default to enabled when standalone
+ml_enabled = (
+    feature_manager.is_enabled("ml_enabled") if feature_manager else True
+)  # Default to enabled when standalone
 
 if ml_enabled:
     try:
@@ -202,11 +211,13 @@ if ml_enabled:
         import torch.nn as nn
         import torch.nn.functional as F
         import torch.optim as optim
+
         TORCH_AVAILABLE = True
 
         # Try DirectML for Windows NPU
         try:
             import torch_directml
+
             DML_AVAILABLE = True
             print("Using DirectML for NPU acceleration")
         except ImportError:
@@ -227,6 +238,7 @@ ONNX_DML_AVAILABLE = False
 if ml_enabled:
     try:
         import onnxruntime as ort
+
         ONNX_AVAILABLE = True
         if "DmlExecutionProvider" in ort.get_available_providers():
             ONNX_DML_AVAILABLE = True
@@ -237,6 +249,7 @@ if ml_enabled:
 # Try to import numpy
 try:
     import numpy as np
+
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
@@ -257,21 +270,22 @@ MQTT_TOPIC_STATUS = "visualmapper/exploration/status"
 MQTT_TOPIC_COMMAND = "visualmapper/exploration/command"
 MQTT_TOPIC_MODEL = "visualmapper/exploration/model"  # TFLite model updates
 
+
 # Q-learning hyperparameters (auto-tuned based on experience)
 class HyperParams:
     def __init__(self):
-        self.alpha = 0.1         # Learning rate
-        self.alpha_min = 0.01    # Minimum learning rate
+        self.alpha = 0.1  # Learning rate
+        self.alpha_min = 0.01  # Minimum learning rate
         self.alpha_decay = 0.9999  # Learning rate decay
-        self.gamma = 0.95        # Discount factor (higher = more foresight)
-        self.epsilon = 0.3       # Exploration rate
+        self.gamma = 0.95  # Discount factor (higher = more foresight)
+        self.epsilon = 0.3  # Exploration rate
         self.epsilon_min = 0.05  # Minimum exploration
         self.epsilon_decay = 0.995  # Epsilon decay
-        self.tau = 0.005         # Soft update rate for target network
+        self.tau = 0.005  # Soft update rate for target network
 
         # Prioritized Experience Replay
-        self.per_alpha = 0.6     # Priority exponent
-        self.per_beta = 0.4      # Importance sampling
+        self.per_alpha = 0.6  # Priority exponent
+        self.per_beta = 0.4  # Importance sampling
         self.per_beta_increment = 0.001
         self.per_epsilon = 1e-6  # Small constant for stability
 
@@ -281,34 +295,34 @@ class HyperParams:
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
         self.per_beta = min(1.0, self.per_beta + self.per_beta_increment)
 
+
 HYPERPARAMS = HyperParams()
 
 # Training settings
-BATCH_SIZE = 64              # Larger batch for better gradients
-REPLAY_BUFFER_SIZE = 50000   # Larger buffer for more diversity
-TRAINING_INTERVAL = 5        # Train more frequently
-PUBLISH_INTERVAL = 25        # Publish Q-table more often
-TARGET_UPDATE_INTERVAL = 100 # Update target network every N steps
-SAVE_INTERVAL = 500          # Save checkpoint every N updates
+BATCH_SIZE = 64  # Larger batch for better gradients
+REPLAY_BUFFER_SIZE = 50000  # Larger buffer for more diversity
+TRAINING_INTERVAL = 5  # Train more frequently
+PUBLISH_INTERVAL = 25  # Publish Q-table more often
+TARGET_UPDATE_INTERVAL = 100  # Update target network every N steps
+SAVE_INTERVAL = 500  # Save checkpoint every N updates
 NUM_WORKERS = max(2, (os.cpu_count() or 4) - 1)  # Leave one core free
 
 # Logging setup
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('ml_training.log')
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(), logging.FileHandler("ml_training.log")],
 )
 logger = logging.getLogger("MLTrainingServer")
 
 
 # === Data Classes ===
 
+
 @dataclass
 class ExplorationLogEntry:
     """Single exploration experience from Android"""
+
     screen_hash: str
     action_key: str
     reward: float
@@ -321,6 +335,7 @@ class ExplorationLogEntry:
 @dataclass
 class TrainingStats:
     """Training statistics"""
+
     total_experiences: int = 0
     total_updates: int = 0
     q_table_size: int = 0
@@ -335,6 +350,7 @@ class TrainingStats:
 
 # === Prioritized Experience Replay Buffer ===
 
+
 class SumTree:
     """
     Sum Tree for efficient prioritized sampling
@@ -343,7 +359,11 @@ class SumTree:
 
     def __init__(self, capacity: int):
         self.capacity = capacity
-        self.tree = np.zeros(2 * capacity - 1) if NUMPY_AVAILABLE else [0.0] * (2 * capacity - 1)
+        self.tree = (
+            np.zeros(2 * capacity - 1)
+            if NUMPY_AVAILABLE
+            else [0.0] * (2 * capacity - 1)
+        )
         self.data = [None] * capacity
         self.write_idx = 0
         self.n_entries = 0
@@ -408,7 +428,9 @@ class PrioritizedReplayBuffer:
         with self.lock:
             self.tree.add(priority, experience)
 
-    def sample(self, batch_size: int) -> Tuple[List[ExplorationLogEntry], List[int], np.ndarray]:
+    def sample(
+        self, batch_size: int
+    ) -> Tuple[List[ExplorationLogEntry], List[int], np.ndarray]:
         batch = []
         indices = []
         priorities = []
@@ -441,7 +463,9 @@ class PrioritizedReplayBuffer:
     def update_priorities(self, indices: List[int], td_errors: List[float]):
         with self.lock:
             for idx, td_error in zip(indices, td_errors):
-                priority = (abs(td_error) + HYPERPARAMS.per_epsilon) ** HYPERPARAMS.per_alpha
+                priority = (
+                    abs(td_error) + HYPERPARAMS.per_epsilon
+                ) ** HYPERPARAMS.per_alpha
                 self.tree.update(idx, priority)
 
     def __len__(self):
@@ -449,6 +473,7 @@ class PrioritizedReplayBuffer:
 
 
 # === Enhanced Q-Table Trainer ===
+
 
 class QTableTrainer:
     """
@@ -464,8 +489,8 @@ class QTableTrainer:
 
     # Phase 3: Q-table size limits to prevent OOM
     MAX_Q_TABLE_SIZE = 10000  # Maximum entries before pruning
-    DANGER_THRESHOLD = -5.0   # Cumulative reward threshold for blocking
-    DANGER_COUNT = 3          # Times to hit threshold before blocking
+    DANGER_THRESHOLD = -5.0  # Cumulative reward threshold for blocking
+    DANGER_COUNT = 3  # Times to hit threshold before blocking
 
     def __init__(self):
         self.q_table: Dict[str, float] = {}
@@ -480,12 +505,14 @@ class QTableTrainer:
 
         # Pattern analysis
         self.dangerous_patterns: Dict[str, float] = {}  # pattern -> danger score
-        self.success_patterns: Dict[str, float] = {}    # pattern -> success score
+        self.success_patterns: Dict[str, float] = {}  # pattern -> success score
 
         # Phase 3: Blocked states tracking (danger zone)
         self.blocked_states: set = set()  # States to avoid
-        self.danger_scores: Dict[str, float] = {}  # Cumulative negative reward per state
-        self.danger_counts: Dict[str, int] = {}    # Times state hit danger threshold
+        self.danger_scores: Dict[str, float] = (
+            {}
+        )  # Cumulative negative reward per state
+        self.danger_counts: Dict[str, int] = {}  # Times state hit danger threshold
 
         # Thread pool for parallel processing
         self.executor = ThreadPoolExecutor(max_workers=NUM_WORKERS)
@@ -505,7 +532,9 @@ class QTableTrainer:
         self.updates_since_last = 0
 
         logger.info(f"QTableTrainer initialized with {NUM_WORKERS} worker threads")
-        logger.info(f"Q-table limit: {self.MAX_Q_TABLE_SIZE} entries (auto-prune enabled)")
+        logger.info(
+            f"Q-table limit: {self.MAX_Q_TABLE_SIZE} entries (auto-prune enabled)"
+        )
 
     def _training_loop(self):
         """Background training loop"""
@@ -601,7 +630,9 @@ class QTableTrainer:
         key = f"{entry.screen_hash}|{entry.action_key}"
 
         if entry.reward < -1.0:  # Crash or close
-            self.dangerous_patterns[pattern] = self.dangerous_patterns.get(pattern, 0) + abs(entry.reward)
+            self.dangerous_patterns[pattern] = self.dangerous_patterns.get(
+                pattern, 0
+            ) + abs(entry.reward)
 
             # Phase 3: Track cumulative negative reward for blocked states
             self.danger_scores[key] = self.danger_scores.get(key, 0) + entry.reward
@@ -613,13 +644,20 @@ class QTableTrainer:
                 if self.danger_counts[key] >= self.DANGER_COUNT:
                     if key not in self.blocked_states:
                         self.blocked_states.add(key)
-                        logger.warning(f"BLOCKED dangerous state: {key} (cumulative reward: {self.danger_scores[key]:.2f})")
+                        logger.warning(
+                            f"BLOCKED dangerous state: {key} (cumulative reward: {self.danger_scores[key]:.2f})"
+                        )
 
         elif entry.reward > 0.5:  # New screen or good action
-            self.success_patterns[pattern] = self.success_patterns.get(pattern, 0) + entry.reward
+            self.success_patterns[pattern] = (
+                self.success_patterns.get(pattern, 0) + entry.reward
+            )
 
             # Phase 3: Good actions can rehabilitate a blocked state
-            if key in self.blocked_states and self.success_patterns.get(pattern, 0) > 5.0:
+            if (
+                key in self.blocked_states
+                and self.success_patterns.get(pattern, 0) > 5.0
+            ):
                 self.blocked_states.discard(key)
                 self.danger_scores[key] = 0
                 self.danger_counts[key] = 0
@@ -644,8 +682,16 @@ class QTableTrainer:
         # Log progress
         if self.stats.total_experiences % 20 == 0:
             self._update_stats()
-            avg_reward = sum(self.reward_history) / len(self.reward_history) if self.reward_history else 0
-            avg_td = sum(self.td_error_history) / len(self.td_error_history) if self.td_error_history else 0
+            avg_reward = (
+                sum(self.reward_history) / len(self.reward_history)
+                if self.reward_history
+                else 0
+            )
+            avg_td = (
+                sum(self.td_error_history) / len(self.td_error_history)
+                if self.td_error_history
+                else 0
+            )
             logger.info(
                 f"Experiences: {self.stats.total_experiences}, "
                 f"Q-table: {len(self.q_table)}, "
@@ -669,13 +715,18 @@ class QTableTrainer:
         self.stats.devices_seen = len(self.devices_seen)
 
         if self.reward_history:
-            self.stats.average_reward = sum(self.reward_history) / len(self.reward_history)
+            self.stats.average_reward = sum(self.reward_history) / len(
+                self.reward_history
+            )
         if self.td_error_history:
-            self.stats.average_td_error = sum(self.td_error_history) / len(self.td_error_history)
+            self.stats.average_td_error = sum(self.td_error_history) / len(
+                self.td_error_history
+            )
 
         # Memory usage
         try:
             import psutil
+
             process = psutil.Process()
             self.stats.memory_usage_mb = process.memory_info().rss / 1024 / 1024
         except ImportError:
@@ -725,7 +776,9 @@ class QTableTrainer:
         # Decay hyperparameters
         HYPERPARAMS.decay()
 
-        logger.debug(f"Trained on batch of {len(batch)}, avg TD-error: {sum(td_errors)/len(td_errors):.4f}")
+        logger.debug(
+            f"Trained on batch of {len(batch)}, avg TD-error: {sum(td_errors)/len(td_errors):.4f}"
+        )
 
     def get_q_table(self) -> Dict[str, float]:
         """Get a copy of the Q-table"""
@@ -736,7 +789,9 @@ class QTableTrainer:
         """Get patterns that frequently cause problems"""
         with self.lock:
             # Return top 20 most dangerous
-            sorted_patterns = sorted(self.dangerous_patterns.items(), key=lambda x: -x[1])
+            sorted_patterns = sorted(
+                self.dangerous_patterns.items(), key=lambda x: -x[1]
+            )
             return dict(sorted_patterns[:20])
 
     def get_success_patterns(self) -> Dict[str, float]:
@@ -759,7 +814,7 @@ class QTableTrainer:
                 devices_seen=self.stats.devices_seen,
                 training_rate=self.stats.training_rate,
                 hardware_acceleration=self.stats.hardware_acceleration,
-                memory_usage_mb=self.stats.memory_usage_mb
+                memory_usage_mb=self.stats.memory_usage_mb,
             )
 
     def save(self, path: str):
@@ -774,8 +829,8 @@ class QTableTrainer:
                 "hyperparams": {
                     "alpha": HYPERPARAMS.alpha,
                     "gamma": HYPERPARAMS.gamma,
-                    "epsilon": HYPERPARAMS.epsilon
-                }
+                    "epsilon": HYPERPARAMS.epsilon,
+                },
             }
             # Use atomic write to prevent corruption on crash
             atomic_write_json(path, data)
@@ -785,7 +840,7 @@ class QTableTrainer:
         """Load Q-table from JSON file"""
         with self.lock:
             try:
-                with open(path, 'r') as f:
+                with open(path, "r") as f:
                     data = json.load(f)
                 self.q_table = data.get("q_table", {})
                 self.visit_counts = data.get("visit_counts", {})
@@ -817,8 +872,12 @@ class QTableTrainer:
         with self.lock:
             export_data = {
                 "q_table": self.q_table,
-                "dangerous_patterns": list(self.dangerous_patterns.keys())[:50],  # Top 50
-                "blocked_states": list(self.blocked_states)  # Phase 3: Include blocked states
+                "dangerous_patterns": list(self.dangerous_patterns.keys())[
+                    :50
+                ],  # Top 50
+                "blocked_states": list(
+                    self.blocked_states
+                ),  # Phase 3: Include blocked states
             }
             return json.dumps(export_data)
 
@@ -852,8 +911,7 @@ class QTableTrainer:
 
             # Sort entries by visit count (ascending) - least visited first
             entries = [
-                (key, self.visit_counts.get(key, 0))
-                for key in self.q_table.keys()
+                (key, self.visit_counts.get(key, 0)) for key in self.q_table.keys()
             ]
             entries.sort(key=lambda x: x[1])
 
@@ -948,14 +1006,12 @@ class QTableTrainer:
             return {
                 "blocked_count": len(self.blocked_states),
                 "blocked_states": list(self.blocked_states)[:20],  # Top 20
-                "danger_scores": dict(sorted(
-                    self.danger_scores.items(),
-                    key=lambda x: x[1]
-                )[:20]),  # Worst 20
-                "dangerous_patterns": dict(sorted(
-                    self.dangerous_patterns.items(),
-                    key=lambda x: -x[1]
-                )[:20]),  # Top 20 dangerous
+                "danger_scores": dict(
+                    sorted(self.danger_scores.items(), key=lambda x: x[1])[:20]
+                ),  # Worst 20
+                "dangerous_patterns": dict(
+                    sorted(self.dangerous_patterns.items(), key=lambda x: -x[1])[:20]
+                ),  # Top 20 dangerous
             }
 
     def stop(self):
@@ -975,17 +1031,28 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
         Training is done with numpy, inference with ONNX Runtime on NPU.
         """
 
-        def __init__(self, state_dim: int = 64, hidden_dim: int = 128, learning_rate: float = 0.001):
+        def __init__(
+            self,
+            state_dim: int = 64,
+            hidden_dim: int = 128,
+            learning_rate: float = 0.001,
+        ):
             self.state_dim = state_dim
             self.hidden_dim = hidden_dim
             self.learning_rate = learning_rate
 
             # Initialize weights with Xavier initialization
-            self.W1 = np.random.randn(state_dim, hidden_dim).astype(np.float32) * np.sqrt(2.0 / state_dim)
+            self.W1 = np.random.randn(state_dim, hidden_dim).astype(
+                np.float32
+            ) * np.sqrt(2.0 / state_dim)
             self.b1 = np.zeros((1, hidden_dim), dtype=np.float32)
-            self.W2 = np.random.randn(hidden_dim, hidden_dim).astype(np.float32) * np.sqrt(2.0 / hidden_dim)
+            self.W2 = np.random.randn(hidden_dim, hidden_dim).astype(
+                np.float32
+            ) * np.sqrt(2.0 / hidden_dim)
             self.b2 = np.zeros((1, hidden_dim), dtype=np.float32)
-            self.W3 = np.random.randn(hidden_dim, 1).astype(np.float32) * np.sqrt(2.0 / hidden_dim)
+            self.W3 = np.random.randn(hidden_dim, 1).astype(np.float32) * np.sqrt(
+                2.0 / hidden_dim
+            )
             self.b3 = np.zeros((1, 1), dtype=np.float32)
 
             # State hashing for fixed-size input
@@ -1063,38 +1130,42 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
             from onnx import helper, TensorProto, numpy_helper
 
             # Input
-            X = helper.make_tensor_value_info('input', TensorProto.FLOAT, [1, self.state_dim])
-            Y = helper.make_tensor_value_info('output', TensorProto.FLOAT, [1, 1])
+            X = helper.make_tensor_value_info(
+                "input", TensorProto.FLOAT, [1, self.state_dim]
+            )
+            Y = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1])
 
             # Weights as initializers
-            W1_init = numpy_helper.from_array(self.W1, name='W1')
-            b1_init = numpy_helper.from_array(self.b1.flatten(), name='b1')
-            W2_init = numpy_helper.from_array(self.W2, name='W2')
-            b2_init = numpy_helper.from_array(self.b2.flatten(), name='b2')
-            W3_init = numpy_helper.from_array(self.W3, name='W3')
-            b3_init = numpy_helper.from_array(self.b3.flatten(), name='b3')
+            W1_init = numpy_helper.from_array(self.W1, name="W1")
+            b1_init = numpy_helper.from_array(self.b1.flatten(), name="b1")
+            W2_init = numpy_helper.from_array(self.W2, name="W2")
+            b2_init = numpy_helper.from_array(self.b2.flatten(), name="b2")
+            W3_init = numpy_helper.from_array(self.W3, name="W3")
+            b3_init = numpy_helper.from_array(self.b3.flatten(), name="b3")
 
             # Nodes
             nodes = [
-                helper.make_node('MatMul', ['input', 'W1'], ['mm1']),
-                helper.make_node('Add', ['mm1', 'b1'], ['h1_pre']),
-                helper.make_node('Relu', ['h1_pre'], ['h1']),
-                helper.make_node('MatMul', ['h1', 'W2'], ['mm2']),
-                helper.make_node('Add', ['mm2', 'b2'], ['h2_pre']),
-                helper.make_node('Relu', ['h2_pre'], ['h2']),
-                helper.make_node('MatMul', ['h2', 'W3'], ['mm3']),
-                helper.make_node('Add', ['mm3', 'b3'], ['output']),
+                helper.make_node("MatMul", ["input", "W1"], ["mm1"]),
+                helper.make_node("Add", ["mm1", "b1"], ["h1_pre"]),
+                helper.make_node("Relu", ["h1_pre"], ["h1"]),
+                helper.make_node("MatMul", ["h1", "W2"], ["mm2"]),
+                helper.make_node("Add", ["mm2", "b2"], ["h2_pre"]),
+                helper.make_node("Relu", ["h2_pre"], ["h2"]),
+                helper.make_node("MatMul", ["h2", "W3"], ["mm3"]),
+                helper.make_node("Add", ["mm3", "b3"], ["output"]),
             ]
 
             graph = helper.make_graph(
                 nodes,
-                'QNetwork',
+                "QNetwork",
                 [X],
                 [Y],
-                [W1_init, b1_init, W2_init, b2_init, W3_init, b3_init]
+                [W1_init, b1_init, W2_init, b2_init, W3_init, b3_init],
             )
 
-            model = helper.make_model(graph, opset_imports=[helper.make_opsetid('', 13)])
+            model = helper.make_model(
+                graph, opset_imports=[helper.make_opsetid("", 13)]
+            )
             return model.SerializeToString()
 
         def _get_ort_session(self):
@@ -1103,13 +1174,15 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
                 try:
                     model_bytes = self._build_onnx_model()
                     sess_options = ort.SessionOptions()
-                    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                    sess_options.graph_optimization_level = (
+                        ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                    )
 
                     # Use DirectML (NPU) as primary provider
                     self.ort_session = ort.InferenceSession(
                         model_bytes,
                         sess_options,
-                        providers=['DmlExecutionProvider', 'CPUExecutionProvider']
+                        providers=["DmlExecutionProvider", "CPUExecutionProvider"],
                     )
                     self.session_needs_rebuild = False
                     logger.debug("ONNX session created with DirectML provider")
@@ -1125,7 +1198,7 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
                 return self._forward_numpy(state)
 
             try:
-                output = session.run(None, {'input': state})[0]
+                output = session.run(None, {"input": state})[0]
                 self.npu_inferences += 1
                 return float(output[0, 0])
             except Exception as e:
@@ -1220,7 +1293,10 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
                         batch_count += 1
 
                         # Periodic batch training from replay buffer
-                        if batch_count % 5 == 0 and len(self.replay_buffer) >= BATCH_SIZE:
+                        if (
+                            batch_count % 5 == 0
+                            and len(self.replay_buffer) >= BATCH_SIZE
+                        ):
                             self.train_batch()
 
                 except Exception as e:
@@ -1237,7 +1313,11 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
 
                 # Update Q-table for immediate feedback
                 current_q = self.q_table.get(key, 0.0)
-                next_max_q = self._get_max_q(entry.next_screen_hash) if entry.next_screen_hash else 0
+                next_max_q = (
+                    self._get_max_q(entry.next_screen_hash)
+                    if entry.next_screen_hash
+                    else 0
+                )
                 target = entry.reward + HYPERPARAMS.gamma * next_max_q
 
                 # Q-learning update
@@ -1286,7 +1366,11 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
                     current_q = self._forward_onnx(state)
 
                     # Get max Q for next state
-                    next_max_q = self._get_max_q(entry.next_screen_hash) if entry.next_screen_hash else 0
+                    next_max_q = (
+                        self._get_max_q(entry.next_screen_hash)
+                        if entry.next_screen_hash
+                        else 0
+                    )
                     target = entry.reward + HYPERPARAMS.gamma * next_max_q
 
                     # Calculate TD error for priority update
@@ -1313,7 +1397,7 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
                     devices_seen=len(self.devices_seen),
                     training_rate=0.0,
                     hardware_acceleration=f"DirectML (NPU) - {self.npu_inferences} inferences",
-                    memory_usage_mb=0.0
+                    memory_usage_mb=0.0,
                 )
 
         def get_q_table(self) -> Dict[str, float]:
@@ -1340,16 +1424,18 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
                         "q_table_size": len(self.q_table),
                         "npu_inferences": self.npu_inferences,
                         "cpu_updates": self.cpu_updates,
-                    }
+                    },
                 }
                 # Use atomic write to prevent corruption on crash
                 atomic_write_json(path, data)
-                logger.info(f"Saved ONNX trainer to {path} ({len(self.q_table)} Q-entries, {self.npu_inferences} NPU inferences)")
+                logger.info(
+                    f"Saved ONNX trainer to {path} ({len(self.q_table)} Q-entries, {self.npu_inferences} NPU inferences)"
+                )
 
         def load(self, path: str):
             """Load model and Q-table"""
             try:
-                with open(path, 'r') as f:
+                with open(path, "r") as f:
                     data = json.load(f)
 
                 with self.lock:
@@ -1370,12 +1456,16 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
 
                     # Load stats
                     if "stats" in data:
-                        self.stats.total_experiences = data["stats"].get("total_experiences", 0)
+                        self.stats.total_experiences = data["stats"].get(
+                            "total_experiences", 0
+                        )
                         self.stats.total_updates = data["stats"].get("total_updates", 0)
                         self.npu_inferences = data["stats"].get("npu_inferences", 0)
                         self.cpu_updates = data["stats"].get("cpu_updates", 0)
 
-                logger.info(f"Loaded ONNX trainer from {path} ({len(self.q_table)} Q-entries)")
+                logger.info(
+                    f"Loaded ONNX trainer from {path} ({len(self.q_table)} Q-entries)"
+                )
             except FileNotFoundError:
                 logger.warning(f"ONNX trainer file not found: {path}")
             except Exception as e:
@@ -1390,11 +1480,17 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
                 self.next_state_id = 0
 
                 # Reinitialize weights
-                self.W1 = np.random.randn(self.state_dim, self.hidden_dim).astype(np.float32) * np.sqrt(2.0 / self.state_dim)
+                self.W1 = np.random.randn(self.state_dim, self.hidden_dim).astype(
+                    np.float32
+                ) * np.sqrt(2.0 / self.state_dim)
                 self.b1 = np.zeros((1, self.hidden_dim), dtype=np.float32)
-                self.W2 = np.random.randn(self.hidden_dim, self.hidden_dim).astype(np.float32) * np.sqrt(2.0 / self.hidden_dim)
+                self.W2 = np.random.randn(self.hidden_dim, self.hidden_dim).astype(
+                    np.float32
+                ) * np.sqrt(2.0 / self.hidden_dim)
                 self.b2 = np.zeros((1, self.hidden_dim), dtype=np.float32)
-                self.W3 = np.random.randn(self.hidden_dim, 1).astype(np.float32) * np.sqrt(2.0 / self.hidden_dim)
+                self.W3 = np.random.randn(self.hidden_dim, 1).astype(
+                    np.float32
+                ) * np.sqrt(2.0 / self.hidden_dim)
                 self.b3 = np.zeros((1, 1), dtype=np.float32)
 
                 self.session_needs_rebuild = True
@@ -1408,10 +1504,7 @@ if ONNX_DML_AVAILABLE and NUMPY_AVAILABLE:
         def export_for_android(self) -> str:
             """Export Q-table and model info for Android"""
             with self.lock:
-                return json.dumps({
-                    "q_table": self.q_table,
-                    "model_type": "onnx_dml"
-                })
+                return json.dumps({"q_table": self.q_table, "model_type": "onnx_dml"})
 
         def stop(self):
             """Stop background training"""
@@ -1429,7 +1522,9 @@ if TORCH_AVAILABLE:
         Separates state value and action advantage
         """
 
-        def __init__(self, state_dim: int = 64, action_dim: int = 32, hidden_dim: int = 256):
+        def __init__(
+            self, state_dim: int = 64, action_dim: int = 32, hidden_dim: int = 256
+        ):
             super().__init__()
 
             # Shared encoder
@@ -1441,21 +1536,21 @@ if TORCH_AVAILABLE:
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.LayerNorm(hidden_dim),
                 nn.ReLU(),
-                nn.Dropout(0.1)
+                nn.Dropout(0.1),
             )
 
             # Value stream
             self.value_stream = nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim // 2),
                 nn.ReLU(),
-                nn.Linear(hidden_dim // 2, 1)
+                nn.Linear(hidden_dim // 2, 1),
             )
 
             # Advantage stream
             self.advantage_stream = nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim // 2),
                 nn.ReLU(),
-                nn.Linear(hidden_dim // 2, 1)
+                nn.Linear(hidden_dim // 2, 1),
             )
 
         def forward(self, state_action):
@@ -1476,7 +1571,9 @@ if TORCH_AVAILABLE:
         - Soft target updates
         """
 
-        def __init__(self, state_dim: int = 64, action_dim: int = 32, hidden_dim: int = 256):
+        def __init__(
+            self, state_dim: int = 64, action_dim: int = 32, hidden_dim: int = 256
+        ):
             # Select best available device
             if DML_AVAILABLE:
                 self.device = torch_directml.device()
@@ -1495,20 +1592,24 @@ if TORCH_AVAILABLE:
             self.action_dim = action_dim
 
             # Networks
-            self.q_network = DuelingQNetwork(state_dim, action_dim, hidden_dim).to(self.device)
-            self.target_network = DuelingQNetwork(state_dim, action_dim, hidden_dim).to(self.device)
+            self.q_network = DuelingQNetwork(state_dim, action_dim, hidden_dim).to(
+                self.device
+            )
+            self.target_network = DuelingQNetwork(state_dim, action_dim, hidden_dim).to(
+                self.device
+            )
             self.target_network.load_state_dict(self.q_network.state_dict())
             self.target_network.eval()
 
             # Optimizer with weight decay
             self.optimizer = optim.AdamW(
-                self.q_network.parameters(),
-                lr=0.0003,
-                weight_decay=0.01
+                self.q_network.parameters(), lr=0.0003, weight_decay=0.01
             )
 
             # Learning rate scheduler
-            self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1000, gamma=0.95)
+            self.scheduler = optim.lr_scheduler.StepLR(
+                self.optimizer, step_size=1000, gamma=0.95
+            )
 
             # Replay buffer
             self.replay_buffer = PrioritizedReplayBuffer(REPLAY_BUFFER_SIZE)
@@ -1535,7 +1636,9 @@ if TORCH_AVAILABLE:
                 # Use hash for reproducible randomness
                 np.random.seed(hash(hash_str) % (2**32))
                 # Xavier-like initialization
-                cache[hash_str] = (np.random.randn(dim) / np.sqrt(dim)).astype(np.float32)
+                cache[hash_str] = (np.random.randn(dim) / np.sqrt(dim)).astype(
+                    np.float32
+                )
             return cache[hash_str]
 
         def add_experience(self, entry: ExplorationLogEntry):
@@ -1548,7 +1651,11 @@ if TORCH_AVAILABLE:
                 # Also update tabular Q-value
                 key = f"{entry.screen_hash}|{entry.action_key}"
                 current_q = self.q_table.get(key, 0.0)
-                next_max_q = self._get_max_tabular_q(entry.next_screen_hash) if entry.next_screen_hash else 0
+                next_max_q = (
+                    self._get_max_tabular_q(entry.next_screen_hash)
+                    if entry.next_screen_hash
+                    else 0
+                )
                 target = entry.reward + HYPERPARAMS.gamma * next_max_q
                 self.q_table[key] = current_q + HYPERPARAMS.alpha * (target - current_q)
 
@@ -1576,23 +1683,40 @@ if TORCH_AVAILABLE:
             dones = []
 
             for entry in batch:
-                state_emb = self._get_embedding(entry.screen_hash, self.state_dim, self.state_embeddings)
-                action_emb = self._get_embedding(entry.action_key, self.action_dim, self.action_embeddings)
+                state_emb = self._get_embedding(
+                    entry.screen_hash, self.state_dim, self.state_embeddings
+                )
+                action_emb = self._get_embedding(
+                    entry.action_key, self.action_dim, self.action_embeddings
+                )
                 states_actions.append(np.concatenate([state_emb, action_emb]))
                 rewards.append(entry.reward)
 
                 if entry.next_screen_hash:
-                    next_state_emb = self._get_embedding(entry.next_screen_hash, self.state_dim, self.state_embeddings)
+                    next_state_emb = self._get_embedding(
+                        entry.next_screen_hash, self.state_dim, self.state_embeddings
+                    )
                     # For next state, we use a "default" action embedding
-                    next_states_actions.append(np.concatenate([next_state_emb, np.zeros(self.action_dim, dtype=np.float32)]))
+                    next_states_actions.append(
+                        np.concatenate(
+                            [
+                                next_state_emb,
+                                np.zeros(self.action_dim, dtype=np.float32),
+                            ]
+                        )
+                    )
                     dones.append(0)
                 else:
-                    next_states_actions.append(np.zeros(self.state_dim + self.action_dim, dtype=np.float32))
+                    next_states_actions.append(
+                        np.zeros(self.state_dim + self.action_dim, dtype=np.float32)
+                    )
                     dones.append(1)
 
             # Convert to tensors
             states_actions = torch.FloatTensor(np.array(states_actions)).to(self.device)
-            next_states_actions = torch.FloatTensor(np.array(next_states_actions)).to(self.device)
+            next_states_actions = torch.FloatTensor(np.array(next_states_actions)).to(
+                self.device
+            )
             rewards = torch.FloatTensor(rewards).to(self.device)
             dones = torch.FloatTensor(dones).to(self.device)
             weights = torch.FloatTensor(weights).to(self.device)
@@ -1637,13 +1761,24 @@ if TORCH_AVAILABLE:
             HYPERPARAMS.decay()
 
             if self.stats.total_updates % 100 == 0:
-                avg_loss = sum(self.loss_history) / len(self.loss_history) if self.loss_history else 0
-                logger.info(f"DQN update {self.stats.total_updates}, loss: {avg_loss:.4f}, lr: {self.scheduler.get_last_lr()[0]:.6f}")
+                avg_loss = (
+                    sum(self.loss_history) / len(self.loss_history)
+                    if self.loss_history
+                    else 0
+                )
+                logger.info(
+                    f"DQN update {self.stats.total_updates}, loss: {avg_loss:.4f}, lr: {self.scheduler.get_last_lr()[0]:.6f}"
+                )
 
         def _soft_update_target(self):
             """Soft update target network: θ_target = τ*θ + (1-τ)*θ_target"""
-            for target_param, param in zip(self.target_network.parameters(), self.q_network.parameters()):
-                target_param.data.copy_(HYPERPARAMS.tau * param.data + (1 - HYPERPARAMS.tau) * target_param.data)
+            for target_param, param in zip(
+                self.target_network.parameters(), self.q_network.parameters()
+            ):
+                target_param.data.copy_(
+                    HYPERPARAMS.tau * param.data
+                    + (1 - HYPERPARAMS.tau) * target_param.data
+                )
 
         def get_q_table(self) -> Dict[str, float]:
             """Get hybrid Q-table (combines tabular + neural estimates)"""
@@ -1653,8 +1788,16 @@ if TORCH_AVAILABLE:
         def get_stats(self) -> TrainingStats:
             """Get training statistics"""
             with self.lock:
-                avg_reward = sum(self.reward_history) / len(self.reward_history) if self.reward_history else 0
-                avg_loss = sum(self.loss_history) / len(self.loss_history) if self.loss_history else 0
+                avg_reward = (
+                    sum(self.reward_history) / len(self.reward_history)
+                    if self.reward_history
+                    else 0
+                )
+                avg_loss = (
+                    sum(self.loss_history) / len(self.loss_history)
+                    if self.loss_history
+                    else 0
+                )
                 return TrainingStats(
                     total_experiences=self.stats.total_experiences,
                     total_updates=self.stats.total_updates,
@@ -1665,7 +1808,7 @@ if TORCH_AVAILABLE:
                     devices_seen=0,
                     training_rate=0,
                     hardware_acceleration=self.stats.hardware_acceleration,
-                    memory_usage_mb=0
+                    memory_usage_mb=0,
                 )
 
         def save(self, path: str):
@@ -1674,19 +1817,22 @@ if TORCH_AVAILABLE:
                 data = {
                     "q_table": self.q_table,
                     "model_state": None,  # Can't JSON serialize PyTorch state
-                    "stats": asdict(self.stats)
+                    "stats": asdict(self.stats),
                 }
                 # Use atomic write for JSON to prevent corruption on crash
                 atomic_write_json(path, data)
 
                 # Save PyTorch model separately (torch.save uses temp file internally)
-                model_path = path.replace('.json', '_model.pt')
-                torch.save({
-                    'q_network': self.q_network.state_dict(),
-                    'target_network': self.target_network.state_dict(),
-                    'optimizer': self.optimizer.state_dict(),
-                    'scheduler': self.scheduler.state_dict()
-                }, model_path)
+                model_path = path.replace(".json", "_model.pt")
+                torch.save(
+                    {
+                        "q_network": self.q_network.state_dict(),
+                        "target_network": self.target_network.state_dict(),
+                        "optimizer": self.optimizer.state_dict(),
+                        "scheduler": self.scheduler.state_dict(),
+                    },
+                    model_path,
+                )
 
                 logger.info(f"Saved DQN model to {model_path}")
 
@@ -1694,18 +1840,20 @@ if TORCH_AVAILABLE:
             """Load model and Q-table"""
             with self.lock:
                 try:
-                    with open(path, 'r') as f:
+                    with open(path, "r") as f:
                         data = json.load(f)
                     self.q_table = data.get("q_table", {})
 
                     # Load PyTorch model
-                    model_path = path.replace('.json', '_model.pt')
+                    model_path = path.replace(".json", "_model.pt")
                     if os.path.exists(model_path):
                         checkpoint = torch.load(model_path, map_location=self.device)
-                        self.q_network.load_state_dict(checkpoint['q_network'])
-                        self.target_network.load_state_dict(checkpoint['target_network'])
-                        self.optimizer.load_state_dict(checkpoint['optimizer'])
-                        self.scheduler.load_state_dict(checkpoint['scheduler'])
+                        self.q_network.load_state_dict(checkpoint["q_network"])
+                        self.target_network.load_state_dict(
+                            checkpoint["target_network"]
+                        )
+                        self.optimizer.load_state_dict(checkpoint["optimizer"])
+                        self.scheduler.load_state_dict(checkpoint["scheduler"])
                         logger.info(f"Loaded DQN model from {model_path}")
 
                 except FileNotFoundError:
@@ -1724,11 +1872,19 @@ if TORCH_AVAILABLE:
                 self.reward_history.clear()
 
                 # Reinitialize networks
-                self.q_network = DuelingQNetwork(self.state_dim, self.action_dim).to(self.device)
-                self.target_network = DuelingQNetwork(self.state_dim, self.action_dim).to(self.device)
+                self.q_network = DuelingQNetwork(self.state_dim, self.action_dim).to(
+                    self.device
+                )
+                self.target_network = DuelingQNetwork(
+                    self.state_dim, self.action_dim
+                ).to(self.device)
                 self.target_network.load_state_dict(self.q_network.state_dict())
-                self.optimizer = optim.AdamW(self.q_network.parameters(), lr=0.0003, weight_decay=0.01)
-                self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1000, gamma=0.95)
+                self.optimizer = optim.AdamW(
+                    self.q_network.parameters(), lr=0.0003, weight_decay=0.01
+                )
+                self.scheduler = optim.lr_scheduler.StepLR(
+                    self.optimizer, step_size=1000, gamma=0.95
+                )
                 self.stats = TrainingStats()
                 self.stats.hardware_acceleration = self.hw_accel
 
@@ -1739,7 +1895,9 @@ if TORCH_AVAILABLE:
             with self.lock:
                 return json.dumps(self.q_table)
 
-        def export_tflite(self, output_path: str = "q_network.tflite") -> Optional[bytes]:
+        def export_tflite(
+            self, output_path: str = "q_network.tflite"
+        ) -> Optional[bytes]:
             """
             Export the Q-network as a TensorFlow Lite model for Android inference.
 
@@ -1758,7 +1916,9 @@ if TORCH_AVAILABLE:
 
                 # Step 1: Export to ONNX
                 onnx_path = tempfile.mktemp(suffix=".onnx")
-                dummy_input = torch.randn(1, self.state_dim + self.action_dim, device=self.device)
+                dummy_input = torch.randn(
+                    1, self.state_dim + self.action_dim, device=self.device
+                )
 
                 # Move model to CPU for ONNX export
                 model_cpu = DuelingQNetwork(self.state_dim, self.action_dim).cpu()
@@ -1769,10 +1929,13 @@ if TORCH_AVAILABLE:
                     model_cpu,
                     dummy_input.cpu(),
                     onnx_path,
-                    input_names=['features'],
-                    output_names=['q_value'],
-                    dynamic_axes={'features': {0: 'batch_size'}, 'q_value': {0: 'batch_size'}},
-                    opset_version=12
+                    input_names=["features"],
+                    output_names=["q_value"],
+                    dynamic_axes={
+                        "features": {0: "batch_size"},
+                        "q_value": {0: "batch_size"},
+                    },
+                    opset_version=12,
                 )
                 logger.info(f"Exported ONNX model to {onnx_path}")
 
@@ -1793,29 +1956,36 @@ if TORCH_AVAILABLE:
                     # Step 3: Convert to TFLite with quantization
                     converter = tf.lite.TFLiteConverter.from_saved_model(tf_path)
                     converter.optimizations = [tf.lite.Optimize.DEFAULT]
-                    converter.target_spec.supported_types = [tf.float16]  # Float16 quantization
+                    converter.target_spec.supported_types = [
+                        tf.float16
+                    ]  # Float16 quantization
 
                     tflite_model = converter.convert()
 
                     # Save to file
-                    with open(output_path, 'wb') as f:
+                    with open(output_path, "wb") as f:
                         f.write(tflite_model)
 
-                    logger.info(f"Exported TFLite model: {output_path} ({len(tflite_model)} bytes)")
+                    logger.info(
+                        f"Exported TFLite model: {output_path} ({len(tflite_model)} bytes)"
+                    )
 
                     # Cleanup temp files
                     os.remove(onnx_path)
                     import shutil
+
                     shutil.rmtree(tf_path, ignore_errors=True)
 
                     return tflite_model
 
                 except ImportError as e:
-                    logger.warning(f"onnx-tf not available, falling back to ONNX only: {e}")
+                    logger.warning(
+                        f"onnx-tf not available, falling back to ONNX only: {e}"
+                    )
                     logger.warning("Install: pip install onnx onnx-tf tensorflow")
 
                     # Return ONNX as fallback (Android can use onnxruntime)
-                    with open(onnx_path, 'rb') as f:
+                    with open(onnx_path, "rb") as f:
                         onnx_bytes = f.read()
                     os.remove(onnx_path)
                     return onnx_bytes
@@ -1842,6 +2012,7 @@ if TORCH_AVAILABLE:
 
 
 # === Coral Edge TPU Trainer ===
+
 
 class CoralQNetworkTrainer:
     """
@@ -1874,6 +2045,7 @@ class CoralQNetworkTrainer:
         """Load Edge TPU compiled model for inference"""
         try:
             from pycoral.utils.edgetpu import make_interpreter
+
             self.interpreter = make_interpreter(model_path)
             self.interpreter.allocate_tensors()
             logger.info(f"Loaded Edge TPU model from {model_path}")
@@ -1887,20 +2059,30 @@ class CoralQNetworkTrainer:
         # Simple hash-based encoding (same as other trainers)
         state_hash = hash(state) % (2**32)
         # Create normalized input (Edge TPU expects uint8 or int8)
-        input_data = np.array([(state_hash >> i) & 0xFF for i in range(0, 32, 8)], dtype=np.uint8)
+        input_data = np.array(
+            [(state_hash >> i) & 0xFF for i in range(0, 32, 8)], dtype=np.uint8
+        )
         return input_data.reshape(1, -1)
 
-    def _decode_output(self, output: np.ndarray, actions: List[str]) -> Dict[str, float]:
+    def _decode_output(
+        self, output: np.ndarray, actions: List[str]
+    ) -> Dict[str, float]:
         """Decode Edge TPU output to Q-values"""
         # Output is quantized, scale back to float
         output_float = output.astype(np.float32) / 255.0 * 2.0 - 1.0  # Scale to [-1, 1]
-        return {action: float(output_float[0][i]) for i, action in enumerate(actions[:len(output_float[0])])}
+        return {
+            action: float(output_float[0][i])
+            for i, action in enumerate(actions[: len(output_float[0])])
+        }
 
-    def predict(self, state: str, available_actions: Optional[List[str]] = None) -> Dict[str, float]:
+    def predict(
+        self, state: str, available_actions: Optional[List[str]] = None
+    ) -> Dict[str, float]:
         """Get Q-values for state (uses Edge TPU if model loaded, else Q-table)"""
         if self.interpreter and available_actions:
             try:
                 from pycoral.adapters import common
+
                 input_data = self._encode_state(state)
                 common.set_input(self.interpreter, input_data)
                 self.interpreter.invoke()
@@ -1927,7 +2109,9 @@ class CoralQNetworkTrainer:
         available_q = {a: q_values.get(a, 0.0) for a in available_actions}
         return max(available_q, key=available_q.get)
 
-    def train(self, state: str, action: str, reward: float, next_state: str, done: bool):
+    def train(
+        self, state: str, action: str, reward: float, next_state: str, done: bool
+    ):
         """Update Q-table (training happens on CPU)"""
         # Standard Q-learning update
         if state not in self.q_table:
@@ -1964,8 +2148,8 @@ class CoralQNetworkTrainer:
                 "epsilon": self.params.epsilon,
                 "alpha": self.params.alpha,
                 "last_training_time": datetime.now().isoformat(),
-                "coral_devices": CORAL_DEVICES
-            }
+                "coral_devices": CORAL_DEVICES,
+            },
         }
         atomic_write_json(path, data)
         logger.info(f"Saved Q-table to {path} ({len(self.q_table)} states)")
@@ -1973,7 +2157,7 @@ class CoralQNetworkTrainer:
     def load(self, path: str):
         """Load Q-table from file"""
         try:
-            with open(path, 'r') as f:
+            with open(path, "r") as f:
                 data = json.load(f)
 
             self.q_table = data.get("q_values", data.get("q_table", {}))
@@ -1995,8 +2179,8 @@ class CoralQNetworkTrainer:
                 "version": f"coral_v{self.stats.total_updates}",
                 "total_states": len(self.q_table),
                 "epsilon": self.params.epsilon,
-                "trainer_type": "coral_edge_tpu"
-            }
+                "trainer_type": "coral_edge_tpu",
+            },
         }
 
     def get_training_stats(self) -> Dict[str, Any]:
@@ -2008,7 +2192,7 @@ class CoralQNetworkTrainer:
             "alpha": self.params.alpha,
             "hw_accel": self.hw_accel,
             "coral_devices": CORAL_DEVICES,
-            "model_loaded": self.interpreter is not None
+            "model_loaded": self.interpreter is not None,
         }
 
     def stop(self):
@@ -2018,10 +2202,19 @@ class CoralQNetworkTrainer:
 
 # === MQTT Handler ===
 
+
 class MLTrainingServer:
     """Main MQTT-based training server with monitoring"""
 
-    def __init__(self, broker: str, port: int, username: str = "", password: str = "", use_dqn: bool = False, use_coral: bool = False):
+    def __init__(
+        self,
+        broker: str,
+        port: int,
+        username: str = "",
+        password: str = "",
+        use_dqn: bool = False,
+        use_coral: bool = False,
+    ):
         self.broker = broker
         self.port = port
         self.client = mqtt.Client(client_id=f"ml_training_server_{int(time.time())}")
@@ -2094,7 +2287,7 @@ class MLTrainingServer:
     def _on_message(self, client, userdata, msg):
         try:
             topic = msg.topic
-            payload = msg.payload.decode('utf-8')
+            payload = msg.payload.decode("utf-8")
 
             if topic == MQTT_TOPIC_LOGS:
                 self._handle_exploration_log(payload)
@@ -2116,19 +2309,28 @@ class MLTrainingServer:
 
             for entry_data in entries:
                 entry = ExplorationLogEntry(
-                    screen_hash=entry_data.get("screenHash", entry_data.get("screen_hash", "")),
-                    action_key=entry_data.get("actionKey", entry_data.get("action_key", "")),
+                    screen_hash=entry_data.get(
+                        "screenHash", entry_data.get("screen_hash", "")
+                    ),
+                    action_key=entry_data.get(
+                        "actionKey", entry_data.get("action_key", "")
+                    ),
                     reward=float(entry_data.get("reward", 0)),
-                    next_screen_hash=entry_data.get("nextScreenHash", entry_data.get("next_screen_hash")),
+                    next_screen_hash=entry_data.get(
+                        "nextScreenHash", entry_data.get("next_screen_hash")
+                    ),
                     timestamp=int(entry_data.get("timestamp", 0)),
-                    device_id=entry_data.get("deviceId", entry_data.get("device_id"))
+                    device_id=entry_data.get("deviceId", entry_data.get("device_id")),
                 )
                 self.trainer.add_experience(entry)
 
             self.update_count += len(entries)
 
             # Periodic training (for Q-table trainer, DQN trains automatically)
-            if isinstance(self.trainer, QTableTrainer) and self.update_count >= TRAINING_INTERVAL:
+            if (
+                isinstance(self.trainer, QTableTrainer)
+                and self.update_count >= TRAINING_INTERVAL
+            ):
                 self.trainer.train_batch()
                 self.update_count = 0
 
@@ -2192,8 +2394,10 @@ class MLTrainingServer:
 
         # Also include dangerous patterns if available
         export_data = {"q_table": q_table}
-        if hasattr(self.trainer, 'get_dangerous_patterns'):
-            export_data["dangerous_patterns"] = list(self.trainer.get_dangerous_patterns().keys())
+        if hasattr(self.trainer, "get_dangerous_patterns"):
+            export_data["dangerous_patterns"] = list(
+                self.trainer.get_dangerous_patterns().keys()
+            )
 
         payload = json.dumps(export_data)
         self.client.publish(MQTT_TOPIC_QTABLE, payload)
@@ -2203,8 +2407,10 @@ class MLTrainingServer:
         """Publish TFLite model to Android devices via MQTT"""
         import base64
 
-        if not hasattr(self.trainer, 'get_model_bytes_for_mqtt'):
-            logger.warning("TFLite export not available (QTableTrainer doesn't support it)")
+        if not hasattr(self.trainer, "get_model_bytes_for_mqtt"):
+            logger.warning(
+                "TFLite export not available (QTableTrainer doesn't support it)"
+            )
             return False
 
         result = self.trainer.get_model_bytes_for_mqtt()
@@ -2215,32 +2421,38 @@ class MLTrainingServer:
         model_bytes, version = result
 
         # Encode model as base64 for JSON transport
-        model_base64 = base64.b64encode(model_bytes).decode('utf-8')
+        model_base64 = base64.b64encode(model_bytes).decode("utf-8")
 
-        payload = json.dumps({
-            "type": "model_update",
-            "model": model_base64,
-            "version": version,
-            "size_bytes": len(model_bytes),
-            "timestamp": time.time()
-        })
+        payload = json.dumps(
+            {
+                "type": "model_update",
+                "model": model_base64,
+                "version": version,
+                "size_bytes": len(model_bytes),
+                "timestamp": time.time(),
+            }
+        )
 
         self.client.publish(MQTT_TOPIC_MODEL, payload)
-        logger.info(f"Published TFLite model: version={version}, size={len(model_bytes)} bytes")
+        logger.info(
+            f"Published TFLite model: version={version}, size={len(model_bytes)} bytes"
+        )
         return True
 
     def _publish_status(self, status: str):
         """Publish status message"""
         stats = self.trainer.get_stats()
-        payload = json.dumps({
-            "status": status,
-            "timestamp": datetime.now().isoformat(),
-            "q_table_size": stats.q_table_size,
-            "total_experiences": stats.total_experiences,
-            "average_reward": stats.average_reward,
-            "hardware": stats.hardware_acceleration,
-            "training_rate": stats.training_rate
-        })
+        payload = json.dumps(
+            {
+                "status": status,
+                "timestamp": datetime.now().isoformat(),
+                "q_table_size": stats.q_table_size,
+                "total_experiences": stats.total_experiences,
+                "average_reward": stats.average_reward,
+                "hardware": stats.hardware_acceleration,
+                "training_rate": stats.training_rate,
+            }
+        )
         self.client.publish(MQTT_TOPIC_STATUS, payload)
 
     def _stats_publisher(self):
@@ -2251,7 +2463,11 @@ class MLTrainingServer:
                 time.sleep(30)  # Every 30 seconds (reduced from 10s)
                 if self.running:
                     # Only publish if there's actual training activity
-                    current_experiences = self.trainer.stats.total_experiences if hasattr(self.trainer, 'stats') else 0
+                    current_experiences = (
+                        self.trainer.stats.total_experiences
+                        if hasattr(self.trainer, "stats")
+                        else 0
+                    )
                     if current_experiences > last_experiences:
                         self._publish_status("running")
                         last_experiences = current_experiences
@@ -2273,18 +2489,20 @@ class MLTrainingServer:
             self.stats_thread = Thread(target=self._stats_publisher, daemon=True)
             self.stats_thread.start()
 
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("ML Training Server - Enhanced Edition")
-            print("="*60)
+            print("=" * 60)
             print(f"  Broker: {self.broker}:{self.port}")
             print(f"  Topics: {MQTT_TOPIC_LOGS}, {MQTT_TOPIC_COMMAND}")
-            print(f"  Hardware: {self.trainer.stats.hardware_acceleration if hasattr(self.trainer, 'stats') else 'CPU'}")
+            print(
+                f"  Hardware: {self.trainer.stats.hardware_acceleration if hasattr(self.trainer, 'stats') else 'CPU'}"
+            )
             print(f"  Workers: {NUM_WORKERS} threads")
             print(f"  Batch size: {BATCH_SIZE}")
             print(f"  Buffer size: {REPLAY_BUFFER_SIZE}")
-            print("="*60)
+            print("=" * 60)
             print("  Press Ctrl+C to stop")
-            print("="*60 + "\n")
+            print("=" * 60 + "\n")
 
             # Keep running
             while self.running:
@@ -2304,7 +2522,7 @@ class MLTrainingServer:
         self.trainer.save(str(self.q_table_path))
 
         # Stop trainer
-        if hasattr(self.trainer, 'stop'):
+        if hasattr(self.trainer, "stop"):
             self.trainer.stop()
 
         self.client.loop_stop()
@@ -2314,27 +2532,40 @@ class MLTrainingServer:
 
 # === Main Entry Point ===
 
+
 def main():
-    parser = argparse.ArgumentParser(description="ML Training Server for Smart Explorer (Enhanced)")
+    parser = argparse.ArgumentParser(
+        description="ML Training Server for Smart Explorer (Enhanced)"
+    )
     parser.add_argument("--broker", default=DEFAULT_BROKER, help="MQTT broker address")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="MQTT broker port")
+    parser.add_argument(
+        "--port", type=int, default=DEFAULT_PORT, help="MQTT broker port"
+    )
     parser.add_argument("--username", type=str, default="", help="MQTT username")
     parser.add_argument("--password", type=str, default="", help="MQTT password")
-    parser.add_argument("--dqn", action="store_true", help="Use Deep Q-Network (requires PyTorch)")
-    parser.add_argument("--use-coral", action="store_true", help="Use Coral Edge TPU for inference")
+    parser.add_argument(
+        "--dqn", action="store_true", help="Use Deep Q-Network (requires PyTorch)"
+    )
+    parser.add_argument(
+        "--use-coral", action="store_true", help="Use Coral Edge TPU for inference"
+    )
     parser.add_argument("--export", type=str, help="Export Q-table to file and exit")
-    parser.add_argument("--load", type=str, help="Load Q-table from file before starting")
-    parser.add_argument("--info", action="store_true", help="Show hardware info and exit")
+    parser.add_argument(
+        "--load", type=str, help="Load Q-table from file before starting"
+    )
+    parser.add_argument(
+        "--info", action="store_true", help="Show hardware info and exit"
+    )
 
     args = parser.parse_args()
 
     # Show hardware info
     if args.info:
         print("\nHardware Information:")
-        print("="*40)
+        print("=" * 40)
         for key, value in HW_INFO.items():
             print(f"  {key}: {value}")
-        print("="*40)
+        print("=" * 40)
 
         print("\nRecommendations:")
         if HW_INFO.get("coral_available"):
@@ -2361,14 +2592,14 @@ def main():
         return
 
     # Start server
-    use_coral = getattr(args, 'use_coral', False)
+    use_coral = getattr(args, "use_coral", False)
     server = MLTrainingServer(
         args.broker,
         args.port,
         username=args.username,
         password=args.password,
         use_dqn=args.dqn,
-        use_coral=use_coral
+        use_coral=use_coral,
     )
 
     # Load existing Q-table if specified

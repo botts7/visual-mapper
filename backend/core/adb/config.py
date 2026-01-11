@@ -2,6 +2,7 @@
 ADB Connection Configuration.
 Centralized configuration for all ADB connection types.
 """
+
 from dataclasses import dataclass
 
 

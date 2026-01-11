@@ -19,7 +19,7 @@ from utils.action_models import (
     ActionCreateRequest,
     ActionUpdateRequest,
     ActionExecutionRequest,
-    ActionListResponse
+    ActionListResponse,
 )
 from utils.error_handler import handle_api_error
 
@@ -31,6 +31,7 @@ router = APIRouter(prefix="/api/actions", tags=["actions"])
 # =============================================================================
 # ACTION CRUD ENDPOINTS
 # =============================================================================
+
 
 @router.get("")
 async def get_all_actions():
@@ -47,7 +48,9 @@ async def get_all_actions():
 
 
 @router.post("")
-async def create_action(request: ActionCreateRequest, device_id: str = Query(..., description="Device ID")):
+async def create_action(
+    request: ActionCreateRequest, device_id: str = Query(..., description="Device ID")
+):
     """Create a new action for a device"""
     deps = get_deps()
     try:
@@ -65,25 +68,31 @@ async def create_action(request: ActionCreateRequest, device_id: str = Query(...
             validation_element=request.validation_element,
             return_home_after=request.return_home_after,
             max_navigation_attempts=request.max_navigation_attempts,
-            navigation_timeout=request.navigation_timeout
+            navigation_timeout=request.navigation_timeout,
         )
 
         # Publish MQTT discovery to Home Assistant
         mqtt_published = False
         if deps.mqtt_manager and deps.mqtt_manager.is_connected:
             try:
-                mqtt_published = await deps.mqtt_manager.publish_action_discovery(action_def)
+                mqtt_published = await deps.mqtt_manager.publish_action_discovery(
+                    action_def
+                )
                 if mqtt_published:
-                    logger.info(f"[API] Published MQTT discovery for action {action_def.id}")
+                    logger.info(
+                        f"[API] Published MQTT discovery for action {action_def.id}"
+                    )
                 else:
-                    logger.warning(f"[API] Failed to publish MQTT discovery for {action_def.id}")
+                    logger.warning(
+                        f"[API] Failed to publish MQTT discovery for {action_def.id}"
+                    )
             except Exception as e:
                 logger.error(f"[API] MQTT discovery failed for {action_def.id}: {e}")
 
         return {
             "success": True,
             "action": action_def.dict(),
-            "mqtt_published": mqtt_published
+            "mqtt_published": mqtt_published,
         }
     except Exception as e:
         logger.error(f"[API] Create action failed: {e}")
@@ -99,9 +108,7 @@ async def list_actions(device_id: str):
         actions = deps.action_manager.list_actions(device_id)
 
         return ActionListResponse(
-            actions=actions,
-            total=len(actions),
-            device_id=device_id
+            actions=actions, total=len(actions), device_id=device_id
         )
     except Exception as e:
         logger.error(f"[API] List actions failed: {e}")
@@ -111,6 +118,7 @@ async def list_actions(device_id: str):
 # =============================================================================
 # IMPORT/EXPORT
 # =============================================================================
+
 
 @router.get("/export/{device_id}")
 async def export_actions(device_id: str):
@@ -124,7 +132,7 @@ async def export_actions(device_id: str):
             "success": True,
             "device_id": device_id,
             "actions": [action.dict() for action in actions],
-            "count": len(actions)
+            "count": len(actions),
         }
     except Exception as e:
         logger.error(f"[API] Export actions failed: {e}")
@@ -158,7 +166,7 @@ async def import_actions(device_id: str, actions: list):
                 action_def = deps.action_manager.create_action(
                     device_id=device_id,
                     action=action_data.get("action"),
-                    tags=action_data.get("tags", [])
+                    tags=action_data.get("tags", []),
                 )
 
                 # Publish MQTT discovery for imported action
@@ -175,7 +183,7 @@ async def import_actions(device_id: str, actions: list):
             "device_id": device_id,
             "imported_count": imported_count,
             "failed_count": failed_count,
-            "total": len(actions)
+            "total": len(actions),
         }
     except Exception as e:
         logger.error(f"[API] Import actions failed: {e}")
@@ -193,10 +201,7 @@ async def get_action(device_id: str, action_id: str):
         if not action_def:
             raise HTTPException(status_code=404, detail=f"Action {action_id} not found")
 
-        return {
-            "success": True,
-            "action": action_def.dict()
-        }
+        return {"success": True, "action": action_def.dict()}
     except HTTPException:
         raise
     except Exception as e:
@@ -223,25 +228,29 @@ async def update_action(device_id: str, action_id: str, request: ActionUpdateReq
             validation_element=request.validation_element,
             return_home_after=request.return_home_after,
             max_navigation_attempts=request.max_navigation_attempts,
-            navigation_timeout=request.navigation_timeout
+            navigation_timeout=request.navigation_timeout,
         )
 
         # Republish MQTT discovery to update Home Assistant
         mqtt_updated = False
         if deps.mqtt_manager and deps.mqtt_manager.is_connected:
             try:
-                mqtt_updated = await deps.mqtt_manager.publish_action_discovery(updated_action)
+                mqtt_updated = await deps.mqtt_manager.publish_action_discovery(
+                    updated_action
+                )
                 if mqtt_updated:
                     logger.info(f"[API] Republished MQTT discovery for {action_id}")
                 else:
-                    logger.warning(f"[API] Failed to republish MQTT discovery for {action_id}")
+                    logger.warning(
+                        f"[API] Failed to republish MQTT discovery for {action_id}"
+                    )
             except Exception as e:
                 logger.error(f"[API] MQTT republish failed for {action_id}: {e}")
 
         return {
             "success": True,
             "action": updated_action.dict(),
-            "mqtt_updated": mqtt_updated
+            "mqtt_updated": mqtt_updated,
         }
     except Exception as e:
         logger.error(f"[API] Update action failed: {e}")
@@ -264,11 +273,15 @@ async def delete_action(device_id: str, action_id: str):
         mqtt_removed = False
         if deps.mqtt_manager and deps.mqtt_manager.is_connected:
             try:
-                mqtt_removed = await deps.mqtt_manager.remove_action_discovery(action_def)
+                mqtt_removed = await deps.mqtt_manager.remove_action_discovery(
+                    action_def
+                )
                 if mqtt_removed:
                     logger.info(f"[API] Removed action {action_id} from Home Assistant")
                 else:
-                    logger.warning(f"[API] Failed to remove action {action_id} from Home Assistant")
+                    logger.warning(
+                        f"[API] Failed to remove action {action_id} from Home Assistant"
+                    )
             except Exception as e:
                 logger.error(f"[API] MQTT removal failed for {action_id}: {e}")
 
@@ -277,8 +290,9 @@ async def delete_action(device_id: str, action_id: str):
 
         return {
             "success": True,
-            "message": f"Action {action_id} deleted" + (" and removed from Home Assistant" if mqtt_removed else ""),
-            "mqtt_removed": mqtt_removed
+            "message": f"Action {action_id} deleted"
+            + (" and removed from Home Assistant" if mqtt_removed else ""),
+            "mqtt_removed": mqtt_removed,
         }
     except HTTPException:
         raise
@@ -290,6 +304,7 @@ async def delete_action(device_id: str, action_id: str):
 # =============================================================================
 # ACTION EXECUTION
 # =============================================================================
+
 
 @router.post("/execute")
 async def execute_action_endpoint(request: ActionExecutionRequest, device_id: str):
@@ -328,4 +343,3 @@ async def execute_action_endpoint(request: ActionExecutionRequest, device_id: st
     except Exception as e:
         logger.error(f"[API] Execute action failed: {e}")
         return handle_api_error(e)
-

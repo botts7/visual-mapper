@@ -47,6 +47,7 @@ class KeyEventRequest(BaseModel):
 # TOUCH CONTROL ENDPOINTS
 # =============================================================================
 
+
 @router.post("/tap")
 async def tap_device(request: TapRequest):
     """Simulate tap at coordinates on device"""
@@ -59,7 +60,7 @@ async def tap_device(request: TapRequest):
             "device_id": request.device_id,
             "x": request.x,
             "y": request.y,
-            "message": f"Tapped at ({request.x}, {request.y})"
+            "message": f"Tapped at ({request.x}, {request.y})",
         }
     except Exception as e:
         logger.error(f"[API] Tap failed: {e}")
@@ -71,12 +72,16 @@ async def swipe_device(request: SwipeRequest):
     """Simulate swipe gesture on device"""
     deps = get_deps()
     try:
-        logger.info(f"[API] Swipe ({request.x1},{request.y1}) -> ({request.x2},{request.y2}) on {request.device_id}")
+        logger.info(
+            f"[API] Swipe ({request.x1},{request.y1}) -> ({request.x2},{request.y2}) on {request.device_id}"
+        )
         await deps.adb_bridge.swipe(
             request.device_id,
-            request.x1, request.y1,
-            request.x2, request.y2,
-            request.duration
+            request.x1,
+            request.y1,
+            request.x2,
+            request.y2,
+            request.duration,
         )
         return {
             "success": True,
@@ -84,7 +89,7 @@ async def swipe_device(request: SwipeRequest):
             "from": {"x": request.x1, "y": request.y1},
             "to": {"x": request.x2, "y": request.y2},
             "duration": request.duration,
-            "message": f"Swiped from ({request.x1},{request.y1}) to ({request.x2},{request.y2})"
+            "message": f"Swiped from ({request.x1},{request.y1}) to ({request.x2},{request.y2})",
         }
     except Exception as e:
         logger.error(f"[API] Swipe failed: {e}")
@@ -94,6 +99,7 @@ async def swipe_device(request: SwipeRequest):
 # =============================================================================
 # INPUT CONTROL ENDPOINTS
 # =============================================================================
+
 
 @router.post("/text")
 async def input_text(request: TextInputRequest):
@@ -106,7 +112,7 @@ async def input_text(request: TextInputRequest):
             "success": True,
             "device_id": request.device_id,
             "text": request.text,
-            "message": f"Typed {len(request.text)} characters"
+            "message": f"Typed {len(request.text)} characters",
         }
     except Exception as e:
         logger.error(f"[API] Text input failed: {e}")
@@ -124,7 +130,7 @@ async def send_keyevent(request: KeyEventRequest):
             "success": True,
             "device_id": request.device_id,
             "keycode": request.keycode,
-            "message": f"Sent key event: {request.keycode}"
+            "message": f"Sent key event: {request.keycode}",
         }
     except Exception as e:
         logger.error(f"[API] Key event failed: {e}")
@@ -134,6 +140,7 @@ async def send_keyevent(request: KeyEventRequest):
 # =============================================================================
 # CONVENIENCE KEY ENDPOINTS
 # =============================================================================
+
 
 @router.post("/back")
 async def send_back_key(request: dict):
@@ -175,19 +182,21 @@ async def send_home_key(request: dict):
 # POWER/SCREEN CONTROL
 # =============================================================================
 
+
 @router.post("/wake/{device_id}")
 async def wake_device_screen(device_id: str):
     """Wake the device screen"""
     deps = get_deps()
     try:
         import time
+
         logger.info(f"[API] Waking screen for {device_id}")
         success = await deps.adb_bridge.ensure_screen_on(device_id, timeout_ms=3000)
         return {
             "success": success,
             "device_id": device_id,
             "message": "Screen woken" if success else "Failed to wake screen",
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"[API] Wake screen failed: {e}")
@@ -200,13 +209,14 @@ async def sleep_device_screen(device_id: str):
     deps = get_deps()
     try:
         import time
+
         logger.info(f"[API] Sleeping screen for {device_id}")
         success = await deps.adb_bridge.sleep_screen(device_id)
         return {
             "success": success,
             "device_id": device_id,
             "message": "Screen put to sleep" if success else "Failed to sleep screen",
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"[API] Sleep screen failed: {e}")
@@ -219,14 +229,17 @@ async def unlock_device_screen(device_id: str):
     deps = get_deps()
     try:
         import time
+
         logger.info(f"[API] Unlocking screen for {device_id}")
         success = await deps.adb_bridge.unlock_screen(device_id)
         return {
             "success": success,
             "device_id": device_id,
-            "message": "Unlock attempt completed" if success else "Failed to unlock screen",
+            "message": (
+                "Unlock attempt completed" if success else "Failed to unlock screen"
+            ),
             "note": "Only works for swipe-to-unlock, not PIN/pattern locked devices",
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"[API] Unlock screen failed: {e}")

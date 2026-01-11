@@ -18,15 +18,20 @@ router = APIRouter(prefix="/api", tags=["flows"])
 # NOTE: wizard_active_devices is stored in server.py and shared with flow_scheduler/executor
 # We import server lazily inside functions to avoid circular imports
 
+
 def get_flow_service():
     deps = get_deps()
     if not deps.flow_manager:
         raise HTTPException(status_code=503, detail="Flow manager not initialized")
-    return FlowService(deps.flow_manager, deps.flow_executor, deps.mqtt_manager, deps.adb_bridge)
+    return FlowService(
+        deps.flow_manager, deps.flow_executor, deps.mqtt_manager, deps.adb_bridge
+    )
+
 
 # =============================================================================
 # FLOW SCHEMA ENDPOINT (Phase 2: Single Source of Truth)
 # =============================================================================
+
 
 @router.get("/flow-schema")
 async def get_flow_schema(service: FlowService = Depends(get_flow_service)):
@@ -47,12 +52,16 @@ async def get_flow_schema(service: FlowService = Depends(get_flow_service)):
         logger.error(f"[API] Failed to get flow schema: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # =============================================================================
 # FLOW CRUD ENDPOINTS
 # =============================================================================
 
+
 @router.post("/flows")
-async def create_flow(flow_data: dict, service: FlowService = Depends(get_flow_service)):
+async def create_flow(
+    flow_data: dict, service: FlowService = Depends(get_flow_service)
+):
     """Create a new flow"""
     try:
         result = await service.create_flow(flow_data)
@@ -65,9 +74,13 @@ async def create_flow(flow_data: dict, service: FlowService = Depends(get_flow_s
             if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
                 try:
                     await deps.flow_scheduler.reload_flows(device_id)
-                    logger.info(f"[API] Reloaded scheduler for device {device_id} after flow creation")
+                    logger.info(
+                        f"[API] Reloaded scheduler for device {device_id} after flow creation"
+                    )
                 except Exception as e:
-                    logger.warning(f"[API] Failed to reload scheduler after flow creation: {e}")
+                    logger.warning(
+                        f"[API] Failed to reload scheduler after flow creation: {e}"
+                    )
 
         return result
     except HTTPException:
@@ -76,8 +89,11 @@ async def create_flow(flow_data: dict, service: FlowService = Depends(get_flow_s
         logger.error(f"[API] Failed to create flow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/flows")
-async def list_flows(device_id: Optional[str] = None, service: FlowService = Depends(get_flow_service)):
+async def list_flows(
+    device_id: Optional[str] = None, service: FlowService = Depends(get_flow_service)
+):
     """List all flows"""
     try:
         return service.list_flows(device_id)
@@ -85,8 +101,11 @@ async def list_flows(device_id: Optional[str] = None, service: FlowService = Dep
         logger.error(f"[API] Failed to list flows: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/flows/{device_id}/{flow_id}")
-async def get_flow(device_id: str, flow_id: str, service: FlowService = Depends(get_flow_service)):
+async def get_flow(
+    device_id: str, flow_id: str, service: FlowService = Depends(get_flow_service)
+):
     """Get a specific flow"""
     try:
         return service.get_flow(device_id, flow_id)
@@ -96,8 +115,11 @@ async def get_flow(device_id: str, flow_id: str, service: FlowService = Depends(
         logger.error(f"[API] Failed to get flow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.put("/flows/{flow_id}")
-async def update_flow_by_id(flow_id: str, flow_data: dict, service: FlowService = Depends(get_flow_service)):
+async def update_flow_by_id(
+    flow_id: str, flow_data: dict, service: FlowService = Depends(get_flow_service)
+):
     """
     Update an existing flow by flow_id only.
     Device ID is extracted from the flow_data.
@@ -107,7 +129,9 @@ async def update_flow_by_id(flow_id: str, flow_data: dict, service: FlowService 
         # Extract device_id from flow data
         device_id = flow_data.get("device_id") or flow_data.get("deviceId")
         if not device_id:
-            raise HTTPException(status_code=400, detail="device_id is required in flow data")
+            raise HTTPException(
+                status_code=400, detail="device_id is required in flow data"
+            )
 
         result = await service.update_flow(device_id, flow_id, flow_data)
 
@@ -117,7 +141,9 @@ async def update_flow_by_id(flow_id: str, flow_data: dict, service: FlowService 
             if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
                 try:
                     await deps.flow_scheduler.reload_flows(device_id)
-                    logger.info(f"[API] Reloaded scheduler for device {device_id} after flow update")
+                    logger.info(
+                        f"[API] Reloaded scheduler for device {device_id} after flow update"
+                    )
                 except Exception as e:
                     logger.warning(f"[API] Failed to reload scheduler: {e}")
 
@@ -130,7 +156,12 @@ async def update_flow_by_id(flow_id: str, flow_data: dict, service: FlowService 
 
 
 @router.put("/flows/{device_id}/{flow_id}")
-async def update_flow(device_id: str, flow_id: str, flow_data: dict, service: FlowService = Depends(get_flow_service)):
+async def update_flow(
+    device_id: str,
+    flow_id: str,
+    flow_data: dict,
+    service: FlowService = Depends(get_flow_service),
+):
     """Update an existing flow"""
     try:
         result = await service.update_flow(device_id, flow_id, flow_data)
@@ -142,7 +173,9 @@ async def update_flow(device_id: str, flow_id: str, flow_data: dict, service: Fl
             if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
                 try:
                     await deps.flow_scheduler.reload_flows(device_id)
-                    logger.info(f"[API] Reloaded scheduler for device {device_id} after flow update")
+                    logger.info(
+                        f"[API] Reloaded scheduler for device {device_id} after flow update"
+                    )
                 except Exception as e:
                     logger.warning(f"[API] Failed to reload scheduler: {e}")
 
@@ -153,8 +186,11 @@ async def update_flow(device_id: str, flow_id: str, flow_data: dict, service: Fl
         logger.error(f"[API] Failed to update flow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.delete("/flows/{device_id}/{flow_id}")
-async def delete_flow(device_id: str, flow_id: str, service: FlowService = Depends(get_flow_service)):
+async def delete_flow(
+    device_id: str, flow_id: str, service: FlowService = Depends(get_flow_service)
+):
     """Delete a flow"""
     try:
         service.delete_flow(device_id, flow_id)
@@ -165,16 +201,20 @@ async def delete_flow(device_id: str, flow_id: str, service: FlowService = Depen
         logger.error(f"[API] Failed to delete flow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # =============================================================================
 # FLOW EXECUTION
 # =============================================================================
+
 
 @router.post("/flows/{device_id}/{flow_id}/execute")
 async def execute_flow_on_demand(
     device_id: str,
     flow_id: str,
-    learn_mode: bool = Query(default=False, description="Capture UI elements to improve navigation graph"),
-    service: FlowService = Depends(get_flow_service)
+    learn_mode: bool = Query(
+        default=False, description="Capture UI elements to improve navigation graph"
+    ),
+    service: FlowService = Depends(get_flow_service),
 ):
     """
     Execute a flow on-demand.
@@ -194,12 +234,16 @@ async def execute_flow_on_demand(
         logger.error(f"[API] Failed to execute flow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # =============================================================================
 # FLOW IMPORT/EXPORT
 # =============================================================================
 
+
 @router.get("/flows/{device_id}/{flow_id}/export")
-async def export_flow(device_id: str, flow_id: str, service: FlowService = Depends(get_flow_service)):
+async def export_flow(
+    device_id: str, flow_id: str, service: FlowService = Depends(get_flow_service)
+):
     """Export a single flow for backup/sharing"""
     try:
         flow = service.get_flow(device_id, flow_id)
@@ -207,13 +251,14 @@ async def export_flow(device_id: str, flow_id: str, service: FlowService = Depen
             "flow_id": flow_id,
             "flow_name": flow.get("name"),
             "device_id": device_id,
-            "flow": flow
+            "flow": flow,
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"[API] Failed to export flow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/flows/import/{device_id}")
 async def import_flows(device_id: str, data: dict):
@@ -232,25 +277,29 @@ async def import_flows(device_id: str, data: dict):
         logger.error(f"[API] Failed to import flows: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # =============================================================================
 # FLOW EXECUTION HISTORY
 # =============================================================================
 
+
 @router.get("/flows/{device_id}/{flow_id}/history")
 async def get_flow_execution_history(
-    device_id: str,
-    flow_id: str,
-    limit: int = Query(default=20, ge=1, le=200)
+    device_id: str, flow_id: str, limit: int = Query(default=20, ge=1, le=200)
 ):
     deps = get_deps()
     try:
-        if not deps.flow_executor or not getattr(deps.flow_executor, "execution_history", None):
-            raise HTTPException(status_code=503, detail="Execution history not initialized")
+        if not deps.flow_executor or not getattr(
+            deps.flow_executor, "execution_history", None
+        ):
+            raise HTTPException(
+                status_code=503, detail="Execution history not initialized"
+            )
         history = deps.flow_executor.execution_history.get_history(flow_id, limit=limit)
         return {
             "flow_id": flow_id,
             "device_id": device_id,
-            "history": [asdict(log) for log in history]
+            "history": [asdict(log) for log in history],
         }
     except HTTPException:
         raise
@@ -258,12 +307,16 @@ async def get_flow_execution_history(
         logger.error(f"[API] Failed to get execution history: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # =============================================================================
 # FLOW TEMPLATES
 # =============================================================================
 
+
 @router.get("/flow-templates")
-async def list_flow_templates(category: Optional[str] = None, tags: Optional[str] = None):
+async def list_flow_templates(
+    category: Optional[str] = None, tags: Optional[str] = None
+):
     deps = get_deps()
     try:
         if not deps.flow_manager:
@@ -277,6 +330,7 @@ async def list_flow_templates(category: Optional[str] = None, tags: Optional[str
         logger.error(f"[API] Failed to list templates: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.post("/flow-templates/{template_id}/create-flow")
 async def create_flow_from_template(template_id: str, request: dict):
     deps = get_deps()
@@ -288,12 +342,12 @@ async def create_flow_from_template(template_id: str, request: dict):
         if not device_id:
             raise HTTPException(status_code=400, detail="device_id required")
         flow = deps.flow_manager.create_flow_from_template(
-            template_id=template_id,
-            device_id=device_id,
-            flow_name=flow_name
+            template_id=template_id, device_id=device_id, flow_name=flow_name
         )
         if not flow:
-            raise HTTPException(status_code=404, detail="Template not found or flow creation failed")
+            raise HTTPException(
+                status_code=404, detail="Template not found or flow creation failed"
+            )
 
         # Register stable ID mapping when possible
         if deps.adb_bridge:
@@ -302,20 +356,28 @@ async def create_flow_from_template(template_id: str, request: dict):
                 if stable_id:
                     flow.stable_device_id = stable_id
                     from services.device_identity import get_device_identity_resolver
-                    resolver = get_device_identity_resolver(str(deps.flow_manager.data_dir))
+
+                    resolver = get_device_identity_resolver(
+                        str(deps.flow_manager.data_dir)
+                    )
                     resolver.register_device(device_id, stable_id)
             except Exception as e:
-                logger.warning(f"[API] Failed to register device mapping for template flow: {e}")
+                logger.warning(
+                    f"[API] Failed to register device mapping for template flow: {e}"
+                )
 
         created = deps.flow_manager.create_flow(flow)
         if not created:
-            raise HTTPException(status_code=409, detail="Flow already exists or could not be created")
+            raise HTTPException(
+                status_code=409, detail="Flow already exists or could not be created"
+            )
         return {"success": True, "flow": flow.dict()}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"[API] Failed to create flow from template: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/flows/{device_id}/{flow_id}/save-as-template")
 async def save_flow_as_template(device_id: str, flow_id: str, request: dict):
@@ -328,10 +390,7 @@ async def save_flow_as_template(device_id: str, flow_id: str, request: dict):
         if not template_name:
             raise HTTPException(status_code=400, detail="template_name required")
         saved = deps.flow_manager.save_flow_as_template(
-            device_id=device_id,
-            flow_id=flow_id,
-            template_name=template_name,
-            tags=tags
+            device_id=device_id, flow_id=flow_id, template_name=template_name, tags=tags
         )
         if not saved:
             raise HTTPException(status_code=400, detail="Failed to save template")
@@ -342,30 +401,34 @@ async def save_flow_as_template(device_id: str, flow_id: str, request: dict):
         logger.error(f"[API] Failed to save template: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # ... (Keep other specialized endpoints like metrics, alerts, templates, etc. if they are not yet in FlowService)
-# For brevity, I'm keeping the service endpoints clean. 
+# For brevity, I'm keeping the service endpoints clean.
 # The original file had many more endpoints. I should probably keep them or migrate them to Service.
 # To be safe, I will re-implement the missing ones using the existing logic pattern but ensuring they don't conflict.
 # However, the user asked to "Refactor ... ensure both POST ... and PUT ... call this exact same Service methods."
 # So I've covered the core requirements.
 # I will retain the rest of the endpoints from the original file but modify them to use get_deps() as before
-# or move them to Service if appropriate. 
+# or move them to Service if appropriate.
 # Given time constraints, I will preserve the original logic for non-CRUD/Execute endpoints but wrapped safely.
 
-# For now, I will write the file with the core refactoring and copy-paste the rest of the existing logic 
+# For now, I will write the file with the core refactoring and copy-paste the rest of the existing logic
 # (imports, migration, metrics, etc.) to ensure no regression.
 
 # Actually, to strictly follow "Refactor Strategy", I should rely on FlowService.
 # But FlowService currently only has CRUD + Execute.
-# I will add the remaining endpoints back, using `get_deps()` directly as they were, 
+# I will add the remaining endpoints back, using `get_deps()` directly as they were,
 # to minimize risk of breaking things I haven't moved to Service yet.
+
 
 @router.get("/flows/metrics")
 async def get_flow_metrics(device_id: Optional[str] = None):
     deps = get_deps()
     try:
         if not deps.performance_monitor:
-            raise HTTPException(status_code=503, detail="Performance monitor not initialized")
+            raise HTTPException(
+                status_code=503, detail="Performance monitor not initialized"
+            )
         if device_id:
             metrics = deps.performance_monitor.get_metrics(device_id)
             return {"device_id": device_id, "metrics": metrics}
@@ -381,6 +444,7 @@ async def get_flow_metrics(device_id: Optional[str] = None):
 # ALERTS ENDPOINT
 # =============================================================================
 
+
 @router.get("/flows/alerts")
 async def get_flow_alerts(limit: int = 10, device_id: Optional[str] = None):
     deps = get_deps()
@@ -391,27 +455,48 @@ async def get_flow_alerts(limit: int = 10, device_id: Optional[str] = None):
                 if device_id and dev_id != device_id:
                     continue
                 if metrics.get("last_error"):
-                    alerts.append({"device_id": dev_id, "type": "error", "message": metrics.get("last_error"), "timestamp": metrics.get("last_run_time")})
+                    alerts.append(
+                        {
+                            "device_id": dev_id,
+                            "type": "error",
+                            "message": metrics.get("last_error"),
+                            "timestamp": metrics.get("last_run_time"),
+                        }
+                    )
         return {"alerts": alerts[:limit], "total": len(alerts)}
     except Exception as e:
         logger.error(f"[API] Failed to get flow alerts: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # =============================================================================
 # THRESHOLDS ENDPOINT
 # =============================================================================
 
+
 @router.get("/flows/thresholds")
 async def get_flow_thresholds():
-    return {"thresholds": {"execution_time_warning": 30000, "execution_time_critical": 60000, "failure_rate_warning": 0.1, "failure_rate_critical": 0.3, "consecutive_failures_warning": 2, "consecutive_failures_critical": 5}}
+    return {
+        "thresholds": {
+            "execution_time_warning": 30000,
+            "execution_time_critical": 60000,
+            "failure_rate_warning": 0.1,
+            "failure_rate_critical": 0.3,
+            "consecutive_failures_warning": 2,
+            "consecutive_failures_critical": 5,
+        }
+    }
+
 
 @router.put("/flows/thresholds")
 async def update_flow_thresholds(thresholds: dict):
     return {"thresholds": thresholds, "updated": True}
 
+
 # =============================================================================
 # EXECUTION STATUS ENDPOINT
 # =============================================================================
+
 
 @router.get("/flows/{device_id}/{flow_id}/latest")
 async def get_flow_execution_status(device_id: str, flow_id: str):
@@ -421,19 +506,22 @@ async def get_flow_execution_status(device_id: str, flow_id: str):
             flow = deps.flow_manager.get_flow(device_id, flow_id)
             if not flow:
                 from services.device_identity import get_device_identity_resolver
+
                 resolver = get_device_identity_resolver(deps.data_dir)
                 stable_id = resolver.resolve_any_id(device_id)
                 flow = deps.flow_manager.get_flow(stable_id, flow_id)
             if flow:
                 # Flow may be a Pydantic model or dict, handle both
-                if hasattr(flow, 'model_dump'):
+                if hasattr(flow, "model_dump"):
                     flow_dict = flow.model_dump()
-                elif hasattr(flow, 'dict'):
+                elif hasattr(flow, "dict"):
                     flow_dict = flow.dict()
                 else:
                     flow_dict = flow if isinstance(flow, dict) else {}
                 # Get execution data
-                last_executed = flow_dict.get("last_executed") or flow_dict.get("last_run_at")
+                last_executed = flow_dict.get("last_executed") or flow_dict.get(
+                    "last_run_at"
+                )
                 last_success = flow_dict.get("last_success")
                 last_error = flow_dict.get("last_error")
                 execution_count = flow_dict.get("execution_count", 0)
@@ -451,11 +539,15 @@ async def get_flow_execution_status(device_id: str, flow_id: str):
                     "total_steps": len(steps),
                     # Backward compatibility
                     "last_run": last_executed,
-                    "last_status": "success" if last_success else ("failed" if last_error else "unknown"),
+                    "last_status": (
+                        "success"
+                        if last_success
+                        else ("failed" if last_error else "unknown")
+                    ),
                     "last_duration": flow_dict.get("last_duration_ms"),
                     "run_count": execution_count,
                     "success_count": flow_dict.get("success_count", 0),
-                    "failure_count": flow_dict.get("failure_count", 0)
+                    "failure_count": flow_dict.get("failure_count", 0),
                 }
         return {
             "flow_id": flow_id,
@@ -470,15 +562,17 @@ async def get_flow_execution_status(device_id: str, flow_id: str):
             # Backward compatibility
             "last_run": None,
             "last_status": "never_run",
-            "run_count": 0
+            "run_count": 0,
         }
     except Exception as e:
         logger.error(f"[API] Failed to get execution status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # =============================================================================
 # SCHEDULER ENDPOINTS
 # =============================================================================
+
 
 @router.get("/scheduler/status")
 async def get_scheduler_status():
@@ -487,10 +581,20 @@ async def get_scheduler_status():
         if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
             status = deps.flow_scheduler.get_status()
             return {"status": status}
-        return {"status": {"enabled": False, "running": False, "paused": False, "scheduled_flows": [], "next_run": None, "devices": {}}}
+        return {
+            "status": {
+                "enabled": False,
+                "running": False,
+                "paused": False,
+                "scheduled_flows": [],
+                "next_run": None,
+                "devices": {},
+            }
+        }
     except Exception as e:
         logger.error(f"[API] Failed to get scheduler status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/scheduler/start")
 async def start_scheduler():
@@ -504,6 +608,7 @@ async def start_scheduler():
         logger.error(f"[API] Failed to start scheduler: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.post("/scheduler/stop")
 async def stop_scheduler():
     deps = get_deps()
@@ -515,6 +620,7 @@ async def stop_scheduler():
     except Exception as e:
         logger.error(f"[API] Failed to stop scheduler: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/scheduler/pause")
 async def pause_scheduler():
@@ -528,6 +634,7 @@ async def pause_scheduler():
     except Exception as e:
         logger.error(f"[API] Failed to pause scheduler: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/scheduler/resume")
 async def resume_scheduler():
@@ -548,11 +655,13 @@ async def clear_device_queue(device_id: str):
     deps = get_deps()
     try:
         if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
-            cancelled = await deps.flow_scheduler.cancel_queued_flows_for_device(device_id)
+            cancelled = await deps.flow_scheduler.cancel_queued_flows_for_device(
+                device_id
+            )
             return {
                 "success": True,
                 "message": f"Cleared {cancelled} queued flow(s) for {device_id}",
-                "cancelled": cancelled
+                "cancelled": cancelled,
             }
         return {"success": False, "message": "Scheduler not available"}
     except Exception as e:
@@ -570,12 +679,14 @@ async def clear_all_queues():
             # Get all device IDs with queues
             status = deps.flow_scheduler.get_status()
             for device_id in status.get("devices", {}).keys():
-                cancelled = await deps.flow_scheduler.cancel_queued_flows_for_device(device_id)
+                cancelled = await deps.flow_scheduler.cancel_queued_flows_for_device(
+                    device_id
+                )
                 total_cancelled += cancelled
             return {
                 "success": True,
                 "message": f"Cleared {total_cancelled} queued flow(s) across all devices",
-                "cancelled": total_cancelled
+                "cancelled": total_cancelled,
             }
         return {"success": False, "message": "Scheduler not available"}
     except Exception as e:
@@ -587,6 +698,7 @@ async def clear_all_queues():
 # WIZARD SESSION MANAGEMENT
 # =============================================================================
 
+
 @router.post("/wizard/active/{device_id}")
 async def set_wizard_active(device_id: str):
     """Mark device as having an active wizard session (prevents auto-sleep)
@@ -595,6 +707,7 @@ async def set_wizard_active(device_id: str):
     to handle ID mismatches between wizard and flow scheduler.
     """
     import main  # Lazy import to avoid circular dependency
+
     deps = get_deps()
 
     # Always register the provided device ID
@@ -604,7 +717,9 @@ async def set_wizard_active(device_id: str):
     # Cancel any queued flows for this device to prevent them executing during wizard
     cancelled_flows = 0
     try:
-        cancelled_flows = await deps.flow_scheduler.cancel_queued_flows_for_device(device_id)
+        cancelled_flows = await deps.flow_scheduler.cancel_queued_flows_for_device(
+            device_id
+        )
     except Exception as e:
         logger.warning(f"[API] Could not cancel queued flows for {device_id}: {e}")
 
@@ -612,8 +727,8 @@ async def set_wizard_active(device_id: str):
     try:
         connected = await deps.adb_bridge.get_connected_devices()
         for dev in connected:
-            dev_id = dev.get('id', '')
-            wifi_ip = dev.get('wifi_ip', '')
+            dev_id = dev.get("id", "")
+            wifi_ip = dev.get("wifi_ip", "")
             # Check if this device matches the provided device_id
             if dev_id == device_id or wifi_ip == device_id:
                 # Register both IDs to handle USB/WiFi mismatch
@@ -626,8 +741,17 @@ async def set_wizard_active(device_id: str):
                 break
     except Exception as e:
         logger.debug(f"[API] Could not get alternate device ID: {e}")
-    logger.info(f"[API] Wizard active for device(s): {registered_ids} (cancelled {cancelled_flows} queued flows)")
-    return {"success": True, "device_id": device_id, "registered_ids": registered_ids, "cancelled_flows": cancelled_flows, "active": True}
+    logger.info(
+        f"[API] Wizard active for device(s): {registered_ids} (cancelled {cancelled_flows} queued flows)"
+    )
+    return {
+        "success": True,
+        "device_id": device_id,
+        "registered_ids": registered_ids,
+        "cancelled_flows": cancelled_flows,
+        "active": True,
+    }
+
 
 @router.delete("/wizard/active/{device_id}")
 async def set_wizard_inactive(device_id: str):
@@ -647,6 +771,7 @@ async def release_wizard_post(device_id: str):
 async def _release_wizard(device_id: str):
     """Internal helper to release wizard lock for a device"""
     import main  # Lazy import to avoid circular dependency
+
     deps = get_deps()
 
     # Always remove the provided device ID
@@ -657,8 +782,8 @@ async def _release_wizard(device_id: str):
     try:
         connected = await deps.adb_bridge.get_connected_devices()
         for dev in connected:
-            dev_id = dev.get('id', '')
-            wifi_ip = dev.get('wifi_ip', '')
+            dev_id = dev.get("id", "")
+            wifi_ip = dev.get("wifi_ip", "")
             # Check if this device matches the provided device_id
             if dev_id == device_id or wifi_ip == device_id:
                 # Remove both IDs
@@ -672,26 +797,37 @@ async def _release_wizard(device_id: str):
     except Exception as e:
         logger.debug(f"[API] Could not get alternate device ID for removal: {e}")
 
-    logger.info(f"[API] Wizard inactive for device(s): {removed_ids} ({len(main.wizard_active_devices)} remaining)")
-    return {"success": True, "device_id": device_id, "removed_ids": removed_ids, "active": False}
+    logger.info(
+        f"[API] Wizard inactive for device(s): {removed_ids} ({len(main.wizard_active_devices)} remaining)"
+    )
+    return {
+        "success": True,
+        "device_id": device_id,
+        "removed_ids": removed_ids,
+        "active": False,
+    }
 
 
 @router.get("/wizard/active/{device_id}")
 async def get_wizard_active(device_id: str):
     """Check if device has an active wizard session"""
     import main  # Lazy import to avoid circular dependency
+
     return {"device_id": device_id, "active": device_id in main.wizard_active_devices}
+
 
 @router.get("/wizard/active")
 async def get_all_wizard_active():
     """Get all devices with active wizard sessions"""
     import main  # Lazy import to avoid circular dependency
+
     return {"devices": list(main.wizard_active_devices)}
 
 
 # =============================================================================
 # SMART FLOW GENERATION
 # =============================================================================
+
 
 @router.post("/flows/generate-smart")
 async def generate_smart_flow(request: dict):
@@ -724,7 +860,9 @@ async def generate_smart_flow(request: dict):
     include_sensors = request.get("include_sensors", True)
 
     if not device_id or not package_name:
-        raise HTTPException(status_code=400, detail="device_id and package_name required")
+        raise HTTPException(
+            status_code=400, detail="device_id and package_name required"
+        )
 
     try:
         # Get navigation graph
@@ -734,11 +872,12 @@ async def generate_smart_flow(request: dict):
         if not graph or not graph.screens:
             raise HTTPException(
                 status_code=404,
-                detail=f"No navigation data found for {package_name}. Run exploration first."
+                detail=f"No navigation data found for {package_name}. Run exploration first.",
             )
 
         # Resolve stable device ID
         from services.device_identity import get_device_identity_resolver
+
         resolver = get_device_identity_resolver(deps.data_dir)
         stable_device_id = resolver.resolve_any_id(device_id)
 
@@ -751,6 +890,7 @@ async def generate_smart_flow(request: dict):
         companion_connected = False
         try:
             from routes.device_registration import registered_devices
+
             companion_connected = len(registered_devices) > 0
         except:
             pass
@@ -769,10 +909,12 @@ async def generate_smart_flow(request: dict):
                 # Convert SensorDefinition objects to dicts
                 existing_sensors = []
                 for s in device_sensors:
-                    s_dict = s.model_dump() if hasattr(s, 'model_dump') else s
-                    if s_dict.get('current_value') is not None:
+                    s_dict = s.model_dump() if hasattr(s, "model_dump") else s
+                    if s_dict.get("current_value") is not None:
                         existing_sensors.append(s_dict)
-                logger.info(f"[API] Found {len(existing_sensors)} existing sensors for {stable_device_id}")
+                logger.info(
+                    f"[API] Found {len(existing_sensors)} existing sensors for {stable_device_id}"
+                )
             except Exception as e:
                 logger.warning(f"[API] Could not load existing sensors: {e}")
 
@@ -791,173 +933,248 @@ async def generate_smart_flow(request: dict):
             first_screen_activity = graph.screens[current_screen_id].activity
 
         # Step 1: Launch app with expected first screen info
-        steps.append({
-            "step_type": "launch_app",
-            "package": package_name,
-            "description": f"Launch {package_name}",
-            "screen_activity": first_screen_activity,  # Expected landing screen
-            "expected_activity": first_screen_activity,  # Alias for compatibility
-            "screen_package": package_name
-        })
+        steps.append(
+            {
+                "step_type": "launch_app",
+                "package": package_name,
+                "description": f"Launch {package_name}",
+                "screen_activity": first_screen_activity,  # Expected landing screen
+                "expected_activity": first_screen_activity,  # Alias for compatibility
+                "screen_package": package_name,
+            }
+        )
 
         # Step 2: Wait for app to load
-        steps.append({
-            "step_type": "wait",
-            "duration": 3000,
-            "description": "Wait for app to fully load",
-            "screen_activity": first_screen_activity,
-            "validate_state": False  # Don't validate during initial load
-        })
+        steps.append(
+            {
+                "step_type": "wait",
+                "duration": 3000,
+                "description": "Wait for app to fully load",
+                "screen_activity": first_screen_activity,
+                "validate_state": False,  # Don't validate during initial load
+            }
+        )
 
         # Process each screen - navigate via optimal path
         screens_visited = set()
-        logger.info(f"[API] Smart Flow: Processing {len(screen_ids)} screens, starting from {current_screen_id[:8] if current_screen_id else 'none'}")
+        logger.info(
+            f"[API] Smart Flow: Processing {len(screen_ids)} screens, starting from {current_screen_id[:8] if current_screen_id else 'none'}"
+        )
 
         for screen_id in screen_ids:
             screen = graph.screens[screen_id]
-            activity_name = screen.activity.split(".")[-1] if screen.activity else screen_id[:8]
+            activity_name = (
+                screen.activity.split(".")[-1] if screen.activity else screen_id[:8]
+            )
 
             # Skip if already on this screen
             if screen_id == current_screen_id:
                 screens_visited.add(screen_id)
-                logger.debug(f"[API] Smart Flow: Screen {activity_name} - already current")
+                logger.debug(
+                    f"[API] Smart Flow: Screen {activity_name} - already current"
+                )
                 # Still add capture steps below
             else:
                 # Find path from current position to target screen
-                logger.debug(f"[API] Smart Flow: Finding path from {current_screen_id[:8] if current_screen_id else 'none'} to {screen_id[:8]} ({activity_name})")
+                logger.debug(
+                    f"[API] Smart Flow: Finding path from {current_screen_id[:8] if current_screen_id else 'none'} to {screen_id[:8]} ({activity_name})"
+                )
                 path = nav_manager.find_path(package_name, current_screen_id, screen_id)
 
                 if path and path.transitions:
-                    logger.info(f"[API] Smart Flow: Found path with {len(path.transitions)} transitions to {activity_name}")
+                    logger.info(
+                        f"[API] Smart Flow: Found path with {len(path.transitions)} transitions to {activity_name}"
+                    )
                     # Add all navigation steps in the path
                     for transition in path.transitions:
                         action = transition.action
                         target_screen_id = transition.target_screen_id
                         target_screen = graph.screens.get(target_screen_id)
-                        target_activity = target_screen.activity if target_screen else None
-                        target_name = target_activity.split(".")[-1] if target_activity else target_screen_id[:8]
+                        target_activity = (
+                            target_screen.activity if target_screen else None
+                        )
+                        target_name = (
+                            target_activity.split(".")[-1]
+                            if target_activity
+                            else target_screen_id[:8]
+                        )
 
                         source_screen = graph.screens.get(transition.source_screen_id)
-                        source_activity = source_screen.activity if source_screen else None
+                        source_activity = (
+                            source_screen.activity if source_screen else None
+                        )
 
                         if action.action_type == "tap" and action.x is not None:
-                            logger.info(f"[API] Smart Flow: Adding tap step ({action.x}, {action.y}) to navigate to {target_name}")
-                            steps.append({
-                                "step_type": "tap",
-                                "x": action.x,
-                                "y": action.y,
-                                "description": f"Navigate to {target_name}",
-                                "expected_screen_id": transition.source_screen_id,
-                                "screen_activity": source_activity,
-                                "screen_package": package_name,
-                                # Disable state validation for navigation taps - the tap IS the navigation
-                                # If we're on wrong screen, tap still happens (might fail but won't loop)
-                                "validate_state": False,
-                                "navigation_required": True  # Flag this as navigation for recovery
-                            })
-                            steps.append({
-                                "step_type": "wait",
-                                "duration": 1500,  # Slightly longer wait for screen transitions
-                                "description": f"Wait for {target_name}",
-                                "screen_activity": target_activity,
-                                "validate_state": False  # Don't validate during navigation
-                            })
+                            logger.info(
+                                f"[API] Smart Flow: Adding tap step ({action.x}, {action.y}) to navigate to {target_name}"
+                            )
+                            steps.append(
+                                {
+                                    "step_type": "tap",
+                                    "x": action.x,
+                                    "y": action.y,
+                                    "description": f"Navigate to {target_name}",
+                                    "expected_screen_id": transition.source_screen_id,
+                                    "screen_activity": source_activity,
+                                    "screen_package": package_name,
+                                    # Disable state validation for navigation taps - the tap IS the navigation
+                                    # If we're on wrong screen, tap still happens (might fail but won't loop)
+                                    "validate_state": False,
+                                    "navigation_required": True,  # Flag this as navigation for recovery
+                                }
+                            )
+                            steps.append(
+                                {
+                                    "step_type": "wait",
+                                    "duration": 1500,  # Slightly longer wait for screen transitions
+                                    "description": f"Wait for {target_name}",
+                                    "screen_activity": target_activity,
+                                    "validate_state": False,  # Don't validate during navigation
+                                }
+                            )
                             # Update current position after each navigation
                             current_screen_id = target_screen_id
                         else:
-                            logger.warning(f"[API] Smart Flow: Transition to {target_name} has action_type={action.action_type}, x={action.x} - skipping")
+                            logger.warning(
+                                f"[API] Smart Flow: Transition to {target_name} has action_type={action.action_type}, x={action.x} - skipping"
+                            )
                 else:
                     # No path found - skip this screen
-                    warnings.append(f"Skipping {activity_name} - no navigation path from current screen")
-                    logger.warning(f"[API] Smart Flow: No path from {current_screen_id[:8] if current_screen_id else 'start'} to {screen_id[:8]} ({activity_name})")
+                    warnings.append(
+                        f"Skipping {activity_name} - no navigation path from current screen"
+                    )
+                    logger.warning(
+                        f"[API] Smart Flow: No path from {current_screen_id[:8] if current_screen_id else 'start'} to {screen_id[:8]} ({activity_name})"
+                    )
                     continue  # Skip to next screen
 
                 screens_visited.add(screen_id)
 
             # Add screenshot step if enabled
             if include_screenshots:
-                steps.append({
-                    "step_type": "screenshot",
-                    "description": f"Capture screen: {activity_name}",
-                    "expected_screen_id": screen_id,
-                    "screen_activity": screen.activity,  # Full activity for navigation
-                    "screen_package": package_name,
-                    "validate_state": False,  # Don't restart app if on wrong screen
-                    "continue_on_error": True  # Continue flow if screenshot fails
-                })
+                steps.append(
+                    {
+                        "step_type": "screenshot",
+                        "description": f"Capture screen: {activity_name}",
+                        "expected_screen_id": screen_id,
+                        "screen_activity": screen.activity,  # Full activity for navigation
+                        "screen_package": package_name,
+                        "validate_state": False,  # Don't restart app if on wrong screen
+                        "continue_on_error": True,  # Continue flow if screenshot fails
+                    }
+                )
 
             # Collect sensors from this screen's UI elements
             screen_sensors = []
-            if include_sensors and hasattr(screen, 'ui_elements'):
+            if include_sensors and hasattr(screen, "ui_elements"):
                 for i, element in enumerate(screen.ui_elements or []):
-                    text = element.get('text', '')
-                    resource_id = element.get('resource_id', '')
+                    text = element.get("text", "")
+                    resource_id = element.get("resource_id", "")
 
                     # Detect if this looks like a sensor value
                     if text and len(text) < 50:
                         # Check if it contains numeric data
                         import re
-                        if re.search(r'\d', text) or any(kw in text.lower() for kw in
-                            ['temp', 'battery', 'speed', 'distance', 'level', 'status', '%']):
 
-                            sensor_name = resource_id.split("/")[-1] if resource_id else f"sensor_{i}"
+                        if re.search(r"\d", text) or any(
+                            kw in text.lower()
+                            for kw in [
+                                "temp",
+                                "battery",
+                                "speed",
+                                "distance",
+                                "level",
+                                "status",
+                                "%",
+                            ]
+                        ):
+
+                            sensor_name = (
+                                resource_id.split("/")[-1]
+                                if resource_id
+                                else f"sensor_{i}"
+                            )
                             sensor_name = sensor_name.replace("_", " ").title()
 
-                            sensor_id = f"{stable_device_id}_sensor_{uuid.uuid4().hex[:8]}"
-                            screen_sensors.append({
-                                "sensor_id": sensor_id,
-                                "name": sensor_name,
-                                "screen_id": screen_id,
-                                "resource_id": resource_id,
-                                "sample_value": text,
-                                "enabled": True
-                            })
-                            sensors.append({
-                                "sensor_id": sensor_id,
-                                "name": sensor_name,
-                                "screen_id": screen_id,
-                                "sample_value": text,
-                                "enabled": True
-                            })
+                            sensor_id = (
+                                f"{stable_device_id}_sensor_{uuid.uuid4().hex[:8]}"
+                            )
+                            screen_sensors.append(
+                                {
+                                    "sensor_id": sensor_id,
+                                    "name": sensor_name,
+                                    "screen_id": screen_id,
+                                    "resource_id": resource_id,
+                                    "sample_value": text,
+                                    "enabled": True,
+                                }
+                            )
+                            sensors.append(
+                                {
+                                    "sensor_id": sensor_id,
+                                    "name": sensor_name,
+                                    "screen_id": screen_id,
+                                    "sample_value": text,
+                                    "enabled": True,
+                                }
+                            )
 
             # Add capture_sensors step for THIS screen's sensors
             if screen_sensors:
                 sensor_ids = [s["sensor_id"] for s in screen_sensors]
-                steps.append({
-                    "step_type": "capture_sensors",
-                    "sensor_ids": sensor_ids,
-                    "description": f"Capture {len(sensor_ids)} sensor(s) on {activity_name}",
-                    "expected_screen_id": screen_id,
-                    "screen_activity": screen.activity,  # Required for navigation
-                    "screen_package": package_name,
-                    "validate_state": False,  # Don't restart app if on wrong screen
-                    "continue_on_error": True  # Continue flow even if capture fails
-                })
+                steps.append(
+                    {
+                        "step_type": "capture_sensors",
+                        "sensor_ids": sensor_ids,
+                        "description": f"Capture {len(sensor_ids)} sensor(s) on {activity_name}",
+                        "expected_screen_id": screen_id,
+                        "screen_activity": screen.activity,  # Required for navigation
+                        "screen_package": package_name,
+                        "validate_state": False,  # Don't restart app if on wrong screen
+                        "continue_on_error": True,  # Continue flow even if capture fails
+                    }
+                )
 
             current_screen_id = screen_id
 
         # If no sensors detected from nav graph, use existing device sensors
         # These will be captured after EACH screenshot step (Option B - try all screens)
         if not sensors and existing_sensors:
-            logger.info(f"[API] No sensors from nav graph, using {len(existing_sensors)} existing sensors on all screens")
+            logger.info(
+                f"[API] No sensors from nav graph, using {len(existing_sensors)} existing sensors on all screens"
+            )
             for i, es in enumerate(existing_sensors):
-                sensor_id = es.get('sensor_id')
-                current_value = es.get('current_value')
+                sensor_id = es.get("sensor_id")
+                current_value = es.get("current_value")
                 # Include ALL sensors with an ID, not just those with values
                 if sensor_id:
                     # Create a readable name from the value or sensor metadata
-                    existing_name = es.get('name') or es.get('friendly_name')
-                    if existing_name and existing_name != 'unnamed':
+                    existing_name = es.get("name") or es.get("friendly_name")
+                    if existing_name and existing_name != "unnamed":
                         display_name = existing_name
                     elif current_value is not None:
                         # Try to infer name from value type
                         value_str = str(current_value)
-                        if value_str.isdigit() or (value_str.replace('.', '').replace('-', '').isdigit()):
+                        if value_str.isdigit() or (
+                            value_str.replace(".", "").replace("-", "").isdigit()
+                        ):
                             # Numeric - might be temperature, percentage, etc.
                             display_name = f"Sensor {i+1} ({value_str})"
-                        elif value_str.lower() in ['open', 'closed', 'on', 'off', 'true', 'false', 'locked', 'unlocked']:
+                        elif value_str.lower() in [
+                            "open",
+                            "closed",
+                            "on",
+                            "off",
+                            "true",
+                            "false",
+                            "locked",
+                            "unlocked",
+                        ]:
                             display_name = f"Status {i+1} ({value_str})"
-                        elif 'closed' in value_str.lower() or 'locked' in value_str.lower():
+                        elif (
+                            "closed" in value_str.lower()
+                            or "locked" in value_str.lower()
+                        ):
                             display_name = f"Lock/Door {i+1}"
                         else:
                             display_name = f"Value {i+1}"
@@ -965,16 +1182,22 @@ async def generate_smart_flow(request: dict):
                         # No value yet - use generic name with sensor ID hint
                         display_name = f"Sensor {i+1} ({sensor_id[-8:]})"
 
-                    sensors.append({
-                        "sensor_id": sensor_id,
-                        "name": display_name,
-                        "screen_id": es.get('screen_id'),
-                        "sample_value": str(current_value) if current_value is not None else "",
-                        "resource_id": es.get('resource_id', ''),
-                        "enabled": True
-                    })
+                    sensors.append(
+                        {
+                            "sensor_id": sensor_id,
+                            "name": display_name,
+                            "screen_id": es.get("screen_id"),
+                            "sample_value": (
+                                str(current_value) if current_value is not None else ""
+                            ),
+                            "resource_id": es.get("resource_id", ""),
+                            "enabled": True,
+                        }
+                    )
 
-            logger.info(f"[API] Added {len(sensors)} sensors to Smart Flow from existing device sensors")
+            logger.info(
+                f"[API] Added {len(sensors)} sensors to Smart Flow from existing device sensors"
+            )
 
             # Insert capture_sensors step AFTER each screenshot step
             # This tries to capture on every screen since we don't know which screen has which sensor
@@ -985,18 +1208,24 @@ async def generate_smart_flow(request: dict):
                 for step in steps:
                     new_steps.append(step)
                     if step.get("step_type") == "screenshot":
-                        screen_name = step.get("description", "").replace("Capture screen: ", "")
-                        new_steps.append({
-                            "step_type": "capture_sensors",
-                            "sensor_ids": sensor_ids,
-                            "description": f"Try capture sensors on {screen_name}",
-                            "expected_screen_id": step.get("expected_screen_id"),
-                            "validate_state": False,  # Don't restart app if on wrong screen
-                            "continue_on_error": True  # Don't fail if sensors not found on this screen
-                        })
+                        screen_name = step.get("description", "").replace(
+                            "Capture screen: ", ""
+                        )
+                        new_steps.append(
+                            {
+                                "step_type": "capture_sensors",
+                                "sensor_ids": sensor_ids,
+                                "description": f"Try capture sensors on {screen_name}",
+                                "expected_screen_id": step.get("expected_screen_id"),
+                                "validate_state": False,  # Don't restart app if on wrong screen
+                                "continue_on_error": True,  # Don't fail if sensors not found on this screen
+                            }
+                        )
                         capture_steps_added += 1
                 steps = new_steps
-                logger.info(f"[API] Added {capture_steps_added} capture_sensors steps to Smart Flow (after each screenshot)")
+                logger.info(
+                    f"[API] Added {capture_steps_added} capture_sensors steps to Smart Flow (after each screenshot)"
+                )
                 warnings.append(
                     f"Sensors have no screen associations. Capture will be attempted on all {len(screen_ids)} screens. "
                     "Some captures may fail - this is expected."
@@ -1022,36 +1251,39 @@ async def generate_smart_flow(request: dict):
             "auto_wake_before": True,
             "auto_sleep_after": True,
             "verify_screen_on": True,
-            "wake_timeout_ms": 3000
+            "wake_timeout_ms": 3000,
         }
 
         # Use sensor suggester to detect additional smart sensors from UI elements
         suggested_sensors = []
         try:
             from utils.sensor_suggester import get_sensor_suggester
+
             suggester = get_sensor_suggester()
 
             # Collect all UI elements from all screens for smart detection
             all_elements = []
             for screen_id in screen_ids:
                 screen = graph.screens[screen_id]
-                if hasattr(screen, 'ui_elements') and screen.ui_elements:
+                if hasattr(screen, "ui_elements") and screen.ui_elements:
                     for el in screen.ui_elements:
                         el_copy = dict(el)
-                        el_copy['screen_id'] = screen_id
+                        el_copy["screen_id"] = screen_id
                         all_elements.append(el_copy)
 
             if all_elements:
                 raw_suggestions = suggester.suggest_sensors(all_elements)
                 for s in raw_suggestions:
-                    suggested_sensors.append({
-                        "name": s.get("name", "Unknown"),
-                        "suggested_entity_id": s.get("entity_id", ""),
-                        "sample_value": s.get("sample_value", ""),
-                        "confidence": s.get("confidence", 0.5),
-                        "screen_id": s.get("screen_id"),
-                        "enabled": False  # Off by default, user must enable
-                    })
+                    suggested_sensors.append(
+                        {
+                            "name": s.get("name", "Unknown"),
+                            "suggested_entity_id": s.get("entity_id", ""),
+                            "sample_value": s.get("sample_value", ""),
+                            "confidence": s.get("confidence", 0.5),
+                            "screen_id": s.get("screen_id"),
+                            "enabled": False,  # Off by default, user must enable
+                        }
+                    )
         except Exception as e:
             logger.warning(f"[API] Failed to generate suggested sensors: {e}")
 
@@ -1059,18 +1291,23 @@ async def generate_smart_flow(request: dict):
         overlapping_flows = []
         try:
             from routes.deduplication import get_dedup_service
+
             dedup_service = get_dedup_service()
 
             overlaps = dedup_service.find_overlapping_flows(stable_device_id, flow)
             if overlaps:
                 for match in overlaps:
-                    overlapping_flows.append({
-                        "flow_id": match.entity_id,
-                        "flow_name": match.entity_name,
-                        "similarity": round(match.similarity_score * 100),
-                        "overlapping_sensors": match.details.get("existing_sensors", []),
-                        "recommendation": match.recommendation.value
-                    })
+                    overlapping_flows.append(
+                        {
+                            "flow_id": match.entity_id,
+                            "flow_name": match.entity_name,
+                            "similarity": round(match.similarity_score * 100),
+                            "overlapping_sensors": match.details.get(
+                                "existing_sensors", []
+                            ),
+                            "recommendation": match.recommendation.value,
+                        }
+                    )
                     warnings.append(
                         f"⚠️ Overlaps {round(match.similarity_score * 100)}% with existing flow '{match.entity_name}'. "
                         "Consider consolidating to avoid redundant sensor captures."
@@ -1084,8 +1321,10 @@ async def generate_smart_flow(request: dict):
         capture_count = sum(1 for s in steps if s.get("step_type") == "capture_sensors")
         screenshot_count = sum(1 for s in steps if s.get("step_type") == "screenshot")
 
-        logger.info(f"[API] Smart Flow generation complete: {len(steps)} steps "
-                    f"({tap_count} taps, {wait_count} waits, {capture_count} captures, {screenshot_count} screenshots)")
+        logger.info(
+            f"[API] Smart Flow generation complete: {len(steps)} steps "
+            f"({tap_count} taps, {wait_count} waits, {capture_count} captures, {screenshot_count} screenshots)"
+        )
 
         return {
             "success": True,
@@ -1103,8 +1342,8 @@ async def generate_smart_flow(request: dict):
                 "wait_count": wait_count,
                 "sensor_count": len(sensors),
                 "suggested_count": len(suggested_sensors),
-                "overlapping_count": len(overlapping_flows)
-            }
+                "overlapping_count": len(overlapping_flows),
+            },
         }
 
     except HTTPException:
@@ -1115,7 +1354,9 @@ async def generate_smart_flow(request: dict):
 
 
 @router.post("/flows/generate-smart/save")
-async def save_smart_flow(request: dict, service: FlowService = Depends(get_flow_service)):
+async def save_smart_flow(
+    request: dict, service: FlowService = Depends(get_flow_service)
+):
     """
     Save a generated Smart Flow.
 
@@ -1138,20 +1379,29 @@ async def save_smart_flow(request: dict, service: FlowService = Depends(get_flow
             selected_sensors = []
 
         if not flow_data or not flow_data.get("flow_id"):
-            raise HTTPException(status_code=400, detail="flow data with flow_id required")
+            raise HTTPException(
+                status_code=400, detail="flow data with flow_id required"
+            )
 
         # Filter capture_sensors steps to only include enabled sensors
         # BUT: If no sensors were specified (e.g., from test button), keep all sensors
         if selected_sensors:
-            enabled_sensor_ids = {s["sensor_id"] for s in selected_sensors if s.get("enabled", True)}
+            enabled_sensor_ids = {
+                s["sensor_id"] for s in selected_sensors if s.get("enabled", True)
+            }
 
             for step in flow_data.get("steps", []):
                 if step.get("step_type") == "capture_sensors":
-                    step["sensor_ids"] = [sid for sid in step.get("sensor_ids", []) if sid in enabled_sensor_ids]
+                    step["sensor_ids"] = [
+                        sid
+                        for sid in step.get("sensor_ids", [])
+                        if sid in enabled_sensor_ids
+                    ]
 
             # Remove capture_sensors steps with no sensors
             flow_data["steps"] = [
-                step for step in flow_data.get("steps", [])
+                step
+                for step in flow_data.get("steps", [])
                 if step.get("step_type") != "capture_sensors" or step.get("sensor_ids")
             ]
         # else: Keep all capture_sensors steps as-is (test mode uses all sensors)
@@ -1170,15 +1420,19 @@ async def save_smart_flow(request: dict, service: FlowService = Depends(get_flow
                             sensor_id=sensor.get("sensor_id"),
                             name=sensor.get("name"),
                             value=sensor.get("sample_value"),
-                            sensor_type="text"
+                            sensor_type="text",
                         )
                     except Exception as e:
-                        logger.warning(f"Failed to create sensor {sensor.get('sensor_id')}: {e}")
+                        logger.warning(
+                            f"Failed to create sensor {sensor.get('sensor_id')}: {e}"
+                        )
 
         return {
             "success": True,
             "flow": saved_flow,
-            "sensors_created": len([s for s in selected_sensors if s.get("enabled", True)])
+            "sensors_created": len(
+                [s for s in selected_sensors if s.get("enabled", True)]
+            ),
         }
 
     except HTTPException:
@@ -1192,6 +1446,7 @@ async def save_smart_flow(request: dict, service: FlowService = Depends(get_flow
 # BUNDLED APP FLOWS (Pre-made flows for popular apps)
 # =============================================================================
 
+
 @router.get("/app-flows")
 async def get_bundled_flows():
     """
@@ -1204,15 +1459,13 @@ async def get_bundled_flows():
     # For now, return empty list as feature is not yet implemented
     return {
         "apps": [],
-        "message": "Bundled app flows coming soon. Use Smart Flow or Flow Wizard to create custom flows."
+        "message": "Bundled app flows coming soon. Use Smart Flow or Flow Wizard to create custom flows.",
     }
 
 
 @router.post("/app-flows/{bundle_id}/install")
 async def install_bundled_flow(
-    bundle_id: str,
-    request: dict,
-    service: FlowService = Depends(get_flow_service)
+    bundle_id: str, request: dict, service: FlowService = Depends(get_flow_service)
 ):
     """
     Install a bundled flow for a specific device.
@@ -1231,5 +1484,5 @@ async def install_bundled_flow(
     # TODO: Implement bundled flow installation
     raise HTTPException(
         status_code=404,
-        detail=f"Bundled flow '{bundle_id}' not found. This feature is coming soon."
+        detail=f"Bundled flow '{bundle_id}' not found. This feature is coming soon.",
     )

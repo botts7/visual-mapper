@@ -36,9 +36,9 @@ COMPANION_API_KEY = os.getenv("COMPANION_API_KEY", "")
 # Trusted IP ranges for HA Add-on (Docker internal networks)
 # Common Docker internal subnet: 172.16.0.0/12
 HA_TRUSTED_SUBNETS = [
-    "127.",      # Localhost
-    "172.30.",   # HA Add-on network (common)
-    "172.31.",   # HA Add-on network (alternate)
+    "127.",  # Localhost
+    "172.30.",  # HA Add-on network (common)
+    "172.31.",  # HA Add-on network (alternate)
 ]
 
 
@@ -101,7 +101,9 @@ def _verify_api_key(request: Request) -> bool:
     """
     if not COMPANION_API_KEY:
         # No API key configured - allow all (development mode warning)
-        logger.warning("[Auth] COMPANION_API_KEY not configured - companion auth disabled!")
+        logger.warning(
+            "[Auth] COMPANION_API_KEY not configured - companion auth disabled!"
+        )
         return True
 
     provided_key = request.headers.get("X-Companion-Key", "")
@@ -145,12 +147,14 @@ async def verify_companion_auth(request: Request) -> bool:
 
     # Authentication failed
     client_ip = request.client.host if request.client else "unknown"
-    logger.warning(f"[Auth] Unauthorized request from {client_ip} to {request.url.path}")
+    logger.warning(
+        f"[Auth] Unauthorized request from {client_ip} to {request.url.path}"
+    )
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Unauthorized: Valid X-Companion-Key required or access from localhost/Ingress",
-        headers={"WWW-Authenticate": "X-Companion-Key"}
+        headers={"WWW-Authenticate": "X-Companion-Key"},
     )
 
 

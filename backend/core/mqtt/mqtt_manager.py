@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Dict, Optional, Any
 from datetime import datetime
 
-from core.sensors.sensor_models import SensorDefinition, MQTTDiscoveryConfig, SensorStateUpdate
+from core.sensors.sensor_models import (
+    SensorDefinition,
+    MQTTDiscoveryConfig,
+    SensorStateUpdate,
+)
 from utils.version import APP_VERSION
 
 # Import ActionDefinition for action discovery
@@ -25,16 +29,18 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Platform detection
-IS_WINDOWS = sys.platform == 'win32'
+IS_WINDOWS = sys.platform == "win32"
 
 if IS_WINDOWS:
     # Windows: Use synchronous paho-mqtt with async wrapper
     import paho.mqtt.client as mqtt
+
     logger.info("[MQTTManager] Using paho-mqtt (Windows compatibility mode)")
 else:
     # Linux: Use async aiomqtt
     import aiomqtt
     from aiomqtt import Client, MqttError
+
     logger.info("[MQTTManager] Using aiomqtt (Linux async mode)")
 
 
@@ -49,7 +55,7 @@ class MQTTManager:
         password: Optional[str] = None,
         discovery_prefix: str = "homeassistant",
         data_dir: str = "data",
-        tls_config: Optional[Dict[str, Any]] = None
+        tls_config: Optional[Dict[str, Any]] = None,
     ):
         self.broker = broker
         self.port = port
@@ -73,15 +79,19 @@ class MQTTManager:
         # Standard capabilities: CAP_OVERLAY_V2, CAP_CLIENT_OCR, CAP_INTENT_PREVIEW
         self._device_capabilities: Dict[str, list] = {}
 
-        logger.info(f"[MQTTManager] Initialized with broker={broker}:{port} (Platform: {'Windows' if IS_WINDOWS else 'Linux'})")
+        logger.info(
+            f"[MQTTManager] Initialized with broker={broker}:{port} (Platform: {'Windows' if IS_WINDOWS else 'Linux'})"
+        )
 
     def _load_device_info(self):
         """Load device info from persistent storage"""
         try:
             if self._device_info_file.exists():
-                with open(self._device_info_file, 'r') as f:
+                with open(self._device_info_file, "r") as f:
                     self._device_info = json.load(f)
-                logger.info(f"[MQTTManager] Loaded device info for {len(self._device_info)} devices")
+                logger.info(
+                    f"[MQTTManager] Loaded device info for {len(self._device_info)} devices"
+                )
         except Exception as e:
             logger.warning(f"[MQTTManager] Failed to load device info: {e}")
             self._device_info = {}
@@ -90,13 +100,21 @@ class MQTTManager:
         """Save device info to persistent storage"""
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
-            with open(self._device_info_file, 'w') as f:
+            with open(self._device_info_file, "w") as f:
                 json.dump(self._device_info, f, indent=2)
-            logger.debug(f"[MQTTManager] Saved device info for {len(self._device_info)} devices")
+            logger.debug(
+                f"[MQTTManager] Saved device info for {len(self._device_info)} devices"
+            )
         except Exception as e:
             logger.warning(f"[MQTTManager] Failed to save device info: {e}")
 
-    def set_device_info(self, device_id: str, model: str = None, friendly_name: str = None, app_name: str = None):
+    def set_device_info(
+        self,
+        device_id: str,
+        model: str = None,
+        friendly_name: str = None,
+        app_name: str = None,
+    ):
         """
         Set device info for friendly MQTT device names
 
@@ -110,16 +128,18 @@ class MQTTManager:
             self._device_info[device_id] = {}
 
         if model:
-            self._device_info[device_id]['model'] = model
+            self._device_info[device_id]["model"] = model
         if friendly_name:
-            self._device_info[device_id]['friendly_name'] = friendly_name
+            self._device_info[device_id]["friendly_name"] = friendly_name
         if app_name:
-            self._device_info[device_id]['app_name'] = app_name
+            self._device_info[device_id]["app_name"] = app_name
 
         # Persist to file
         self._save_device_info()
 
-        logger.debug(f"[MQTTManager] Set device info for {device_id}: {self._device_info[device_id]}")
+        logger.debug(
+            f"[MQTTManager] Set device info for {device_id}: {self._device_info[device_id]}"
+        )
 
     def get_device_display_name(self, device_id: str, app_name: str = None) -> str:
         """
@@ -138,13 +158,13 @@ class MQTTManager:
         info = self._device_info.get(device_id, {})
 
         # Priority: friendly_name > model > device_id
-        name = info.get('friendly_name') or info.get('model')
+        name = info.get("friendly_name") or info.get("model")
 
         if not name:
             return f"Visual Mapper {device_id}"
 
         # Use provided app_name or cached app_name
-        app = app_name or info.get('app_name')
+        app = app_name or info.get("app_name")
 
         if app:
             return f"{name} - {app}"
@@ -220,9 +240,14 @@ class MQTTManager:
             # Set SSL if configured
             if self.tls_config:
                 import ssl
+
                 self.client.tls_set(
                     ca_certs=self.tls_config.get("ca_cert"),
-                    cert_reqs=ssl.CERT_NONE if self.tls_config.get("insecure") else ssl.CERT_REQUIRED
+                    cert_reqs=(
+                        ssl.CERT_NONE
+                        if self.tls_config.get("insecure")
+                        else ssl.CERT_REQUIRED
+                    ),
                 )
                 if self.tls_config.get("insecure"):
                     self.client.tls_insecure_set(True)
@@ -265,10 +290,7 @@ class MQTTManager:
         """Linux connection using aiomqtt"""
         try:
             # Prepare client arguments
-            client_kwargs = {
-                "hostname": self.broker,
-                "port": self.port
-            }
+            client_kwargs = {"hostname": self.broker, "port": self.port}
 
             if self.username and self.password:
                 client_kwargs["username"] = self.username
@@ -277,6 +299,7 @@ class MQTTManager:
             # Configure SSL/TLS
             if self.tls_config:
                 import ssl
+
                 tls_context = ssl.create_default_context()
 
                 if self.tls_config.get("insecure"):
@@ -284,7 +307,9 @@ class MQTTManager:
                     tls_context.verify_mode = ssl.CERT_NONE
 
                 if self.tls_config.get("ca_cert"):
-                    tls_context.load_verify_locations(cafile=self.tls_config.get("ca_cert"))
+                    tls_context.load_verify_locations(
+                        cafile=self.tls_config.get("ca_cert")
+                    )
 
                 client_kwargs["tls_context"] = tls_context
 
@@ -327,7 +352,13 @@ class MQTTManager:
         # Replace ALL invalid MQTT discovery topic characters with underscores
         # Valid characters for node_id/object_id: alphanumeric, underscore, hyphen ONLY
         # Reference: https://www.home-assistant.io/integrations/mqtt/#discovery-topic
-        return device_id.replace(":", "_").replace(".", "_").replace("/", "_").replace("+", "_").replace("#", "_")
+        return (
+            device_id.replace(":", "_")
+            .replace(".", "_")
+            .replace("/", "_")
+            .replace("+", "_")
+            .replace("#", "_")
+        )
 
     def _get_device_id_for_topic(self, sensor: SensorDefinition) -> str:
         """Get the best device ID to use for MQTT topics (prefer stable_device_id)"""
@@ -339,20 +370,28 @@ class MQTTManager:
     def _get_discovery_topic(self, sensor: SensorDefinition) -> str:
         """Get MQTT discovery topic for sensor"""
         # homeassistant/sensor/{device_id}/{sensor_id}/config
-        component = "binary_sensor" if sensor.sensor_type == "binary_sensor" else "sensor"
-        sanitized_device = self._sanitize_device_id(self._get_device_id_for_topic(sensor))
+        component = (
+            "binary_sensor" if sensor.sensor_type == "binary_sensor" else "sensor"
+        )
+        sanitized_device = self._sanitize_device_id(
+            self._get_device_id_for_topic(sensor)
+        )
         return f"{self.discovery_prefix}/{component}/{sanitized_device}/{sensor.sensor_id}/config"
 
     def _get_state_topic(self, sensor: SensorDefinition) -> str:
         """Get state topic for sensor"""
         # visual_mapper/{device_id}/{sensor_id}/state
-        sanitized_device = self._sanitize_device_id(self._get_device_id_for_topic(sensor))
+        sanitized_device = self._sanitize_device_id(
+            self._get_device_id_for_topic(sensor)
+        )
         return f"visual_mapper/{sanitized_device}/{sensor.sensor_id}/state"
 
     def _get_attributes_topic(self, sensor: SensorDefinition) -> str:
         """Get attributes topic for sensor"""
         # visual_mapper/{device_id}/{sensor_id}/attributes
-        sanitized_device = self._sanitize_device_id(self._get_device_id_for_topic(sensor))
+        sanitized_device = self._sanitize_device_id(
+            self._get_device_id_for_topic(sensor)
+        )
         return f"visual_mapper/{sanitized_device}/{sensor.sensor_id}/attributes"
 
     def _get_availability_topic(self, device_id: str) -> str:
@@ -382,18 +421,18 @@ class MQTTManager:
         app_identifier = None  # Sanitized app name for device identifier
 
         # First try target_app
-        if hasattr(sensor, 'target_app') and sensor.target_app:
+        if hasattr(sensor, "target_app") and sensor.target_app:
             app_package = sensor.target_app
 
         # Fallback: extract from element_resource_id (format: "com.package.name:id/element_id")
-        if not app_package and hasattr(sensor, 'source') and sensor.source:
-            resource_id = getattr(sensor.source, 'element_resource_id', None)
-            if resource_id and ':' in resource_id:
-                app_package = resource_id.split(':')[0]  # Get package before ":"
+        if not app_package and hasattr(sensor, "source") and sensor.source:
+            resource_id = getattr(sensor.source, "element_resource_id", None)
+            if resource_id and ":" in resource_id:
+                app_package = resource_id.split(":")[0]  # Get package before ":"
 
         if app_package:
             # Extract friendly app name from package (e.g., "com.byd.autolink" -> "BYD")
-            parts = app_package.split('.')
+            parts = app_package.split(".")
             if len(parts) >= 2:
                 # Use second-to-last part if available (usually the company name)
                 app_name = parts[-2].upper() if len(parts) >= 2 else parts[-1].upper()
@@ -404,11 +443,15 @@ class MQTTManager:
 
         # Create device identifier: include app to create separate devices per device+app combo
         if app_identifier:
-            device_identifier = f"visual_mapper_{sanitized_effective_id}_{app_identifier}"
+            device_identifier = (
+                f"visual_mapper_{sanitized_effective_id}_{app_identifier}"
+            )
         else:
             device_identifier = f"visual_mapper_{sanitized_effective_id}_default"
 
-        logger.info(f"[MQTTManager] Discovery device identifier: {device_identifier} (app: {app_name or 'none'}, package: {app_package or 'none'})")
+        logger.info(
+            f"[MQTTManager] Discovery device identifier: {device_identifier} (app: {app_name or 'none'}, package: {app_package or 'none'})"
+        )
 
         payload = {
             "name": sensor.friendly_name,
@@ -423,8 +466,8 @@ class MQTTManager:
                 "name": self.get_device_display_name(sensor.device_id, app_name),
                 "manufacturer": "Visual Mapper",
                 "model": app_name or "Android Device Monitor",  # Use app name as model
-                "sw_version": APP_VERSION
-            }
+                "sw_version": APP_VERSION,
+            },
         }
 
         # Add sensor-specific fields
@@ -436,7 +479,11 @@ class MQTTManager:
 
         # Only include state_class for sensors with unit_of_measurement (numeric sensors)
         # Text sensors should not have state_class as HA expects numeric values
-        if sensor.state_class and sensor.state_class != "none" and sensor.unit_of_measurement:
+        if (
+            sensor.state_class
+            and sensor.state_class != "none"
+            and sensor.unit_of_measurement
+        ):
             payload["state_class"] = sensor.state_class
 
         if sensor.icon:
@@ -468,11 +515,15 @@ class MQTTManager:
                 success = True
 
             if success:
-                logger.info(f"[MQTTManager] Published discovery for {sensor.sensor_id}: {topic}")
+                logger.info(
+                    f"[MQTTManager] Published discovery for {sensor.sensor_id}: {topic}"
+                )
             return success
 
         except Exception as e:
-            logger.error(f"[MQTTManager] Failed to publish discovery for {sensor.sensor_id}: {e}")
+            logger.error(
+                f"[MQTTManager] Failed to publish discovery for {sensor.sensor_id}: {e}"
+            )
             return False
 
     async def remove_discovery(self, sensor: SensorDefinition) -> bool:
@@ -496,7 +547,9 @@ class MQTTManager:
             return success
 
         except Exception as e:
-            logger.error(f"[MQTTManager] Failed to remove discovery for {sensor.sensor_id}: {e}")
+            logger.error(
+                f"[MQTTManager] Failed to remove discovery for {sensor.sensor_id}: {e}"
+            )
             return False
 
     async def publish_state(self, sensor: SensorDefinition, value: str) -> bool:
@@ -511,9 +564,16 @@ class MQTTManager:
             # Convert binary sensor values to ON/OFF format
             if sensor.sensor_type == "binary_sensor":
                 # Convert common truthy/falsy values to ON/OFF
-                logger.debug(f"[MQTTManager] Binary sensor value before conversion: {value!r} (type: {type(value).__name__})")
+                logger.debug(
+                    f"[MQTTManager] Binary sensor value before conversion: {value!r} (type: {type(value).__name__})"
+                )
                 value_str = str(value) if value is not None else ""
-                if value is None or value_str == "" or value_str == "None" or value_str == "null":
+                if (
+                    value is None
+                    or value_str == ""
+                    or value_str == "None"
+                    or value_str == "null"
+                ):
                     value = "OFF"
                     logger.debug(f"[MQTTManager] Converted to OFF (null/empty)")
                 elif value_str.lower() in ("0", "false", "off", "no"):
@@ -532,16 +592,24 @@ class MQTTManager:
                 success = True
 
             if success:
-                logger.info(f"[MQTTManager] Published state for {sensor.sensor_id}: {value} to topic: {state_topic}")
+                logger.info(
+                    f"[MQTTManager] Published state for {sensor.sensor_id}: {value} to topic: {state_topic}"
+                )
             else:
-                logger.error(f"[MQTTManager] Failed to publish state (rc={result.rc if IS_WINDOWS else 'N/A'})")
+                logger.error(
+                    f"[MQTTManager] Failed to publish state (rc={result.rc if IS_WINDOWS else 'N/A'})"
+                )
             return success
 
         except Exception as e:
-            logger.error(f"[MQTTManager] Failed to publish state for {sensor.sensor_id}: {e}")
+            logger.error(
+                f"[MQTTManager] Failed to publish state for {sensor.sensor_id}: {e}"
+            )
             return False
 
-    async def publish_attributes(self, sensor: SensorDefinition, attributes: Dict[str, Any]) -> bool:
+    async def publish_attributes(
+        self, sensor: SensorDefinition, attributes: Dict[str, Any]
+    ) -> bool:
         """Publish sensor attributes (metadata)"""
         if not self._connected or not self.client:
             logger.error("[MQTTManager] Not connected to broker")
@@ -552,18 +620,26 @@ class MQTTManager:
             attributes_json = json.dumps(attributes)
 
             if IS_WINDOWS:
-                result = self.client.publish(attributes_topic, attributes_json, retain=True)
+                result = self.client.publish(
+                    attributes_topic, attributes_json, retain=True
+                )
                 success = result.rc == mqtt.MQTT_ERR_SUCCESS
             else:
-                await self.client.publish(attributes_topic, attributes_json, retain=True)
+                await self.client.publish(
+                    attributes_topic, attributes_json, retain=True
+                )
                 success = True
 
             if success:
-                logger.debug(f"[MQTTManager] Published attributes for {sensor.sensor_id}")
+                logger.debug(
+                    f"[MQTTManager] Published attributes for {sensor.sensor_id}"
+                )
             return success
 
         except Exception as e:
-            logger.error(f"[MQTTManager] Failed to publish attributes for {sensor.sensor_id}: {e}")
+            logger.error(
+                f"[MQTTManager] Failed to publish attributes for {sensor.sensor_id}: {e}"
+            )
             return False
 
     async def publish_state_batch(self, sensor_updates: list) -> dict:
@@ -591,7 +667,11 @@ class MQTTManager:
         """
         if not self._connected or not self.client:
             logger.error("[MQTTManager] Not connected to broker - cannot publish batch")
-            return {"success": 0, "failed": len(sensor_updates), "failed_sensors": [s[0].sensor_id for s in sensor_updates]}
+            return {
+                "success": 0,
+                "failed": len(sensor_updates),
+                "failed_sensors": [s[0].sensor_id for s in sensor_updates],
+            }
 
         success_count = 0
         failed_sensors = []
@@ -604,7 +684,12 @@ class MQTTManager:
                     # Convert binary sensor values to ON/OFF format
                     if sensor.sensor_type == "binary_sensor":
                         value_str = str(value) if value is not None else ""
-                        if value is None or value_str == "" or value_str == "None" or value_str == "null":
+                        if (
+                            value is None
+                            or value_str == ""
+                            or value_str == "None"
+                            or value_str == "null"
+                        ):
                             value = "OFF"
                         elif value_str.lower() in ("0", "false", "off", "no"):
                             value = "OFF"
@@ -614,43 +699,61 @@ class MQTTManager:
                     # Publish using QoS 0 for speed (fire and forget)
                     # Use retain=True so values persist across MQTT reconnects
                     if IS_WINDOWS:
-                        result = self.client.publish(state_topic, value, qos=0, retain=True)
+                        result = self.client.publish(
+                            state_topic, value, qos=0, retain=True
+                        )
                         if result.rc == mqtt.MQTT_ERR_SUCCESS:
                             success_count += 1
                         else:
                             failed_sensors.append(sensor.sensor_id)
                     else:
-                        await self.client.publish(state_topic, value, qos=0, retain=True)
+                        await self.client.publish(
+                            state_topic, value, qos=0, retain=True
+                        )
                         success_count += 1
 
                     # Also publish attributes with last_updated timestamp
                     attributes_topic = self._get_attributes_topic(sensor)
                     attributes = {
                         "last_updated": datetime.now().isoformat(),
-                        "source_element": sensor.source.element_resource_id if sensor.source else None,
-                        "extraction_method": sensor.extraction_rule.method if sensor.extraction_rule else None,
-                        "device_id": sensor.device_id
+                        "source_element": (
+                            sensor.source.element_resource_id if sensor.source else None
+                        ),
+                        "extraction_method": (
+                            sensor.extraction_rule.method
+                            if sensor.extraction_rule
+                            else None
+                        ),
+                        "device_id": sensor.device_id,
                     }
                     attributes_json = json.dumps(attributes)
                     if IS_WINDOWS:
-                        self.client.publish(attributes_topic, attributes_json, retain=True)
+                        self.client.publish(
+                            attributes_topic, attributes_json, retain=True
+                        )
                     else:
-                        await self.client.publish(attributes_topic, attributes_json, retain=True)
+                        await self.client.publish(
+                            attributes_topic, attributes_json, retain=True
+                        )
 
                 except Exception as e:
-                    logger.debug(f"[MQTTManager] Batch publish failed for {sensor.sensor_id}: {e}")
+                    logger.debug(
+                        f"[MQTTManager] Batch publish failed for {sensor.sensor_id}: {e}"
+                    )
                     failed_sensors.append(sensor.sensor_id)
 
             # Brief delay to allow MQTT client to pipeline messages
             await asyncio.sleep(0.01)
 
             if success_count > 0:
-                logger.info(f"[MQTTManager] Batch published {success_count}/{len(sensor_updates)} sensor states to MQTT")
+                logger.info(
+                    f"[MQTTManager] Batch published {success_count}/{len(sensor_updates)} sensor states to MQTT"
+                )
 
             return {
                 "success": success_count,
                 "failed": len(failed_sensors),
-                "failed_sensors": failed_sensors
+                "failed_sensors": failed_sensors,
             }
 
         except Exception as e:
@@ -658,10 +761,12 @@ class MQTTManager:
             return {
                 "success": success_count,
                 "failed": len(sensor_updates) - success_count,
-                "failed_sensors": failed_sensors
+                "failed_sensors": failed_sensors,
             }
 
-    async def publish_availability(self, device_id: str, online: bool, stable_device_id: str = None) -> bool:
+    async def publish_availability(
+        self, device_id: str, online: bool, stable_device_id: str = None
+    ) -> bool:
         """Publish device availability status
 
         Args:
@@ -681,7 +786,9 @@ class MQTTManager:
             topic = self._get_availability_topic(effective_id)
             payload = "online" if online else "offline"
 
-            logger.debug(f"[MQTTManager] Publishing availability to {topic} (effective_id={effective_id}, stable={stable_device_id}, device={device_id})")
+            logger.debug(
+                f"[MQTTManager] Publishing availability to {topic} (effective_id={effective_id}, stable={stable_device_id}, device={device_id})"
+            )
 
             if IS_WINDOWS:
                 result = self.client.publish(topic, payload, retain=True)
@@ -691,18 +798,22 @@ class MQTTManager:
                 success = True
 
             if success:
-                logger.info(f"[MQTTManager] Published availability for {effective_id}: {payload}")
+                logger.info(
+                    f"[MQTTManager] Published availability for {effective_id}: {payload}"
+                )
             return success
 
         except Exception as e:
-            logger.error(f"[MQTTManager] Failed to publish availability for {effective_id}: {e}")
+            logger.error(
+                f"[MQTTManager] Failed to publish availability for {effective_id}: {e}"
+            )
             return False
 
     async def publish_sensor_update(
         self,
         sensor: SensorDefinition,
         value: str,
-        attributes: Optional[Dict[str, Any]] = None
+        attributes: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Publish complete sensor update (state + attributes)"""
         if not self._connected:
@@ -730,7 +841,7 @@ class MQTTManager:
             "keyevent": "mdi:keyboard-variant",
             "launch_app": "mdi:application",
             "delay": "mdi:timer-sand",
-            "macro": "mdi:script-text"
+            "macro": "mdi:script-text",
         }
         return icons.get(action_type, "mdi:play")
 
@@ -738,7 +849,9 @@ class MQTTManager:
         """Get MQTT discovery topic for action (as button entity)"""
         # homeassistant/button/{device_id}/{action_id}/config
         sanitized_device = self._sanitize_device_id(action_def.action.device_id)
-        return f"{self.discovery_prefix}/button/{sanitized_device}/{action_def.id}/config"
+        return (
+            f"{self.discovery_prefix}/button/{sanitized_device}/{action_def.id}/config"
+        )
 
     def _get_action_command_topic(self, action_def) -> str:
         """Get command topic for action execution"""
@@ -749,7 +862,9 @@ class MQTTManager:
     def _build_action_discovery_payload(self, action_def) -> Dict[str, Any]:
         """Build Home Assistant MQTT discovery payload for action"""
         if ActionDefinition is None:
-            logger.error("[MQTTManager] ActionDefinition not imported - cannot build action discovery")
+            logger.error(
+                "[MQTTManager] ActionDefinition not imported - cannot build action discovery"
+            )
             return {}
 
         command_topic = self._get_action_command_topic(action_def)
@@ -768,9 +883,9 @@ class MQTTManager:
                 "name": self.get_device_display_name(action_def.action.device_id),
                 "manufacturer": "Visual Mapper",
                 "model": "Android Device Monitor",
-                "sw_version": APP_VERSION
+                "sw_version": APP_VERSION,
             },
-            "payload_press": "EXECUTE"
+            "payload_press": "EXECUTE",
         }
 
         return payload
@@ -782,7 +897,9 @@ class MQTTManager:
             return False
 
         if ActionDefinition is None:
-            logger.error("[MQTTManager] ActionDefinition not available - skipping action discovery")
+            logger.error(
+                "[MQTTManager] ActionDefinition not available - skipping action discovery"
+            )
             return False
 
         try:
@@ -798,21 +915,29 @@ class MQTTManager:
                 success = True
 
             if success:
-                logger.info(f"[MQTTManager] Published action discovery for {action_def.id} ({action_def.action.action_type}): {topic}")
+                logger.info(
+                    f"[MQTTManager] Published action discovery for {action_def.id} ({action_def.action.action_type}): {topic}"
+                )
 
                 # Subscribe to command topic to receive execution requests
                 command_topic = self._get_action_command_topic(action_def)
                 if IS_WINDOWS:
                     self.client.subscribe(command_topic)
-                    logger.info(f"[MQTTManager] Subscribed to action command topic: {command_topic}")
+                    logger.info(
+                        f"[MQTTManager] Subscribed to action command topic: {command_topic}"
+                    )
                 else:
                     await self.client.subscribe(command_topic)
-                    logger.info(f"[MQTTManager] Subscribed to action command topic: {command_topic}")
+                    logger.info(
+                        f"[MQTTManager] Subscribed to action command topic: {command_topic}"
+                    )
 
             return success
 
         except Exception as e:
-            logger.error(f"[MQTTManager] Failed to publish action discovery for {action_def.id}: {e}")
+            logger.error(
+                f"[MQTTManager] Failed to publish action discovery for {action_def.id}: {e}"
+            )
             return False
 
     async def remove_action_discovery(self, action_def) -> bool:
@@ -832,7 +957,9 @@ class MQTTManager:
                 success = True
 
             if success:
-                logger.info(f"[MQTTManager] Removed action discovery for {action_def.id}")
+                logger.info(
+                    f"[MQTTManager] Removed action discovery for {action_def.id}"
+                )
 
                 # Unsubscribe from command topic
                 command_topic = self._get_action_command_topic(action_def)
@@ -844,7 +971,9 @@ class MQTTManager:
             return success
 
         except Exception as e:
-            logger.error(f"[MQTTManager] Failed to remove action discovery for {action_def.id}: {e}")
+            logger.error(
+                f"[MQTTManager] Failed to remove action discovery for {action_def.id}: {e}"
+            )
             return False
 
     def set_action_command_callback(self, callback):
@@ -867,7 +996,9 @@ class MQTTManager:
                     device_id = device_id_sanitized.replace("_", ":")
 
                     payload = msg.payload.decode()
-                    logger.info(f"[MQTTManager] Received action command: {device_id}/{action_id} payload={payload}")
+                    logger.info(
+                        f"[MQTTManager] Received action command: {device_id}/{action_id} payload={payload}"
+                    )
 
                     if payload == "EXECUTE":
                         await callback(device_id, action_id)
@@ -882,11 +1013,12 @@ class MQTTManager:
                     # Run async callback in event loop (thread-safe)
                     if self._event_loop:
                         asyncio.run_coroutine_threadsafe(
-                            on_message_async(client, userdata, msg),
-                            self._event_loop
+                            on_message_async(client, userdata, msg), self._event_loop
                         )
                     else:
-                        logger.error("[MQTTManager] Event loop not available for async callback")
+                        logger.error(
+                            "[MQTTManager] Event loop not available for async callback"
+                        )
                 except Exception as e:
                     logger.error(f"[MQTTManager] Error in sync message handler: {e}")
 
@@ -918,7 +1050,9 @@ class MQTTManager:
             True if subscriptions successful, False otherwise
         """
         if not self._connected or not self.client:
-            logger.error("[MQTTManager] Not connected to broker - cannot subscribe to companion device")
+            logger.error(
+                "[MQTTManager] Not connected to broker - cannot subscribe to companion device"
+            )
             return False
 
         try:
@@ -928,7 +1062,7 @@ class MQTTManager:
                 f"visual_mapper/{sanitized_device}/status",
                 f"visual_mapper/{sanitized_device}/flow/+/result",
                 f"visual_mapper/{sanitized_device}/gesture/result",
-                f"visual_mapper/{sanitized_device}/navigation/learn"
+                f"visual_mapper/{sanitized_device}/navigation/learn",
             ]
 
             if IS_WINDOWS:
@@ -943,7 +1077,9 @@ class MQTTManager:
             return True
 
         except Exception as e:
-            logger.error(f"[MQTTManager] Failed to subscribe to companion device {device_id}: {e}")
+            logger.error(
+                f"[MQTTManager] Failed to subscribe to companion device {device_id}: {e}"
+            )
             return False
 
     def set_companion_status_callback(self, callback):
@@ -963,8 +1099,10 @@ class MQTTManager:
             callback: Function to call when status update received
         """
         if IS_WINDOWS:
+
             def on_message_sync(client, userdata, message):
                 import re
+
                 topic = message.topic
                 # Match: visual_mapper/{device_id}/status
                 match = re.match(r"visual_mapper/([^/]+)/status", topic)
@@ -974,7 +1112,9 @@ class MQTTManager:
                         status_data = json.loads(message.payload.decode())
                         callback(device_id, status_data)
                     except Exception as e:
-                        logger.error(f"[MQTTManager] Error processing companion status: {e}")
+                        logger.error(
+                            f"[MQTTManager] Error processing companion status: {e}"
+                        )
 
             # Replace existing on_message handler or chain them
             self.client.on_message = on_message_sync
@@ -1001,8 +1141,10 @@ class MQTTManager:
             callback: Function to call when flow result received
         """
         if IS_WINDOWS:
+
             def on_message_sync(client, userdata, message):
                 import re
+
                 topic = message.topic
                 # Match: visual_mapper/{device_id}/flow/{flow_id}/result
                 match = re.match(r"visual_mapper/([^/]+)/flow/([^/]+)/result", topic)
@@ -1037,8 +1179,10 @@ class MQTTManager:
             callback: Function to call when gesture result received
         """
         if IS_WINDOWS:
+
             def on_message_sync(client, userdata, message):
                 import re
+
                 topic = message.topic
                 # Match: visual_mapper/{device_id}/gesture/result
                 match = re.match(r"visual_mapper/([^/]+)/gesture/result", topic)
@@ -1048,7 +1192,9 @@ class MQTTManager:
                         result_data = json.loads(message.payload.decode())
                         callback(device_id, result_data)
                     except Exception as e:
-                        logger.error(f"[MQTTManager] Error processing gesture result: {e}")
+                        logger.error(
+                            f"[MQTTManager] Error processing gesture result: {e}"
+                        )
 
             self.client.on_message = on_message_sync
             logger.info("[MQTTManager] Gesture result callback registered (Windows)")
@@ -1069,8 +1215,10 @@ class MQTTManager:
             callback: Async function to call when navigation learn message received
         """
         if IS_WINDOWS:
+
             def on_message_sync(client, userdata, message):
                 import re
+
                 topic = message.topic
                 # Match: visual_mapper/{device_id}/navigation/learn
                 match = re.match(r"visual_mapper/([^/]+)/navigation/learn", topic)
@@ -1081,14 +1229,18 @@ class MQTTManager:
                         # Run async callback in event loop (thread-safe)
                         if self._event_loop:
                             import asyncio
+
                             asyncio.run_coroutine_threadsafe(
-                                callback(device_id, payload),
-                                self._event_loop
+                                callback(device_id, payload), self._event_loop
                             )
                         else:
-                            logger.error("[MQTTManager] Event loop not available for navigation learn callback")
+                            logger.error(
+                                "[MQTTManager] Event loop not available for navigation learn callback"
+                            )
                     except Exception as e:
-                        logger.error(f"[MQTTManager] Error processing navigation learn message: {e}")
+                        logger.error(
+                            f"[MQTTManager] Error processing navigation learn message: {e}"
+                        )
 
             self.client.on_message = on_message_sync
             logger.info("[MQTTManager] Navigation learn callback registered (Windows)")
@@ -1102,7 +1254,9 @@ class MQTTManager:
         This receives flows generated by the Android companion app exploration.
         """
         if not self._connected or not self.client:
-            logger.error("[MQTTManager] Not connected - cannot subscribe to generated flows")
+            logger.error(
+                "[MQTTManager] Not connected - cannot subscribe to generated flows"
+            )
             return False
 
         try:
@@ -1133,15 +1287,20 @@ class MQTTManager:
             callback: Function to call when a generated flow is received
         """
         if IS_WINDOWS:
+
             def on_message_sync(client, userdata, message):
                 topic = message.topic
                 if topic == "visualmapper/flows/generated":
                     try:
                         flow_data = json.loads(message.payload.decode())
-                        logger.info(f"[MQTTManager] Received generated flow: {flow_data.get('flow_id', 'unknown')}")
+                        logger.info(
+                            f"[MQTTManager] Received generated flow: {flow_data.get('flow_id', 'unknown')}"
+                        )
                         callback(flow_data)
                     except Exception as e:
-                        logger.error(f"[MQTTManager] Error processing generated flow: {e}")
+                        logger.error(
+                            f"[MQTTManager] Error processing generated flow: {e}"
+                        )
 
             self.client.on_message = on_message_sync
             logger.info("[MQTTManager] Generated flow callback registered (Windows)")
@@ -1149,7 +1308,9 @@ class MQTTManager:
             self._generated_flow_callback = callback
             logger.info("[MQTTManager] Generated flow callback registered (Linux)")
 
-    async def publish_flow_command(self, device_id: str, flow_id: str, payload: dict) -> bool:
+    async def publish_flow_command(
+        self, device_id: str, flow_id: str, payload: dict
+    ) -> bool:
         """
         Publish flow execution command to companion app.
 
@@ -1178,14 +1339,18 @@ class MQTTManager:
                 success = True
 
             if success:
-                logger.info(f"[MQTTManager] Published flow command to {device_id}: {flow_id}")
+                logger.info(
+                    f"[MQTTManager] Published flow command to {device_id}: {flow_id}"
+                )
             return success
 
         except Exception as e:
             logger.error(f"[MQTTManager] Failed to publish flow command: {e}")
             return False
 
-    async def publish_gesture_command(self, device_id: str, gesture_type: str, params: dict) -> bool:
+    async def publish_gesture_command(
+        self, device_id: str, gesture_type: str, params: dict
+    ) -> bool:
         """
         Publish gesture execution command to companion app.
 
@@ -1204,10 +1369,7 @@ class MQTTManager:
         try:
             sanitized_device = self._sanitize_device_id(device_id)
             topic = f"visual_mapper/{sanitized_device}/gesture/execute"
-            payload = {
-                "gesture_type": gesture_type,
-                **params
-            }
+            payload = {"gesture_type": gesture_type, **params}
             payload_json = json.dumps(payload)
 
             if IS_WINDOWS:
@@ -1218,7 +1380,9 @@ class MQTTManager:
                 success = True
 
             if success:
-                logger.info(f"[MQTTManager] Published gesture command to {device_id}: {gesture_type}")
+                logger.info(
+                    f"[MQTTManager] Published gesture command to {device_id}: {gesture_type}"
+                )
             return success
 
         except Exception as e:
@@ -1227,7 +1391,9 @@ class MQTTManager:
 
     # ========== UI Tree Discovery Methods ==========
 
-    async def request_ui_tree(self, device_id: str, package_name: str = None, timeout: float = 10.0) -> Optional[Dict[str, Any]]:
+    async def request_ui_tree(
+        self, device_id: str, package_name: str = None, timeout: float = 10.0
+    ) -> Optional[Dict[str, Any]]:
         """
         Request UI tree from Android companion app and wait for response.
 
@@ -1263,17 +1429,20 @@ class MQTTManager:
         }
         """
         if not self._connected or not self.client:
-            logger.error("[MQTTManager] Not connected to broker - cannot request UI tree")
+            logger.error(
+                "[MQTTManager] Not connected to broker - cannot request UI tree"
+            )
             return None
 
         import uuid
+
         request_id = str(uuid.uuid4())
 
         # Create a Future to wait for the response
         response_future = asyncio.Future()
 
         # Store pending request
-        if not hasattr(self, '_pending_ui_requests'):
+        if not hasattr(self, "_pending_ui_requests"):
             self._pending_ui_requests = {}
         self._pending_ui_requests[request_id] = response_future
 
@@ -1292,7 +1461,7 @@ class MQTTManager:
                 "request_id": request_id,
                 "command": "get_ui_tree",
                 "package": package_name,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
             # Publish request
@@ -1307,15 +1476,21 @@ class MQTTManager:
             else:
                 await self.client.publish(request_topic, payload_json, qos=1)
 
-            logger.info(f"[MQTTManager] Sent UI tree request to {device_id}, request_id={request_id}")
+            logger.info(
+                f"[MQTTManager] Sent UI tree request to {device_id}, request_id={request_id}"
+            )
 
             # Wait for response with timeout
             try:
                 response = await asyncio.wait_for(response_future, timeout=timeout)
-                logger.info(f"[MQTTManager] Received UI tree response for request {request_id}")
+                logger.info(
+                    f"[MQTTManager] Received UI tree response for request {request_id}"
+                )
                 return response
             except asyncio.TimeoutError:
-                logger.warning(f"[MQTTManager] UI tree request timed out after {timeout}s")
+                logger.warning(
+                    f"[MQTTManager] UI tree request timed out after {timeout}s"
+                )
                 return None
 
         except Exception as e:
@@ -1330,15 +1505,16 @@ class MQTTManager:
         Setup handler for UI tree responses from companion app.
         Called once during initialization or first UI request.
         """
-        if hasattr(self, '_ui_response_handler_setup'):
+        if hasattr(self, "_ui_response_handler_setup"):
             return
 
         if IS_WINDOWS:
             # Store the original callback if any
-            original_callback = getattr(self.client, 'on_message', None)
+            original_callback = getattr(self.client, "on_message", None)
 
             def on_message_with_ui(client, userdata, message):
                 import re
+
                 topic = message.topic
 
                 # Check for UI response
@@ -1346,9 +1522,9 @@ class MQTTManager:
                 if match:
                     try:
                         response_data = json.loads(message.payload.decode())
-                        request_id = response_data.get('request_id')
+                        request_id = response_data.get("request_id")
 
-                        if request_id and hasattr(self, '_pending_ui_requests'):
+                        if request_id and hasattr(self, "_pending_ui_requests"):
                             future = self._pending_ui_requests.get(request_id)
                             if future and not future.done():
                                 # Set result in the event loop thread
@@ -1437,13 +1613,16 @@ class MQTTManager:
             True if subscription successful
         """
         if not self._connected or not self.client:
-            logger.error("[MQTTManager] Not connected to broker - cannot subscribe to device announcements")
+            logger.error(
+                "[MQTTManager] Not connected to broker - cannot subscribe to device announcements"
+            )
             return False
 
         try:
             topic = "visualmapper/devices/announce"
 
             if IS_WINDOWS:
+
                 def on_announcement(client, userdata, message):
                     try:
                         payload = message.payload.decode()
@@ -1453,37 +1632,52 @@ class MQTTManager:
                             return
 
                         announcement = json.loads(payload)
-                        device_id = announcement.get('device_id') or f"{announcement.get('ip')}:{announcement.get('adb_port')}"
-                        logger.info(f"[MQTTManager] Device announced: {device_id} ({announcement.get('model')})")
+                        device_id = (
+                            announcement.get("device_id")
+                            or f"{announcement.get('ip')}:{announcement.get('adb_port')}"
+                        )
+                        logger.info(
+                            f"[MQTTManager] Device announced: {device_id} ({announcement.get('model')})"
+                        )
 
                         # Extract and store device capabilities (Capability Handshake)
                         # Android companion app sends capabilities list in announcement
-                        capabilities = announcement.get('capabilities', [])
+                        capabilities = announcement.get("capabilities", [])
                         if capabilities:
                             self.set_device_capabilities(device_id, capabilities)
-                            logger.info(f"[MQTTManager] Device {device_id} capabilities: {capabilities}")
+                            logger.info(
+                                f"[MQTTManager] Device {device_id} capabilities: {capabilities}"
+                            )
 
                         # Store announced device for API access
-                        if not hasattr(self, '_announced_devices'):
+                        if not hasattr(self, "_announced_devices"):
                             self._announced_devices = {}
                         self._announced_devices[device_id] = announcement
 
                         callback(announcement)
                     except Exception as e:
-                        logger.error(f"[MQTTManager] Error processing device announcement: {e}")
+                        logger.error(
+                            f"[MQTTManager] Error processing device announcement: {e}"
+                        )
 
                 self.client.subscribe(topic)
                 self.client.message_callback_add(topic, on_announcement)
-                logger.info(f"[MQTTManager] Subscribed to device announcements: {topic} (Windows)")
+                logger.info(
+                    f"[MQTTManager] Subscribed to device announcements: {topic} (Windows)"
+                )
             else:
                 await self.client.subscribe(topic)
                 self._device_announcement_callback = callback
-                logger.info(f"[MQTTManager] Subscribed to device announcements: {topic} (Linux)")
+                logger.info(
+                    f"[MQTTManager] Subscribed to device announcements: {topic} (Linux)"
+                )
 
             return True
 
         except Exception as e:
-            logger.error(f"[MQTTManager] Failed to subscribe to device announcements: {e}")
+            logger.error(
+                f"[MQTTManager] Failed to subscribe to device announcements: {e}"
+            )
             return False
 
     def get_announced_devices(self) -> list:
@@ -1493,4 +1687,4 @@ class MQTTManager:
         Returns:
             List of announcement dicts with device info
         """
-        return list(getattr(self, '_announced_devices', {}).values())
+        return list(getattr(self, "_announced_devices", {}).values())

@@ -11,9 +11,9 @@
  * v0.0.17: Pass start-from-current-screen setting to test flow payload
  */
 
-import { showToast } from './toast.js?v=0.2.54';
-import FlowStepManager from './flow-step-manager.js?v=0.2.54';
-import { groupStepsByScreen, validateMove, moveStep } from './step-reorganizer.js?v=0.2.54';
+import { showToast } from './toast.js?v=0.2.55';
+import FlowStepManager from './flow-step-manager.js?v=0.2.55';
+import { groupStepsByScreen, validateMove, moveStep } from './step-reorganizer.js?v=0.2.55';
 
 function getApiBase() {
     return window.API_BASE || '/api';

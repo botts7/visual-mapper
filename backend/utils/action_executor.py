@@ -27,7 +27,7 @@ from utils.error_handler import (
     logger,
     ErrorContext,
     DeviceNotFoundError,
-    ActionExecutionError
+    ActionExecutionError,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,9 +47,7 @@ class ActionExecutor:
         logger.info("[ActionExecutor] Initialized")
 
     async def execute_action(
-        self,
-        action: ActionType,
-        record_result: bool = False
+        self, action: ActionType, record_result: bool = False
     ) -> ActionExecutionResult:
         """
         Execute a single action
@@ -76,10 +74,12 @@ class ActionExecutor:
             if not action.enabled:
                 raise ActionExecutionError(
                     f"Action '{action.name}' is disabled",
-                    action_type=action.action_type
+                    action_type=action.action_type,
                 )
 
-            logger.info(f"[ActionExecutor] Executing {action.action_type} action '{action.name}' on {action.device_id}")
+            logger.info(
+                f"[ActionExecutor] Executing {action.action_type} action '{action.name}' on {action.device_id}"
+            )
 
             # Route to specific handler based on action type
             if action.action_type == "tap":
@@ -99,7 +99,7 @@ class ActionExecutor:
             else:
                 raise ActionExecutionError(
                     f"Unknown action type: {action.action_type}",
-                    action_type=action.action_type
+                    action_type=action.action_type,
                 )
 
             # Calculate execution time
@@ -110,13 +110,12 @@ class ActionExecutor:
                 message=f"Action '{action.name}' executed successfully",
                 execution_time=execution_time,
                 action_type=action.action_type,
-                details={
-                    "device_id": action.device_id,
-                    "action_name": action.name
-                }
+                details={"device_id": action.device_id, "action_name": action.name},
             )
 
-            logger.info(f"[ActionExecutor] ✅ Action executed in {execution_time:.1f}ms")
+            logger.info(
+                f"[ActionExecutor] ✅ Action executed in {execution_time:.1f}ms"
+            )
             return result
 
         except DeviceNotFoundError:
@@ -137,8 +136,8 @@ class ActionExecutor:
                 details={
                     "device_id": action.device_id,
                     "action_name": action.name,
-                    "error": str(e)
-                }
+                    "error": str(e),
+                },
             )
 
             return result
@@ -148,7 +147,7 @@ class ActionExecutor:
         action_manager,
         device_id: str,
         action_id: str,
-        skip_navigation: bool = False
+        skip_navigation: bool = False,
     ) -> ActionExecutionResult:
         """
         Execute a saved action by ID and record result.
@@ -175,14 +174,16 @@ class ActionExecutor:
 
         # Check if action has navigation config (and we should use it)
         has_navigation = (
-            action_def.target_app or
-            action_def.prerequisite_actions or
-            action_def.navigation_sequence
+            action_def.target_app
+            or action_def.prerequisite_actions
+            or action_def.navigation_sequence
         )
 
         if has_navigation and not skip_navigation:
             # Execute with navigation wrapper
-            logger.info(f"[ActionExecutor] Action has navigation config, navigating first")
+            logger.info(
+                f"[ActionExecutor] Action has navigation config, navigating first"
+            )
             result = await self._execute_with_navigation(action_def, action_manager)
         elif has_navigation and skip_navigation:
             # Called from flow context - check if we're already on correct screen
@@ -193,17 +194,25 @@ class ActionExecutor:
                     action_def.action.device_id,
                     action_def.validation_element,
                     max_attempts=1,  # Quick check, no retries
-                    timeout=1
+                    timeout=1,
                 )
                 if already_on_screen:
-                    logger.debug(f"[ActionExecutor] Already on correct screen, skipping navigation")
+                    logger.debug(
+                        f"[ActionExecutor] Already on correct screen, skipping navigation"
+                    )
                     result = await self.execute_action(action_def.action)
                 else:
-                    logger.info(f"[ActionExecutor] Not on correct screen, running navigation anyway")
-                    result = await self._execute_with_navigation(action_def, action_manager)
+                    logger.info(
+                        f"[ActionExecutor] Not on correct screen, running navigation anyway"
+                    )
+                    result = await self._execute_with_navigation(
+                        action_def, action_manager
+                    )
             else:
                 # No validation element - trust the flow got us there
-                logger.debug(f"[ActionExecutor] Skipping navigation (called from flow context)")
+                logger.debug(
+                    f"[ActionExecutor] Skipping navigation (called from flow context)"
+                )
                 result = await self.execute_action(action_def.action)
         else:
             # No navigation config - direct execution (backward compatible)
@@ -211,10 +220,7 @@ class ActionExecutor:
 
         # Record execution result
         action_manager.record_execution(
-            device_id,
-            action_id,
-            result.success,
-            result.message
+            device_id, action_id, result.success, result.message
         )
 
         # Add action_id to result
@@ -223,9 +229,7 @@ class ActionExecutor:
         return result
 
     async def _execute_with_navigation(
-        self,
-        action_def: ActionDefinition,
-        action_manager
+        self, action_def: ActionDefinition, action_manager
     ) -> ActionExecutionResult:
         """
         Execute action with navigation steps.
@@ -251,34 +255,44 @@ class ActionExecutor:
         try:
             # Step 1: Launch target app if specified
             if action_def.target_app:
-                logger.info(f"[ActionExecutor] Launching target app: {action_def.target_app}")
-                success = await self.adb_bridge.launch_app(device_id, action_def.target_app)
+                logger.info(
+                    f"[ActionExecutor] Launching target app: {action_def.target_app}"
+                )
+                success = await self.adb_bridge.launch_app(
+                    device_id, action_def.target_app
+                )
                 if not success:
                     raise ActionExecutionError(
                         f"Failed to launch target app: {action_def.target_app}",
-                        action_type=action_def.action.action_type
+                        action_type=action_def.action.action_type,
                     )
                 await asyncio.sleep(2)  # Wait for app to load
 
             # Step 2: Execute prerequisite actions
             for prereq_id in action_def.prerequisite_actions:
-                logger.info(f"[ActionExecutor] Executing prerequisite action: {prereq_id}")
+                logger.info(
+                    f"[ActionExecutor] Executing prerequisite action: {prereq_id}"
+                )
                 try:
                     prereq_def = action_manager.get_action(device_id, prereq_id)
                     prereq_result = await self.execute_action(prereq_def.action)
                     if not prereq_result.success:
                         raise ActionExecutionError(
                             f"Prerequisite action {prereq_id} failed: {prereq_result.message}",
-                            action_type=action_def.action.action_type
+                            action_type=action_def.action.action_type,
                         )
                     await asyncio.sleep(0.5)  # Brief delay between actions
                 except Exception as e:
-                    logger.warning(f"[ActionExecutor] Prerequisite action {prereq_id} failed: {e}")
+                    logger.warning(
+                        f"[ActionExecutor] Prerequisite action {prereq_id} failed: {e}"
+                    )
                     # Continue with other prerequisites
 
             # Step 3: Execute navigation sequence
             if action_def.navigation_sequence:
-                logger.info(f"[ActionExecutor] Executing {len(action_def.navigation_sequence)} navigation steps")
+                logger.info(
+                    f"[ActionExecutor] Executing {len(action_def.navigation_sequence)} navigation steps"
+                )
                 for i, nav_step in enumerate(action_def.navigation_sequence):
                     await self._execute_navigation_step(device_id, nav_step)
                     logger.debug(f"[ActionExecutor] Navigation step {i+1} complete")
@@ -290,12 +304,12 @@ class ActionExecutor:
                     device_id,
                     action_def.validation_element,
                     action_def.max_navigation_attempts,
-                    action_def.navigation_timeout
+                    action_def.navigation_timeout,
                 )
                 if not validated:
                     raise ActionExecutionError(
                         "Screen validation failed - not on expected screen",
-                        action_type=action_def.action.action_type
+                        action_type=action_def.action.action_type,
                     )
 
             # Step 5: Execute the actual action
@@ -317,10 +331,12 @@ class ActionExecutor:
                 message=f"Navigation failed: {str(e)}",
                 execution_time=execution_time,
                 action_type=action_def.action.action_type,
-                details={"error": str(e)}
+                details={"error": str(e)},
             )
 
-    async def _execute_navigation_step(self, device_id: str, step: Dict[str, Any]) -> None:
+    async def _execute_navigation_step(
+        self, device_id: str, step: Dict[str, Any]
+    ) -> None:
         """
         Execute a single navigation step.
 
@@ -337,9 +353,11 @@ class ActionExecutor:
         elif step_type == "swipe":
             await self.adb_bridge.swipe(
                 device_id,
-                step["start_x"], step["start_y"],
-                step["end_x"], step["end_y"],
-                step.get("duration", 300)
+                step["start_x"],
+                step["start_y"],
+                step["end_x"],
+                step["end_y"],
+                step.get("duration", 300),
             )
         elif step_type == "wait":
             duration_ms = step.get("duration", 1000)
@@ -349,14 +367,16 @@ class ActionExecutor:
         elif step_type == "text":
             await self.adb_bridge.type_text(device_id, step["text"])
         else:
-            logger.warning(f"[ActionExecutor] Unknown navigation step type: {step_type}")
+            logger.warning(
+                f"[ActionExecutor] Unknown navigation step type: {step_type}"
+            )
 
     async def _validate_screen(
         self,
         device_id: str,
         validation_element: Dict[str, Any],
         max_attempts: int,
-        timeout: int
+        timeout: int,
     ) -> bool:
         """
         Validate that the correct screen is displayed.
@@ -375,7 +395,9 @@ class ActionExecutor:
         for attempt in range(max_attempts):
             try:
                 # Get UI hierarchy
-                ui_elements = await self.adb_bridge.get_ui_elements(device_id, bounds_only=False)
+                ui_elements = await self.adb_bridge.get_ui_elements(
+                    device_id, bounds_only=False
+                )
 
                 # Search for validation element
                 expected_text = validation_element.get("text")
@@ -385,21 +407,35 @@ class ActionExecutor:
                 for element in ui_elements:
                     # Check text match
                     if expected_text and expected_text in element.get("text", ""):
-                        logger.debug(f"[ActionExecutor] Validation passed: found text '{expected_text}'")
+                        logger.debug(
+                            f"[ActionExecutor] Validation passed: found text '{expected_text}'"
+                        )
                         return True
 
                     # Check resource_id match
-                    if expected_resource_id and expected_resource_id in element.get("resource_id", ""):
-                        logger.debug(f"[ActionExecutor] Validation passed: found resource_id '{expected_resource_id}'")
+                    if expected_resource_id and expected_resource_id in element.get(
+                        "resource_id", ""
+                    ):
+                        logger.debug(
+                            f"[ActionExecutor] Validation passed: found resource_id '{expected_resource_id}'"
+                        )
                         return True
 
                     # Check class match (with text)
                     if expected_class and expected_text:
-                        if element.get("class") == expected_class and expected_text in element.get("text", ""):
-                            logger.debug(f"[ActionExecutor] Validation passed: found {expected_class} with text")
+                        if element.get(
+                            "class"
+                        ) == expected_class and expected_text in element.get(
+                            "text", ""
+                        ):
+                            logger.debug(
+                                f"[ActionExecutor] Validation passed: found {expected_class} with text"
+                            )
                             return True
 
-                logger.debug(f"[ActionExecutor] Validation attempt {attempt+1}/{max_attempts} - element not found")
+                logger.debug(
+                    f"[ActionExecutor] Validation attempt {attempt+1}/{max_attempts} - element not found"
+                )
 
             except Exception as e:
                 logger.warning(f"[ActionExecutor] Validation error: {e}")
@@ -423,11 +459,15 @@ class ActionExecutor:
         with ErrorContext("executing swipe action", ActionExecutionError):
             await self.adb_bridge.swipe(
                 action.device_id,
-                action.x1, action.y1,
-                action.x2, action.y2,
-                action.duration
+                action.x1,
+                action.y1,
+                action.x2,
+                action.y2,
+                action.duration,
             )
-            logger.debug(f"[ActionExecutor] Swiped from ({action.x1},{action.y1}) to ({action.x2},{action.y2})")
+            logger.debug(
+                f"[ActionExecutor] Swiped from ({action.x1},{action.y1}) to ({action.x2},{action.y2})"
+            )
 
     async def _execute_text_input(self, action: TextInputAction) -> None:
         """Execute text input action"""
@@ -444,11 +484,13 @@ class ActionExecutor:
     async def _execute_launch_app(self, action: LaunchAppAction) -> None:
         """Execute app launch action"""
         with ErrorContext("executing launch app action", ActionExecutionError):
-            success = await self.adb_bridge.launch_app(action.device_id, action.package_name)
+            success = await self.adb_bridge.launch_app(
+                action.device_id, action.package_name
+            )
             if not success:
                 raise ActionExecutionError(
                     f"Failed to launch app: {action.package_name}",
-                    action_type="launch_app"
+                    action_type="launch_app",
                 )
             logger.debug(f"[ActionExecutor] Launched app: {action.package_name}")
 
@@ -465,7 +507,9 @@ class ActionExecutor:
         We need to deserialize each one and execute it.
         """
         with ErrorContext("executing macro action", ActionExecutionError):
-            logger.info(f"[ActionExecutor] Executing macro '{action.name}' with {len(action.actions)} steps")
+            logger.info(
+                f"[ActionExecutor] Executing macro '{action.name}' with {len(action.actions)} steps"
+            )
 
             for i, action_dict in enumerate(action.actions):
                 try:
@@ -475,14 +519,17 @@ class ActionExecutor:
 
                     if not action_type:
                         raise ActionExecutionError(
-                            f"Macro step {i+1} missing action_type",
-                            action_type="macro"
+                            f"Macro step {i+1} missing action_type", action_type="macro"
                         )
 
                     # Import action models to deserialize
                     from utils.action_models import (
-                        TapAction, SwipeAction, TextInputAction,
-                        KeyEventAction, LaunchAppAction, DelayAction
+                        TapAction,
+                        SwipeAction,
+                        TextInputAction,
+                        KeyEventAction,
+                        LaunchAppAction,
+                        DelayAction,
                     )
 
                     # Map action_type to class
@@ -499,7 +546,7 @@ class ActionExecutor:
                     if not action_class:
                         raise ActionExecutionError(
                             f"Unknown action type in macro: {action_type}",
-                            action_type="macro"
+                            action_type="macro",
                         )
 
                     # Normalize field names between flow format and action format
@@ -522,7 +569,9 @@ class ActionExecutor:
                     step_action = action_class(**normalized_dict)
 
                     # Execute step
-                    logger.debug(f"[ActionExecutor] Macro step {i+1}/{len(action.actions)}: {action_type}")
+                    logger.debug(
+                        f"[ActionExecutor] Macro step {i+1}/{len(action.actions)}: {action_type}"
+                    )
                     await self.execute_action(step_action)
 
                 except Exception as e:
@@ -533,16 +582,16 @@ class ActionExecutor:
                         raise ActionExecutionError(error_msg, action_type="macro")
                     else:
                         # Continue execution even if step fails
-                        logger.warning(f"[ActionExecutor] Continuing macro despite error")
+                        logger.warning(
+                            f"[ActionExecutor] Continuing macro despite error"
+                        )
 
             logger.info(f"[ActionExecutor] ✅ Macro '{action.name}' completed")
 
     # Batch execution
 
     async def execute_multiple(
-        self,
-        actions: List[ActionType],
-        stop_on_error: bool = False
+        self, actions: List[ActionType], stop_on_error: bool = False
     ) -> List[ActionExecutionResult]:
         """
         Execute multiple actions sequentially
@@ -564,11 +613,15 @@ class ActionExecutor:
                 results.append(result)
 
                 if not result.success and stop_on_error:
-                    logger.warning(f"[ActionExecutor] Stopping batch execution at action {i+1} due to failure")
+                    logger.warning(
+                        f"[ActionExecutor] Stopping batch execution at action {i+1} due to failure"
+                    )
                     break
 
             except Exception as e:
-                logger.error(f"[ActionExecutor] Batch execution error at action {i+1}: {e}")
+                logger.error(
+                    f"[ActionExecutor] Batch execution error at action {i+1}: {e}"
+                )
 
                 # Create error result
                 error_result = ActionExecutionResult(
@@ -576,13 +629,17 @@ class ActionExecutor:
                     message=str(e),
                     execution_time=0,
                     action_type=action.action_type,
-                    details={"error": str(e)}
+                    details={"error": str(e)},
                 )
                 results.append(error_result)
 
                 if stop_on_error:
-                    logger.warning(f"[ActionExecutor] Stopping batch execution at action {i+1} due to error")
+                    logger.warning(
+                        f"[ActionExecutor] Stopping batch execution at action {i+1} due to error"
+                    )
                     break
 
-        logger.info(f"[ActionExecutor] Batch execution complete: {len(results)} actions executed")
+        logger.info(
+            f"[ActionExecutor] Batch execution complete: {len(results)} actions executed"
+        )
         return results

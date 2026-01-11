@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api", tags=["migration"])
 # GLOBAL MIGRATION ENDPOINT
 # =============================================================================
 
+
 @router.post("/migrate-stable-ids")
 async def migrate_all_stable_ids():
     """
@@ -55,22 +56,24 @@ async def migrate_all_stable_ids():
         connected_devices = await deps.adb_bridge.get_devices()
 
         for device in connected_devices:
-            device_id = device.get('id', '')
-            if ':' in device_id:
-                ip = device_id.split(':')[0]
+            device_id = device.get("id", "")
+            if ":" in device_id:
+                ip = device_id.split(":")[0]
                 try:
                     stable_id = await deps.adb_bridge.get_device_serial(device_id)
-                    if stable_id and not stable_id.startswith(ip.replace('.', '_')):
+                    if stable_id and not stable_id.startswith(ip.replace(".", "_")):
                         # Only use real hashed IDs, not fallback format
                         ip_to_stable[ip] = stable_id
                         logger.info(f"[API] Mapped {ip} -> {stable_id}")
                 except Exception as e:
-                    logger.warning(f"[API] Could not get stable ID for {device_id}: {e}")
+                    logger.warning(
+                        f"[API] Could not get stable ID for {device_id}: {e}"
+                    )
 
         if not ip_to_stable:
             return {
                 "success": False,
-                "message": "No connected devices with valid stable IDs found"
+                "message": "No connected devices with valid stable IDs found",
             }
 
         results = {
@@ -78,15 +81,15 @@ async def migrate_all_stable_ids():
             "sensors_skipped": 0,
             "flows_migrated": 0,
             "flows_skipped": 0,
-            "ip_mappings": ip_to_stable
+            "ip_mappings": ip_to_stable,
         }
 
         # Step 2: Update sensors with matching IP
         device_list = deps.sensor_manager.get_device_list()
         for device_id in device_list:
-            if not device_id or ':' not in device_id:
+            if not device_id or ":" not in device_id:
                 continue
-            ip = device_id.split(':')[0]
+            ip = device_id.split(":")[0]
             if ip not in ip_to_stable:
                 continue
 
@@ -96,8 +99,8 @@ async def migrate_all_stable_ids():
             for sensor in sensors:
                 # Check if needs update (no stable_id or has fallback format)
                 needs_update = (
-                    not sensor.stable_device_id or
-                    sensor.stable_device_id.startswith(ip.replace('.', '_'))
+                    not sensor.stable_device_id
+                    or sensor.stable_device_id.startswith(ip.replace(".", "_"))
                 )
 
                 if needs_update:
@@ -115,9 +118,9 @@ async def migrate_all_stable_ids():
         if deps.flow_manager:
             all_flows = deps.flow_manager.get_all_flows()
             for flow in all_flows:
-                if ':' not in flow.device_id:
+                if ":" not in flow.device_id:
                     continue
-                ip = flow.device_id.split(':')[0]
+                ip = flow.device_id.split(":")[0]
                 if ip not in ip_to_stable:
                     continue
 
@@ -125,8 +128,8 @@ async def migrate_all_stable_ids():
 
                 # Check if needs update
                 needs_update = (
-                    not flow.stable_device_id or
-                    flow.stable_device_id.startswith(ip.replace('.', '_'))
+                    not flow.stable_device_id
+                    or flow.stable_device_id.startswith(ip.replace(".", "_"))
                 )
 
                 if needs_update:
@@ -140,7 +143,7 @@ async def migrate_all_stable_ids():
         return {
             "success": True,
             **results,
-            "message": f"Migrated {results['sensors_migrated']} sensors and {results['flows_migrated']} flows"
+            "message": f"Migrated {results['sensors_migrated']} sensors and {results['flows_migrated']} flows",
         }
 
     except Exception as e:

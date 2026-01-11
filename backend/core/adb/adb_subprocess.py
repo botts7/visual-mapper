@@ -3,6 +3,7 @@ Subprocess-based ADB Connection.
 Required for Android 11+ wireless debugging that uses TLS.
 Adapted from v3 with improvements: inherits from BaseADBConnection, uses centralized config.
 """
+
 import logging
 import subprocess
 from typing import Tuple
@@ -48,10 +49,7 @@ class SubprocessADBConnection(BaseADBConnection):
             # Check if device is already connected
             def _check_devices():
                 result = subprocess.run(
-                    ["adb", "devices"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
+                    ["adb", "devices"], capture_output=True, text=True, timeout=5
                 )
                 return result.returncode == 0, result.stdout
 
@@ -70,14 +68,16 @@ class SubprocessADBConnection(BaseADBConnection):
                     ["adb", "connect", self.device_id],
                     capture_output=True,
                     text=True,
-                    timeout=config.CONNECTION_TIMEOUT
+                    timeout=config.CONNECTION_TIMEOUT,
                 )
                 return result.returncode == 0, result.stdout
 
             success, output = await self._run_in_executor(_connect)
 
             # Check for success indicators
-            if success and ("connected" in output.lower() or "already connected" in output.lower()):
+            if success and (
+                "connected" in output.lower() or "already connected" in output.lower()
+            ):
                 _LOGGER.info(f"✅ Connected to {self.device_id}")
                 self._connected = True
                 return True
@@ -86,7 +86,9 @@ class SubprocessADBConnection(BaseADBConnection):
                 return False
 
         except FileNotFoundError:
-            _LOGGER.error("ADB binary not found. Install android-tools to use subprocess ADB.")
+            _LOGGER.error(
+                "ADB binary not found. Install android-tools to use subprocess ADB."
+            )
             return False
         except subprocess.TimeoutExpired:
             _LOGGER.error(f"Connection timeout after {config.CONNECTION_TIMEOUT}s")
@@ -117,7 +119,7 @@ class SubprocessADBConnection(BaseADBConnection):
                 result = subprocess.run(
                     ["adb", "-s", self.device_id, "shell", command],
                     capture_output=True,
-                    timeout=config.SHELL_TIMEOUT
+                    timeout=config.SHELL_TIMEOUT,
                 )
                 return result.stdout
 
@@ -129,7 +131,7 @@ class SubprocessADBConnection(BaseADBConnection):
 
             # For other commands, decode as UTF-8 text
             try:
-                return response.decode('utf-8').strip() if response else ""
+                return response.decode("utf-8").strip() if response else ""
             except UnicodeDecodeError:
                 # If decoding fails, return as bytes
                 return response
@@ -165,7 +167,7 @@ class SubprocessADBConnection(BaseADBConnection):
                     ["adb", "-s", self.device_id, "pull", remote_path, local_path],
                     capture_output=True,
                     text=True,
-                    timeout=config.PULL_TIMEOUT
+                    timeout=config.PULL_TIMEOUT,
                 )
                 return result.returncode == 0
 
@@ -209,7 +211,7 @@ class SubprocessADBConnection(BaseADBConnection):
                     ["adb", "-s", self.device_id, "push", local_path, remote_path],
                     capture_output=True,
                     text=True,
-                    timeout=config.PUSH_TIMEOUT
+                    timeout=config.PUSH_TIMEOUT,
                 )
                 return result.returncode == 0
 
@@ -241,7 +243,7 @@ class SubprocessADBConnection(BaseADBConnection):
                 subprocess.run(
                     ["adb", "disconnect", self.device_id],
                     capture_output=True,
-                    timeout=5
+                    timeout=5,
                 )
 
             await self._run_in_executor(_disconnect)

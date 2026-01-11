@@ -35,11 +35,14 @@ class SuggestActionsRequest(BaseModel):
 # SMART SENSOR SUGGESTIONS
 # =============================================================================
 
+
 @router.get("/api/devices/suggest-sensors")
 @router.post("/api/devices/suggest-sensors")
 @router.get("/api/suggestions/sensors")
 @router.post("/api/suggestions/sensors")
-async def suggest_sensors(request: Optional[SuggestSensorsRequest] = None, device_id: Optional[str] = None):
+async def suggest_sensors(
+    request: Optional[SuggestSensorsRequest] = None, device_id: Optional[str] = None
+):
     """
     Analyze current screen and suggest Home Assistant sensors.
     Supports both GET (with query param) and POST (with body).
@@ -55,13 +58,14 @@ async def suggest_sensors(request: Optional[SuggestSensorsRequest] = None, devic
         # Get UI elements from device
         elements_response = await deps.adb_bridge.get_ui_elements(did)
 
-        if not elements_response or 'elements' not in elements_response:
+        if not elements_response or "elements" not in elements_response:
             elements = elements_response if isinstance(elements_response, list) else []
         else:
-            elements = elements_response['elements']
+            elements = elements_response["elements"]
 
         # Use sensor suggester to analyze elements
         from utils.sensor_suggester import get_sensor_suggester
+
         suggester = get_sensor_suggester()
         suggestions = suggester.suggest_sensors(elements)
 
@@ -72,7 +76,7 @@ async def suggest_sensors(request: Optional[SuggestSensorsRequest] = None, devic
             "device_id": did,
             "suggestions": suggestions,
             "count": len(suggestions),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except HTTPException:
@@ -89,11 +93,14 @@ async def suggest_sensors(request: Optional[SuggestSensorsRequest] = None, devic
 # SMART ACTION SUGGESTIONS
 # =============================================================================
 
+
 @router.get("/api/devices/suggest-actions")
 @router.post("/api/devices/suggest-actions")
 @router.get("/api/suggestions/actions")
 @router.post("/api/suggestions/actions")
-async def suggest_actions(request: Optional[SuggestActionsRequest] = None, device_id: Optional[str] = None):
+async def suggest_actions(
+    request: Optional[SuggestActionsRequest] = None, device_id: Optional[str] = None
+):
     """
     Analyze current screen and suggest Home Assistant actions.
     Supports both GET and POST.
@@ -109,13 +116,14 @@ async def suggest_actions(request: Optional[SuggestActionsRequest] = None, devic
         # Get UI elements from device
         elements_response = await deps.adb_bridge.get_ui_elements(did)
 
-        if not elements_response or 'elements' not in elements_response:
+        if not elements_response or "elements" not in elements_response:
             elements = elements_response if isinstance(elements_response, list) else []
         else:
-            elements = elements_response['elements']
+            elements = elements_response["elements"]
 
         # Use action suggester to analyze elements
         from utils.action_suggester import get_action_suggester
+
         suggester = get_action_suggester()
         suggestions = suggester.suggest_actions(elements)
 
@@ -126,7 +134,7 @@ async def suggest_actions(request: Optional[SuggestActionsRequest] = None, devic
             "device_id": did,
             "suggestions": suggestions,
             "count": len(suggestions),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except HTTPException:

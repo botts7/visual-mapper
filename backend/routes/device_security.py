@@ -30,11 +30,14 @@ router = APIRouter(prefix="/api/device", tags=["device_security"])
 # REQUEST MODELS
 # =============================================================================
 
+
 class DeviceSecurityRequest(BaseModel):
     strategy: str  # LockStrategy enum value
     passcode: Optional[str] = None
     notes: Optional[str] = None
-    sleep_grace_period: int = 300  # Seconds before sleeping if another flow is due (default 5 min)
+    sleep_grace_period: int = (
+        300  # Seconds before sleeping if another flow is due (default 5 min)
+    )
 
 
 class DeviceUnlockRequest(BaseModel):
@@ -44,6 +47,7 @@ class DeviceUnlockRequest(BaseModel):
 # =============================================================================
 # LOCK SCREEN CONFIGURATION ENDPOINTS
 # =============================================================================
+
 
 @router.get("/{device_id}/security")
 async def get_device_security(device_id: str):
@@ -97,14 +101,13 @@ async def save_device_security(device_id: str, request: DeviceSecurityRequest):
         except ValueError:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid strategy: {request.strategy}. Must be one of: {[s.value for s in LockStrategy]}"
+                detail=f"Invalid strategy: {request.strategy}. Must be one of: {[s.value for s in LockStrategy]}",
             )
 
         # Validate passcode requirement for auto_unlock
         if strategy == LockStrategy.AUTO_UNLOCK and not request.passcode:
             raise HTTPException(
-                status_code=400,
-                detail="Passcode is required for auto_unlock strategy"
+                status_code=400, detail="Passcode is required for auto_unlock strategy"
             )
 
         # Save configuration
@@ -113,11 +116,13 @@ async def save_device_security(device_id: str, request: DeviceSecurityRequest):
             strategy=strategy,
             passcode=request.passcode,
             notes=request.notes,
-            sleep_grace_period=request.sleep_grace_period
+            sleep_grace_period=request.sleep_grace_period,
         )
 
         if success:
-            logger.info(f"[API] Saved security config for {device_id}: strategy={strategy.value}")
+            logger.info(
+                f"[API] Saved security config for {device_id}: strategy={strategy.value}"
+            )
             return {"success": True, "device_id": device_id, "strategy": strategy.value}
         else:
             raise HTTPException(status_code=500, detail="Failed to save configuration")
@@ -152,10 +157,12 @@ async def test_device_unlock(device_id: str, request: DeviceUnlockRequest):
     try:
         # Check if device is connected
         devices = await deps.adb_bridge.get_devices()
-        device_ids = [d.get('id') for d in devices]
+        device_ids = [d.get("id") for d in devices]
 
         if device_id not in device_ids:
-            raise HTTPException(status_code=404, detail=f"Device {device_id} not connected")
+            raise HTTPException(
+                status_code=404, detail=f"Device {device_id} not connected"
+            )
 
         # Attempt unlock
         success = await deps.adb_bridge.unlock_device(device_id, request.passcode)
@@ -193,20 +200,24 @@ async def auto_unlock_device(device_id: str):
     try:
         # Check if device is connected
         devices = await deps.adb_bridge.get_devices()
-        device_ids = [d.get('id') for d in devices]
+        device_ids = [d.get("id") for d in devices]
 
         if device_id not in device_ids:
-            raise HTTPException(status_code=404, detail=f"Device {device_id} not connected")
+            raise HTTPException(
+                status_code=404, detail=f"Device {device_id} not connected"
+            )
 
         # Check unlock status first
         unlock_status = deps.adb_bridge.get_unlock_status(device_id)
 
         if unlock_status["in_cooldown"]:
-            logger.warning(f"[API] Auto-unlock blocked - device {device_id} in cooldown")
+            logger.warning(
+                f"[API] Auto-unlock blocked - device {device_id} in cooldown"
+            )
             return {
                 "success": False,
                 "message": f"Unlock blocked - in cooldown for {unlock_status['cooldown_remaining_seconds']}s to prevent device lockout. Please unlock manually.",
-                "unlock_status": unlock_status
+                "unlock_status": unlock_status,
             }
 
         # Step 1: Try swipe unlock first (fast, works for devices without passcode)
@@ -218,16 +229,22 @@ async def auto_unlock_device(device_id: str):
             is_locked = await deps.adb_bridge.is_locked(device_id)
             if not is_locked:
                 logger.info(f"[API] Device {device_id} unlocked via swipe")
-                return {"success": True, "message": "Device unlocked via swipe", "unlock_status": unlock_status}
+                return {
+                    "success": True,
+                    "message": "Device unlocked via swipe",
+                    "unlock_status": unlock_status,
+                }
         except Exception as e:
             logger.debug(f"[API] Swipe unlock attempt: {e}")
 
         # Step 2: Try passcode if configured
         config = deps.device_security_manager.get_lock_config(device_id)
-        passcode = deps.device_security_manager.get_passcode(device_id) if config else None
+        passcode = (
+            deps.device_security_manager.get_passcode(device_id) if config else None
+        )
 
         success = False
-        if passcode and config.get('strategy') == "auto_unlock":
+        if passcode and config.get("strategy") == "auto_unlock":
             # Attempt passcode unlock
             success = await deps.adb_bridge.unlock_device(device_id, passcode)
 
@@ -236,16 +253,28 @@ async def auto_unlock_device(device_id: str):
 
         if success:
             logger.info(f"[API] Auto-unlocked device {device_id}")
-            return {"success": True, "message": "Device unlocked successfully", "unlock_status": unlock_status}
+            return {
+                "success": True,
+                "message": "Device unlocked successfully",
+                "unlock_status": unlock_status,
+            }
         else:
             logger.warning(f"[API] Auto-unlock failed for {device_id}")
             message = "Failed to unlock device"
             if unlock_status["in_cooldown"]:
                 message = f"Unlock failed - max attempts reached. In cooldown for {unlock_status['cooldown_remaining_seconds']}s. Please unlock manually."
             elif unlock_status["failure_count"] > 0:
-                remaining = unlock_status["max_attempts"] - unlock_status["failure_count"]
-                message = f"Unlock failed - {remaining} attempt(s) remaining before cooldown"
-            return {"success": False, "message": message, "unlock_status": unlock_status}
+                remaining = (
+                    unlock_status["max_attempts"] - unlock_status["failure_count"]
+                )
+                message = (
+                    f"Unlock failed - {remaining} attempt(s) remaining before cooldown"
+                )
+            return {
+                "success": False,
+                "message": message,
+                "unlock_status": unlock_status,
+            }
 
     except HTTPException:
         raise
@@ -275,10 +304,7 @@ async def get_unlock_status(device_id: str):
     deps = get_deps()
     try:
         status = deps.adb_bridge.get_unlock_status(device_id)
-        return {
-            "device_id": device_id,
-            **status
-        }
+        return {"device_id": device_id, **status}
     except Exception as e:
         logger.error(f"[API] Error getting unlock status for {device_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -308,7 +334,7 @@ async def reset_unlock_failures(device_id: str):
         return {
             "success": True,
             "message": "Unlock failures reset successfully",
-            "unlock_status": status
+            "unlock_status": status,
         }
     except Exception as e:
         logger.error(f"[API] Error resetting unlock failures for {device_id}: {e}")
