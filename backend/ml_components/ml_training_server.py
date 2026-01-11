@@ -105,7 +105,14 @@ def atomic_write_json(path, data: dict, indent: int = 2) -> None:
         raise
 
 
-from services.feature_manager import get_feature_manager
+# Optional feature manager import (not available when running standalone)
+try:
+    from services.feature_manager import get_feature_manager
+    FEATURE_MANAGER_AVAILABLE = True
+except ImportError:
+    FEATURE_MANAGER_AVAILABLE = False
+    def get_feature_manager():
+        return None
 
 # === Hardware Detection ===
 
@@ -123,9 +130,11 @@ def detect_hardware():
         "coral_devices": 0
     }
 
-    feature_manager = get_feature_manager()
-    if not feature_manager.is_enabled("ml_enabled"):
-        return hw_info
+    # Check feature manager if available (skip when running standalone)
+    if FEATURE_MANAGER_AVAILABLE:
+        feature_manager = get_feature_manager()
+        if feature_manager and not feature_manager.is_enabled("ml_enabled"):
+            return hw_info
 
     # Check for ONNX Runtime with DirectML (best for Windows NPU)
     try:
