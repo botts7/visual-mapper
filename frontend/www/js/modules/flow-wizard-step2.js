@@ -5,7 +5,7 @@
  * Handles app list loading, icon detection, system app filtering, and app search
  */
 
-import { showToast } from './toast.js?v=0.2.62';
+import { showToast } from './toast.js?v=0.2.63';
 
 // Helper to get API base
 function getApiBase() {
@@ -416,7 +416,9 @@ function stopQueueStatsPolling(wizard) {
 // Track previous queue state for detecting completion
 let previousIconQueuePending = -1;
 let previousAppNameQueuePending = -1;
-let hasRefreshedIcons = false;  // Prevent multiple refreshes per session
+let lastIconRefreshPending = -1;  // Track queue size at last refresh (for progressive updates)
+let lastAppNameRefreshPending = -1;
+let hasRefreshedIcons = false;  // Prevent multiple final refreshes per session
 let hasRefreshedAppNames = false;
 let wasIconWorkerRunning = false;  // Track if worker was running (for stuck detection)
 let wasAppNameWorkerRunning = false;
@@ -427,6 +429,8 @@ let wasAppNameWorkerRunning = false;
 export function resetRefreshFlags() {
     previousIconQueuePending = -1;
     previousAppNameQueuePending = -1;
+    lastIconRefreshPending = -1;
+    lastAppNameRefreshPending = -1;
     hasRefreshedIcons = false;
     hasRefreshedAppNames = false;
     wasIconWorkerRunning = false;
@@ -548,10 +552,16 @@ async function updateQueueStats() {
                 statusText.textContent = `Fetching icons... (${totalPending} remaining, ${processing_count} in progress)`;
                 statusText.style.color = '#3b82f6';
 
-                // Periodic refresh while fetching - refresh every ~5 icons fetched
-                if (previousIconQueuePending > 0 && previousIconQueuePending - totalPending >= 5) {
-                    console.log(`[Step2] Progress: ${previousIconQueuePending - totalPending} icons fetched, refreshing...`);
+                // Periodic refresh while fetching - refresh every ~3 icons fetched
+                // (Backend has 0.5s delay between fetches, poll is 2s, so ~4 max per poll)
+                // Use lastIconRefreshPending to accumulate across multiple polls
+                if (lastIconRefreshPending < 0) {
+                    lastIconRefreshPending = totalPending; // Initialize on first poll with pending items
+                }
+                if (lastIconRefreshPending - totalPending >= 3) {
+                    console.log(`[Step2] Progress: ${lastIconRefreshPending - totalPending} icons fetched since last refresh, refreshing...`);
                     refreshIconImages(false);
+                    lastIconRefreshPending = totalPending; // Reset counter after refresh
                 }
             }
         }
@@ -609,10 +619,16 @@ async function updateQueueStats() {
                 statusText.textContent = `Fetching app names... ${progress_percentage}% (${completed_count}/${total_requested}, ${processing_count} in progress)`;
                 statusText.style.color = '#3b82f6';
 
-                // Periodic refresh while fetching - refresh every ~10 names fetched
-                if (previousAppNameQueuePending > 0 && previousAppNameQueuePending - totalPending >= 10) {
-                    console.log(`[Step2] Progress: ${previousAppNameQueuePending - totalPending} names fetched, refreshing...`);
+                // Periodic refresh while fetching - refresh every ~5 names fetched
+                // (Backend has 1.5s delay between fetches, poll is 2s, so ~1 per poll)
+                // Use lastAppNameRefreshPending to accumulate across multiple polls
+                if (lastAppNameRefreshPending < 0) {
+                    lastAppNameRefreshPending = totalPending; // Initialize on first poll with pending items
+                }
+                if (lastAppNameRefreshPending - totalPending >= 5) {
+                    console.log(`[Step2] Progress: ${lastAppNameRefreshPending - totalPending} names fetched since last refresh, refreshing...`);
                     refreshAppNames(false);
+                    lastAppNameRefreshPending = totalPending; // Reset counter after refresh
                 }
             }
         }

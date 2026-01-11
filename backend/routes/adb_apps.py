@@ -83,34 +83,33 @@ async def get_app_icon(
 
     # Tier 0: Check Play Store cache (INSTANT + BEST QUALITY)
     # Play Store icons are high quality, properly sized, and authoritative
-    if deps.playstore_icon_scraper:
-        from pathlib import Path
+    # Always check the cache directory - icons may exist even if scraper isn't initialized
+    from pathlib import Path
 
-        playstore_cache = Path(f"data/app-icons-playstore/{package_name}.png")
-        if playstore_cache.exists():
-            icon_data = playstore_cache.read_bytes()
-            logger.debug(f"[API] Tier 0: Play Store cache hit for {package_name}")
-            return Response(
-                content=icon_data,
-                media_type="image/png",
-                headers={"X-Icon-Source": "playstore"},
-            )
+    playstore_cache = Path(f"data/app-icons-playstore/{package_name}.png")
+    if playstore_cache.exists():
+        icon_data = playstore_cache.read_bytes()
+        logger.debug(f"[API] Tier 0: Play Store cache hit for {package_name}")
+        return Response(
+            content=icon_data,
+            media_type="image/png",
+            headers={"X-Icon-Source": "playstore"},
+        )
 
     # Tier 1: Check APK extraction cache (INSTANT)
-    if deps.app_icon_extractor:
-        from pathlib import Path
-        import glob
+    # Always check the cache directory - icons may exist even if extractor isn't initialized
+    import glob
 
-        apk_cache_pattern = f"data/app-icons/{package_name}_*.png"
-        apk_caches = glob.glob(apk_cache_pattern)
-        if apk_caches:
-            icon_data = Path(apk_caches[0]).read_bytes()
-            logger.debug(f"[API] Tier 1: APK cache hit for {package_name}")
-            return Response(
-                content=icon_data,
-                media_type="image/png",
-                headers={"X-Icon-Source": "apk-extraction"},
-            )
+    apk_cache_pattern = f"data/app-icons/{package_name}_*.png"
+    apk_caches = glob.glob(apk_cache_pattern)
+    if apk_caches:
+        icon_data = Path(apk_caches[0]).read_bytes()
+        logger.debug(f"[API] Tier 1: APK cache hit for {package_name}")
+        return Response(
+            content=icon_data,
+            media_type="image/png",
+            headers={"X-Icon-Source": "apk-extraction"},
+        )
 
     # Tier 2: Check device-specific cache (INSTANT but lower quality)
     # Device scraper crops from screenshots - use as fallback only for apps not on Play Store
