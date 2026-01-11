@@ -2021,11 +2021,16 @@ class CoralQNetworkTrainer:
 class MLTrainingServer:
     """Main MQTT-based training server with monitoring"""
 
-    def __init__(self, broker: str, port: int, use_dqn: bool = False, use_coral: bool = False):
+    def __init__(self, broker: str, port: int, username: str = "", password: str = "", use_dqn: bool = False, use_coral: bool = False):
         self.broker = broker
         self.port = port
         self.client = mqtt.Client(client_id=f"ml_training_server_{int(time.time())}")
         self.running = False
+
+        # Set MQTT authentication if provided
+        if username and password:
+            self.client.username_pw_set(username, password)
+            logger.info(f"MQTT authentication configured for user: {username}")
 
         # Choose best available trainer (priority order):
         # 1. Coral Edge TPU if available and requested
@@ -2313,6 +2318,8 @@ def main():
     parser = argparse.ArgumentParser(description="ML Training Server for Smart Explorer (Enhanced)")
     parser.add_argument("--broker", default=DEFAULT_BROKER, help="MQTT broker address")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="MQTT broker port")
+    parser.add_argument("--username", type=str, default="", help="MQTT username")
+    parser.add_argument("--password", type=str, default="", help="MQTT password")
     parser.add_argument("--dqn", action="store_true", help="Use Deep Q-Network (requires PyTorch)")
     parser.add_argument("--use-coral", action="store_true", help="Use Coral Edge TPU for inference")
     parser.add_argument("--export", type=str, help="Export Q-table to file and exit")
@@ -2355,7 +2362,14 @@ def main():
 
     # Start server
     use_coral = getattr(args, 'use_coral', False)
-    server = MLTrainingServer(args.broker, args.port, use_dqn=args.dqn, use_coral=use_coral)
+    server = MLTrainingServer(
+        args.broker,
+        args.port,
+        username=args.username,
+        password=args.password,
+        use_dqn=args.dqn,
+        use_coral=use_coral
+    )
 
     # Load existing Q-table if specified
     if args.load:
