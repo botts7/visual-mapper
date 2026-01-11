@@ -878,13 +878,8 @@ app.router.lifespan_context = lifespan
 # This will be called at the end of startup event
 def _init_route_dependencies():
     """Initialize route dependencies after all managers are created"""
-    global adb_bridge, device_migrator, sensor_manager, text_extractor, element_text_extractor
-    global action_manager, action_executor, mqtt_manager, sensor_updater
-    global flow_manager, flow_executor, flow_scheduler, performance_monitor
-    global screenshot_stitcher, app_icon_extractor, playstore_icon_scraper
-    global device_icon_scraper, icon_background_fetcher, app_name_background_fetcher
-    global stream_manager, adb_maintenance, shell_pool, connection_monitor, ws_log_handler
-
+    # Note: These module-level variables are read here, not assigned
+    # No 'global' declarations needed for read-only access
     feature_manager = get_feature_manager()
 
     deps = RouteDependencies(

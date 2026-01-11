@@ -12,6 +12,7 @@ Now uses hybrid connection strategy with support for:
 
 import asyncio
 import logging
+import os
 import re
 import time
 import xml.etree.ElementTree as ET
