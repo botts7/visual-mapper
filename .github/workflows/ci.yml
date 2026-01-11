@@ -2,25 +2,22 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, master ]
     tags:
-      - 'v*.*.*' # Run on version tags
+      - 'v*.*.*'
   pull_request:
-    branches: [ main, develop ]
-  workflow_dispatch: # Allow manual runs
+    branches: [ main, develop, master ]
+  workflow_dispatch:
 
 env:
   PYTHON_VERSION: '3.11'
   NODE_VERSION: '20'
   REGISTRY: ghcr.io
-  # Note: The image name should be lowercase. It is derived from the repository owner and name.
-  # Replace 'YOUR_GITHUB_USERNAME' with the actual repository owner.
   IMAGE_NAME: ${{ secrets.DOCKER_IMAGE_NAME || format('{0}/{1}', github.repository_owner, 'visual-mapper') }}
-
 
 jobs:
   # =============================================================================
-  # Backend Python Tests (Unit + Integration)
+  # Backend Python Tests
   # =============================================================================
   test-backend:
     name: Backend Tests
@@ -29,325 +26,120 @@ jobs:
       run:
         working-directory: ./backend
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python ${{ env.PYTHON_VERSION }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-
-    - name: Cache Python dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-cov pytest-asyncio
-
-    - name: Run backend unit tests
-      run: |
-        python -m pytest tests/ -v --cov=. --cov-report=xml --cov-report=term-missing
-      env:
-        MQTT_BROKER: localhost
-        MQTT_PORT: 1883
-
-        - name: Upload coverage to Codecov
-
-          uses: codecov/codecov-action@v4
-
-          with:
-
-            files: backend/coverage.xml
-
-            flags: backend
-
-            name: backend-coverage
-
-          continue-on-error: true
-
-    
-
-      # =============================================================================
-
-      # Code Quality (Linting)
-
-      # =============================================================================
-
-      lint:
-
-        name: Code Quality
-
-        runs-on: ubuntu-latest
-
-        defaults:
-
-          run:
-
-            working-directory: ./backend
-
-        steps:
-
-        - name: Checkout code
-
-          uses: actions/checkout@v4
-
-    
-
-        - name: Set up Python
-
-          uses: actions/setup-python@v5
-
-          with:
-
-            python-version: ${{ env.PYTHON_VERSION }}
-
-    
-
-        - name: Install linting tools
-
-          run: |
-
-            python -m pip install --upgrade pip
-
-            pip install flake8 black
-
-    
-
-        - name: Run Flake8
-
-          run: |
-
-            flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-
-    
-
-            - name: Check Black formatting
-
-    
-
-              run: |
-
-    
-
-                black --check --diff .
-
-    
-
-        
-
-    
-
-          # =============================================================================
-
-    
-
-          # Build and Push Docker Images
-
-    
-
-          # =============================================================================
-
-    
-
-          docker-build-and-push:
-
-    
-
-            name: Build and Push Docker Images
-
-    
-
-            runs-on: ubuntu-latest
-
-    
-
-            needs: [test-backend, lint]
-
-    
-
-            # Only run on pushes to the main branch, or manual trigger
-
-    
-
-            if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-
-    
-
-        
-
-    
-
-            steps:
-
-    
-
-            - name: Checkout code
-
-    
-
-              uses: actions/checkout@v4
-
-    
-
-        
-
-    
-
-            - name: Log in to GitHub Container Registry
-
-    
-
-              uses: docker/login-action@v3
-
-    
-
-              with:
-
-    
-
-                registry: ${{ env.REGISTRY }}
-
-    
-
-                username: ${{ github.actor }}
-
-    
-
-                password: ${{ secrets.GITHUB_TOKEN }}
-
-    
-
-        
-
-    
-
-            - name: Extract metadata (tags, labels) for Docker
-
-    
-
-              id: meta
-
-    
-
-              uses: docker/metadata-action@v5
-
-    
-
-              with:
-
-    
-
-                images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
-    
-
-        
-
-    
-
-            - name: Build and push backend image
-
-    
-
-              uses: docker/build-push-action@v5
-
-    
-
-              with:
-
-    
-
-                context: ./backend
-
-    
-
-                file: ./backend/Dockerfile
-
-    
-
-                push: true
-
-    
-
-                tags: ${{ steps.meta.outputs.tags }}
-
-    
-
-                labels: ${{ steps.meta.outputs.labels }}
-
-    
-
-                build-args: |
-
-    
-
-                  APP_VERSION=${{ steps.meta.outputs.version }}
-
-    
-
-        
-
-    
-
-            - name: Build and push ML image
-
-    
-
-              uses: docker/build-push-action@v5
-
-    
-
-              with:
-
-    
-
-                context: ./backend
-
-    
-
-                file: ./backend/Dockerfile.ml
-
-    
-
-                push: true
-
-    
-
-                # Add '-ml' suffix to the tags for the ML image
-
-    
-
-                tags: |
-
-    
-
-                  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ml:${{ steps.meta.outputs.version }}
-
-    
-
-                  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ml:latest
-
-    
-
-                labels: ${{ steps.meta.outputs.labels }}
-
-    
-
-                build-args: |
-
-    
-
-                  APP_VERSION=${{ steps.meta.outputs.version }}
-
-    
-
-        
-
-    
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio
+
+      - name: Run backend unit tests
+        run: |
+          python -m pytest tests/ -v --cov=. --cov-report=xml --cov-report=term-missing
+        env:
+          MQTT_BROKER: localhost
+          MQTT_PORT: 1883
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: backend/coverage.xml
+          flags: backend
+          name: backend-coverage
+        continue-on-error: true
+
+  # =============================================================================
+  # Code Quality (Linting)
+  # =============================================================================
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install linting tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black
+
+      - name: Run Flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Check Black formatting
+        run: |
+          black --check --diff .
+        continue-on-error: true
+
+  # =============================================================================
+  # Build and Push Docker Images
+  # =============================================================================
+  docker-build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [test-backend, lint]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+
+      - name: Build and push ML image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile.ml
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ml:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ml:latest
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
