@@ -51,21 +51,19 @@ except ImportError:
 # Configuration
 # ============================================================================
 
-# MQTT Broker (Home Assistant Docker)
-MQTT_BROKER = "192.168.86.129"
+# MQTT Broker - update to your Home Assistant IP
+MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 
-# Priority apps to ALWAYS explore (your important apps)
+# Priority apps to ALWAYS explore (add your important apps here)
 PRIORITY_APPS = [
-    "com.byd.bydautolink",            # BYD Auto Link - your main app
-    # Add your most important apps here
+    # "com.example.yourapp",          # Add your main apps here
 ]
 
 # Default apps to explore for training (good variety of UI patterns)
 # NOTE: com.android.settings and com.android.vending are blocked by Android app's sensitive blacklist
 # NOTE: com.google.android.apps.maps blocked due to READ_CONTACTS permission
 DEFAULT_APPS = [
-    "com.byd.bydautolink",            # BYD Auto Link - TEST FIRST
     "com.google.android.youtube",     # YouTube
     "com.google.android.deskclock",   # Clock app
     "com.google.android.calculator",  # Calculator app

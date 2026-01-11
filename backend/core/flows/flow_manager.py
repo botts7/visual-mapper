@@ -130,7 +130,7 @@ class FlowManager:
         """
         Get all flows for a specific device
 
-        Supports both network device_id (192.168.86.2:46747) and stable_device_id (c7028879b7a83aa7).
+        Supports both network device_id (192.168.1.2:46747) and stable_device_id (c7028879b7a83aa7).
         This allows Android companion app to query using stable ID across IP/port changes.
         """
         # First try direct file load (for network device_id)
@@ -738,20 +738,6 @@ class FlowManager:
                 ],
                 "sensors": [],
                 "tags": ["ev", "tesla", "vehicle", "battery"]
-            },
-            {
-                "bundle_id": "byd_vehicle_status",
-                "app_package": "com.byd.bydautolink",
-                "app_name": "BYD Auto Link",
-                "name": "BYD Vehicle Status",
-                "description": "Capture BYD vehicle status - battery, doors, climate",
-                "steps": [
-                    {"step_type": "launch_app", "package": "com.byd.bydautolink", "description": "Open BYD app"},
-                    {"step_type": "wait", "duration": 5000, "description": "Wait for vehicle data"},
-                    {"step_type": "capture_sensors", "sensor_ids": [], "description": "Capture vehicle status"}
-                ],
-                "sensors": [],
-                "tags": ["ev", "byd", "vehicle", "battery"]
             },
             # =================================================================
             # FITNESS / HEALTH APPS

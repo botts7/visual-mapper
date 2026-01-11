@@ -3,7 +3,7 @@ REM Capture Visual Mapper Companion app logs
 REM Usage: capture_app_logs.bat [device_id]
 
 set DEVICE=%1
-if "%DEVICE%"=="" set DEVICE=192.168.86.2:46747
+if "%DEVICE%"=="" set DEVICE=192.168.1.2:46747
 
 echo Capturing logs from device %DEVICE%...
 echo Press Ctrl+C to stop

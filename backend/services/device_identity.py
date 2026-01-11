@@ -10,10 +10,10 @@ Usage:
     resolver = DeviceIdentityResolver()
 
     # When a device connects, register it
-    resolver.register_device("192.168.86.2:46747", "R9YT50J4S9D")
+    resolver.register_device("192.168.1.2:46747", "R9YT50J4S9D")
 
     # Later, resolve connection_id to stable_id
-    stable_id = resolver.get_stable_id("192.168.86.2:46747")
+    stable_id = resolver.get_stable_id("192.168.1.2:46747")
 
     # Or find connection_id for a stable_id
     conn_id = resolver.get_connection_id("R9YT50J4S9D")

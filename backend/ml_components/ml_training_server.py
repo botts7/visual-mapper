@@ -21,7 +21,7 @@ Architecture:
 
 Usage:
     python ml_training_server.py --broker localhost --port 1883
-    python ml_training_server.py --broker 192.168.86.66 --port 1883 --dqn
+    python ml_training_server.py --broker 192.168.1.66 --port 1883 --dqn
 
 MQTT Topics:
     visualmapper/exploration/logs       - Receive exploration logs from Android

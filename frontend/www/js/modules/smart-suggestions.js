@@ -5,8 +5,8 @@
  * based on pattern detection heuristics.
  */
 
-import { getApiBase } from './api-base-detection.js?v=0.2.34';
-import { showToast } from './toast.js?v=0.2.34';
+import { getApiBase } from './api-base-detection.js?v=0.2.35';
+import { showToast } from './toast.js?v=0.2.35';
 
 class SmartSuggestions {
     constructor() {
@@ -602,7 +602,7 @@ class SmartSuggestions {
             };
 
             // Import Dialogs module to create action
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.34');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.35');
             await Dialogs.createAction(this.wizard, element, null);
         }
     }

@@ -6,7 +6,7 @@ set LINES=%1
 if "%LINES%"=="" set LINES=200
 
 set DEVICE=%2
-if "%DEVICE%"=="" set DEVICE=192.168.86.2:46747
+if "%DEVICE%"=="" set DEVICE=192.168.1.2:46747
 
 set OUTFILE=%~dp0..\app_logs.txt
 

@@ -41,7 +41,7 @@ class DeviceDataMigrator:
         Discover mappings between old device IDs (IP:port or hash) and new stable IDs.
 
         Args:
-            device_serial_map: Known mappings like {"192.168.86.2:46747": "R9YT50J4S9D"}
+            device_serial_map: Known mappings like {"192.168.1.2:46747": "R9YT50J4S9D"}
 
         Returns:
             Complete mapping including derived legacy hashes
@@ -345,7 +345,7 @@ class DeviceDataMigrator:
         Run full migration of sensors and flows.
 
         Args:
-            device_serial_map: Mapping like {"192.168.86.2:46747": "R9YT50J4S9D"}
+            device_serial_map: Mapping like {"192.168.1.2:46747": "R9YT50J4S9D"}
             dry_run: If True, only report changes without modifying
 
         Returns:
@@ -383,7 +383,7 @@ def main():
     parser = argparse.ArgumentParser(description="Migrate device data to stable IDs")
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without modifying")
     parser.add_argument("--device-map", type=str, help="JSON file with device mappings")
-    parser.add_argument("--conn-id", type=str, help="Connection ID (e.g., 192.168.86.2:46747)")
+    parser.add_argument("--conn-id", type=str, help="Connection ID (e.g., 192.168.1.2:46747)")
     parser.add_argument("--stable-id", type=str, help="Stable device ID (e.g., R9YT50J4S9D)")
     args = parser.parse_args()
 

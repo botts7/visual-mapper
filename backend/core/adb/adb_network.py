@@ -30,7 +30,7 @@ class NetworkADBConnection(BaseADBConnection):
 
         Args:
             hass: Home Assistant instance or None for standalone mode
-            device_id: Device identifier (e.g., "192.168.86.2:45441")
+            device_id: Device identifier (e.g., "192.168.1.2:45441")
             adb_host: ADB server hostname/IP (default from config: 127.0.0.1)
             adb_port: ADB server port (default from config: 5037)
         """

@@ -67,9 +67,23 @@ desktop.ini
 .env.*.local
 *.pem
 *.key
+*.keystore
+*.jks
 secrets.json
 credentials.json
+google-services.json
+local.properties
 _BACKUP/
+
+# Device-specific config files (contain personal IPs/device IDs)
+flows_192*.json
+flows_*_*.json
+nav_*.json
+sensors_*.json
+actions_*.json
+
+# Test certificates
+tests/artifacts/certs/
 
 # =============================================================================
 # Runtime Data & Logs
@@ -160,6 +174,7 @@ mosquitto/
 # External Dependencies
 # =============================================================================
 ws-scrcpy/
+backend/ws-scrcpy/
 
 # =============================================================================
 # Temporary & Debug Files

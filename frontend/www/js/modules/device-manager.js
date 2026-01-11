@@ -190,7 +190,7 @@ class DeviceManager {
 
     /**
      * Resolve a connection ID to a stable device ID
-     * @param {string} connectionId - Device connection ID (e.g., 192.168.86.2:46747)
+     * @param {string} connectionId - Device connection ID (e.g., 192.168.1.2:46747)
      * @returns {Promise<string>} Stable device ID (e.g., R9YT50J4S9D) or original ID if resolution fails
      */
     async getStableDeviceId(connectionId) {

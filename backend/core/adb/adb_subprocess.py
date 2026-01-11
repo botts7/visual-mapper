@@ -27,7 +27,7 @@ class SubprocessADBConnection(BaseADBConnection):
 
         Args:
             hass: Home Assistant instance or None for standalone mode
-            device_id: Device identifier (e.g., "192.168.86.2:45441")
+            device_id: Device identifier (e.g., "192.168.1.2:45441")
         """
         super().__init__(hass, device_id)
 

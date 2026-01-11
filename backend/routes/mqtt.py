@@ -273,7 +273,7 @@ async def set_device_info(device_id: str, info: dict):
         app_name: App context (e.g., "BYD", "Spotify")
 
     Example:
-        POST /api/mqtt/device-info/192.168.86.2:46747
+        POST /api/mqtt/device-info/192.168.1.2:46747
         {"model": "Galaxy Tab A7", "app_name": "BYD"}
 
     Result in HA: Device name becomes "Galaxy Tab A7 - BYD"

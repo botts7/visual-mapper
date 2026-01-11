@@ -970,7 +970,7 @@ class ADBBridge:
                     if not line:
                         continue
 
-                    # Format: "192.168.86.2:40951 device product:gta8xx model:SM_X205 ..."
+                    # Format: "192.168.1.2:40951 device product:gta8xx model:SM_X205 ..."
                     parts = line.split()
                     if len(parts) < 2:
                         continue
@@ -1047,7 +1047,7 @@ class ADBBridge:
 
         for device_id, conn in self.devices.items():
             # Detect connection type from device_id format
-            # WiFi: IP:port format (e.g., "192.168.86.2:5555")
+            # WiFi: IP:port format (e.g., "192.168.1.2:5555")
             # USB: Serial number (e.g., "emulator-5554" or alphanumeric)
             is_wifi = ':' in device_id and device_id.split(':')[0].replace('.', '').isdigit()
             connection_type = 'wifi' if is_wifi else 'usb'
