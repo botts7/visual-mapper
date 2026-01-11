@@ -177,21 +177,57 @@ async def start_ml_training():
                 pid=ml_training_process.pid,
                 details="Already running"
             )
+        else:
+            # Process exited, clear it
+            ml_training_process = None
 
     try:
         broker = os.environ.get("MQTT_BROKER", "localhost")
         port = os.environ.get("MQTT_PORT", "1883")
+        username = os.environ.get("MQTT_USERNAME", "")
+        password = os.environ.get("MQTT_PASSWORD", "")
 
         # Start ML training server as subprocess
         backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         ml_script = os.path.join(backend_dir, "ml_components", "ml_training_server.py")
 
+        # Check if script exists
+        if not os.path.exists(ml_script):
+            raise HTTPException(status_code=500, detail=f"ML script not found: {ml_script}")
+
+        # Build command with optional auth
+        cmd = [sys.executable, ml_script, "--broker", broker, "--port", str(port)]
+        if username:
+            cmd.extend(["--username", username])
+        if password:
+            cmd.extend(["--password", password])
+
+        # Log file for debugging
+        log_dir = os.path.join(backend_dir, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = open(os.path.join(log_dir, "ml_training.log"), "a")
+
         ml_training_process = subprocess.Popen(
-            [sys.executable, ml_script, "--broker", broker, "--port", port],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=backend_dir
+            cmd,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            cwd=backend_dir,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"}
         )
+
+        # Give it a moment to start and check if it's still running
+        import time
+        time.sleep(1)
+
+        poll = ml_training_process.poll()
+        if poll is not None:
+            # Process already exited - read log for error
+            log_file.close()
+            with open(os.path.join(log_dir, "ml_training.log"), "r") as f:
+                lines = f.readlines()
+                last_lines = "".join(lines[-20:]) if lines else "No output"
+            ml_training_process = None
+            raise HTTPException(status_code=500, detail=f"ML server exited immediately (code {poll}). Check logs: {last_lines[-500:]}")
 
         logger.info(f"Started ML training server with PID {ml_training_process.pid}")
 
@@ -201,6 +237,8 @@ async def start_ml_training():
             pid=ml_training_process.pid,
             details="Started successfully"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to start ML training server: {e}")
         raise HTTPException(status_code=500, detail=str(e))
