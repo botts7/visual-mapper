@@ -12,7 +12,7 @@
  * @module device-security
  */
 
-import APIClient from './api-client.js?v=0.2.48';
+import APIClient from './api-client.js?v=0.2.50';
 
 /**
  * DeviceSecurityUI - Manages device lock screen configuration UI

@@ -18,28 +18,28 @@
  * v0.0.22: Updated Step4 import for navigation issue detection
  */
 
-import { showToast } from './toast.js?v=0.2.48';
-import FlowRecorder from './flow-recorder.js?v=0.2.48';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.48';
-import FlowInteractions from './flow-interactions.js?v=0.2.48';
-import FlowStepManager from './flow-step-manager.js?v=0.2.48';
-import LiveStream from './live-stream.js?v=0.2.48';
-import ElementTree from './element-tree.js?v=0.2.48';
-import APIClient from './api-client.js?v=0.2.48';
-import SensorCreator from './sensor-creator.js?v=0.2.48';
+import { showToast } from './toast.js?v=0.2.50';
+import FlowRecorder from './flow-recorder.js?v=0.2.50';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.50';
+import FlowInteractions from './flow-interactions.js?v=0.2.50';
+import FlowStepManager from './flow-step-manager.js?v=0.2.50';
+import LiveStream from './live-stream.js?v=0.2.50';
+import ElementTree from './element-tree.js?v=0.2.50';
+import APIClient from './api-client.js?v=0.2.50';
+import SensorCreator from './sensor-creator.js?v=0.2.50';
 
 // Step modules
-import * as Step1 from './flow-wizard-step1.js?v=0.2.48';
-import * as Step2 from './flow-wizard-step2.js?v=0.2.48';
-import * as Step3 from './flow-wizard-step3.js?v=0.2.48';
-import * as Step4 from './flow-wizard-step4.js?v=0.2.48';
-import * as Step5 from './flow-wizard-step5.js?v=0.2.48';
+import * as Step1 from './flow-wizard-step1.js?v=0.2.50';
+import * as Step2 from './flow-wizard-step2.js?v=0.2.50';
+import * as Step3 from './flow-wizard-step3.js?v=0.2.50';
+import * as Step4 from './flow-wizard-step4.js?v=0.2.50';
+import * as Step5 from './flow-wizard-step5.js?v=0.2.50';
 
 // Dialog module
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.48';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.50';
 
 // Element actions module
-import * as ElementActions from './flow-wizard-element-actions.js?v=0.2.48';
+import * as ElementActions from './flow-wizard-element-actions.js?v=0.2.50';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -153,7 +153,7 @@ class FlowWizard {
             this.recorder.stop?.();
         }
 
-        const FlowRecorder = (await import('./flow-recorder.js?v=0.2.48')).default;
+        const FlowRecorder = (await import('./flow-recorder.js?v=0.2.50')).default;
         this.recorder = new FlowRecorder(deviceId, this.selectedApp, this.recordMode);
 
         // Load existing steps (convert from action format to flow format)

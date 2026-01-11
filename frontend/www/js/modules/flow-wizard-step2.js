@@ -5,7 +5,7 @@
  * Handles app list loading, icon detection, system app filtering, and app search
  */
 
-import { showToast } from './toast.js?v=0.2.48';
+import { showToast } from './toast.js?v=0.2.50';
 
 // Helper to get API base
 function getApiBase() {
@@ -415,6 +415,8 @@ let previousIconQueuePending = -1;
 let previousAppNameQueuePending = -1;
 let hasRefreshedIcons = false;  // Prevent multiple refreshes per session
 let hasRefreshedAppNames = false;
+let wasIconWorkerRunning = false;  // Track if worker was running (for stuck detection)
+let wasAppNameWorkerRunning = false;
 
 /**
  * Reset refresh flags (call when step loads)
@@ -424,6 +426,8 @@ export function resetRefreshFlags() {
     previousAppNameQueuePending = -1;
     hasRefreshedIcons = false;
     hasRefreshedAppNames = false;
+    wasIconWorkerRunning = false;
+    wasAppNameWorkerRunning = false;
     console.log('[Step2] Reset refresh flags');
 }
 
@@ -521,6 +525,13 @@ async function updateQueueStats() {
                 statusIcon.textContent = '⚠️';
                 statusText.textContent = `Worker stopped (${queue_size} queued) - Click Refetch`;
                 statusText.style.color = '#f59e0b';
+
+                // Trigger refresh when worker BECOMES stuck (was running, now stopped)
+                // Some icons may have been fetched before the worker stopped
+                if (wasIconWorkerRunning) {
+                    console.log('[Step2] Icon worker became stuck, refreshing any fetched icons...');
+                    setTimeout(refreshIconImages, 500);
+                }
             } else {
                 statusIcon.textContent = '⏳';
                 statusText.textContent = `Fetching icons... (${totalPending} remaining, ${processing_count} in progress)`;
@@ -528,6 +539,8 @@ async function updateQueueStats() {
             }
         }
 
+        // Track running state for stuck detection
+        wasIconWorkerRunning = is_running || processing_count > 0;
         previousIconQueuePending = totalPending;
 
     } catch (error) {
@@ -545,7 +558,7 @@ async function updateQueueStats() {
 
         if (!statusIcon || !statusText) return;
 
-        const { queue_size, processing_count, completed_count, total_requested, progress_percentage } = stats;
+        const { queue_size, processing_count, completed_count, total_requested, progress_percentage, is_running } = stats;
         const totalPending = queue_size + processing_count;
 
         if (total_requested === 0) {
@@ -563,11 +576,26 @@ async function updateQueueStats() {
                 setTimeout(refreshAppNames, 500); // Small delay to ensure backend cache is updated
             }
         } else if (totalPending > 0) {
-            statusIcon.textContent = '📝';
-            statusText.textContent = `Fetching app names... ${progress_percentage}% (${completed_count}/${total_requested}, ${processing_count} in progress)`;
-            statusText.style.color = '#3b82f6';
+            // Check if worker is stuck
+            if (queue_size > 0 && processing_count === 0 && is_running === false) {
+                statusIcon.textContent = '⚠️';
+                statusText.textContent = `Name worker stopped (${queue_size} queued)`;
+                statusText.style.color = '#f59e0b';
+
+                // Trigger refresh when worker BECOMES stuck
+                if (wasAppNameWorkerRunning) {
+                    console.log('[Step2] App name worker became stuck, refreshing any fetched names...');
+                    setTimeout(refreshAppNames, 500);
+                }
+            } else {
+                statusIcon.textContent = '📝';
+                statusText.textContent = `Fetching app names... ${progress_percentage}% (${completed_count}/${total_requested}, ${processing_count} in progress)`;
+                statusText.style.color = '#3b82f6';
+            }
         }
 
+        // Track running state for stuck detection
+        wasAppNameWorkerRunning = is_running || processing_count > 0;
         previousAppNameQueuePending = totalPending;
 
     } catch (error) {
@@ -587,22 +615,36 @@ async function refetchAllIcons(wizard) {
     const refetchBtn = document.getElementById('btnRefetchIcons');
     const originalText = refetchBtn?.textContent;
 
+    // Reset refresh flags so we can refresh again when fetching completes
+    hasRefreshedIcons = false;
+    hasRefreshedAppNames = false;
+    wasIconWorkerRunning = false;
+    wasAppNameWorkerRunning = false;
+    console.log('[Step2] Reset refresh flags for manual refetch');
+
     try {
         if (refetchBtn) {
             refetchBtn.disabled = true;
             refetchBtn.textContent = '⏳ Refetching...';
         }
 
-        const response = await fetch(
-            `${getApiBase()}/adb/prefetch-icons/${encodeURIComponent(wizard.selectedDevice)}`,
-            { method: 'POST' }
-        );
+        // Start both icon and app name prefetch in parallel
+        const [iconResponse, appNameResponse] = await Promise.all([
+            fetch(`${getApiBase()}/adb/prefetch-icons/${encodeURIComponent(wizard.selectedDevice)}`, { method: 'POST' }),
+            fetch(`${getApiBase()}/adb/prefetch-app-names/${encodeURIComponent(wizard.selectedDevice)}`, { method: 'POST' })
+        ]);
 
-        if (!response.ok) throw new Error('Refetch failed');
+        if (!iconResponse.ok) throw new Error('Icon refetch failed');
 
-        const result = await response.json();
-        showToast(`Queued ${result.apps_queued} apps for icon fetching`, 'success');
+        const iconResult = await iconResponse.json();
+        let message = `Queued ${iconResult.apps_queued} icons`;
 
+        if (appNameResponse.ok) {
+            const appNameResult = await appNameResponse.json();
+            message += ` and ${appNameResult.queued_count || 0} names`;
+        }
+
+        showToast(message, 'success');
         updateQueueStats();
 
         setTimeout(() => {
