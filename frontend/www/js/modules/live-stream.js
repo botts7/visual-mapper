@@ -184,7 +184,12 @@ class LiveStream {
         const host = window.location.host;
 
         // Endpoint based on mode
-        const endpoint = mode === 'mjpeg' ? 'ws/stream-mjpeg' : 'ws/stream';
+        let endpoint = 'ws/stream';
+        if (mode === 'mjpeg') {
+            endpoint = 'ws/stream-mjpeg';
+        } else if (mode === 'mjpeg-v2') {
+            endpoint = 'ws/stream-mjpeg-v2';
+        }
 
         // Handle Home Assistant ingress
         const url = window.location.href;
@@ -239,8 +244,8 @@ class LiveStream {
         try {
             this.websocket = new WebSocket(wsUrl);
 
-            // Enable binary type for MJPEG mode
-            if (this.streamMode === 'mjpeg') {
+            // Enable binary type for MJPEG modes (v1 and v2)
+            if (this.streamMode === 'mjpeg' || this.streamMode === 'mjpeg-v2') {
                 this.websocket.binaryType = 'arraybuffer';
             }
 

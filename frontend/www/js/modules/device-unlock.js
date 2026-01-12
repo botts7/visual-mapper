@@ -10,7 +10,7 @@
  * v0.0.2: Fixed unlock order - try swipe first (like scheduler), then passcode
  */
 
-import { showToast } from './toast.js?v=0.2.79';
+import { showToast } from './toast.js?v=0.2.80';
 
 // Configuration
 const DEFAULT_KEEP_AWAKE_INTERVAL = 5000; // 5 seconds (safer margin for 15-30s Android timeout)

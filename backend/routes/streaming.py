@@ -13,8 +13,10 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 import logging
 import time
 import asyncio
+import atexit
 import base64
 import io
+from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 from routes import get_deps
 
@@ -61,6 +63,8 @@ QUALITY_PRESETS = {
 # Frame capture timeout - skip slow frames quickly to maintain responsiveness
 FRAME_CAPTURE_TIMEOUT = 3.0  # 3s max per frame for WiFi ADB
 FRAME_SKIP_DELAY = 0.1  # Wait time after skipping a frame (was 0.5s)
+IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=2)
+atexit.register(IMAGE_EXECUTOR.shutdown, wait=False)
 
 
 def resize_image_for_quality(img_bytes: bytes, quality: str) -> bytes:
@@ -84,6 +88,207 @@ def resize_image_for_quality(img_bytes: bytes, quality: str) -> bytes:
         img = img.convert("RGB")
     img.save(output, format="JPEG", quality=preset["jpeg_quality"], optimize=True)
     return output.getvalue()
+
+
+async def resize_image_for_quality_async(img_bytes: bytes, quality: str) -> bytes:
+    """Run PIL resize/encode off the event loop to avoid stalling other clients."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        IMAGE_EXECUTOR, resize_image_for_quality, img_bytes, quality
+    )
+
+
+async def capture_stream_frame(
+    deps, device_id: str, timeout: float = FRAME_CAPTURE_TIMEOUT
+) -> bytes:
+    """Capture a streaming frame with the fastest available backend."""
+    if not deps.adb_bridge:
+        return b""
+    if hasattr(deps.adb_bridge, "capture_stream_frame"):
+        return await deps.adb_bridge.capture_stream_frame(
+            device_id, timeout=timeout
+        )
+    return await deps.adb_bridge.capture_screenshot(
+        device_id, force_refresh=True, timeout=timeout
+    )
+
+
+async def wait_for_next_tick(next_tick: float, frame_delay: float) -> float:
+    """Drift-resistant pacing using a monotonic clock."""
+    now = time.monotonic()
+    if now < next_tick:
+        await asyncio.sleep(next_tick - now)
+        return next_tick + frame_delay
+    if now - next_tick > frame_delay:
+        return now + frame_delay
+    return next_tick + frame_delay
+
+
+# =============================================================================
+# SHARED CAPTURE PIPELINE (MJPEG v2)
+# Single producer per device, broadcasts to all subscribers
+# =============================================================================
+
+
+class SharedCaptureManager:
+    """Manages shared capture pipelines per device.
+
+    Instead of each WebSocket connection running its own capture loop,
+    a single producer captures frames and broadcasts to all subscribers.
+    This eliminates per-frame ADB handshake overhead for multiple clients.
+    """
+
+    def __init__(self):
+        self._producers: dict[str, asyncio.Task] = {}
+        self._subscribers: dict[str, list[asyncio.Queue]] = {}
+        self._frame_counts: dict[str, int] = {}
+        self._lock = asyncio.Lock()
+
+    async def subscribe(self, device_id: str, quality: str = "fast") -> asyncio.Queue:
+        """Subscribe to frames from a device. Starts producer if needed."""
+        async with self._lock:
+            if device_id not in self._subscribers:
+                self._subscribers[device_id] = []
+                self._frame_counts[device_id] = 0
+
+            # Create bounded queue for this subscriber (drop old frames if slow)
+            queue: asyncio.Queue = asyncio.Queue(maxsize=3)
+            self._subscribers[device_id].append(queue)
+
+            # Start producer if not running
+            if device_id not in self._producers or self._producers[device_id].done():
+                self._producers[device_id] = asyncio.create_task(
+                    self._producer_loop(device_id, quality)
+                )
+                logger.info(f"[SharedCapture] Started producer for {device_id}")
+
+            logger.info(
+                f"[SharedCapture] New subscriber for {device_id}, "
+                f"total: {len(self._subscribers[device_id])}"
+            )
+            return queue
+
+    async def unsubscribe(self, device_id: str, queue: asyncio.Queue):
+        """Unsubscribe from a device. Stops producer if no subscribers left."""
+        async with self._lock:
+            if device_id in self._subscribers:
+                try:
+                    self._subscribers[device_id].remove(queue)
+                except ValueError:
+                    pass
+
+                logger.info(
+                    f"[SharedCapture] Subscriber left {device_id}, "
+                    f"remaining: {len(self._subscribers[device_id])}"
+                )
+
+                # Stop producer if no subscribers
+                if not self._subscribers[device_id]:
+                    if device_id in self._producers:
+                        self._producers[device_id].cancel()
+                        try:
+                            await self._producers[device_id]
+                        except asyncio.CancelledError:
+                            pass
+                        del self._producers[device_id]
+                        logger.info(f"[SharedCapture] Stopped producer for {device_id}")
+                    del self._subscribers[device_id]
+                    if device_id in self._frame_counts:
+                        del self._frame_counts[device_id]
+
+    async def _producer_loop(self, device_id: str, quality: str):
+        """Single capture loop that broadcasts to all subscribers."""
+        deps = get_deps()
+        preset = QUALITY_PRESETS.get(quality, QUALITY_PRESETS["fast"])
+        frame_delay = preset["frame_delay"]
+        next_tick = time.monotonic()
+
+        if deps.adb_bridge and hasattr(deps.adb_bridge, "start_stream"):
+            deps.adb_bridge.start_stream(device_id)
+
+        try:
+            while True:
+                next_tick = await wait_for_next_tick(next_tick, frame_delay)
+
+                # Check if we still have subscribers
+                async with self._lock:
+                    if device_id not in self._subscribers or not self._subscribers[device_id]:
+                        break
+
+                try:
+                    # Capture frame
+                    screenshot_bytes = await asyncio.wait_for(
+                        capture_stream_frame(deps, device_id),
+                        timeout=FRAME_CAPTURE_TIMEOUT,
+                    )
+
+                    if len(screenshot_bytes) < 1000:
+                        await asyncio.sleep(FRAME_SKIP_DELAY)
+                        continue
+
+                    # Process frame
+                    jpeg_bytes = await resize_image_for_quality_async(
+                        screenshot_bytes, quality
+                    )
+
+                    # Increment frame count
+                    self._frame_counts[device_id] = self._frame_counts.get(device_id, 0) + 1
+                    frame_number = self._frame_counts[device_id]
+                    capture_time = int(time.monotonic() * 1000) % (2**32)
+
+                    # Create frame data (same format as MJPEG v1)
+                    import struct
+                    header = struct.pack(">II", frame_number, capture_time)
+                    frame_data = header + jpeg_bytes
+
+                    # Broadcast to all subscribers
+                    async with self._lock:
+                        queues = self._subscribers.get(device_id, [])
+                        for q in queues:
+                            try:
+                                # Non-blocking put - drop frame if queue full
+                                q.put_nowait(frame_data)
+                            except asyncio.QueueFull:
+                                # Drop oldest frame, add new one
+                                try:
+                                    q.get_nowait()
+                                    q.put_nowait(frame_data)
+                                except:
+                                    pass
+
+                    # Log periodically
+                    if frame_number <= 3 or frame_number % 60 == 0:
+                        logger.info(
+                            f"[SharedCapture] {device_id} frame {frame_number}: "
+                            f"{len(jpeg_bytes)} bytes, {len(queues)} subscribers"
+                        )
+
+                except asyncio.TimeoutError:
+                    await asyncio.sleep(FRAME_SKIP_DELAY)
+                except Exception as e:
+                    logger.warning(f"[SharedCapture] Capture error: {e}")
+                    await asyncio.sleep(FRAME_SKIP_DELAY)
+
+        except asyncio.CancelledError:
+            logger.info(f"[SharedCapture] Producer cancelled for {device_id}")
+        finally:
+            if deps.adb_bridge and hasattr(deps.adb_bridge, "stop_stream"):
+                deps.adb_bridge.stop_stream(device_id)
+
+    def get_stats(self) -> dict:
+        """Get stats about active producers and subscribers."""
+        return {
+            "active_devices": list(self._producers.keys()),
+            "subscribers": {
+                device_id: len(subs)
+                for device_id, subs in self._subscribers.items()
+            },
+            "frame_counts": dict(self._frame_counts),
+        }
+
+
+# Global shared capture manager instance
+shared_capture_manager = SharedCaptureManager()
 
 
 # =============================================================================
@@ -134,6 +339,8 @@ async def stream_device(websocket: WebSocket, device_id: str):
     """
     deps = get_deps()
     await websocket.accept()
+    if deps.adb_bridge and hasattr(deps.adb_bridge, "start_stream"):
+        deps.adb_bridge.start_stream(device_id)
 
     # Parse quality from query string (default 'fast' for WiFi compatibility)
     quality = websocket.query_params.get("quality", "fast")
@@ -147,6 +354,7 @@ async def stream_device(websocket: WebSocket, device_id: str):
 
     frame_number = 0
     device_width, device_height = 1080, 1920  # Defaults
+    next_tick = time.monotonic()
 
     try:
         # Send config IMMEDIATELY with default dimensions (don't wait for slow capture)
@@ -165,17 +373,16 @@ async def stream_device(websocket: WebSocket, device_id: str):
         )
 
         while True:
+            next_tick = await wait_for_next_tick(next_tick, preset["frame_delay"])
             frame_number += 1
-            capture_start = time.time()
+            capture_start = time.monotonic()
 
             try:
                 # Capture screenshot with short timeout for responsiveness
                 # Skip slow frames quickly to maintain stream fluidity
                 try:
                     screenshot_bytes = await asyncio.wait_for(
-                        deps.adb_bridge.capture_screenshot(
-                            device_id, force_refresh=True
-                        ),
+                        capture_stream_frame(deps, device_id),
                         timeout=FRAME_CAPTURE_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
@@ -185,7 +392,7 @@ async def stream_device(websocket: WebSocket, device_id: str):
                     await asyncio.sleep(FRAME_SKIP_DELAY)
                     continue
 
-                capture_time = (time.time() - capture_start) * 1000  # ms
+                capture_time = (time.monotonic() - capture_start) * 1000  # ms
 
                 # Skip if invalid/empty screenshot
                 if len(screenshot_bytes) < 1000:
@@ -198,7 +405,7 @@ async def stream_device(websocket: WebSocket, device_id: str):
                 # Resize and convert to JPEG based on quality preset
                 # Always convert to JPEG even for 'high' - PNG is 4-5x larger
                 try:
-                    processed_bytes = resize_image_for_quality(
+                    processed_bytes = await resize_image_for_quality_async(
                         screenshot_bytes, quality
                     )
                 except Exception as convert_error:
@@ -217,12 +424,6 @@ async def stream_device(websocket: WebSocket, device_id: str):
                 # Encode and send
                 screenshot_base64 = base64.b64encode(processed_bytes).decode("utf-8")
 
-                # Determine image type
-                is_jpeg = processed_bytes[:2] == b"\xff\xd8"
-                image_prefix = (
-                    "data:image/jpeg;base64," if is_jpeg else "data:image/png;base64,"
-                )
-
                 await websocket.send_json(
                     {
                         "type": "frame",
@@ -233,11 +434,6 @@ async def stream_device(websocket: WebSocket, device_id: str):
                         "frame_number": frame_number,
                     }
                 )
-
-                # Sleep based on quality preset (adaptive - skip sleep if already behind)
-                elapsed = time.time() - capture_start
-                if elapsed < preset["frame_delay"]:
-                    await asyncio.sleep(preset["frame_delay"] - elapsed)
 
             except Exception as capture_error:
                 logger.warning(f"[WS-Stream] Capture error: {capture_error}")
@@ -256,6 +452,8 @@ async def stream_device(websocket: WebSocket, device_id: str):
     except Exception as e:
         logger.error(f"[WS-Stream] Connection error: {e}")
     finally:
+        if deps.adb_bridge and hasattr(deps.adb_bridge, "stop_stream"):
+            deps.adb_bridge.stop_stream(device_id)
         logger.info(
             f"[WS-Stream] Stream ended for device: {device_id}, frames sent: {frame_number}"
         )
@@ -288,6 +486,8 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
     deps = get_deps()
 
     await websocket.accept()
+    if deps.adb_bridge and hasattr(deps.adb_bridge, "start_stream"):
+        deps.adb_bridge.start_stream(device_id)
 
     # Parse quality from query string (default 'fast' for WiFi compatibility)
     quality = websocket.query_params.get("quality", "fast")
@@ -301,6 +501,7 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
 
     frame_number = 0
     device_width, device_height = 1080, 1920  # Defaults
+    next_tick = time.monotonic()
 
     try:
         # Send config IMMEDIATELY with default dimensions (don't wait for slow capture)
@@ -321,17 +522,16 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
         )
 
         while True:
+            next_tick = await wait_for_next_tick(next_tick, preset["frame_delay"])
             frame_number += 1
-            capture_start = time.time()
+            capture_start = time.monotonic()
 
             try:
                 # Capture screenshot with short timeout for responsiveness
                 # Skip slow frames quickly to maintain stream fluidity
                 try:
                     screenshot_bytes = await asyncio.wait_for(
-                        deps.adb_bridge.capture_screenshot(
-                            device_id, force_refresh=True
-                        ),
+                        capture_stream_frame(deps, device_id),
                         timeout=FRAME_CAPTURE_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
@@ -341,7 +541,7 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
                     await asyncio.sleep(FRAME_SKIP_DELAY)
                     continue
 
-                capture_time = int((time.time() - capture_start) * 1000)  # ms as int
+                capture_time = int((time.monotonic() - capture_start) * 1000)  # ms as int
 
                 # Skip if invalid/empty screenshot
                 if len(screenshot_bytes) < 1000:
@@ -353,11 +553,14 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
 
                 # Resize and convert to JPEG based on quality preset
                 try:
-                    jpeg_bytes = resize_image_for_quality(screenshot_bytes, quality)
-                    # Verify resize worked - if result is larger than input, skip frame
-                    if len(jpeg_bytes) > len(screenshot_bytes) * 0.9:
+                    jpeg_bytes = await resize_image_for_quality_async(
+                        screenshot_bytes, quality
+                    )
+                    # Verify resize worked - only skip if output is significantly larger than input
+                    # (PNG->JPEG should always shrink; only skip on clear failure)
+                    if len(jpeg_bytes) > len(screenshot_bytes) * 1.5:
                         logger.warning(
-                            f"[WS-MJPEG] Frame {frame_number}: Resize may have failed (output larger than input), skipping"
+                            f"[WS-MJPEG] Frame {frame_number}: Resize may have failed (output 50%+ larger than input), skipping"
                         )
                         await asyncio.sleep(FRAME_SKIP_DELAY)
                         continue
@@ -382,11 +585,6 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
                         f"[WS-MJPEG] Frame {frame_number}: {len(jpeg_bytes)} bytes JPEG, {capture_time}ms capture, quality={quality}"
                     )
 
-                # Sleep based on quality preset (adaptive - skip sleep if already behind)
-                elapsed = time.time() - capture_start
-                if elapsed < preset["frame_delay"]:
-                    await asyncio.sleep(preset["frame_delay"] - elapsed)
-
             except Exception as capture_error:
                 logger.warning(f"[WS-MJPEG] Capture error: {capture_error}")
                 # Send error as JSON (not binary)
@@ -404,6 +602,102 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
     except Exception as e:
         logger.error(f"[WS-MJPEG] Connection error: {e}")
     finally:
+        if deps.adb_bridge and hasattr(deps.adb_bridge, "stop_stream"):
+            deps.adb_bridge.stop_stream(device_id)
         logger.info(
             f"[WS-MJPEG] Stream ended for device: {device_id}, frames sent: {frame_number}"
         )
+
+
+# =============================================================================
+# WEBSOCKET MJPEG V2 - SHARED CAPTURE PIPELINE
+# =============================================================================
+
+
+@router.websocket("/ws/stream-mjpeg-v2/{device_id}")
+async def stream_device_mjpeg_v2(websocket: WebSocket, device_id: str):
+    """
+    WebSocket endpoint for MJPEG v2 streaming with shared capture pipeline.
+
+    Uses a single capture producer per device that broadcasts to all subscribers.
+    This eliminates per-frame ADB handshake overhead when multiple clients connect.
+
+    Wire format is identical to MJPEG v1 for client compatibility:
+    - First message: JSON config
+    - Subsequent messages: Binary JPEG with 8-byte header (frame_number, capture_time)
+
+    Query params:
+    - quality: 'high', 'medium', 'low', 'fast', 'ultrafast' (default: fast)
+    """
+    await websocket.accept()
+
+    # Parse quality from query string
+    quality = websocket.query_params.get("quality", "fast")
+    if quality not in QUALITY_PRESETS:
+        quality = "fast"
+    preset = QUALITY_PRESETS[quality]
+
+    logger.info(
+        f"[WS-MJPEG-v2] Client connected for device: {device_id}, quality: {quality} "
+        f"(target {preset['target_fps']} FPS, shared pipeline)"
+    )
+
+    device_width, device_height = 1080, 1920  # Defaults
+    frames_received = 0
+    queue = None
+
+    try:
+        # Send config immediately
+        await websocket.send_json(
+            {
+                "type": "config",
+                "format": "mjpeg-v2",
+                "width": device_width,
+                "height": device_height,
+                "quality": quality,
+                "target_fps": preset["target_fps"],
+                "message": "MJPEG v2 (shared pipeline) ready. Subsequent frames are binary.",
+            }
+        )
+
+        # Subscribe to shared capture pipeline
+        queue = await shared_capture_manager.subscribe(device_id, quality)
+
+        # Consume frames from queue and send to client
+        while True:
+            try:
+                # Wait for next frame with timeout
+                frame_data = await asyncio.wait_for(queue.get(), timeout=5.0)
+                await websocket.send_bytes(frame_data)
+                frames_received += 1
+
+                # Log periodically
+                if frames_received <= 3 or frames_received % 60 == 0:
+                    logger.info(
+                        f"[WS-MJPEG-v2] {device_id}: Sent frame {frames_received}, "
+                        f"{len(frame_data)} bytes"
+                    )
+
+            except asyncio.TimeoutError:
+                # No frame in 5s - send keepalive or check connection
+                try:
+                    await websocket.send_json({"type": "keepalive", "timestamp": time.time()})
+                except:
+                    break
+
+    except WebSocketDisconnect:
+        logger.info(f"[WS-MJPEG-v2] Client disconnected: {device_id}")
+    except Exception as e:
+        logger.error(f"[WS-MJPEG-v2] Connection error: {e}")
+    finally:
+        if queue:
+            await shared_capture_manager.unsubscribe(device_id, queue)
+        logger.info(
+            f"[WS-MJPEG-v2] Stream ended for device: {device_id}, frames sent: {frames_received}"
+        )
+
+
+@router.get("/stream/shared/stats")
+async def get_shared_capture_stats():
+    """Get statistics about the shared capture pipeline."""
+    return {"success": True, "shared_capture": shared_capture_manager.get_stats()}

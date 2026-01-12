@@ -9,7 +9,7 @@
  * v0.0.8: createAction now adds tap step to flow before creating action
  */
 
-import { showToast } from './toast.js?v=0.2.79';
+import { showToast } from './toast.js?v=0.2.80';
 
 /**
  * Prompt user for text input

@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.2.79" data-build="2026-01-10">
+    <meta name="version" content="0.2.80" data-build="2026-01-10">
     <title>Live Stream - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.2.79">
-    <link rel="stylesheet" href="css/live-stream.css?v=0.2.79">
+    <link rel="stylesheet" href="css/styles.css?v=0.2.80">
+    <link rel="stylesheet" href="css/live-stream.css?v=0.2.80">
     <style>
         /* Compact controls styling */
         .stream-header {
@@ -77,7 +77,7 @@
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.2.79"></script>
+    <script type="module" src="js/init.js?v=0.2.80"></script>
 
     <div class="container">
         <!-- Compact Header -->
@@ -106,6 +106,7 @@
                     <label>Mode:
                         <select id="streamMode">
                             <option value="mjpeg" selected>MJPEG Binary</option>
+                            <option value="mjpeg-v2">MJPEG v2</option>
                             <option value="websocket">WebSocket</option>
                         </select>
                     </label>
@@ -753,8 +754,9 @@
             // Close dialog
             pauseOptionsDialog.style.display = 'none';
 
-            // MJPEG or WebSocket mode (with element overlays)
-            streamModeValue.textContent = `${mode === 'mjpeg' ? 'MJPEG' : 'Base64'} - ${qualityLabel}`;
+            // MJPEG, MJPEG v2, or WebSocket mode (with element overlays)
+            const modeLabel = mode === 'mjpeg' ? 'MJPEG' : mode === 'mjpeg-v2' ? 'MJPEG v2' : 'Base64';
+            streamModeValue.textContent = `${modeLabel} - ${qualityLabel}`;
 
             // Display connection type and backend info
             const deviceInfo = deviceInfoCache[deviceId] || {};
