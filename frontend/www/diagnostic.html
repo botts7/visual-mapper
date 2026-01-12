@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.2.74" data-build="2026-01-10">
+    <meta name="version" content="0.2.75" data-build="2026-01-10">
     <title>Diagnostics - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.2.74">
+    <link rel="stylesheet" href="css/styles.css?v=0.2.75">
     <style>
         /* Tab Navigation */
         .diag-tabs {
@@ -169,7 +169,7 @@
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.2.74"></script>
+    <script type="module" src="js/init.js?v=0.2.75"></script>
     <div class="container">
         <!-- Page Header -->
         <div class="card" style="margin-bottom: 0;">
@@ -307,6 +307,41 @@
                     <button id="getShellStats" class="btn btn-secondary">Pool Stats</button>
                 </div>
                 <div id="shellBenchmarkResult" class="result-area"></div>
+            </div>
+
+            <div class="section-card" id="backendSettingsCard">
+                <h3>Backend Settings</h3>
+                <p class="section-desc">Override auto-detected backends based on benchmark results</p>
+                <div class="device-select-row">
+                    <select id="backendSettingsDev" class="form-select"></select>
+                    <button id="loadBackendSettings" class="btn btn-secondary">Load Settings</button>
+                </div>
+                <div id="backendSettingsGrid" style="display:none; margin-top:15px;">
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:15px;">
+                        <div class="benchmark-card">
+                            <h4>Capture Backend</h4>
+                            <select id="captureBackendSelect" class="form-select" style="margin-top:8px;">
+                                <option value="auto">Auto (recommended)</option>
+                                <option value="adbutils">adbutils (Python)</option>
+                                <option value="subprocess">subprocess (adb_bridge)</option>
+                            </select>
+                            <div class="benchmark-label" style="margin-top:6px;">Used for screenshots</div>
+                        </div>
+                        <div class="benchmark-card">
+                            <h4>Shell Method</h4>
+                            <select id="shellMethodSelect" class="form-select" style="margin-top:8px;">
+                                <option value="auto">Auto (persistent)</option>
+                                <option value="persistent">Persistent Shell</option>
+                                <option value="regular">Regular ADB</option>
+                            </select>
+                            <div class="benchmark-label" style="margin-top:6px;">Used for commands</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:15px;">
+                        <button id="saveBackendSettings" class="btn btn-primary">Save Settings</button>
+                        <span id="backendSaveStatus" style="margin-left:10px;"></span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -526,7 +561,7 @@
         async function loadDevs() {
             try {
                 const r = await api.get('/adb/devices');
-                ['scrDev', 'ctrlDev', 'benchDev', 'backendBenchDev', 'maintDev', 'shellDev', 'flowDev'].forEach(id => {
+                ['scrDev', 'ctrlDev', 'benchDev', 'backendBenchDev', 'maintDev', 'shellDev', 'flowDev', 'backendSettingsDev'].forEach(id => {
                     const s = document.getElementById(id);
                     if (!s) return;
                     s.innerHTML = '<option value="">Select device...</option>';
@@ -1264,6 +1299,74 @@
                 el.innerHTML = `<p class="status error">❌ ${e.message}</p>`;
             }
         };
+
+        // === Backend Settings Handlers ===
+
+        document.getElementById('loadBackendSettings').onclick = async () => {
+            const dev = document.getElementById('backendSettingsDev').value;
+            const grid = document.getElementById('backendSettingsGrid');
+            const statusEl = document.getElementById('backendSaveStatus');
+
+            if (!dev) {
+                statusEl.innerHTML = '<span style="color: #f44336;">Select a device first</span>';
+                grid.style.display = 'none';
+                return;
+            }
+
+            statusEl.innerHTML = '<span class="loading-spinner"></span> Loading...';
+
+            try {
+                const r = await api.get(`/settings/backend/${encodeURIComponent(dev)}`);
+
+                // Set current values
+                document.getElementById('captureBackendSelect').value = r.capture_backend || 'auto';
+                document.getElementById('shellMethodSelect').value = r.shell_method || 'auto';
+
+                grid.style.display = 'block';
+                statusEl.innerHTML = '<span style="color: #4caf50;">✓ Loaded</span>';
+
+            } catch (e) {
+                statusEl.innerHTML = `<span style="color: #f44336;">❌ ${e.message}</span>`;
+                grid.style.display = 'none';
+            }
+        };
+
+        document.getElementById('saveBackendSettings').onclick = async () => {
+            const dev = document.getElementById('backendSettingsDev').value;
+            const statusEl = document.getElementById('backendSaveStatus');
+
+            if (!dev) {
+                statusEl.innerHTML = '<span style="color: #f44336;">Select a device first</span>';
+                return;
+            }
+
+            const captureBackend = document.getElementById('captureBackendSelect').value;
+            const shellMethod = document.getElementById('shellMethodSelect').value;
+
+            statusEl.innerHTML = '<span class="loading-spinner"></span> Saving...';
+
+            try {
+                const r = await api.post(`/settings/backend/${encodeURIComponent(dev)}`, {
+                    capture_backend: captureBackend,
+                    shell_method: shellMethod
+                });
+
+                statusEl.innerHTML = `<span style="color: #4caf50;">✓ Saved: ${r.updated.join(', ')}</span>`;
+
+            } catch (e) {
+                statusEl.innerHTML = `<span style="color: #f44336;">❌ ${e.message}</span>`;
+            }
+        };
+
+        // Auto-load backend settings when device is selected
+        document.getElementById('backendSettingsDev').addEventListener('change', () => {
+            const dev = document.getElementById('backendSettingsDev').value;
+            if (dev) {
+                document.getElementById('loadBackendSettings').click();
+            } else {
+                document.getElementById('backendSettingsGrid').style.display = 'none';
+            }
+        });
 
         // Screenshot Test
         document.getElementById('testScr').onclick = async () => {

@@ -241,3 +241,119 @@ async def update_device_name(ip: str, port: int, name: str):
     device["name"] = name
     save_saved_devices(devices)
     return {"success": True, "name": name}
+
+
+# === Backend Preference Settings ===
+
+
+class BackendPreference(BaseModel):
+    capture_backend: Optional[str] = None  # "auto", "adbutils", "subprocess"
+    shell_method: Optional[str] = None  # "auto", "persistent", "regular"
+
+
+@router.get("/backend/{device_id}")
+async def get_backend_preference(device_id: str):
+    """Get capture backend preference for a device"""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    deps = get_deps()
+
+    # Get current preferred backend from adb_bridge
+    current_capture = deps.adb_bridge._preferred_backend.get(device_id, "auto")
+
+    # Get shell preference from settings
+    settings = load_settings()
+    device_prefs = settings.get("device_backend_prefs", {}).get(device_id, {})
+    shell_method = device_prefs.get("shell_method", "auto")
+
+    logger.info(f"[Settings] Backend prefs for {device_id}: capture={current_capture}, shell={shell_method}")
+
+    return {
+        "device_id": device_id,
+        "capture_backend": current_capture,
+        "shell_method": shell_method,
+        "available_capture_backends": ["auto", "adbutils", "subprocess"],
+        "available_shell_methods": ["auto", "persistent", "regular"]
+    }
+
+
+@router.post("/backend/{device_id}")
+async def set_backend_preference(device_id: str, prefs: BackendPreference):
+    """Set capture backend and shell method preference for a device"""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    deps = get_deps()
+    result = {"device_id": device_id, "updated": []}
+
+    # Update capture backend preference
+    if prefs.capture_backend:
+        valid_backends = ["auto", "adbutils", "subprocess"]
+        if prefs.capture_backend not in valid_backends:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid capture_backend. Must be one of: {valid_backends}"
+            )
+
+        if prefs.capture_backend == "auto":
+            # Remove preference to let auto-detection work
+            deps.adb_bridge._preferred_backend.pop(device_id, None)
+        else:
+            deps.adb_bridge._preferred_backend[device_id] = prefs.capture_backend
+
+        result["capture_backend"] = prefs.capture_backend
+        result["updated"].append("capture_backend")
+        logger.info(f"[Settings] Set capture backend for {device_id}: {prefs.capture_backend}")
+
+    # Update shell method preference (persisted to settings.json)
+    if prefs.shell_method:
+        valid_methods = ["auto", "persistent", "regular"]
+        if prefs.shell_method not in valid_methods:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid shell_method. Must be one of: {valid_methods}"
+            )
+
+        settings = load_settings()
+        if "device_backend_prefs" not in settings:
+            settings["device_backend_prefs"] = {}
+        if device_id not in settings["device_backend_prefs"]:
+            settings["device_backend_prefs"][device_id] = {}
+
+        settings["device_backend_prefs"][device_id]["shell_method"] = prefs.shell_method
+        save_settings(settings)
+
+        result["shell_method"] = prefs.shell_method
+        result["updated"].append("shell_method")
+        logger.info(f"[Settings] Set shell method for {device_id}: {prefs.shell_method}")
+
+    return result
+
+
+@router.get("/backend")
+async def get_all_backend_preferences():
+    """Get all device backend preferences"""
+    deps = get_deps()
+    settings = load_settings()
+
+    all_prefs = {}
+
+    # Merge capture backend prefs (from adb_bridge runtime)
+    for device_id, backend in deps.adb_bridge._preferred_backend.items():
+        if device_id not in all_prefs:
+            all_prefs[device_id] = {}
+        all_prefs[device_id]["capture_backend"] = backend
+
+    # Merge shell method prefs (from settings)
+    device_prefs = settings.get("device_backend_prefs", {})
+    for device_id, prefs in device_prefs.items():
+        if device_id not in all_prefs:
+            all_prefs[device_id] = {}
+        all_prefs[device_id]["shell_method"] = prefs.get("shell_method", "auto")
+
+    return {
+        "preferences": all_prefs,
+        "available_capture_backends": ["auto", "adbutils", "subprocess"],
+        "available_shell_methods": ["auto", "persistent", "regular"]
+    }
