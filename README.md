@@ -184,4 +184,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-**Version:** 0.0.52 | **License:** MIT
+**Version:** 0.2.74 | **License:** MIT
