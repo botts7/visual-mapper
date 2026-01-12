@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.2.75" data-build="2026-01-10">
+    <meta name="version" content="0.2.76" data-build="2026-01-10">
     <title>Diagnostics - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.2.75">
+    <link rel="stylesheet" href="css/styles.css?v=0.2.76">
     <style>
         /* Tab Navigation */
         .diag-tabs {
@@ -169,7 +169,7 @@
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.2.75"></script>
+    <script type="module" src="js/init.js?v=0.2.76"></script>
     <div class="container">
         <!-- Page Header -->
         <div class="card" style="margin-bottom: 0;">
@@ -282,11 +282,6 @@
                             <div class="benchmark-value" id="adb-bridge-avg">--</div>
                             <div class="benchmark-label">avg capture</div>
                             <div style="margin-top:6px;font-size:11px;" id="adb-bridge-range">Min: -- | Max: --</div>
-                        </div>
-                        <div class="benchmark-card" id="scrcpy-card">
-                            <h4>scrcpy (High FPS)</h4>
-                            <div class="benchmark-value" id="scrcpy-status">--</div>
-                            <div class="benchmark-label" id="scrcpy-note">Check availability</div>
                         </div>
                         <div class="benchmark-card" style="border:2px solid var(--primary-color);">
                             <h4>Recommended</h4>
@@ -789,21 +784,6 @@
                 document.getElementById('adb-bridge-avg').style.color = 'var(--text-secondary)';
                 document.getElementById('adb-bridge-range').textContent = adbBridge.error || 'Not available';
                 adbBridgeCard.style.borderColor = 'var(--error-color)';
-            }
-
-            // scrcpy status
-            const scrcpy = backends.scrcpy || {};
-            const scrcpyCard = document.getElementById('scrcpy-card');
-            if (scrcpy.available) {
-                document.getElementById('scrcpy-status').textContent = 'Available';
-                document.getElementById('scrcpy-status').style.color = '#4caf50';
-                document.getElementById('scrcpy-note').textContent = 'Can provide 30-60 FPS';
-                scrcpyCard.style.borderColor = '#4caf50';
-            } else {
-                document.getElementById('scrcpy-status').textContent = 'Not Installed';
-                document.getElementById('scrcpy-status').style.color = '#ff9800';
-                document.getElementById('scrcpy-note').textContent = scrcpy.note || 'Install scrcpy for 30-60 FPS';
-                scrcpyCard.style.borderColor = 'var(--border-color)';
             }
 
             // Recommendation
