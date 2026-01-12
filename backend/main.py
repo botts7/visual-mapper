@@ -951,19 +951,28 @@ async def lifespan(app: FastAPI):
     # This allows the server to remember its state across restarts
     if ml_training_mode == "disabled":
         try:
-            settings_path = DATA_DIR / "settings.json"
-            if settings_path.exists():
-                import json
+            import json
 
+            settings_path = DATA_DIR / "settings.json"
+            logger.info(f"[Server] Checking ML auto-start at: {settings_path}")
+
+            if settings_path.exists():
                 with open(settings_path) as f:
                     settings = json.load(f)
+
                 if settings.get("ml_server_auto_start", False):
                     ml_training_mode = "local"
                     logger.info(
                         "[Server] ML Training auto-start enabled from saved settings"
                     )
+                else:
+                    logger.info(
+                        f"[Server] ML auto-start not enabled (value={settings.get('ml_server_auto_start', 'not set')})"
+                    )
+            else:
+                logger.info(f"[Server] Settings file not found at {settings_path}")
         except Exception as e:
-            logger.debug(f"[Server] Could not load ML auto-start setting: {e}")
+            logger.warning(f"[Server] Could not load ML auto-start setting: {e}")
 
     if ml_training_mode == "local":
         try:
