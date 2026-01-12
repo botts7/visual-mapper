@@ -47,8 +47,8 @@
 
   <!-- Text Part (right side) -->
   <g id="text">
-    <!-- "Visual" -->
-    <text x="80" y="35" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#1e293b">Visual</text>
+    <!-- "Visual" - use currentColor for theme compatibility -->
+    <text x="80" y="35" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="currentColor" class="logo-text-primary">Visual</text>
 
     <!-- "Mapper" -->
     <text x="80" y="57" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#3b82f6">Mapper</text>

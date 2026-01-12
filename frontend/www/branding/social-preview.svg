@@ -95,10 +95,10 @@
       </text>
     </g>
 
-    <!-- Version badge -->
-    <rect x="0" y="260" width="120" height="40" rx="20" fill="#1e40af"/>
-    <text x="60" y="288" font-family="Arial, sans-serif" font-size="20" font-weight="600" fill="#ffffff" text-anchor="middle">
-      v0.0.5
+    <!-- HA Integration badge -->
+    <rect x="0" y="260" width="180" height="40" rx="20" fill="#1e40af"/>
+    <text x="90" y="288" font-family="Arial, sans-serif" font-size="18" font-weight="600" fill="#ffffff" text-anchor="middle">
+      Home Assistant
     </text>
   </g>
 </svg>
