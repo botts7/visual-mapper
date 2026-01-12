@@ -73,8 +73,10 @@ async def capture_screenshot(request: ScreenshotRequest):
             except Exception as e:
                 logger.debug(f"[API] Could not get activity before capture: {e}")
 
-        # Capture PNG screenshot
-        screenshot_bytes = await deps.adb_bridge.capture_screenshot(request.device_id)
+        # Capture PNG screenshot (force_refresh to avoid cached/stale screenshots)
+        screenshot_bytes = await deps.adb_bridge.capture_screenshot(
+            request.device_id, force_refresh=True
+        )
 
         # Extract UI elements (skip if quick mode)
         elements = []
