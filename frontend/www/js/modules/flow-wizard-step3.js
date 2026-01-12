@@ -62,23 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.2.77';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.77';
-import FlowInteractions from './flow-interactions.js?v=0.2.77';
-import FlowStepManager from './flow-step-manager.js?v=0.2.77';
-import FlowRecorder from './flow-recorder.js?v=0.2.77';
-import LiveStream from './live-stream.js?v=0.2.77';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.77';
+import { showToast } from './toast.js?v=0.2.79';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.79';
+import FlowInteractions from './flow-interactions.js?v=0.2.79';
+import FlowStepManager from './flow-step-manager.js?v=0.2.79';
+import FlowRecorder from './flow-recorder.js?v=0.2.79';
+import LiveStream from './live-stream.js?v=0.2.79';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.79';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.2.77';
+} from './device-unlock.js?v=0.2.79';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.2.77';
+import * as Step3Controller from './step3-controller.js?v=0.2.79';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -1262,6 +1262,32 @@ export function setupToolbarHandlers(wizard) {
         }
     });
 
+    // Retry button - shown when screen_changed detected, allows manual retry
+    document.getElementById('qabRetry')?.addEventListener('click', async () => {
+        const btn = document.getElementById('qabRetry');
+        btn.classList.add('active');
+
+        try {
+            showToast('Retrying capture...', 'info', 1500);
+            // Reset retry counter
+            wizard._screenChangedRetryCount = 0;
+            // Hide the retry button
+            btn.style.display = 'none';
+            // Clear elements and refresh
+            clearAllElementsAndHover(wizard);
+            await wizard.recorder.refresh();
+            if (wizard.captureMode !== 'streaming') {
+                await wizard.updateScreenshotDisplay();
+            }
+            await refreshElements(wizard);
+        } catch (error) {
+            console.error('[FlowWizard] Retry failed:', error);
+            showToast(`Retry failed: ${error.message}`, 'error');
+        } finally {
+            btn.classList.remove('active');
+        }
+    });
+
     // Restart app button - force stop and relaunch (for apps without pull-to-refresh)
     document.getElementById('qabRestartApp')?.addEventListener('click', async () => {
         const btn = document.getElementById('qabRestartApp');
@@ -1544,6 +1570,17 @@ export function setCaptureMode(wizard, mode) {
     const zoomOutBtn = document.getElementById('qabZoomOut');
     const zoomInBtn = document.getElementById('qabZoomIn');
     const scaleBtn = document.getElementById('qabScale');
+
+    // Toggle visibility of mode-specific buttons using CSS classes
+    const pollingButtons = document.querySelectorAll('.capture-mode-polling');
+    const streamingButtons = document.querySelectorAll('.capture-mode-streaming');
+
+    pollingButtons.forEach(btn => {
+        btn.style.display = mode === 'polling' ? '' : 'none';
+    });
+    streamingButtons.forEach(btn => {
+        btn.style.display = mode === 'streaming' ? '' : 'none';
+    });
 
     if (mode === 'streaming') {
         wizard.captureMode = 'streaming';
@@ -2294,12 +2331,31 @@ export async function refreshElements(wizard) {
             // SCREEN CHANGE DETECTION: If screen changed during capture, elements were
             // cleared by backend to prevent overlay mismatch. Clear immediately and retry.
             if (data.screen_changed) {
-                console.log('[FlowWizard] Screen changed during capture - clearing elements');
+                const MAX_RETRIES = 3;
+                wizard._screenChangedRetryCount = (wizard._screenChangedRetryCount || 0) + 1;
+                console.log(`[FlowWizard] Screen changed during capture - retry ${wizard._screenChangedRetryCount}/${MAX_RETRIES}`);
                 clearAllElementsAndHover(wizard);
-                // Schedule a quick retry after a short delay
-                setTimeout(() => refreshElements(wizard), 200);
-                return;
+
+                if (wizard._screenChangedRetryCount < MAX_RETRIES) {
+                    // Schedule a quick retry after a short delay
+                    setTimeout(() => refreshElements(wizard), 300);
+                    return;
+                } else {
+                    // Max retries reached - show retry button and notify user
+                    console.warn('[FlowWizard] Screen still changing after max retries');
+                    showToast('Screen unstable - click Retry when ready', 'warning', 5000);
+                    const retryBtn = document.getElementById('qabRetry');
+                    if (retryBtn) retryBtn.style.display = '';
+                    wizard._screenChangedRetryCount = 0;
+                    return;
+                }
             }
+
+            // Reset retry counter on successful capture
+            wizard._screenChangedRetryCount = 0;
+            // Hide retry button if visible
+            const retryBtn = document.getElementById('qabRetry');
+            if (retryBtn) retryBtn.style.display = 'none';
 
             // Extract device dimensions from screenshot (native resolution)
             if (data.screenshot && wizard.liveStream) {
@@ -3214,7 +3270,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.77');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.79');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3248,7 +3304,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.77');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.79');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -5072,7 +5128,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.77');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.79');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5080,7 +5136,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.77');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.79');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5088,7 +5144,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.77');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.79');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5096,7 +5152,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.77');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.79');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });

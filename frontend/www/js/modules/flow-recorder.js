@@ -9,8 +9,8 @@
  * v0.0.11: Add moveStep() method for reordering steps
  */
 
-import { showToast } from './toast.js?v=0.2.77';
-import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.2.77';
+import { showToast } from './toast.js?v=0.2.79';
+import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.2.79';
 
 /**
  * Get API base URL for proper routing (supports Home Assistant ingress)
@@ -278,9 +278,11 @@ class FlowRecorder {
 
     /**
      * Capture screenshot from device
+     * @param {number} retryCount - Internal retry counter for screen change detection
      */
-    async captureScreenshot() {
-        console.log('[FlowRecorder] Capturing screenshot...');
+    async captureScreenshot(retryCount = 0) {
+        const MAX_RETRIES = 3;
+        console.log('[FlowRecorder] Capturing screenshot...' + (retryCount > 0 ? ` (retry ${retryCount}/${MAX_RETRIES})` : ''));
 
         // Ensure device is unlocked before capturing
         await this.ensureDeviceUnlocked();
@@ -302,6 +304,19 @@ class FlowRecorder {
             this.updateStitchProgress('🔍 Extracting UI elements...');
 
             const data = await response.json();
+
+            // Check if screen changed during capture - retry if so
+            if (data.screen_changed && retryCount < MAX_RETRIES) {
+                console.warn(`[FlowRecorder] Screen changed during capture, retry ${retryCount + 1}/${MAX_RETRIES}`);
+                this.hideStitchProgress();
+                // Wait briefly for screen to stabilize, then retry
+                await new Promise(resolve => setTimeout(resolve, 400));
+                return this.captureScreenshot(retryCount + 1);
+            }
+
+            if (data.screen_changed) {
+                console.error('[FlowRecorder] Screen still changing after max retries, proceeding with last capture');
+            }
 
             // Store screenshot data
             this.currentScreenshot = data.screenshot; // Base64 image

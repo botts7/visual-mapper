@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.2.78
+
+- Fix: Polling mode screenshot/elements mismatch now retries up to 3 times
+- Feature: Manual "Retry" button appears when automatic retries exhausted
+- UI: Toolbar buttons now hide/show based on capture mode (polling vs streaming)
+- Polling-only buttons: Refresh, Pull Refresh
+- Streaming-only buttons: Stream mode dropdown, Quality dropdown, Reconnect
+
+## 0.2.77
+
+- Branding: New icon-only.png (256x256) and logo-horizontal.png for addon
+- Branding: Updated logo-horizontal.svg to use currentColor for dark mode compatibility
+- Branding: Removed hardcoded version from social-preview.svg
+
+## 0.2.76
+
+- Feature: Backend preference toggles for capture and shell methods
+- New `/api/settings/backend/{device_id}` endpoints to get/set preferences
+- UI: Backend Settings panel in Diagnostics > Benchmarks tab
+- Options: Capture Backend (auto/adbutils/subprocess), Shell Method (auto/persistent/regular)
+- Removed scrcpy from benchmark comparison (no longer supported)
+
+## 0.2.75
+
+- Fix: Prevent double screenshot fetch in polling mode during tap
+- In polling+execute mode, only one captureScreenshot() call instead of two
+- Eliminates "old elements then correct elements" flicker during screen transitions
+
+## 0.2.74
+
+- Fix: Double element loading during screen transitions in polling mode
+- Streaming mode now uses refreshAfterAction() for element-only refresh
+- Non-execute modes delegate refresh to refreshAfterAction()
+
+## 0.2.73
+
+- Fix: Force refresh screenshots in polling mode to avoid cached/stale images
+- Added `force_refresh=True` to capture_screenshot call in polling mode
+
+## 0.2.72
+
+- Improved ML auto-start logging and detection
+- Simplified DATA_DIR usage for settings.json lookup
+
+## 0.2.71
+
+- Feature: Q-table ML training integration with navigation learning
+- Navigation Learn page and Flow Wizard now publish experiences to ML training via MQTT
+- Helper function to convert TransitionAction to ML-compatible action keys
+
 ## 0.2.70
 
 - Feature: Q-table ML training now learns from ALL navigation sources

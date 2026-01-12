@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.2.77" data-build="2026-01-09">
+    <meta name="version" content="0.2.79" data-build="2026-01-09">
     <title>Flow Wizard - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.2.77">
-    <link rel="stylesheet" href="css/flow-wizard.css?v=0.2.77">
-    <link rel="stylesheet" href="css/smart-suggestions.css?v=0.2.77">
+    <link rel="stylesheet" href="css/styles.css?v=0.2.79">
+    <link rel="stylesheet" href="css/flow-wizard.css?v=0.2.79">
+    <link rel="stylesheet" href="css/smart-suggestions.css?v=0.2.79">
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.2.77"></script>
+    <script type="module" src="js/init.js?v=0.2.79"></script>
 
     <div class="wizard-container">
         <!-- Progress Indicator -->
@@ -146,8 +146,11 @@
                         <div class="quick-divider"></div>
 
                         <!-- Navigation -->
-                        <button class="quick-btn with-label" id="qabRefresh" title="Refresh Screen">
+                        <button class="quick-btn with-label capture-mode-polling" id="qabRefresh" title="Refresh Screen">
                             <span class="btn-icon">↻</span><span class="btn-label">Refresh</span>
+                        </button>
+                        <button class="quick-btn with-label" id="qabRetry" title="Retry capture (screen changed)" style="display:none; background:#ff9800; color:white;">
+                            <span class="btn-icon">🔄</span><span class="btn-label">Retry</span>
                         </button>
                         <button class="quick-btn with-label" id="qabBack" title="Back">
                             <span class="btn-icon">←</span><span class="btn-label">Back</span>
@@ -181,23 +184,23 @@
                             <option value="polling">Polling</option>
                             <option value="streaming">Stream</option>
                         </select>
-                        <select id="streamQuality" class="quick-select" title="Stream Quality">
+                        <select id="streamQuality" class="quick-select capture-mode-streaming" title="Stream Quality">
                             <option value="high">Native</option>
                             <option value="medium">720p</option>
                             <option value="low">480p</option>
                             <option value="fast">360p</option>
                             <option value="ultrafast">240p WiFi</option>
                         </select>
-                        <select id="streamMode" class="quick-select" title="Stream Protocol">
+                        <select id="streamMode" class="quick-select capture-mode-streaming" title="Stream Protocol">
                             <option value="websocket">WebSocket</option>
                             <option value="mjpeg">MJPEG</option>
                         </select>
-                        <button class="quick-btn" id="qabReconnect" title="Reconnect Stream">⟳</button>
-                        <span id="connectionStatus" class="connection-status" style="min-width: 100px; text-align: center;"></span>
-                        <div class="quick-divider"></div>
+                        <button class="quick-btn capture-mode-streaming" id="qabReconnect" title="Reconnect Stream">⟳</button>
+                        <span id="connectionStatus" class="connection-status capture-mode-streaming" style="min-width: 100px; text-align: center;"></span>
+                        <div class="quick-divider capture-mode-streaming"></div>
 
                         <!-- Actions -->
-                        <button class="quick-btn with-label" id="qabPullRefresh" title="Pull-to-Refresh the Android app">
+                        <button class="quick-btn with-label capture-mode-polling" id="qabPullRefresh" title="Pull-to-Refresh the Android app">
                             <span class="btn-icon">↻</span><span class="btn-label">Pull Refresh</span>
                         </button>
                         <button class="quick-btn with-label" id="qabRestartApp" title="Force stop and restart the app">
@@ -473,6 +476,6 @@
     </div>
 
     <!-- Note: ThemeToggle and MobileNav now handled by js/components/navbar.js -->
-    <script type="module" src="js/modules/flow-wizard.js?v=0.2.77"></script>
+    <script type="module" src="js/modules/flow-wizard.js?v=0.2.79"></script>
 </body>
 </html>
