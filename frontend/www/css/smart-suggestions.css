@@ -187,34 +187,31 @@
     border-radius: 6px;
     margin-bottom: 10px;
     border: 1px dashed var(--border);
-}
-
-.alt-names-container {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    align-items: center;
+    gap: 10px;
 }
 
-.alt-name-btn {
-    padding: 4px 10px;
-    font-size: 12px;
+.alt-name-select {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 13px;
     background: var(--bg-primary);
-    border: 1px solid var(--accent);
-    color: var(--accent);
-    border-radius: 14px;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    border-radius: 4px;
     cursor: pointer;
     transition: all 0.2s ease;
-    white-space: nowrap;
 }
 
-.alt-name-btn:hover {
-    background: var(--accent);
-    color: white;
-    transform: scale(1.02);
+.alt-name-select:hover {
+    border-color: var(--accent);
 }
 
-.alt-name-btn:active {
-    transform: scale(0.98);
+.alt-name-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.15);
 }
 
 /* Suggestion Actions */

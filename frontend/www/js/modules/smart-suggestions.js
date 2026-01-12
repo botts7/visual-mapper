@@ -5,8 +5,8 @@
  * based on pattern detection heuristics.
  */
 
-import { getApiBase } from './api-base-detection.js?v=0.2.65';
-import { showToast } from './toast.js?v=0.2.65';
+import { getApiBase } from './api-base-detection.js?v=0.2.71';
+import { showToast } from './toast.js?v=0.2.71';
 
 class SmartSuggestions {
     constructor() {
@@ -340,12 +340,14 @@ class SmartSuggestions {
             });
         });
 
-        // Attach alternative name button listeners
-        container.querySelectorAll('.alt-name-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const entityId = e.target.dataset.entityId;
-                const altName = e.target.dataset.altName;
-                this.useAlternativeName(entityId, altName);
+        // Attach alternative name dropdown listeners
+        container.querySelectorAll('.alt-name-select').forEach(select => {
+            select.addEventListener('change', (e) => {
+                const newName = e.target.value;
+                if (newName) {
+                    const entityId = e.target.dataset.entityId;
+                    this.useAlternativeName(entityId, newName);
+                }
             });
         });
 
@@ -448,26 +450,33 @@ class SmartSuggestions {
 
         const confidencePercent = Math.round(suggestion.confidence * 100);
 
-        // Build alternative names HTML if available
+        // Build alternative names dropdown if available
         let alternativeNamesHtml = '';
         if (suggestion.alternative_names && suggestion.alternative_names.length > 0) {
-            const altButtons = suggestion.alternative_names.map(alt => {
-                const locationIcon = {
-                    'above': '⬆️',
-                    'below': '⬇️',
-                    'left': '⬅️',
-                    'right': '➡️',
-                    'resource_id': '🏷️',
-                    'pattern': '🔍',
-                    'content_desc': '📝'
-                }[alt.location] || '📍';
-                return `<button type="button" class="alt-name-btn" data-entity-id="${suggestion.entity_id}" data-alt-name="${this.escapeHtml(alt.name)}" title="${alt.location}: score ${alt.score}">${locationIcon} ${this.escapeHtml(alt.name)}</button>`;
+            const locationIcons = {
+                'above': '⬆️', 'below': '⬇️', 'left': '⬅️', 'right': '➡️',
+                'resource_id': '🏷️', 'pattern': '🔍', 'content_desc': '📝'
+            };
+            const options = suggestion.alternative_names.map(alt => {
+                const icon = locationIcons[alt.location] || '📍';
+                const locationDesc = alt.location === 'above' ? 'from label above' :
+                                    alt.location === 'below' ? 'from label below' :
+                                    alt.location === 'left' ? 'from label left' :
+                                    alt.location === 'right' ? 'from label right' :
+                                    alt.location === 'resource_id' ? 'from resource ID' :
+                                    alt.location === 'pattern' ? 'pattern match' :
+                                    alt.location === 'content_desc' ? 'from description' : '';
+                return `<option value="${this.escapeHtml(alt.name)}" title="${locationDesc}">${icon} ${this.escapeHtml(alt.name)}</option>`;
             }).join('');
 
             alternativeNamesHtml = `
                 <div class="suggestion-row alternative-names-row">
-                    <span class="label">Also try:</span>
-                    <span class="value alt-names-container">${altButtons}</span>
+                    <span class="label">Name:</span>
+                    <select class="alt-name-select" data-entity-id="${suggestion.entity_id}">
+                        <option value="" disabled>── Select sensor name ──</option>
+                        <option value="" selected>✓ ${this.escapeHtml(suggestion.name)} (suggested)</option>
+                        ${options}
+                    </select>
                 </div>
             `;
         }
@@ -602,7 +611,7 @@ class SmartSuggestions {
             };
 
             // Import Dialogs module to create action
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.65');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.71');
             await Dialogs.createAction(this.wizard, element, null);
         }
     }

@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.2.70
+
+- Feature: Q-table ML training now learns from ALL navigation sources
+- Navigation Learn page transitions now update Q-table via MQTT
+- Flow Wizard (step 3) transitions now update Q-table via MQTT
+- Rewards: +1.0 for new screen navigation, -0.5 for same-screen taps
+- Source tagged as "navigation_learn" to distinguish from Android companion app
+
+## 0.2.69
+
+- Fix: Element overlay mismatch in polling mode (splash screen showing with next screen's elements)
+- Backend detects screen changes during screenshot+elements capture
+- If activity changes during capture, elements are cleared to prevent mismatch
+- Frontend handles screen_changed flag and triggers immediate retry
+
+## 0.2.68
+
+- Fix: Smart Suggestions false positives - "BYD SEALION 7" no longer becomes "7 A"
+- Short indicators (like "a" for amps) now require word boundaries
+- Unit assignment only happens with strong indicator matches
+- UI: Replaced "Also try:" buttons with cleaner dropdown selector
+- Dropdown shows sensor name options with location icons
+
+## 0.2.67
+
+- Fix: Home screen tagging now properly clears old home flag when new home is selected
+- Fix: Only one screen can be marked as home (no more multiple home icons)
+- ML Server auto-start now persists across app restarts
+- Fix: Screens dropdown no longer gets cut off by panel overflow
+- Dropdown now uses fixed positioning to escape parent overflow:hidden
+
+## 0.2.66
+
+- Canvas now defaults to fit-height (shows full device screen without horizontal stretching)
+- Companion app integration for fast UI element fetching (100-300ms vs 1-3s)
+- Automatic fallback to ADB uiautomator when companion app unavailable
+- Stream quality default changed from 'medium' to 'fast' for better WiFi compatibility
+- Lower resolution (360p) + higher FPS target = more responsive on slow connections
+
+## 0.2.42-0.2.65
+
+- Fix Play Store icon cache path issue in addon (use DATA_DIR instead of hardcoded 'data/')
+- Fix element overlay misalignment on screen change (clear immediately, not after stabilization)
+- Progressive icon/name refresh improvements
+- Black formatting on Python files
+- Various bug fixes and performance improvements
+
 ## 0.2.41
 
 - Consolidate Smart Suggestions to inline tab (removed modal overlay)

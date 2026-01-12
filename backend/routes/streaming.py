@@ -135,10 +135,10 @@ async def stream_device(websocket: WebSocket, device_id: str):
     deps = get_deps()
     await websocket.accept()
 
-    # Parse quality from query string
-    quality = websocket.query_params.get("quality", "medium")
+    # Parse quality from query string (default 'fast' for WiFi compatibility)
+    quality = websocket.query_params.get("quality", "fast")
     if quality not in QUALITY_PRESETS:
-        quality = "medium"
+        quality = "fast"
     preset = QUALITY_PRESETS[quality]
 
     logger.info(
@@ -289,10 +289,10 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
 
     await websocket.accept()
 
-    # Parse quality from query string
-    quality = websocket.query_params.get("quality", "medium")
+    # Parse quality from query string (default 'fast' for WiFi compatibility)
+    quality = websocket.query_params.get("quality", "fast")
     if quality not in QUALITY_PRESETS:
-        quality = "medium"
+        quality = "fast"
     preset = QUALITY_PRESETS[quality]
 
     logger.info(

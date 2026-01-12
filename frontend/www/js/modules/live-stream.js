@@ -33,7 +33,7 @@ class LiveStream {
 
         // Streaming mode: 'websocket' (base64 JSON) or 'mjpeg' (binary)
         this.streamMode = 'websocket';
-        this.streamQuality = 'medium'; // 'high', 'medium', 'low', 'fast'
+        this.streamQuality = 'fast'; // 'high', 'medium', 'low', 'fast' - default 'fast' for WiFi compatibility
 
         // Current state
         this.currentImage = null;
@@ -179,7 +179,7 @@ class LiveStream {
      * @param {string} quality - 'high', 'medium', 'low', 'fast'
      * @returns {string} WebSocket URL
      */
-    _getWebSocketUrl(deviceId, mode = 'websocket', quality = 'medium') {
+    _getWebSocketUrl(deviceId, mode = 'websocket', quality = 'fast') {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
 
@@ -206,7 +206,7 @@ class LiveStream {
      * @param {string} mode - 'websocket' (base64) or 'mjpeg' (binary)
      * @param {string} quality - 'high', 'medium', 'low', 'fast'
      */
-    async start(deviceId, mode = 'websocket', quality = 'medium') {
+    async start(deviceId, mode = 'websocket', quality = 'fast') {
         if (this.isStreaming) {
             console.warn('[LiveStream] Already streaming, stopping first');
             await this.stop();

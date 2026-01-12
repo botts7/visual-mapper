@@ -553,9 +553,23 @@ class SensorSuggester:
         keyword_match = self._fuzzy_match(searchable, keywords) if keywords else False
 
         # Check for indicators
-        indicator_match = any(
-            ind in text_lower for ind in pattern.get("indicators", [])
-        )
+        # Short indicators (≤2 chars like "a", "ma") require word boundaries
+        # to prevent false positives like "sealion" matching "a" for amperes
+        indicator_match = False
+        for ind in pattern.get("indicators", []):
+            if len(ind) <= 2:
+                # Short indicators must be standalone (after digit/space, before non-letter)
+                # Matches: "7 A", "7A", "50 ma" but NOT "sealion", "drama"
+                if re.search(
+                    rf"(?:^|\s|\d){re.escape(ind)}(?:$|\s|[^a-z])", text_lower
+                ):
+                    indicator_match = True
+                    break
+            else:
+                # Longer indicators can use substring match
+                if ind in text_lower:
+                    indicator_match = True
+                    break
 
         # Special handling for binary sensors
         if pattern.get("is_binary"):
@@ -639,11 +653,20 @@ class SensorSuggester:
         # Match if confidence is above threshold (raised to 0.45 for better quality)
         matches = confidence >= 0.45
 
+        # Only apply pattern's default unit if:
+        # 1. We actually extracted a unit from the text, OR
+        # 2. There was a strong indicator match (not a false positive from single-letter)
+        # This prevents "BYD SEALION 7" from becoming "7 A"
+        final_unit = extracted_unit
+        if not final_unit and indicator_match and confidence >= 0.5:
+            # Only apply default unit for confident matches with real indicator
+            final_unit = pattern.get("unit")
+
         return {
             "matches": matches,
             "confidence": confidence,
             "value": extracted_value,
-            "unit": extracted_unit or pattern.get("unit"),
+            "unit": final_unit,
         }
 
     def _extract_numeric_value(self, text: str) -> Optional[Dict[str, Any]]:

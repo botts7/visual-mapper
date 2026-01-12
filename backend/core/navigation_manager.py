@@ -257,6 +257,13 @@ class NavigationManager:
         # Compute screen ID
         screen_id = compute_screen_id(activity, landmarks)
 
+        # If setting as home screen, clear any existing home flags first
+        # This ensures only ONE screen can ever be marked as home
+        if is_home_screen:
+            for existing_screen in graph.screens.values():
+                if existing_screen.is_home_screen:
+                    existing_screen.is_home_screen = False
+
         # Check if screen exists
         if screen_id in graph.screens:
             # Update existing screen

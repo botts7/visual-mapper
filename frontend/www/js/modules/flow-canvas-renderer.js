@@ -559,7 +559,7 @@ export class FlowCanvasRenderer {
     /**
      * Apply zoom level to canvas CSS size
      * Supports two base modes:
-     * - 'fit': Fits canvas width to container width (default)
+     * - 'fit': Fits canvas to container (height or width, whichever is smaller)
      * - '1:1': Shows canvas at native pixel size (1:1 mapping)
      * Zoom level is applied on top of the base mode
      */
@@ -594,8 +594,11 @@ export class FlowCanvasRenderer {
             // 1:1 mode: native pixel size
             baseScale = 1.0;
         } else {
-            // Fit mode: fit canvas width to container width
-            baseScale = containerWidth / this.canvas.width;
+            // Fit mode: fit canvas to container while maintaining aspect ratio
+            // Use minimum of width-fit and height-fit to ensure full canvas is visible
+            const widthScale = containerWidth / this.canvas.width;
+            const heightScale = containerHeight / this.canvas.height;
+            baseScale = Math.min(widthScale, heightScale);
         }
 
         // Apply zoom on top of base scale

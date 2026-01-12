@@ -3,11 +3,14 @@ Visual Mapper - Navigation API Routes
 API endpoints for navigation graph learning and management
 """
 
+import json
 import logging
+import time
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel
 
+from routes import get_deps
 from ml_components.navigation_models import (
     NavigationGraph,
     ScreenNode,
@@ -15,6 +18,7 @@ from ml_components.navigation_models import (
     TransitionAction,
     LearnTransitionRequest,
     NavigationPath,
+    compute_screen_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,6 +43,20 @@ def get_navigation_manager():
     if _navigation_manager is None:
         raise HTTPException(status_code=500, detail="NavigationManager not initialized")
     return _navigation_manager
+
+
+def _action_to_key(action: TransitionAction) -> str:
+    """Convert TransitionAction to ML-compatible action key for Q-table training"""
+    if action.action_type == "tap":
+        return f"tap_{action.x}_{action.y}"
+    elif action.action_type == "swipe":
+        return f"swipe_{action.swipe_direction or 'unknown'}"
+    elif action.action_type == "go_back":
+        return "key_back"
+    elif action.action_type == "go_home":
+        return "key_home"
+    else:
+        return f"action_{action.action_type}"
 
 
 # ============================================================================
@@ -397,6 +415,7 @@ async def learn_transition(
     Learn from an observed screen transition
 
     Called by flow recorder when a transition is detected.
+    Also publishes experience to ML training system for Q-table updates.
 
     Args:
         package: App package name
@@ -416,11 +435,46 @@ async def learn_transition(
     if not success:
         raise HTTPException(status_code=500, detail="Failed to learn transition")
 
+    # Publish to ML training system for Q-table updates
+    ml_published = False
+    try:
+        deps = get_deps()
+        if deps.mqtt_manager and deps.mqtt_manager.is_connected:
+            # Compute screen IDs (same method used by NavigationManager)
+            from_screen_id = compute_screen_id(request.before_activity, [])
+            to_screen_id = compute_screen_id(request.after_activity, [])
+
+            # Reward: +1.0 for successful navigation to new screen, -0.5 for same screen
+            reward = 1.0 if from_screen_id != to_screen_id else -0.5
+
+            experience = [
+                {
+                    "screenHash": from_screen_id,
+                    "actionKey": _action_to_key(request.action),
+                    "reward": reward,
+                    "nextScreenHash": to_screen_id,
+                    "timestamp": time.time(),
+                    "source": "navigation_learn",
+                }
+            ]
+
+            await deps.mqtt_manager.publish(
+                "visualmapper/exploration/logs", json.dumps(experience)
+            )
+            ml_published = True
+            logger.info(
+                f"[Navigation] Published ML experience: {from_screen_id} -> {to_screen_id} (reward: {reward})"
+            )
+    except Exception as e:
+        logger.warning(f"[Navigation] Failed to publish ML experience: {e}")
+        # Don't fail the request - ML publishing is optional
+
     return {
         "success": True,
         "message": "Transition learned successfully",
         "from_activity": request.before_activity,
         "to_activity": request.after_activity,
+        "ml_published": ml_published,
     }
 
 

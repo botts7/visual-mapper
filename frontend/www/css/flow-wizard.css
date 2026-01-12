@@ -2989,16 +2989,14 @@ img.app-icon {
 }
 
 .nav-screens-list {
-    position: absolute;
-    top: 100%;
-    left: 0;
+    position: fixed; /* Fixed position to escape overflow:hidden on parent */
     min-width: 250px;
     background: var(--card-background);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     max-height: 300px;
     overflow-y: auto;
-    z-index: 1000;
+    z-index: 10000; /* High z-index to appear above everything */
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     display: none;
 }

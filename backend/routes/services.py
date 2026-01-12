@@ -19,8 +19,20 @@ import sys
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from routes.settings import load_settings, save_settings
 
 logger = logging.getLogger(__name__)
+
+
+def _save_ml_auto_start(enabled: bool):
+    """Save ML server auto-start preference to settings"""
+    try:
+        settings = load_settings()
+        settings["ml_server_auto_start"] = enabled
+        save_settings(settings)
+        logger.info(f"[Services] ML auto-start preference saved: {enabled}")
+    except Exception as e:
+        logger.warning(f"[Services] Failed to save ML auto-start preference: {e}")
 
 router = APIRouter(prefix="/api/services", tags=["services"])
 
@@ -234,6 +246,9 @@ async def start_ml_training():
 
         logger.info(f"Started ML training server with PID {ml_training_process.pid}")
 
+        # Save preference so server auto-starts on next app restart
+        _save_ml_auto_start(True)
+
         return ServiceStatus(
             name="ML Training Server",
             running=True,
@@ -273,6 +288,9 @@ async def stop_ml_training():
         ml_training_process = None
 
         logger.info(f"Stopped ML training server (PID {pid})")
+
+        # Save preference so server stays stopped on next app restart
+        _save_ml_auto_start(False)
 
         return ServiceStatus(
             name="ML Training Server", running=False, details=f"Stopped (was PID {pid})"

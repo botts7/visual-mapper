@@ -1,7 +1,12 @@
 /**
  * Flow Wizard Step 3 Module - Recording Mode
- * Visual Mapper v0.0.62
+ * Visual Mapper v0.0.63
  *
+ * v0.0.63: Companion app integration for fast UI element fetching
+ *          - checkCompanionAppStatus() checks if companion app is available for device
+ *          - refreshElements() now uses companion API when available (100-300ms vs 1-3s)
+ *          - Automatic fallback to ADB uiautomator when companion unavailable
+ *          - flattenCompanionElements() converts nested companion elements to flat array
  * v0.0.62: Fix sensor creation from suggestions - create actual sensors via API instead of inline definitions
  *          - handleQuickAddSuggestion now creates sensor via API and uses sensor_ids
  *          - showSuggestionEditDialog save handler now creates sensor via API
@@ -57,27 +62,112 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.2.65';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.65';
-import FlowInteractions from './flow-interactions.js?v=0.2.65';
-import FlowStepManager from './flow-step-manager.js?v=0.2.65';
-import FlowRecorder from './flow-recorder.js?v=0.2.65';
-import LiveStream from './live-stream.js?v=0.2.65';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.65';
+import { showToast } from './toast.js?v=0.2.71';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.71';
+import FlowInteractions from './flow-interactions.js?v=0.2.71';
+import FlowStepManager from './flow-step-manager.js?v=0.2.71';
+import FlowRecorder from './flow-recorder.js?v=0.2.71';
+import LiveStream from './live-stream.js?v=0.2.71';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.71';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.2.65';
+} from './device-unlock.js?v=0.2.71';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.2.65';
+import * as Step3Controller from './step3-controller.js?v=0.2.71';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
     return window.API_BASE || '/api';
+}
+
+/**
+ * Check if companion app is available for a device
+ * Caches result on wizard to avoid repeated API calls
+ * @param {Object} wizard - The wizard object
+ * @param {string} deviceId - The device ID to check
+ * @returns {Promise<boolean>} - True if companion app is connected
+ */
+async function checkCompanionAppStatus(wizard, deviceId) {
+    try {
+        const response = await fetch(`${getApiBase()}/companion/status/${encodeURIComponent(deviceId)}`);
+        if (!response.ok) return false;
+
+        const data = await response.json();
+        const hasCompanion = data.connected === true;
+
+        // Cache on wizard
+        wizard._hasCompanionApp = hasCompanion;
+        wizard._companionCapabilities = data.capabilities || [];
+
+        if (hasCompanion) {
+            console.log(`[FlowWizard] Companion app connected for ${deviceId} - using fast element refresh`);
+        } else {
+            console.log(`[FlowWizard] No companion app for ${deviceId} - using ADB for elements`);
+        }
+
+        return hasCompanion;
+    } catch (error) {
+        console.warn('[FlowWizard] Error checking companion app status:', error);
+        wizard._hasCompanionApp = false;
+        wizard._companionCapabilities = [];
+        return false;
+    }
+}
+
+/**
+ * Flatten nested companion app elements into a flat array
+ * Companion app returns hierarchical elements with children,
+ * but the UI expects a flat array with bounds
+ * @param {Array} elements - Nested elements from companion app
+ * @returns {Array} - Flat array of elements
+ */
+function flattenCompanionElements(elements) {
+    const flat = [];
+
+    function processElement(el, index) {
+        // Convert companion bounds format {left, top, right, bottom} to what UI expects
+        const bounds = el.bounds || {};
+        const flatEl = {
+            index: flat.length,
+            resource_id: el.resource_id || '',
+            class_name: el.class_name || el.class || '',
+            text: el.text || '',
+            content_desc: el.content_desc || '',
+            bounds: bounds,
+            // Calculate width/height for convenience
+            x: bounds.left || 0,
+            y: bounds.top || 0,
+            width: (bounds.right || 0) - (bounds.left || 0),
+            height: (bounds.bottom || 0) - (bounds.top || 0),
+            clickable: el.clickable || false,
+            scrollable: el.scrollable || false,
+            focusable: el.focusable || false,
+            selected: el.selected || false
+        };
+
+        // Only add elements that have valid bounds
+        if (flatEl.width > 0 && flatEl.height > 0) {
+            flat.push(flatEl);
+        }
+
+        // Process children recursively
+        if (el.children && el.children.length > 0) {
+            for (const child of el.children) {
+                processElement(child);
+            }
+        }
+    }
+
+    for (const el of elements) {
+        processElement(el);
+    }
+
+    return flat;
 }
 
 function updateSetupMode(wizard) {
@@ -585,8 +675,21 @@ export function setupNavigationContext(wizard) {
     if (btnShowScreens && screensList) {
         btnShowScreens.addEventListener('click', (e) => {
             e.stopPropagation();
-            screensList.classList.toggle('open');
+            const isOpen = screensList.classList.toggle('open');
             btnShowScreens.classList.toggle('active');
+
+            // Position dropdown using fixed positioning (escapes overflow:hidden)
+            if (isOpen) {
+                const btnRect = btnShowScreens.getBoundingClientRect();
+                screensList.style.top = `${btnRect.bottom + 4}px`;
+                screensList.style.left = `${btnRect.left}px`;
+
+                // Ensure dropdown doesn't go off-screen to the right
+                const listRect = screensList.getBoundingClientRect();
+                if (listRect.right > window.innerWidth - 10) {
+                    screensList.style.left = `${window.innerWidth - listRect.width - 10}px`;
+                }
+            }
         });
 
         // Close dropdown when clicking outside
@@ -1381,7 +1484,7 @@ export function setupCaptureMode(wizard) {
     // Load saved preferences from localStorage
     const savedMode = localStorage.getItem('flowWizard.captureMode') || 'polling';
     const savedStreamMode = localStorage.getItem('flowWizard.streamMode') || 'mjpeg';
-    const savedQuality = localStorage.getItem('flowWizard.streamQuality') || 'medium';
+    const savedQuality = localStorage.getItem('flowWizard.streamQuality') || 'fast';
 
     // Handle capture mode change (select dropdown)
     if (captureModeSelect) {
@@ -1636,6 +1739,10 @@ export async function startStreaming(wizard) {
     }
 
     setSetupStatus(wizard, 'Connecting to live stream...');
+
+    // Check for companion app (non-blocking - will be available by first refresh)
+    // This enables fast element fetching when companion app is installed
+    checkCompanionAppStatus(wizard, wizard.selectedDevice);
 
     // Reset stream session flags
     wizard._streamLoadingHidden = false;
@@ -2052,14 +2159,72 @@ export async function refreshElements(wizard) {
         let currentPackage = null;
 
         if (wizard.captureMode === 'streaming') {
-            // Fast path: elements-only endpoint (no screenshot capture)
-            const response = await fetch(`${getApiBase()}/adb/elements/${encodeURIComponent(wizard.selectedDevice)}`);
-            if (!response.ok) return;
+            // Choose fast companion app path or ADB fallback
+            let data = null;
+            let currentActivity = null;
 
-            const data = await response.json();
-            elements = data.elements || [];
-            currentPackage = data.current_package;
-            const currentActivity = data.current_activity;
+            if (wizard._hasCompanionApp) {
+                // Fast path: Companion app via MQTT (100-300ms)
+                try {
+                    const startTime = performance.now();
+                    const response = await fetch(`${getApiBase()}/companion/ui-tree`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            device_id: wizard.selectedDevice,
+                            timeout: 5.0
+                        })
+                    });
+
+                    if (response.ok) {
+                        const companionData = await response.json();
+                        if (companionData.success) {
+                            const elapsed = Math.round(performance.now() - startTime);
+                            // Only log timing occasionally to reduce noise
+                            if (!wizard._lastCompanionLogTime || Date.now() - wizard._lastCompanionLogTime > 30000) {
+                                console.log(`[FlowWizard] Companion app elements: ${companionData.element_count} in ${elapsed}ms`);
+                                wizard._lastCompanionLogTime = Date.now();
+                            }
+
+                            // Flatten companion elements (they come nested with children)
+                            elements = flattenCompanionElements(companionData.elements || []);
+                            currentPackage = companionData.package;
+                            currentActivity = companionData.activity;
+                            data = {
+                                elements,
+                                current_package: currentPackage,
+                                current_activity: currentActivity,
+                                // Companion doesn't provide device dimensions, keep existing
+                                device_width: wizard.liveStream?.deviceWidth,
+                                device_height: wizard.liveStream?.deviceHeight
+                            };
+                        } else {
+                            throw new Error(companionData.error || 'Companion returned unsuccessful');
+                        }
+                    } else if (response.status === 400) {
+                        // Companion app not registered anymore - disable and fall back
+                        console.log('[FlowWizard] Companion app disconnected, falling back to ADB');
+                        wizard._hasCompanionApp = false;
+                    }
+                } catch (err) {
+                    // Companion failed, will fall back to ADB below
+                    if (!wizard._companionErrorLogged) {
+                        console.warn('[FlowWizard] Companion app error, falling back to ADB:', err.message);
+                        wizard._companionErrorLogged = true;
+                    }
+                }
+            }
+
+            // Fallback: ADB uiautomator (1-3 seconds)
+            if (!data) {
+                const response = await fetch(`${getApiBase()}/adb/elements/${encodeURIComponent(wizard.selectedDevice)}`);
+                if (!response.ok) return;
+
+                data = await response.json();
+                elements = data.elements || [];
+                currentPackage = data.current_package;
+                currentActivity = data.current_activity;
+            }
 
             // CRITICAL: Detect app/screen change and clear stale elements immediately
             // This prevents old screen's elements from being shown on new screen's video
@@ -2125,6 +2290,16 @@ export async function refreshElements(wizard) {
 
             const data = await response.json();
             elements = data.elements || [];
+
+            // SCREEN CHANGE DETECTION: If screen changed during capture, elements were
+            // cleared by backend to prevent overlay mismatch. Clear immediately and retry.
+            if (data.screen_changed) {
+                console.log('[FlowWizard] Screen changed during capture - clearing elements');
+                clearAllElementsAndHover(wizard);
+                // Schedule a quick retry after a short delay
+                setTimeout(() => refreshElements(wizard), 200);
+                return;
+            }
 
             // Extract device dimensions from screenshot (native resolution)
             if (data.screenshot && wizard.liveStream) {
@@ -3039,7 +3214,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.65');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.71');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3073,7 +3248,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.65');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.71');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -4893,7 +5068,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.65');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.71');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -4901,7 +5076,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.65');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.71');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -4909,7 +5084,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.65');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.71');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -4917,7 +5092,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.65');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.71');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
