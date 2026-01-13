@@ -179,6 +179,14 @@ export class FlowStepManager {
                 `;
             }
 
+            // Add edit button for sensor/action steps
+            let editBtn = '';
+            if (step.step_type === 'capture_sensors' && step.sensor_ids?.length) {
+                editBtn = `<button class="btn btn-sm btn-edit-sensor" data-step-index="${index}" data-sensor-ids="${step.sensor_ids.join(',')}" title="Edit sensor">✏️</button>`;
+            } else if (step.step_type === 'execute_action' && step.action_id) {
+                editBtn = `<button class="btn btn-sm btn-edit-action" data-step-index="${index}" data-action-id="${step.action_id}" title="Edit action">✏️</button>`;
+            }
+
             const stepHtml = `
                 <div class="flow-step-item ${isNested ? 'nested-step' : ''} ${hasNavIssue ? 'wrong-screen' : ''}" data-step-index="${index}">
                     <div class="step-number-badge">${index + 1}</div>
@@ -187,6 +195,7 @@ export class FlowStepManager {
                         ${warningHtml}
                     </div>
                     <div class="step-actions">
+                        ${editBtn}
                         <button class="btn btn-sm btn-move-up" title="Move up" ${isFirst ? 'disabled' : ''}>↑</button>
                         <button class="btn btn-sm btn-move-down" title="Move down" ${isLast ? 'disabled' : ''}>↓</button>
                         <button class="btn btn-sm btn-delete" title="Delete step">✕</button>
@@ -207,6 +216,7 @@ export class FlowStepManager {
         // Bind click handlers after rendering
         this.updateMoveButtons();
         this.bindFixButtons();
+        this.bindEditButtons();
     }
 
     /**
@@ -265,6 +275,36 @@ export class FlowStepManager {
             btn.onclick = () => {
                 const stepIndex = parseInt(btn.dataset.stepIndex);
                 this.promptFixNavigation(stepIndex);
+            };
+        });
+    }
+
+    /**
+     * Bind edit button click handlers for sensor/action steps
+     */
+    bindEditButtons() {
+        if (!this.stepsList) return;
+
+        // Sensor edit buttons
+        this.stepsList.querySelectorAll('.btn-edit-sensor').forEach(btn => {
+            btn.onclick = () => {
+                const sensorIds = btn.dataset.sensorIds;
+                if (sensorIds) {
+                    const ids = sensorIds.split(',');
+                    // Navigate to sensors page with the first sensor
+                    window.location.href = `sensors.html?edit=${ids[0]}`;
+                }
+            };
+        });
+
+        // Action edit buttons
+        this.stepsList.querySelectorAll('.btn-edit-action').forEach(btn => {
+            btn.onclick = () => {
+                const actionId = btn.dataset.actionId;
+                if (actionId) {
+                    // Navigate to actions page with the action
+                    window.location.href = `actions.html?edit=${actionId}`;
+                }
             };
         });
     }

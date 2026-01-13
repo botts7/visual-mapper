@@ -62,23 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.2.91';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.91';
-import FlowInteractions from './flow-interactions.js?v=0.2.91';
-import FlowStepManager from './flow-step-manager.js?v=0.2.91';
-import FlowRecorder from './flow-recorder.js?v=0.2.91';
-import LiveStream from './live-stream.js?v=0.2.91';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.91';
+import { showToast } from './toast.js?v=0.2.92';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.92';
+import FlowInteractions from './flow-interactions.js?v=0.2.92';
+import FlowStepManager from './flow-step-manager.js?v=0.2.92';
+import FlowRecorder from './flow-recorder.js?v=0.2.92';
+import LiveStream from './live-stream.js?v=0.2.92';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.92';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.2.91';
+} from './device-unlock.js?v=0.2.92';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.2.91';
+import * as Step3Controller from './step3-controller.js?v=0.2.92';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -2189,11 +2189,19 @@ export async function refreshElements(wizard) {
     }
     wizard._refreshingElements = true;
 
+    // Show refresh indicator to give user feedback
+    const refreshIndicator = document.getElementById('elementsRefreshIndicator');
+    if (refreshIndicator) {
+        refreshIndicator.classList.remove('hidden');
+    }
+
     // Safety net: auto-reset guard after 15 seconds in case of hung API call
     const guardTimeout = setTimeout(() => {
         if (wizard._refreshingElements) {
             console.warn('[FlowWizard] refreshElements guard timeout - resetting');
             wizard._refreshingElements = false;
+            // Hide indicator on timeout
+            if (refreshIndicator) refreshIndicator.classList.add('hidden');
         }
     }, 15000);
 
@@ -2384,13 +2392,18 @@ export async function refreshElements(wizard) {
                     height: wizard.recorder.screenshotMetadata?.height,
                     quick: false
                 };
-                // Update the display with the fresh screenshot (fixes screenshot/element mismatch)
-                updateScreenshotDisplay(wizard);
+                // Update the display with the fresh screenshot - MUST await to ensure
+                // new screenshot is loaded before any element overlays are drawn
+                // This fixes the bug where old screenshot would show with new elements
+                await updateScreenshotDisplay(wizard);
             }
+            // Polling mode uses canvasRenderer.render() which handles both screenshot
+            // and element overlays, so no need to update liveStream separately
         }
 
-        // Update LiveStream elements for overlay (batched - single redraw)
-        if (wizard.liveStream) {
+        // Only in streaming mode: Update LiveStream elements for overlay (batched - single redraw)
+        // In polling mode, canvasRenderer.render() already handles this
+        if (wizard.captureMode === 'streaming' && wizard.liveStream) {
             // Set new elements and redraw in one operation (no intermediate states)
             wizard.liveStream.elements = elements;
 
@@ -2443,6 +2456,12 @@ export async function refreshElements(wizard) {
         // Clear the safety timeout and reset guard
         clearTimeout(guardTimeout);
         wizard._refreshingElements = false;
+
+        // Hide refresh indicator
+        const refreshIndicator = document.getElementById('elementsRefreshIndicator');
+        if (refreshIndicator) {
+            refreshIndicator.classList.add('hidden');
+        }
     }
 }
 
@@ -3278,7 +3297,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.91');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.92');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3312,7 +3331,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.91');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.92');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -5142,7 +5161,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.91');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.92');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5150,7 +5169,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.91');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.92');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5158,7 +5177,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.91');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.92');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5166,7 +5185,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.91');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.92');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });

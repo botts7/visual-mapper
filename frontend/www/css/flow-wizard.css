@@ -3412,13 +3412,89 @@ body.dark-mode .suggestion-item,
 body.dark-mode .flow-summary,
 body.dark-mode .screen-group-header {
     color: #e0e0e0;
+    background: #2a2a2a;
+}
+
+body.dark-mode .flow-step-item {
+    background: #1e1e2e;
+    border-color: #444;
+}
+
+body.dark-mode .flow-step-item:hover {
+    background: #2a2a3e;
+    border-color: #3b82f6;
 }
 
 body.dark-mode .step-description,
 body.dark-mode .step-review-description,
 body.dark-mode .suggestion-name,
 body.dark-mode .suggestion-details {
+    color: #f0f0f0 !important;
+}
+
+/* Flow step action buttons in dark mode */
+body.dark-mode .step-actions .btn {
+    background: #3a3a4a;
     color: #e0e0e0;
+    border: 1px solid #555;
+}
+
+body.dark-mode .step-actions .btn:hover {
+    background: #4a4a5a;
+    border-color: #3b82f6;
+}
+
+body.dark-mode .step-actions .btn:disabled {
+    background: #2a2a3a;
+    color: #666;
+    border-color: #444;
+}
+
+/* Edit button styling */
+body.dark-mode .btn-edit-sensor,
+body.dark-mode .btn-edit-action {
+    background: #3b82f6;
+    color: white;
+    border: none;
+}
+
+body.dark-mode .btn-edit-sensor:hover,
+body.dark-mode .btn-edit-action:hover {
+    background: #2563eb;
+}
+
+/* Element refresh indicator */
+.refresh-indicator {
+    display: inline-block;
+    margin-left: 4px;
+    animation: spin 1s linear infinite;
+    color: #3b82f6;
+    font-size: 12px;
+}
+
+.refresh-indicator.hidden {
+    display: none;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Stale elements warning badge */
+.elements-stale-warning {
+    background: #f59e0b;
+    color: #000;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-left: 6px;
+    animation: pulse-warning 2s ease-in-out infinite;
+}
+
+@keyframes pulse-warning {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
 }
 
 body.dark-mode .step-review-type {
