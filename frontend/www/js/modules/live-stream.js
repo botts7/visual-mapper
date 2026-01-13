@@ -182,6 +182,7 @@ class LiveStream {
     _getWebSocketUrl(deviceId, mode = 'websocket', quality = 'fast') {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
+        const encodedDeviceId = encodeURIComponent(deviceId);
 
         // Endpoint based on mode
         let endpoint = 'ws/stream';
@@ -199,10 +200,10 @@ class LiveStream {
         const queryParams = `?quality=${quality}`;
 
         if (ingressMatch) {
-            return `${protocol}//${host}${ingressMatch[0]}/${endpoint}/${deviceId}${queryParams}`;
+            return `${protocol}//${host}${ingressMatch[0]}/${endpoint}/${encodedDeviceId}${queryParams}`;
         }
 
-        return `${protocol}//${host}/api/${endpoint}/${deviceId}${queryParams}`;
+        return `${protocol}//${host}/api/${endpoint}/${encodedDeviceId}${queryParams}`;
     }
 
     /**
