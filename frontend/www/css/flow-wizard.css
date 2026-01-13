@@ -3386,3 +3386,132 @@ img.app-icon {
         font-size: 14px;
     }
 }
+
+/* =============================================================================
+   Dark Mode Overrides
+   ============================================================================= */
+
+/* Dark mode text visibility fixes */
+body.dark-mode .flow-step-item,
+body.dark-mode .step-review-item,
+body.dark-mode .suggestion-item,
+body.dark-mode .flow-summary,
+body.dark-mode .screen-group-header {
+    color: #e0e0e0;
+}
+
+body.dark-mode .step-description,
+body.dark-mode .step-review-description,
+body.dark-mode .suggestion-name,
+body.dark-mode .suggestion-details {
+    color: #e0e0e0;
+}
+
+body.dark-mode .step-review-type {
+    color: #f0f0f0;
+}
+
+body.dark-mode .summary-stats .stat-label {
+    color: #aaaaaa;
+}
+
+body.dark-mode .summary-stats .stat-value {
+    color: #e0e0e0;
+}
+
+body.dark-mode .screen-group-header .group-name {
+    color: #f0f0f0;
+}
+
+body.dark-mode .screen-group-header .group-count {
+    color: #aaaaaa;
+}
+
+body.dark-mode .suggestion-meta {
+    color: #aaaaaa;
+}
+
+body.dark-mode .suggestion-device-class {
+    background: #333;
+    color: #e0e0e0;
+}
+
+body.dark-mode .alt-name-select {
+    background: #2a2a2a;
+    color: #e0e0e0;
+    border-color: #555;
+}
+
+body.dark-mode .alt-name-select option {
+    background: #2a2a2a;
+    color: #e0e0e0;
+}
+
+/* Navigation info panel dark mode */
+body.dark-mode .navigation-info-panel {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+body.dark-mode .nav-stat {
+    background: #0f172a;
+    border-color: #334155;
+}
+
+/* System preference dark mode (fallback) */
+@media (prefers-color-scheme: dark) {
+    .flow-step-item,
+    .step-review-item,
+    .suggestion-item,
+    .flow-summary,
+    .screen-group-header {
+        color: #e0e0e0;
+    }
+
+    .step-description,
+    .step-review-description,
+    .suggestion-name,
+    .suggestion-details {
+        color: #e0e0e0;
+    }
+
+    .step-review-type {
+        color: #f0f0f0;
+    }
+
+    .summary-stats .stat-label {
+        color: #aaaaaa;
+    }
+
+    .summary-stats .stat-value {
+        color: #e0e0e0;
+    }
+
+    .screen-group-header .group-name {
+        color: #f0f0f0;
+    }
+
+    .screen-group-header .group-count {
+        color: #aaaaaa;
+    }
+
+    .suggestion-meta {
+        color: #aaaaaa;
+    }
+
+    .suggestion-device-class {
+        background: #333;
+        color: #e0e0e0;
+    }
+
+    .alt-name-select {
+        background: #2a2a2a;
+        color: #e0e0e0;
+        border-color: #555;
+    }
+
+    .alt-name-select option {
+        background: #2a2a2a;
+        color: #e0e0e0;
+    }
+}

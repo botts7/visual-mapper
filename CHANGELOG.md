@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.84
+
+- Fix: Dark mode text visibility in Flow tab and Smart Suggestions
+- Added explicit dark mode overrides for step items, suggestions, and summaries
+
+## 0.2.83
+
+- Fix: Polling mode screenshot/elements sync (refreshElements now updates display)
+- Fix: Smart Suggestions "Also try" changed from buttons to cleaner dropdown selector
+- Fix: WebSocket URL encoding for device IDs with colons (IP:port format)
+
 ## 0.2.80
 
 - Feature: MJPEG v2 streaming with shared capture pipeline
