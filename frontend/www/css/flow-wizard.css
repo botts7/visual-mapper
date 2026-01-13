@@ -3433,21 +3433,37 @@ body.dark-mode .suggestion-details {
 }
 
 /* Flow step action buttons in dark mode */
-body.dark-mode .step-actions .btn {
-    background: #3a3a4a;
-    color: #e0e0e0;
-    border: 1px solid #555;
+body.dark-mode .step-actions .btn,
+body.dark-mode .step-actions .btn-sm {
+    background: #4a4a5a !important;
+    color: #ffffff !important;
+    border: 1px solid #666 !important;
 }
 
-body.dark-mode .step-actions .btn:hover {
-    background: #4a4a5a;
-    border-color: #3b82f6;
+body.dark-mode .step-actions .btn:hover:not(:disabled),
+body.dark-mode .step-actions .btn-sm:hover:not(:disabled) {
+    background: #3b82f6 !important;
+    border-color: #3b82f6 !important;
+    color: white !important;
 }
 
-body.dark-mode .step-actions .btn:disabled {
-    background: #2a2a3a;
-    color: #666;
-    border-color: #444;
+body.dark-mode .step-actions .btn:disabled,
+body.dark-mode .step-actions .btn-sm:disabled {
+    background: #333 !important;
+    color: #777 !important;
+    border-color: #444 !important;
+    opacity: 0.5;
+}
+
+/* Specific button colors for dark mode */
+body.dark-mode .step-actions .btn-delete {
+    color: #ff6b6b !important;
+}
+
+body.dark-mode .step-actions .btn-delete:hover:not(:disabled) {
+    background: #ef4444 !important;
+    border-color: #ef4444 !important;
+    color: white !important;
 }
 
 /* Edit button styling */

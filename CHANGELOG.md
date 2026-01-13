@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0
+
+### Dynamic Cache Busting & Dark Mode
+- All HTML pages now use session-based cache busting (no more hardcoded version numbers)
+- Dark mode support added to all pages with immediate theme application (no flash)
+- Dev Tools page now fetches version dynamically from API
+- Diagnostic page uses dynamic CSS and module loading
+- Removed hardcoded version numbers from meta tags (now set to "dynamic")
+
+### Pages Updated
+- index.html, main.html, devices.html, sensors.html, flows.html
+- flow-wizard.html, create-flow.html, actions.html, services.html
+- diagnostic.html, dev.html, navigation-learn.html, performance.html
+
+### Improvements
+- Session-based cache key ensures CSS/JS refreshes once per browser session
+- Module imports use dynamic cache key instead of hardcoded versions
+- ES6 modules list in Dev Tools no longer shows outdated version numbers
+
 ## 0.2.97
 
 - Fix: Adaptive backend sampling now works correctly (monotonic counter vs capped timing lists)

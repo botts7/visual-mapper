@@ -3,11 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.2.97" data-build="2026-01-10">
+    <meta name="version" content="0.3.1" data-build="dynamic">
     <title>Diagnostics - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.2.97">
+
+    <!-- Dynamic CSS loading -->
+    <script>
+        const cacheKey = sessionStorage.getItem('vmCacheKey') || Date.now();
+        sessionStorage.setItem('vmCacheKey', cacheKey);
+        document.write('<link rel="stylesheet" href="css/styles.css?v=0.3.1">');
+    </script>
+    <noscript>
+        <link rel="stylesheet" href="css/styles.css">
+    </noscript>
+
+    <!-- Apply dark mode immediately to prevent flash -->
+    <script>
+        (function() {
+            const theme = localStorage.getItem('visual-mapper-theme');
+            if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark-mode');
+                document.addEventListener('DOMContentLoaded', () => {
+                    document.body.classList.add('dark-mode');
+                });
+            }
+        })();
+    </script>
     <style>
         /* Tab Navigation */
         .diag-tabs {
@@ -169,7 +191,7 @@
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.2.97"></script>
+    <script type="module" src="js/init.js?v=0.3.1"></script>
     <div class="container">
         <!-- Page Header -->
         <div class="card" style="margin-bottom: 0;">
@@ -526,7 +548,9 @@
     </div>
 
     <script type="module">
-        import APIClient from './js/modules/api-client.js?v=0.0.51';
+        // Dynamic import with session-based cache busting
+        const cacheKey = sessionStorage.getItem('vmCacheKey') || Date.now();
+        const { default: APIClient } = await import(`./js/modules/api-client.js?v=${cacheKey}`);
 
         const api = new APIClient();
 

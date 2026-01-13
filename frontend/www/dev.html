@@ -3,11 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.2.97" data-build="2026-01-09">
+    <meta name="version" content="0.3.1" data-build="dynamic">
     <title>Dev Tools - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="css/styles.css?v=0.2.97">
+
+    <!-- Dynamic CSS loading -->
+    <script>
+        const cacheKey = sessionStorage.getItem('vmCacheKey') || Date.now();
+        sessionStorage.setItem('vmCacheKey', cacheKey);
+        document.write('<link rel="stylesheet" href="css/styles.css?v=0.3.1">');
+    </script>
+    <noscript>
+        <link rel="stylesheet" href="css/styles.css">
+    </noscript>
+
+    <!-- Apply dark mode immediately to prevent flash -->
+    <script>
+        (function() {
+            const theme = localStorage.getItem('visual-mapper-theme');
+            if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark-mode');
+                document.addEventListener('DOMContentLoaded', () => {
+                    document.body.classList.add('dark-mode');
+                });
+            }
+        })();
+    </script>
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
@@ -20,190 +42,186 @@
         </div>
 
         <div class="card">
-            <h2>Cache Busting Test</h2>
-            <p><strong>App Version:</strong> <span id="app-version"></span></p>
-            <p><strong>Meta Version:</strong> <span id="meta-version"></span></p>
-            <p><strong>API Base:</strong> <span id="api-base"></span></p>
+            <h2>Version Info</h2>
+            <p><strong>Backend Version:</strong> <span id="backend-version">Loading...</span></p>
+            <p><strong>Cache Key:</strong> <span id="cache-key">Loading...</span></p>
+            <p><strong>API Base:</strong> <span id="api-base">Loading...</span></p>
             <p class="mt-1 status" id="cache-status">
-                Cache busting status pending...
+                Checking version...
             </p>
         </div>
 
         <div class="card">
-            <h2>ES6 Modules Status</h2>
-            <p style="margin-bottom: 15px;">Currently loaded modules across the application (29 total):</p>
+            <h2>ES6 Modules</h2>
+            <p style="margin-bottom: 15px;">Application modules (<span id="module-count">0</span> total):</p>
 
             <h3 style="margin: 15px 0 10px 0; font-size: 14px; color: var(--text-secondary);">Core Modules</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px;">
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>api-client.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">API communication layer</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>theme-toggle.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Dark/light theme switcher</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>mobile-nav.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Responsive navigation</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>icon-renderer.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">MDI icon rendering</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>toast.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Toast notifications</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>sanitizer.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Input sanitization</small>
-                </div>
-            </div>
+            <div id="core-modules" class="module-grid"></div>
 
             <h3 style="margin: 15px 0 10px 0; font-size: 14px; color: var(--text-secondary);">Device Modules</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px;">
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>device-manager.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Device connection management</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>device-control.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Touch gestures & input</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>screenshot-capture.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Device screen capture</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>live-stream.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Live streaming module</small>
-                </div>
-            </div>
+            <div id="device-modules" class="module-grid"></div>
 
             <h3 style="margin: 15px 0 10px 0; font-size: 14px; color: var(--text-secondary);">Sensor & Action Modules</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px;">
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>sensor-creator.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Sensor definition dialog</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>action-manager.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Action management</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>element-selector.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">UI element selection mode</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>element-tree.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Element tree component</small>
-                </div>
-            </div>
+            <div id="sensor-modules" class="module-grid"></div>
 
             <h3 style="margin: 15px 0 10px 0; font-size: 14px; color: var(--text-secondary);">Screenshot Modules</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px;">
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>overlay-filters.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Screenshot overlay controls</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>auto-refresh.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Screenshot auto-update</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>activity-monitor.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Activity tracking</small>
-                </div>
-            </div>
+            <div id="screenshot-modules" class="module-grid"></div>
 
             <h3 style="margin: 15px 0 10px 0; font-size: 14px; color: var(--text-secondary);">Flow Wizard Modules</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px;">
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>flow-wizard.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Flow wizard main controller</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>flow-manager.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Flow CRUD operations</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>flow-step-manager.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Flow step management</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>flow-recorder.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Gesture recording</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>flow-element-panel.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Element panel for flows</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>flow-canvas-renderer.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Canvas rendering</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>flow-interactions.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">User interaction handling</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>flow-wizard-step1.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Step 1: Device selection</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>flow-wizard-step2.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Step 2: App/Activity</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>flow-wizard-step4.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Step 4: Element selection</small>
-                </div>
-                <div style="padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--preview-background);">
-                    <strong>flow-wizard-step5.js</strong> v0.0.5<br>
-                    <small style="color: var(--text-secondary);">Step 5: Review & Save</small>
-                </div>
-            </div>
+            <div id="flow-modules" class="module-grid"></div>
 
             <p style="margin-top: 15px; font-size: 13px; color: var(--text-secondary);">
-                All modules use dual export pattern (ES6 + global) with cache busting query parameters.
+                All modules use dual export pattern (ES6 + global) with session-based cache busting.
             </p>
         </div>
     </div>
 
-    <script type="module" src="js/init.js?v=0.2.97"></script>
-    <!-- Note: ThemeToggle and MobileNav now handled by js/components/navbar.js -->
+    <style>
+        .module-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 10px;
+        }
+        .module-card {
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--preview-background);
+        }
+        .module-card strong {
+            color: var(--text-color);
+        }
+        .module-card small {
+            color: var(--text-secondary);
+        }
+    </style>
+
+    <!-- Dynamic JS loading with cache busting -->
     <script>
-        // Wait for init.js to load before checking versions
-        function updateVersionInfo() {
-            // Display version information
-            document.getElementById('app-version').textContent = window.APP_VERSION || 'Not set';
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = 'js/init.js?v=' + (sessionStorage.getItem('vmCacheKey') || Date.now());
+        document.body.appendChild(script);
+    </script>
 
-            const metaVersion = document.querySelector('meta[name="version"]')?.content;
-            document.getElementById('meta-version').textContent = metaVersion || 'Not found';
-            document.getElementById('api-base').textContent = window.API_BASE || 'Not set';
+    <script>
+        // Module definitions - only names and descriptions, version fetched dynamically
+        const modules = {
+            core: [
+                { name: 'api-client.js', desc: 'API communication layer' },
+                { name: 'theme-toggle.js', desc: 'Dark/light theme switcher' },
+                { name: 'mobile-nav.js', desc: 'Responsive navigation' },
+                { name: 'icon-renderer.js', desc: 'MDI icon rendering' },
+                { name: 'toast.js', desc: 'Toast notifications' },
+                { name: 'sanitizer.js', desc: 'Input sanitization' }
+            ],
+            device: [
+                { name: 'device-manager.js', desc: 'Device connection management' },
+                { name: 'device-control.js', desc: 'Touch gestures & input' },
+                { name: 'screenshot-capture.js', desc: 'Device screen capture' },
+                { name: 'live-stream.js', desc: 'Live streaming module' }
+            ],
+            sensor: [
+                { name: 'sensor-creator.js', desc: 'Sensor definition dialog' },
+                { name: 'action-manager.js', desc: 'Action management' },
+                { name: 'element-selector.js', desc: 'UI element selection mode' },
+                { name: 'element-tree.js', desc: 'Element tree component' }
+            ],
+            screenshot: [
+                { name: 'overlay-filters.js', desc: 'Screenshot overlay controls' },
+                { name: 'auto-refresh.js', desc: 'Screenshot auto-update' },
+                { name: 'activity-monitor.js', desc: 'Activity tracking' }
+            ],
+            flow: [
+                { name: 'flow-wizard.js', desc: 'Flow wizard main controller' },
+                { name: 'flow-manager.js', desc: 'Flow CRUD operations' },
+                { name: 'flow-step-manager.js', desc: 'Flow step management' },
+                { name: 'flow-recorder.js', desc: 'Gesture recording' },
+                { name: 'flow-element-panel.js', desc: 'Element panel for flows' },
+                { name: 'flow-canvas-renderer.js', desc: 'Canvas rendering' },
+                { name: 'flow-interactions.js', desc: 'User interaction handling' },
+                { name: 'flow-wizard-step1.js', desc: 'Step 1: Device selection' },
+                { name: 'flow-wizard-step2.js', desc: 'Step 2: App/Activity' },
+                { name: 'flow-wizard-step3.js', desc: 'Step 3: Navigation' },
+                { name: 'flow-wizard-step4.js', desc: 'Step 4: Element selection' },
+                { name: 'flow-wizard-step5.js', desc: 'Step 5: Review & Save' }
+            ]
+        };
 
-            // Verify cache busting
-            const expectedVersion = metaVersion || window.APP_VERSION;
-            const statusEl = document.getElementById('cache-status');
-            if (expectedVersion && window.APP_VERSION === expectedVersion && metaVersion === expectedVersion) {
-                statusEl.textContent = 'OK. Cache busting is working! All versions match ' + expectedVersion;
-                statusEl.className = 'mt-1 status success';
-                console.log('[Dev Tools] Cache busting verified');
-            } else {
-                statusEl.textContent = 'Cache busting mismatch! App=' + (window.APP_VERSION || 'n/a') + ' Meta=' + (metaVersion || 'n/a');
-                statusEl.className = 'mt-1 status error';
+        // Render modules to containers
+        function renderModules(version) {
+            const containers = {
+                core: document.getElementById('core-modules'),
+                device: document.getElementById('device-modules'),
+                sensor: document.getElementById('sensor-modules'),
+                screenshot: document.getElementById('screenshot-modules'),
+                flow: document.getElementById('flow-modules')
+            };
+
+            let totalCount = 0;
+            for (const [category, mods] of Object.entries(modules)) {
+                const container = containers[category];
+                if (!container) continue;
+
+                container.innerHTML = mods.map(m => `
+                    <div class="module-card">
+                        <strong>${m.name}</strong><br>
+                        <small>${m.desc}</small>
+                    </div>
+                `).join('');
+
+                totalCount += mods.length;
+            }
+
+            document.getElementById('module-count').textContent = totalCount;
+        }
+
+        // Fetch version from backend and update UI
+        async function updateVersionInfo() {
+            const cacheKey = sessionStorage.getItem('vmCacheKey') || 'not set';
+            document.getElementById('cache-key').textContent = cacheKey;
+            document.getElementById('api-base').textContent = window.API_BASE || '/api';
+
+            try {
+                const response = await fetch(`${window.API_BASE || '/api'}/health`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const backendVersion = data.version || 'Unknown';
+
+                    document.getElementById('backend-version').textContent = backendVersion;
+
+                    // Update meta tag
+                    const metaVersion = document.querySelector('meta[name="version"]');
+                    if (metaVersion) {
+                        metaVersion.content = backendVersion;
+                    }
+
+                    // Update status
+                    const statusEl = document.getElementById('cache-status');
+                    statusEl.textContent = 'Backend connected - Version ' + backendVersion;
+                    statusEl.className = 'mt-1 status success';
+
+                    // Render modules
+                    renderModules(backendVersion);
+
+                    console.log('[Dev Tools] Version fetched:', backendVersion);
+                } else {
+                    throw new Error('Backend unavailable');
+                }
+            } catch (e) {
+                document.getElementById('backend-version').textContent = 'Offline';
+                document.getElementById('cache-status').textContent = 'Backend unavailable';
+                document.getElementById('cache-status').className = 'mt-1 status error';
+                renderModules('unknown');
             }
         }
 
-        // Listen for init completion
-        window.addEventListener('visualmapper:ready', updateVersionInfo);
-
-        // Also try immediately (in case init.js already loaded)
-        if (window.APP_VERSION) {
+        // Initialize when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', updateVersionInfo);
+        } else {
             updateVersionInfo();
         }
     </script>
 </body>
 </html>
-
