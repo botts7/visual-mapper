@@ -285,25 +285,31 @@ export class FlowStepManager {
     bindEditButtons() {
         if (!this.stepsList) return;
 
-        // Sensor edit buttons
+        // Sensor edit buttons - dispatch event for wizard to handle
         this.stepsList.querySelectorAll('.btn-edit-sensor').forEach(btn => {
             btn.onclick = () => {
                 const sensorIds = btn.dataset.sensorIds;
+                const stepIndex = parseInt(btn.dataset.stepIndex);
                 if (sensorIds) {
                     const ids = sensorIds.split(',');
-                    // Navigate to sensors page with the first sensor
-                    window.location.href = `sensors.html?edit=${ids[0]}`;
+                    // Dispatch event for wizard to handle (opens edit dialog)
+                    window.dispatchEvent(new CustomEvent('editSensorRequest', {
+                        detail: { sensorId: ids[0], sensorIds: ids, stepIndex }
+                    }));
                 }
             };
         });
 
-        // Action edit buttons
+        // Action edit buttons - dispatch event for wizard to handle
         this.stepsList.querySelectorAll('.btn-edit-action').forEach(btn => {
             btn.onclick = () => {
                 const actionId = btn.dataset.actionId;
+                const stepIndex = parseInt(btn.dataset.stepIndex);
                 if (actionId) {
-                    // Navigate to actions page with the action
-                    window.location.href = `actions.html?edit=${actionId}`;
+                    // Dispatch event for wizard to handle (opens edit dialog)
+                    window.dispatchEvent(new CustomEvent('editActionRequest', {
+                        detail: { actionId, stepIndex }
+                    }));
                 }
             };
         });

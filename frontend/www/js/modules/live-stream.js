@@ -1056,13 +1056,14 @@ class LiveStream {
             if (this._lastFrameHash !== 0 && newHash !== this._lastFrameHash) {
                 // Screen changed - track that we're in a "changing" state
                 if (!this._screenChanged) {
-                    console.log('[LiveStream] Smart: screen change detected, clearing stale elements');
-                    // IMMEDIATELY clear elements when screen changes to prevent misalignment
-                    // Don't wait for stabilization - old elements on new screenshot looks broken
-                    this.elements = [];
-                    if (this.onElementsCleared) {
-                        this.onElementsCleared();
-                    }
+                    console.log('[LiveStream] Smart: screen change detected, marking elements stale');
+                    // Mark elements as stale - _renderFrame will skip drawing them
+                    // Don't clear immediately to avoid flicker - let refresh replace atomically
+                    this._elementsStale = true;
+                    this._elementsStaleTime = Date.now();
+                    // Note: We intentionally do NOT clear this.elements here
+                    // The autoHideStaleElements check in _renderFrame handles not drawing stale overlays
+                    // onElementsCleared callback removed - was causing double-clear flicker
                 }
                 this._screenChanged = true;
                 this._stableFrameCount = 0;
@@ -1100,6 +1101,7 @@ class LiveStream {
      */
     resetScreenChangeTracking() {
         this._screenChanged = false;
+        this._elementsStale = false;  // Clear stale flag when new elements arrive
         this._framesSinceElements = 0;
         this._stableFrameCount = 0;
         // Don't log - this is called frequently and creates noise

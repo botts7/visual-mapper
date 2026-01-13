@@ -18,28 +18,28 @@
  * v0.0.22: Updated Step4 import for navigation issue detection
  */
 
-import { showToast } from './toast.js?v=0.2.92';
-import FlowRecorder from './flow-recorder.js?v=0.2.92';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.92';
-import FlowInteractions from './flow-interactions.js?v=0.2.92';
-import FlowStepManager from './flow-step-manager.js?v=0.2.92';
-import LiveStream from './live-stream.js?v=0.2.92';
-import ElementTree from './element-tree.js?v=0.2.92';
-import APIClient from './api-client.js?v=0.2.92';
-import SensorCreator from './sensor-creator.js?v=0.2.92';
+import { showToast } from './toast.js?v=0.2.93';
+import FlowRecorder from './flow-recorder.js?v=0.2.93';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.93';
+import FlowInteractions from './flow-interactions.js?v=0.2.93';
+import FlowStepManager from './flow-step-manager.js?v=0.2.93';
+import LiveStream from './live-stream.js?v=0.2.93';
+import ElementTree from './element-tree.js?v=0.2.93';
+import APIClient from './api-client.js?v=0.2.93';
+import SensorCreator from './sensor-creator.js?v=0.2.93';
 
 // Step modules
-import * as Step1 from './flow-wizard-step1.js?v=0.2.92';
-import * as Step2 from './flow-wizard-step2.js?v=0.2.92';
-import * as Step3 from './flow-wizard-step3.js?v=0.2.92';
-import * as Step4 from './flow-wizard-step4.js?v=0.2.92';
-import * as Step5 from './flow-wizard-step5.js?v=0.2.92';
+import * as Step1 from './flow-wizard-step1.js?v=0.2.93';
+import * as Step2 from './flow-wizard-step2.js?v=0.2.93';
+import * as Step3 from './flow-wizard-step3.js?v=0.2.93';
+import * as Step4 from './flow-wizard-step4.js?v=0.2.93';
+import * as Step5 from './flow-wizard-step5.js?v=0.2.93';
 
 // Dialog module
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.92';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.93';
 
 // Element actions module
-import * as ElementActions from './flow-wizard-element-actions.js?v=0.2.92';
+import * as ElementActions from './flow-wizard-element-actions.js?v=0.2.93';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -153,7 +153,7 @@ class FlowWizard {
             this.recorder.stop?.();
         }
 
-        const FlowRecorder = (await import('./flow-recorder.js?v=0.2.92')).default;
+        const FlowRecorder = (await import('./flow-recorder.js?v=0.2.93')).default;
         this.recorder = new FlowRecorder(deviceId, this.selectedApp, this.recordMode);
 
         // Load existing steps (convert from action format to flow format)
@@ -519,6 +519,7 @@ class FlowWizard {
     async setup() {
         this.setupNavigation();
         this.setupCleanup();
+        this.setupEditListeners();
         this.pauseSchedulerForEditing();
 
         // Check if resuming edit mode from URL
@@ -557,6 +558,59 @@ class FlowWizard {
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') {
                 // Don't resume on tab switch - only on page close
+            }
+        });
+    }
+
+    /**
+     * Setup event listeners for edit requests from FlowStepManager
+     */
+    setupEditListeners() {
+        const wizard = this;
+
+        // Handle sensor edit request from Flow panel
+        window.addEventListener('editSensorRequest', async (event) => {
+            const { sensorId, stepIndex } = event.detail;
+            console.log(`[FlowWizard] Edit sensor request: ${sensorId} (step ${stepIndex})`);
+
+            try {
+                // Fetch sensor data from API
+                const response = await wizard.apiClient.get(`/sensors/${sensorId}`);
+                if (response && response.sensor) {
+                    // Open sensor editor dialog
+                    if (wizard.sensorCreator) {
+                        wizard.sensorCreator.showEdit(response.sensor);
+                    } else {
+                        console.warn('[FlowWizard] SensorCreator not available');
+                        window.showToast?.('Sensor editor not available', 'error', 3000);
+                    }
+                } else {
+                    window.showToast?.('Sensor not found', 'error', 3000);
+                }
+            } catch (error) {
+                console.error('[FlowWizard] Failed to load sensor for editing:', error);
+                window.showToast?.('Failed to load sensor', 'error', 3000);
+            }
+        });
+
+        // Handle action edit request from Flow panel
+        window.addEventListener('editActionRequest', async (event) => {
+            const { actionId, stepIndex } = event.detail;
+            console.log(`[FlowWizard] Edit action request: ${actionId} (step ${stepIndex})`);
+
+            try {
+                // Fetch action data from API
+                const response = await wizard.apiClient.get(`/actions/${actionId}`);
+                if (response && response.action) {
+                    // Open action editor dialog (use simple dialog for now)
+                    window.showToast?.('Action editing coming soon', 'info', 3000);
+                    // TODO: Implement action edit dialog
+                } else {
+                    window.showToast?.('Action not found', 'error', 3000);
+                }
+            } catch (error) {
+                console.error('[FlowWizard] Failed to load action for editing:', error);
+                window.showToast?.('Failed to load action', 'error', 3000);
             }
         });
     }

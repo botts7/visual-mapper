@@ -62,23 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.2.92';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.92';
-import FlowInteractions from './flow-interactions.js?v=0.2.92';
-import FlowStepManager from './flow-step-manager.js?v=0.2.92';
-import FlowRecorder from './flow-recorder.js?v=0.2.92';
-import LiveStream from './live-stream.js?v=0.2.92';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.92';
+import { showToast } from './toast.js?v=0.2.93';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.93';
+import FlowInteractions from './flow-interactions.js?v=0.2.93';
+import FlowStepManager from './flow-step-manager.js?v=0.2.93';
+import FlowRecorder from './flow-recorder.js?v=0.2.93';
+import LiveStream from './live-stream.js?v=0.2.93';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.93';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.2.92';
+} from './device-unlock.js?v=0.2.93';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.2.92';
+import * as Step3Controller from './step3-controller.js?v=0.2.93';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -2073,12 +2073,9 @@ export function startElementAutoRefresh(wizard) {
                 refreshElements(wizard);
             }
         };
-        // IMMEDIATE CLEAR: When screen changes, clear wizard's tracked elements immediately
-        // This prevents stale element overlays on new screenshot before refreshElements completes
-        wizard.liveStream.onElementsCleared = () => {
-            console.log('[FlowWizard] Screen change detected - clearing wizard elements');
-            clearAllElementsAndHover(wizard);
-        };
+        // Note: onElementsCleared callback removed - was causing element flicker
+        // LiveStream's autoHideStaleElements now handles not drawing stale overlays
+        // and new elements replace old ones atomically in refreshElements
     } else {
         console.warn('[FlowWizard] No liveStream - smart refresh not available');
     }
@@ -2277,8 +2274,7 @@ export async function refreshElements(wizard) {
                 currentActivity = data.current_activity;
             }
 
-            // CRITICAL: Detect app/screen change and clear stale elements immediately
-            // This prevents old screen's elements from being shown on new screen's video
+            // Detect app/screen change for logging (staleness handled by LiveStream)
             const packageChanged = currentPackage && wizard.currentElementsPackage &&
                 currentPackage !== wizard.currentElementsPackage;
             const activityChanged = currentActivity && wizard.currentElementsActivity &&
@@ -2288,16 +2284,13 @@ export async function refreshElements(wizard) {
                 const changeType = packageChanged ? 'App' : 'Screen';
                 const from = packageChanged ? wizard.currentElementsPackage : wizard.currentElementsActivity;
                 const to = packageChanged ? currentPackage : currentActivity;
-                console.log(`[FlowWizard] ${changeType} changed: ${from} → ${to}, clearing stale elements`);
-
-                // Clear ALL element sources and hover state (unified helper)
-                clearAllElementsAndHover(wizard);
-
-                // Force immediate redraw without old overlays
-                if (wizard.liveStream?.currentImage) {
-                    wizard.liveStream.ctx.clearRect(0, 0, wizard.liveStream.canvas.width, wizard.liveStream.canvas.height);
-                    wizard.liveStream.ctx.drawImage(wizard.liveStream.currentImage, 0, 0);
-                }
+                console.log(`[FlowWizard] ${changeType} changed: ${from} → ${to}`);
+                // NOTE: Don't clear elements here - LiveStream's autoHideStaleElements handles
+                // not drawing stale overlays. New elements will replace old ones atomically
+                // below at _renderFrame call. This prevents show->hide->show flicker.
+                // Just clear hover state since element coordinates won't match new screen
+                clearHoverHighlight(wizard);
+                wizard.hoveredElement = null;
             }
             // Track current package and activity for next comparison
             wizard.currentElementsPackage = currentPackage;
@@ -3297,7 +3290,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.92');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.93');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3331,7 +3324,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.92');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.93');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -5161,7 +5154,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.92');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.93');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5169,7 +5162,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.92');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.93');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5177,7 +5170,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.92');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.93');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5185,7 +5178,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.92');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.93');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
