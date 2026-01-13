@@ -11,9 +11,9 @@
  * v0.0.17: Pass start-from-current-screen setting to test flow payload
  */
 
-import { showToast } from './toast.js?v=0.2.85';
-import FlowStepManager from './flow-step-manager.js?v=0.2.85';
-import { groupStepsByScreen, validateMove, moveStep } from './step-reorganizer.js?v=0.2.85';
+import { showToast } from './toast.js?v=0.2.86';
+import FlowStepManager from './flow-step-manager.js?v=0.2.86';
+import { groupStepsByScreen, validateMove, moveStep } from './step-reorganizer.js?v=0.2.86';
 
 function getApiBase() {
     return window.API_BASE || '/api';
@@ -172,10 +172,13 @@ export async function loadStep(wizard) {
                 ? `<button class="btn btn-sm btn-warning insert-step-btn" data-insert-index="${originalIndex}" style="background: #f59e0b; color: white; font-size: 0.7em; padding: 4px 8px;">Insert</button>`
                 : `<button class="btn btn-sm btn-secondary insert-step-btn" data-insert-index="${originalIndex}" style="font-size: 0.7em; padding: 4px 8px;">Insert</button>`;
 
-            // Add edit sensor button for capture_sensors steps
-            const editSensorBtn = step.step_type === 'capture_sensors' && step.sensor_ids?.length
-                ? `<button class="btn btn-sm btn-primary edit-sensor-btn" data-step-index="${originalIndex}" data-sensor-ids="${step.sensor_ids.join(',')}" style="font-size: 0.7em; padding: 4px 8px;" title="Edit linked sensor">✏️</button>`
-                : '';
+            // Add edit button for capture_sensors or execute_action steps
+            let editBtn = '';
+            if (step.step_type === 'capture_sensors' && step.sensor_ids?.length) {
+                editBtn = `<button class="btn btn-sm btn-primary edit-sensor-btn" data-step-index="${originalIndex}" data-sensor-ids="${step.sensor_ids.join(',')}" style="font-size: 0.7em; padding: 4px 8px;" title="Edit linked sensor">✏️</button>`;
+            } else if (step.step_type === 'execute_action' && step.action_id) {
+                editBtn = `<button class="btn btn-sm btn-primary edit-action-btn" data-step-index="${originalIndex}" data-action-id="${step.action_id}" style="font-size: 0.7em; padding: 4px 8px;" title="Edit linked action">✏️</button>`;
+            }
 
             return `
             <div class="step-review-item" data-original-index="${originalIndex}" style="${issueStyle}">
@@ -196,7 +199,7 @@ export async function loadStep(wizard) {
                             ↓
                         </button>
                     </div>
-                    ${editSensorBtn}
+                    ${editBtn}
                     ${insertBtn}
                     <button class="btn btn-sm btn-danger" onclick="window.flowWizard.removeStepAt(${originalIndex})">
                         Del
@@ -378,6 +381,38 @@ function wireUpStep4Handlers(wizard, container, navIssues) {
             } catch (error) {
                 console.error('[Step4] Error editing sensor:', error);
                 showToast(`Could not load sensor: ${error.message}`, 'error');
+            }
+        });
+    });
+
+    // Wire up "Edit Action" buttons for execute_action steps
+    container.querySelectorAll('.edit-action-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const stepIndex = parseInt(e.target.dataset.stepIndex, 10);
+            const actionId = e.target.dataset.actionId;
+
+            if (!actionId) {
+                showToast('No action linked to this step', 'warning');
+                return;
+            }
+
+            console.log(`[Step4] Edit action clicked for step ${stepIndex}, action: ${actionId}`);
+
+            try {
+                // Fetch the action data
+                const response = await fetch(`${window.API_BASE || '/api'}/actions/${wizard.selectedDevice}/${actionId}`);
+                if (!response.ok) {
+                    throw new Error('Action not found');
+                }
+                const action = await response.json();
+
+                // Open action in new tab
+                showToast('Opening action in new tab...', 'info');
+                window.open(`/actions.html?edit=${actionId}`, '_blank');
+            } catch (error) {
+                console.error('[Step4] Error editing action:', error);
+                showToast(`Could not load action: ${error.message}`, 'error');
             }
         });
     });

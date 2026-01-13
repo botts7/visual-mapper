@@ -62,23 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.2.85';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.85';
-import FlowInteractions from './flow-interactions.js?v=0.2.85';
-import FlowStepManager from './flow-step-manager.js?v=0.2.85';
-import FlowRecorder from './flow-recorder.js?v=0.2.85';
-import LiveStream from './live-stream.js?v=0.2.85';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.85';
+import { showToast } from './toast.js?v=0.2.86';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.86';
+import FlowInteractions from './flow-interactions.js?v=0.2.86';
+import FlowStepManager from './flow-step-manager.js?v=0.2.86';
+import FlowRecorder from './flow-recorder.js?v=0.2.86';
+import LiveStream from './live-stream.js?v=0.2.86';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.86';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.2.85';
+} from './device-unlock.js?v=0.2.86';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.2.85';
+import * as Step3Controller from './step3-controller.js?v=0.2.86';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -3272,7 +3272,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.85');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.86');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3306,7 +3306,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.85');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.86');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -5136,7 +5136,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.85');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.86');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5144,7 +5144,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.85');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.86');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5152,7 +5152,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.85');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.86');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5160,7 +5160,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.85');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.86');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5335,6 +5335,80 @@ export function drawTextLabel(wizard, text, x, y, w, isClickable) {
 }
 
 /**
+ * Wire up edit button click handler for a step element
+ * Handles both sensor and action edit buttons
+ */
+function wireUpEditButton(stepEl, wizard) {
+    // Handle sensor edit button
+    const sensorBtn = stepEl.querySelector('.btn-edit-sensor');
+    if (sensorBtn && !sensorBtn.dataset.wired) {
+        sensorBtn.dataset.wired = 'true';
+        sensorBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const sensorIds = e.target.dataset.sensorIds?.split(',') || [];
+            if (sensorIds.length === 0) {
+                showToast('No sensors linked to this step', 'warning');
+                return;
+            }
+
+            const sensorId = sensorIds[0];
+            try {
+                const response = await fetch(`${window.API_BASE || '/api'}/sensors/${wizard.selectedDevice}/${sensorId}`);
+                if (!response.ok) throw new Error('Sensor not found');
+                const sensor = await response.json();
+
+                if (wizard.sensorCreator) {
+                    wizard.sensorCreator.show(wizard.selectedDevice, sensor.element || {}, 0, {
+                        name: sensor.name,
+                        entity_id: sensor.entity_id,
+                        device_class: sensor.device_class || 'none',
+                        unit: sensor.unit_of_measurement || '',
+                        icon: sensor.icon || 'mdi:eye',
+                        existingSensorId: sensorId,
+                        stableDeviceId: wizard.selectedDeviceStableId || wizard.selectedDevice,
+                        screenActivity: sensor.screen_activity,
+                        targetApp: wizard.selectedApp?.package
+                    });
+                } else {
+                    showToast('Opening sensor in new tab...', 'info');
+                    window.open(`/sensors.html?edit=${sensorId}`, '_blank');
+                }
+            } catch (error) {
+                console.error('[Step3] Error editing sensor:', error);
+                showToast(`Could not load sensor: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    // Handle action edit button
+    const actionBtn = stepEl.querySelector('.btn-edit-action');
+    if (actionBtn && !actionBtn.dataset.wired) {
+        actionBtn.dataset.wired = 'true';
+        actionBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const actionId = e.target.dataset.actionId;
+            if (!actionId) {
+                showToast('No action linked to this step', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${window.API_BASE || '/api'}/actions/${wizard.selectedDevice}/${actionId}`);
+                if (!response.ok) throw new Error('Action not found');
+                const action = await response.json();
+
+                // Open action editor or navigate to actions page
+                showToast('Opening action in new tab...', 'info');
+                window.open(`/actions.html?edit=${actionId}`, '_blank');
+            } catch (error) {
+                console.error('[Step3] Error editing action:', error);
+                showToast(`Could not load action: ${error.message}`, 'error');
+            }
+        });
+    }
+}
+
+/**
  * Setup flow steps event listeners
  * Listens for flowStepAdded and flowStepRemoved events during recording
  */
@@ -5344,6 +5418,14 @@ export function setupFlowStepsListener(wizard) {
     window.addEventListener('flowStepAdded', (e) => {
         const { step, index } = e.detail;
 
+        // Add edit button for capture_sensors or execute_action steps
+        let editBtn = '';
+        if (step.step_type === 'capture_sensors' && step.sensor_ids?.length) {
+            editBtn = `<button class="btn btn-sm btn-edit-sensor" data-step-index="${index}" data-sensor-ids="${step.sensor_ids.join(',')}" title="Edit sensor">✏️</button>`;
+        } else if (step.step_type === 'execute_action' && step.action_id) {
+            editBtn = `<button class="btn btn-sm btn-edit-action" data-step-index="${index}" data-action-id="${step.action_id}" title="Edit action">✏️</button>`;
+        }
+
         const stepHtml = `
             <div class="flow-step-item" data-step-index="${index}">
                 <div class="step-number-badge">${index + 1}</div>
@@ -5351,12 +5433,17 @@ export function setupFlowStepsListener(wizard) {
                     <div class="step-description">${step.description}</div>
                 </div>
                 <div class="step-actions">
+                    ${editBtn}
                     <button class="btn btn-sm" onclick="window.flowWizard.recorder.removeStep(${index})">✕</button>
                 </div>
             </div>
         `;
 
         stepsList.insertAdjacentHTML('beforeend', stepHtml);
+
+        // Wire up edit button click handler
+        const addedStep = stepsList.querySelector(`[data-step-index="${index}"]`);
+        wireUpEditButton(addedStep, wizard);
 
         // Auto-switch to Flow tab when step is added
         wizard.switchToTab('flow');
@@ -5369,6 +5456,14 @@ export function setupFlowStepsListener(wizard) {
     window.addEventListener('flowStepInserted', (e) => {
         const { step, index } = e.detail;
 
+        // Add edit button for capture_sensors or execute_action steps
+        let editBtn = '';
+        if (step.step_type === 'capture_sensors' && step.sensor_ids?.length) {
+            editBtn = `<button class="btn btn-sm btn-edit-sensor" data-step-index="${index}" data-sensor-ids="${step.sensor_ids.join(',')}" title="Edit sensor">✏️</button>`;
+        } else if (step.step_type === 'execute_action' && step.action_id) {
+            editBtn = `<button class="btn btn-sm btn-edit-action" data-step-index="${index}" data-action-id="${step.action_id}" title="Edit action">✏️</button>`;
+        }
+
         const stepHtml = `
             <div class="flow-step-item" data-step-index="${index}" style="border: 2px solid #16a34a; background: #f0fdf4;">
                 <div class="step-number-badge" style="background: #16a34a;">${index + 1}</div>
@@ -5377,6 +5472,7 @@ export function setupFlowStepsListener(wizard) {
                     <span style="color: #16a34a; font-size: 0.8em;">✓ Inserted</span>
                 </div>
                 <div class="step-actions">
+                    ${editBtn}
                     <button class="btn btn-sm" onclick="window.flowWizard.recorder.removeStep(${index})">✕</button>
                 </div>
             </div>
@@ -5390,10 +5486,11 @@ export function setupFlowStepsListener(wizard) {
             stepsList.insertAdjacentHTML('beforeend', stepHtml);
         }
 
-        // Renumber all steps
+        // Renumber all steps and wire up edit buttons
         stepsList.querySelectorAll('.flow-step-item').forEach((el, i) => {
             el.dataset.stepIndex = i;
             el.querySelector('.step-number-badge').textContent = i + 1;
+            wireUpEditButton(el, wizard);
         });
 
         // Auto-switch to Flow tab when step is inserted

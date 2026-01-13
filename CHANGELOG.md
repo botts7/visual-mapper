@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.86
+
+- Feature: Edit button for sensor and action flow steps in Step 3 and Step 4
+- Click ✏️ to edit the linked sensor or action directly from the flow step
+
 ## 0.2.84
 
 - Fix: Dark mode text visibility in Flow tab and Smart Suggestions

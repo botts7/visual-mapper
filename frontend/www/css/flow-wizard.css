@@ -1436,6 +1436,20 @@ img.app-icon {
     color: white;
 }
 
+/* Edit sensor/action buttons */
+.step-actions .btn-edit-sensor,
+.step-actions .btn-edit-action {
+    color: var(--primary-color);
+    background: var(--bg-primary);
+}
+
+.step-actions .btn-edit-sensor:hover,
+.step-actions .btn-edit-action:hover {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
 /* Screen Group Headers */
 .screen-group-header {
     display: flex;
