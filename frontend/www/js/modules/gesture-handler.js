@@ -11,8 +11,8 @@
  * @module gesture-handler
  */
 
-import { showToast } from './toast.js?v=0.2.80';
-import { refreshAfterAction } from './stream-manager.js?v=0.2.80';
+import { showToast } from './toast.js?v=0.2.81';
+import { refreshAfterAction } from './stream-manager.js?v=0.2.81';
 
 // ==========================================
 // Utility Functions

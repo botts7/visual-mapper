@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.80
+
+- Feature: MJPEG v2 streaming with shared capture pipeline
+- New SharedCaptureManager: single producer per device, broadcasts to all subscribers
+- Eliminates per-frame ADB handshake overhead for multiple clients
+- New endpoint: /ws/stream-mjpeg-v2/{device_id}
+- Added "MJPEG v2" option to Flow Wizard and Live Stream dropdowns
+- New /stream/shared/stats endpoint for pipeline monitoring
+- Fix: atexit cleanup for IMAGE_EXECUTOR thread pool
+- Fix: MJPEG size check threshold changed to 1.5 (was 0.9)
+
+## 0.2.79
+
+- Streaming improvements: PIL resize/encode runs in thread pool
+- Drift-resistant frame pacing using monotonic clock
+- Added start_stream/stop_stream hooks for accurate stats
+
 ## 0.2.78
 
 - Fix: Polling mode screenshot/elements mismatch now retries up to 3 times
