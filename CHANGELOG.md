@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.97
+
+- Fix: Adaptive backend sampling now works correctly (monotonic counter vs capped timing lists)
+- Fix: Async streaming teardown - stopStreaming() now awaited in all callers
+- Fix: setCaptureMode race condition - await startStreaming() to prevent overlap
+- Fix: Sensor edit button now correctly fetches sensor using device_id in API path
+- Perf: Persistent shell is now the default for UI dumps (faster than per-command subprocess)
+- Perf: Shell timing tracks success-based metrics (not just truthy output)
+
 ## 0.2.86
 
 - Feature: Edit button for sensor and action flow steps in Step 3 and Step 4

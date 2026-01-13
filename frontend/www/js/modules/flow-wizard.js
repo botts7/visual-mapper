@@ -18,28 +18,28 @@
  * v0.0.22: Updated Step4 import for navigation issue detection
  */
 
-import { showToast } from './toast.js?v=0.2.96';
-import FlowRecorder from './flow-recorder.js?v=0.2.96';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.96';
-import FlowInteractions from './flow-interactions.js?v=0.2.96';
-import FlowStepManager from './flow-step-manager.js?v=0.2.96';
-import LiveStream from './live-stream.js?v=0.2.96';
-import ElementTree from './element-tree.js?v=0.2.96';
-import APIClient from './api-client.js?v=0.2.96';
-import SensorCreator from './sensor-creator.js?v=0.2.96';
+import { showToast } from './toast.js?v=0.2.97';
+import FlowRecorder from './flow-recorder.js?v=0.2.97';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.97';
+import FlowInteractions from './flow-interactions.js?v=0.2.97';
+import FlowStepManager from './flow-step-manager.js?v=0.2.97';
+import LiveStream from './live-stream.js?v=0.2.97';
+import ElementTree from './element-tree.js?v=0.2.97';
+import APIClient from './api-client.js?v=0.2.97';
+import SensorCreator from './sensor-creator.js?v=0.2.97';
 
 // Step modules
-import * as Step1 from './flow-wizard-step1.js?v=0.2.96';
-import * as Step2 from './flow-wizard-step2.js?v=0.2.96';
-import * as Step3 from './flow-wizard-step3.js?v=0.2.96';
-import * as Step4 from './flow-wizard-step4.js?v=0.2.96';
-import * as Step5 from './flow-wizard-step5.js?v=0.2.96';
+import * as Step1 from './flow-wizard-step1.js?v=0.2.97';
+import * as Step2 from './flow-wizard-step2.js?v=0.2.97';
+import * as Step3 from './flow-wizard-step3.js?v=0.2.97';
+import * as Step4 from './flow-wizard-step4.js?v=0.2.97';
+import * as Step5 from './flow-wizard-step5.js?v=0.2.97';
 
 // Dialog module
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.96';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.97';
 
 // Element actions module
-import * as ElementActions from './flow-wizard-element-actions.js?v=0.2.96';
+import * as ElementActions from './flow-wizard-element-actions.js?v=0.2.97';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -153,7 +153,7 @@ class FlowWizard {
             this.recorder.stop?.();
         }
 
-        const FlowRecorder = (await import('./flow-recorder.js?v=0.2.96')).default;
+        const FlowRecorder = (await import('./flow-recorder.js?v=0.2.97')).default;
         this.recorder = new FlowRecorder(deviceId, this.selectedApp, this.recordMode);
 
         // Load existing steps (convert from action format to flow format)
@@ -573,9 +573,17 @@ class FlowWizard {
             const { sensorId, stepIndex } = event.detail;
             console.log(`[FlowWizard] Edit sensor request: ${sensorId} (step ${stepIndex})`);
 
+            // Need device ID to fetch sensor - use selected device
+            const deviceId = wizard.selectedDevice;
+            if (!deviceId) {
+                console.warn('[FlowWizard] No device selected for sensor edit');
+                window.showToast?.('No device selected', 'error', 3000);
+                return;
+            }
+
             try {
-                // Fetch sensor data from API
-                const response = await wizard.apiClient.get(`/sensors/${sensorId}`);
+                // Fetch sensor data from API - endpoint is /sensors/{device_id}/{sensor_id}
+                const response = await wizard.apiClient.get(`/sensors/${encodeURIComponent(deviceId)}/${encodeURIComponent(sensorId)}`);
                 if (response && response.sensor) {
                     // Open sensor editor dialog
                     if (wizard.sensorCreator) {
@@ -766,9 +774,9 @@ class FlowWizard {
     /**
      * Reset wizard to initial state
      */
-    reset() {
-        // Stop streaming if active
-        this.stopStreaming();
+    async reset() {
+        // Stop streaming if active (await to ensure clean teardown)
+        await this.stopStreaming();
         this.captureMode = 'polling';
 
         this.currentStep = 1;
@@ -836,15 +844,15 @@ class FlowWizard {
      * Used by Step 4 to return to Step 3 for inserting missing navigation steps
      * @param {number} stepNumber - Step number (1-5)
      */
-    goToStep(stepNumber) {
+    async goToStep(stepNumber) {
         if (stepNumber < 1 || stepNumber > this.totalSteps) {
             console.warn(`[FlowWizard] Invalid step number: ${stepNumber}`);
             return;
         }
 
-        // Stop streaming when leaving Step 3
+        // Stop streaming when leaving Step 3 (await to ensure clean teardown)
         if (this.currentStep === 3 && stepNumber !== 3 && this.captureMode === 'streaming') {
-            this.stopStreaming();
+            await this.stopStreaming();
             this.captureMode = 'polling';
         }
 
@@ -939,10 +947,10 @@ class FlowWizard {
         }
     }
 
-    loadStepContent() {
-        // Stop streaming when leaving Step 3
+    async loadStepContent() {
+        // Stop streaming when leaving Step 3 (await to ensure clean teardown)
         if (this.currentStep !== 3 && this.captureMode === 'streaming') {
-            this.stopStreaming();
+            await this.stopStreaming();
             this.captureMode = 'polling';
         }
 

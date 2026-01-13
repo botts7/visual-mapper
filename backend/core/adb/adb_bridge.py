@@ -121,6 +121,9 @@ class ADBBridge:
         self._shell_times: Dict[str, Dict[str, list]] = (
             {}
         )  # {device_id: {'persistent': [times], 'connection': [times]}}
+        # Monotonic counters for adaptive sampling (separate from capped timing lists)
+        self._shell_sample_counter: Dict[str, int] = {}  # {device_id: total_commands}
+        self._backend_sample_counter: Dict[str, int] = {}  # {device_id: total_captures}
 
         logger.info("[ADBBridge] Initialized (Phase 2 - hybrid connection strategy)")
 
@@ -152,16 +155,21 @@ class ADBBridge:
         # Initialize timing data for this device
         if device_id not in self._shell_times:
             self._shell_times[device_id] = {"persistent": [], "connection": []}
+        if device_id not in self._shell_sample_counter:
+            self._shell_sample_counter[device_id] = 0
 
         device_times = self._shell_times[device_id]
         persistent_times = device_times.get("persistent", [])
         connection_times = device_times.get("connection", [])
 
+        # Use monotonic counter for sampling decisions (timing lists are capped at 20)
+        total_commands = self._shell_sample_counter[device_id]
+        self._shell_sample_counter[device_id] += 1
+
         # Decide which method to use based on performance data
         # Default to persistent shell (avoids subprocess spawn overhead)
         use_persistent = True
-        sample_count = len(persistent_times) + len(connection_times)
-        force_alternate = sample_count > 0 and sample_count % 50 == 0
+        force_alternate = total_commands > 0 and total_commands % 50 == 0
 
         # If we have enough samples (5+), check if connection is actually faster
         if (
@@ -201,6 +209,7 @@ class ADBBridge:
         used_method = "connection"
 
         # Try persistent shell
+        command_success = False
         if use_persistent:
             try:
                 shell = await self._shell_pool.get_shell(device_id)
@@ -209,6 +218,7 @@ class ADBBridge:
                     if success:
                         result = output
                         used_method = "persistent"
+                        command_success = True
                     else:
                         logger.debug(
                             f"[ADBBridge] Persistent shell failed, falling back to connection"
@@ -217,14 +227,19 @@ class ADBBridge:
                 logger.debug(f"[ADBBridge] Persistent shell error: {e}, using connection")
 
         # Fall back to connection-based shell
-        if not result and used_method == "connection":
-            result = await conn.shell(command)
-            used_method = "connection"
+        if not command_success and used_method == "connection":
+            try:
+                result = await conn.shell(command)
+                used_method = "connection"
+                command_success = True  # conn.shell succeeded if no exception
+            except Exception as e:
+                logger.debug(f"[ADBBridge] Connection shell error: {e}")
+                command_success = False
 
         elapsed = (time.time() - start_time) * 1000
 
-        # Track timing for successful commands
-        if result:
+        # Track timing for successful commands (regardless of empty output)
+        if command_success:
             times_list = self._shell_times[device_id][used_method]
             times_list.append(elapsed)
             # Keep last 20 samples
@@ -1495,9 +1510,14 @@ class ADBBridge:
                 adbutils_times = device_times.get("adbutils", [])
                 subprocess_times = device_times.get("subprocess", [])
 
+                # Use monotonic counter for sampling decisions (timing lists are capped at 20)
+                if resolved_id not in self._backend_sample_counter:
+                    self._backend_sample_counter[resolved_id] = 0
+                total_captures = self._backend_sample_counter[resolved_id]
+                self._backend_sample_counter[resolved_id] += 1
+
                 # Periodically sample the other backend (every 50 captures) to keep data fresh
-                sample_count = len(adbutils_times) + len(subprocess_times)
-                force_alternate = sample_count > 0 and sample_count % 50 == 0
+                force_alternate = total_captures > 0 and total_captures % 50 == 0
 
                 # If we have enough samples (5+), prefer the faster one
                 if len(adbutils_times) >= 5 and len(subprocess_times) >= 5 and not force_alternate:

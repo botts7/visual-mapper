@@ -62,23 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.2.96';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.96';
-import FlowInteractions from './flow-interactions.js?v=0.2.96';
-import FlowStepManager from './flow-step-manager.js?v=0.2.96';
-import FlowRecorder from './flow-recorder.js?v=0.2.96';
-import LiveStream from './live-stream.js?v=0.2.96';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.96';
+import { showToast } from './toast.js?v=0.2.97';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.97';
+import FlowInteractions from './flow-interactions.js?v=0.2.97';
+import FlowStepManager from './flow-step-manager.js?v=0.2.97';
+import FlowRecorder from './flow-recorder.js?v=0.2.97';
+import LiveStream from './live-stream.js?v=0.2.97';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.97';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.2.96';
+} from './device-unlock.js?v=0.2.97';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.2.96';
+import * as Step3Controller from './step3-controller.js?v=0.2.97';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -1519,12 +1519,13 @@ export function setupCaptureMode(wizard) {
     // Handle capture mode change (select dropdown)
     if (captureModeSelect) {
         captureModeSelect.value = savedMode;
+        // Don't await here - initialization continues, mode will be set
         setCaptureMode(wizard, savedMode);
 
-        captureModeSelect.addEventListener('change', (e) => {
+        captureModeSelect.addEventListener('change', async (e) => {
             const mode = e.target.value;
             localStorage.setItem('flowWizard.captureMode', mode);
-            setCaptureMode(wizard, mode);
+            await setCaptureMode(wizard, mode);
         });
     }
 
@@ -1533,12 +1534,12 @@ export function setupCaptureMode(wizard) {
         streamModeSelect.value = savedStreamMode;
         wizard.streamMode = savedStreamMode;
 
-        streamModeSelect.addEventListener('change', (e) => {
+        streamModeSelect.addEventListener('change', async (e) => {
             wizard.streamMode = e.target.value;
             localStorage.setItem('flowWizard.streamMode', e.target.value);
-            // If streaming, restart with new mode
+            // If streaming, restart with new mode (await to prevent overlapping stop/start)
             if (wizard.captureMode === 'streaming' && wizard.liveStream?.isStreaming) {
-                startStreaming(wizard);
+                await startStreaming(wizard);
             }
         });
     }
@@ -1548,12 +1549,12 @@ export function setupCaptureMode(wizard) {
         qualitySelect.value = savedQuality;
         wizard.streamQuality = savedQuality;
 
-        qualitySelect.addEventListener('change', (e) => {
+        qualitySelect.addEventListener('change', async (e) => {
             wizard.streamQuality = e.target.value;
             localStorage.setItem('flowWizard.streamQuality', e.target.value);
-            // If streaming, restart with new quality
+            // If streaming, restart with new quality (await to prevent overlapping stop/start)
             if (wizard.captureMode === 'streaming' && wizard.liveStream?.isStreaming) {
-                startStreaming(wizard);
+                await startStreaming(wizard);
             }
         });
     }
@@ -1602,7 +1603,7 @@ export async function setCaptureMode(wizard, mode) {
         }
         // Zoom controls work in streaming mode
 
-        startStreaming(wizard);
+        await startStreaming(wizard);
     } else {
         wizard.captureMode = 'polling';
         if (streamModeSelect) streamModeSelect.disabled = true;
@@ -3290,7 +3291,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.96');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.97');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3324,7 +3325,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.96');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.97');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -5154,7 +5155,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.96');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.97');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5162,7 +5163,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.96');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.97');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5170,7 +5171,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.96');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.97');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5178,7 +5179,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.96');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.97');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });

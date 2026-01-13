@@ -13,9 +13,9 @@
  */
 
 // Import extracted modules
-import * as StreamManager from './stream-manager.js?v=0.2.96';
-import * as CanvasOverlayRenderer from './canvas-overlay-renderer.js?v=0.2.96';
-import * as GestureHandler from './gesture-handler.js?v=0.2.96';
+import * as StreamManager from './stream-manager.js?v=0.2.97';
+import * as CanvasOverlayRenderer from './canvas-overlay-renderer.js?v=0.2.97';
+import * as GestureHandler from './gesture-handler.js?v=0.2.97';
 
 // ==========================================
 // Controller State
@@ -169,15 +169,15 @@ export async function switchCaptureMode(wizard, mode) {
 /**
  * Cleanup all Step 3 resources
  */
-export function cleanup() {
+export async function cleanup() {
     if (!controllerState.initialized) return;
 
     const wizard = controllerState.wizard;
     if (wizard) {
         console.log('[Step3Controller] Cleaning up Step 3 resources');
 
-        // Stop streaming
-        StreamManager.stopStreaming(wizard);
+        // Stop streaming (await to ensure clean WebSocket teardown)
+        await StreamManager.stopStreaming(wizard);
         StreamManager.stopElementAutoRefresh(wizard);
         StreamManager.stopKeepAwake(wizard);
 
