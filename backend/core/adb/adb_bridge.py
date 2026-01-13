@@ -158,11 +158,12 @@ class ADBBridge:
         connection_times = device_times.get("connection", [])
 
         # Decide which method to use based on performance data
-        use_persistent = False
+        # Default to persistent shell (avoids subprocess spawn overhead)
+        use_persistent = True
         sample_count = len(persistent_times) + len(connection_times)
         force_alternate = sample_count > 0 and sample_count % 50 == 0
 
-        # If we have enough samples (5+), prefer the faster one
+        # If we have enough samples (5+), check if connection is actually faster
         if (
             len(persistent_times) >= 5
             and len(connection_times) >= 5
@@ -170,31 +171,31 @@ class ADBBridge:
         ):
             avg_persistent = sum(persistent_times[-10:]) / len(persistent_times[-10:])
             avg_connection = sum(connection_times[-10:]) / len(connection_times[-10:])
-            # Choose faster method (with 10% margin to avoid flip-flopping)
-            if avg_persistent < avg_connection * 0.9:
-                use_persistent = True
+            # Only switch to connection if it's significantly faster (10% margin)
+            if avg_connection < avg_persistent * 0.9:
+                use_persistent = False
                 if (
                     not hasattr(self, "_logged_shell_choice")
-                    or self._logged_shell_choice.get(device_id) != "persistent"
+                    or self._logged_shell_choice.get(device_id) != "connection"
                 ):
                     logger.info(
-                        f"[ADBBridge] {device_id}: persistent shell faster ({avg_persistent:.0f}ms vs {avg_connection:.0f}ms)"
+                        f"[ADBBridge] {device_id}: connection shell faster ({avg_connection:.0f}ms vs {avg_persistent:.0f}ms)"
                     )
                     if not hasattr(self, "_logged_shell_choice"):
                         self._logged_shell_choice = {}
-                    self._logged_shell_choice[device_id] = "persistent"
+                    self._logged_shell_choice[device_id] = "connection"
         elif force_alternate:
             # Force alternate method for sampling
-            use_persistent = len(connection_times) >= len(persistent_times)
+            use_persistent = len(persistent_times) >= len(connection_times)
             logger.debug(
                 f"[ADBBridge] Sampling shell method: {'persistent' if use_persistent else 'connection'}"
             )
-        elif len(connection_times) < 5:
-            # Collect connection samples first (baseline)
-            use_persistent = False
-        else:
-            # Then collect persistent samples
+        elif len(persistent_times) < 5:
+            # Collect persistent samples first (it's our default)
             use_persistent = True
+        else:
+            # Then collect connection samples for comparison
+            use_persistent = False
 
         result = ""
         used_method = "connection"
