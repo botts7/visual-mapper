@@ -21,7 +21,7 @@ from typing import Dict, List, Optional
 from .adb_manager import ADBManager
 from .base_connection import BaseADBConnection
 from ml_components.playstore_icon_scraper import PlayStoreIconScraper
-from .adb_helpers import PersistentADBShell
+from .adb_helpers import PersistentADBShell, PersistentShellPool
 from services.device_identity import get_device_identity_resolver
 
 # Optional: adbutils for faster screenshot capture (persistent connections)
@@ -63,6 +63,10 @@ class ADBBridge:
         self._preferred_backend: Dict[str, str] = (
             {}
         )  # {device_id: 'adbutils' or 'subprocess'}
+        # Performance tracking for backend selection (choose faster backend)
+        self._backend_times: Dict[str, Dict[str, list]] = (
+            {}
+        )  # {device_id: {'adbutils': [times], 'subprocess': [times]}}
         if ADBUTILS_AVAILABLE:
             try:
                 self._adbutils_client = adbutils.AdbClient(host="127.0.0.1", port=5037)
@@ -111,7 +115,122 @@ class ADBBridge:
         # Initialize Play Store scraper for app name extraction
         self.playstore_scraper = PlayStoreIconScraper()
 
+        # Persistent shell pool for faster shell command execution
+        self._shell_pool = PersistentShellPool(max_sessions_per_device=2)
+        # Performance tracking for shell execution (persistent vs connection-based)
+        self._shell_times: Dict[str, Dict[str, list]] = (
+            {}
+        )  # {device_id: {'persistent': [times], 'connection': [times]}}
+
         logger.info("[ADBBridge] Initialized (Phase 2 - hybrid connection strategy)")
+
+    async def _run_shell_adaptive(
+        self, device_id: str, command: str, conn=None
+    ) -> str:
+        """
+        Run shell command using the faster method (persistent shell vs connection-based).
+
+        Tracks execution times and adapts to prefer the faster method.
+        Persistent shell avoids subprocess spawn overhead for repeated commands.
+
+        Args:
+            device_id: Device identifier
+            command: Shell command to execute
+            conn: Optional connection object (if not provided, will resolve)
+
+        Returns:
+            Command output as string
+        """
+        start_time = time.time()
+
+        # Resolve connection if not provided
+        if conn is None:
+            conn, device_id = await self._resolve_device_connection(device_id)
+            if not conn:
+                raise ValueError(f"Device not connected: {device_id}")
+
+        # Initialize timing data for this device
+        if device_id not in self._shell_times:
+            self._shell_times[device_id] = {"persistent": [], "connection": []}
+
+        device_times = self._shell_times[device_id]
+        persistent_times = device_times.get("persistent", [])
+        connection_times = device_times.get("connection", [])
+
+        # Decide which method to use based on performance data
+        use_persistent = False
+        sample_count = len(persistent_times) + len(connection_times)
+        force_alternate = sample_count > 0 and sample_count % 50 == 0
+
+        # If we have enough samples (5+), prefer the faster one
+        if (
+            len(persistent_times) >= 5
+            and len(connection_times) >= 5
+            and not force_alternate
+        ):
+            avg_persistent = sum(persistent_times[-10:]) / len(persistent_times[-10:])
+            avg_connection = sum(connection_times[-10:]) / len(connection_times[-10:])
+            # Choose faster method (with 10% margin to avoid flip-flopping)
+            if avg_persistent < avg_connection * 0.9:
+                use_persistent = True
+                if (
+                    not hasattr(self, "_logged_shell_choice")
+                    or self._logged_shell_choice.get(device_id) != "persistent"
+                ):
+                    logger.info(
+                        f"[ADBBridge] {device_id}: persistent shell faster ({avg_persistent:.0f}ms vs {avg_connection:.0f}ms)"
+                    )
+                    if not hasattr(self, "_logged_shell_choice"):
+                        self._logged_shell_choice = {}
+                    self._logged_shell_choice[device_id] = "persistent"
+        elif force_alternate:
+            # Force alternate method for sampling
+            use_persistent = len(connection_times) >= len(persistent_times)
+            logger.debug(
+                f"[ADBBridge] Sampling shell method: {'persistent' if use_persistent else 'connection'}"
+            )
+        elif len(connection_times) < 5:
+            # Collect connection samples first (baseline)
+            use_persistent = False
+        else:
+            # Then collect persistent samples
+            use_persistent = True
+
+        result = ""
+        used_method = "connection"
+
+        # Try persistent shell
+        if use_persistent:
+            try:
+                shell = await self._shell_pool.get_shell(device_id)
+                if shell and shell.is_active:
+                    success, output = await shell.execute(command)
+                    if success:
+                        result = output
+                        used_method = "persistent"
+                    else:
+                        logger.debug(
+                            f"[ADBBridge] Persistent shell failed, falling back to connection"
+                        )
+            except Exception as e:
+                logger.debug(f"[ADBBridge] Persistent shell error: {e}, using connection")
+
+        # Fall back to connection-based shell
+        if not result and used_method == "connection":
+            result = await conn.shell(command)
+            used_method = "connection"
+
+        elapsed = (time.time() - start_time) * 1000
+
+        # Track timing for successful commands
+        if result:
+            times_list = self._shell_times[device_id][used_method]
+            times_list.append(elapsed)
+            # Keep last 20 samples
+            if len(times_list) > 20:
+                self._shell_times[device_id][used_method] = times_list[-20:]
+
+        return result
 
     async def _resolve_device_connection(self, device_id: str) -> tuple:
         """
@@ -1368,14 +1487,42 @@ class ADBBridge:
             result = b""
             used_backend = "unknown"
 
-            # Determine backend to use
+            # Determine backend to use based on performance
             if backend == "auto":
-                # Check if we have a preferred backend for this device
-                preferred = self._preferred_backend.get(resolved_id)
-                if preferred:
-                    backend = preferred
+                # Check if we have performance data for this device
+                device_times = self._backend_times.get(resolved_id, {})
+                adbutils_times = device_times.get("adbutils", [])
+                subprocess_times = device_times.get("subprocess", [])
+
+                # Periodically sample the other backend (every 50 captures) to keep data fresh
+                sample_count = len(adbutils_times) + len(subprocess_times)
+                force_alternate = sample_count > 0 and sample_count % 50 == 0
+
+                # If we have enough samples (5+), prefer the faster one
+                if len(adbutils_times) >= 5 and len(subprocess_times) >= 5 and not force_alternate:
+                    avg_adbutils = sum(adbutils_times[-10:]) / len(adbutils_times[-10:])
+                    avg_subprocess = sum(subprocess_times[-10:]) / len(subprocess_times[-10:])
+                    # Choose faster backend (with 10% margin to avoid flip-flopping)
+                    if avg_subprocess < avg_adbutils * 0.9:
+                        backend = "subprocess"
+                        if not hasattr(self, '_logged_backend_choice') or self._logged_backend_choice.get(resolved_id) != "subprocess":
+                            logger.info(f"[ADBBridge] {resolved_id}: subprocess faster ({avg_subprocess:.0f}ms vs {avg_adbutils:.0f}ms)")
+                            if not hasattr(self, '_logged_backend_choice'):
+                                self._logged_backend_choice = {}
+                            self._logged_backend_choice[resolved_id] = "subprocess"
+                    else:
+                        backend = "adbutils"
+                elif force_alternate:
+                    # Force alternate backend for sampling
+                    current_preferred = self._preferred_backend.get(resolved_id, "adbutils")
+                    backend = "subprocess" if current_preferred == "adbutils" else "adbutils"
+                    logger.debug(f"[ADBBridge] Sampling alternate backend: {backend}")
                 elif ADBUTILS_AVAILABLE and self._adbutils_client:
-                    backend = "adbutils"
+                    # Not enough data, alternate to collect samples for both
+                    if len(subprocess_times) < 5:
+                        backend = "subprocess"
+                    else:
+                        backend = "adbutils"
                 else:
                     backend = "subprocess"
 
@@ -1409,8 +1556,18 @@ class ADBBridge:
 
             elapsed = (time.time() - start_time) * 1000
 
-            # Update preferred backend based on success
+            # Track performance and update preferred backend based on success
             if len(result) > 1000:
+                # Track capture time for this backend (keep last 20 samples)
+                if resolved_id not in self._backend_times:
+                    self._backend_times[resolved_id] = {"adbutils": [], "subprocess": []}
+                if used_backend in self._backend_times[resolved_id]:
+                    times_list = self._backend_times[resolved_id][used_backend]
+                    times_list.append(elapsed)
+                    # Keep only last 20 samples
+                    if len(times_list) > 20:
+                        self._backend_times[resolved_id][used_backend] = times_list[-20:]
+
                 self._preferred_backend[resolved_id] = used_backend
                 logger.debug(
                     f"[ADBBridge] Screenshot ({used_backend}): {len(result)} bytes in {elapsed:.0f}ms"
@@ -1489,13 +1646,16 @@ class ADBBridge:
                 # Dump UI hierarchy to file then read it (more reliable than /dev/tty)
                 # Some devices don't output XML to /dev/tty properly
                 # Added retry logic for flaky uiautomator
+                # Uses adaptive shell method - tracks persistent vs connection performance
                 max_retries = 2
                 dump_output = None
 
                 for attempt in range(max_retries):
                     try:
-                        dump_output = await conn.shell(
-                            "uiautomator dump && cat /sdcard/window_dump.xml"
+                        dump_output = await self._run_shell_adaptive(
+                            resolved_id,
+                            "uiautomator dump && cat /sdcard/window_dump.xml",
+                            conn,
                         )
 
                         # Check if we got valid output
@@ -1669,8 +1829,11 @@ class ADBBridge:
                 # Clean up old dump file first
                 await conn.shell("rm -f /sdcard/window_dump.xml")
 
-                dump_output = await conn.shell(
-                    "uiautomator dump && cat /sdcard/window_dump.xml"
+                # Use adaptive shell method for performance
+                dump_output = await self._run_shell_adaptive(
+                    resolved_id,
+                    "uiautomator dump && cat /sdcard/window_dump.xml",
+                    conn,
                 )
 
                 # Extract XML portion
