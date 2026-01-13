@@ -2624,6 +2624,29 @@ img.app-icon {
     transform: scale(0.98);
 }
 
+/* Alternative Name Dropdown */
+.alt-name-select {
+    padding: 4px 8px;
+    font-size: 11px;
+    background: var(--bg-primary, white);
+    border: 1px solid var(--primary-color);
+    color: var(--text-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    min-width: 140px;
+    max-width: 200px;
+}
+
+.alt-name-select:hover {
+    border-color: var(--primary-hover);
+}
+
+.alt-name-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
 /* Suggestion Edit Dialog */
 .suggestion-edit-dialog-overlay {
     position: fixed;

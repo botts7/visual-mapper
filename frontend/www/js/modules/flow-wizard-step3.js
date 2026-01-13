@@ -62,23 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.2.81';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.81';
-import FlowInteractions from './flow-interactions.js?v=0.2.81';
-import FlowStepManager from './flow-step-manager.js?v=0.2.81';
-import FlowRecorder from './flow-recorder.js?v=0.2.81';
-import LiveStream from './live-stream.js?v=0.2.81';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.81';
+import { showToast } from './toast.js?v=0.2.82';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.82';
+import FlowInteractions from './flow-interactions.js?v=0.2.82';
+import FlowStepManager from './flow-step-manager.js?v=0.2.82';
+import FlowRecorder from './flow-recorder.js?v=0.2.82';
+import LiveStream from './live-stream.js?v=0.2.82';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.82';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.2.81';
+} from './device-unlock.js?v=0.2.82';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.2.81';
+import * as Step3Controller from './step3-controller.js?v=0.2.82';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -3270,7 +3270,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.81');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.82');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3304,7 +3304,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.81');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.82');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -3603,15 +3603,17 @@ function renderSuggestionsContent(wizard) {
                 'content_desc': '📝',
                 'previous': '↩️'
             };
-            const altButtons = suggestion.alternative_names.map(alt => {
+            const altOptions = suggestion.alternative_names.map(alt => {
                 const locIcon = locationIcons[alt.location] || '📍';
-                return `<button type="button" class="alt-name-btn" data-index="${index}" data-alt-name="${escapeHtml(alt.name)}" title="${alt.location}: score ${alt.score}">${locIcon} ${escapeHtml(alt.name)}</button>`;
+                return `<option value="${escapeHtml(alt.name)}" title="${alt.location}: score ${alt.score}">${locIcon} ${escapeHtml(alt.name)}</option>`;
             }).join('');
 
             alternativeNamesHtml = `
                 <div class="suggestion-alt-names">
-                    <span class="alt-label">Also try:</span>
-                    <span class="alt-buttons">${altButtons}</span>
+                    <select class="alt-name-select" data-index="${index}">
+                        <option value="" disabled selected>Select name...</option>
+                        ${altOptions}
+                    </select>
                 </div>
             `;
         }
@@ -3644,8 +3646,8 @@ function renderSuggestionsContent(wizard) {
     // Add click handlers for checkboxes (toggle selection)
     suggestionsContent.querySelectorAll('.suggestion-item').forEach(item => {
         item.addEventListener('click', (e) => {
-            // Don't toggle if clicking on buttons or alt-name buttons
-            if (e.target.closest('.suggestion-buttons') || e.target.closest('.alt-name-btn')) return;
+            // Don't toggle if clicking on buttons or alt-name dropdown
+            if (e.target.closest('.suggestion-buttons') || e.target.closest('.alt-name-select')) return;
 
             const index = parseInt(item.dataset.index);
             if (wizard._selectedSuggestions.has(index)) {
@@ -3695,13 +3697,17 @@ function renderSuggestionsContent(wizard) {
         });
     });
 
-    // Add click handlers for Alternative Name buttons
-    suggestionsContent.querySelectorAll('.alt-name-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+    // Add change handlers for Alternative Name dropdown
+    suggestionsContent.querySelectorAll('.alt-name-select').forEach(select => {
+        select.addEventListener('change', (e) => {
             e.stopPropagation();
-            const index = parseInt(btn.dataset.index);
-            const altName = btn.dataset.altName;
-            handleAlternativeNameClick(wizard, index, altName);
+            const index = parseInt(select.dataset.index);
+            const altName = e.target.value;
+            if (altName) {
+                handleAlternativeNameClick(wizard, index, altName);
+                // Reset dropdown to placeholder
+                select.selectedIndex = 0;
+            }
         });
     });
 }
@@ -5128,7 +5134,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.81');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.82');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5136,7 +5142,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.81');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.82');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5144,7 +5150,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.81');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.82');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5152,7 +5158,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.81');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.82');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
