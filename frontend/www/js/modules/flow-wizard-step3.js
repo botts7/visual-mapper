@@ -62,23 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.2.86';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.86';
-import FlowInteractions from './flow-interactions.js?v=0.2.86';
-import FlowStepManager from './flow-step-manager.js?v=0.2.86';
-import FlowRecorder from './flow-recorder.js?v=0.2.86';
-import LiveStream from './live-stream.js?v=0.2.86';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.86';
+import { showToast } from './toast.js?v=0.2.89';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.2.89';
+import FlowInteractions from './flow-interactions.js?v=0.2.89';
+import FlowStepManager from './flow-step-manager.js?v=0.2.89';
+import FlowRecorder from './flow-recorder.js?v=0.2.89';
+import LiveStream from './live-stream.js?v=0.2.89';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.2.89';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.2.86';
+} from './device-unlock.js?v=0.2.89';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.2.86';
+import * as Step3Controller from './step3-controller.js?v=0.2.89';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -3272,7 +3272,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.86');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.89');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3306,7 +3306,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.86');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.89');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -5136,7 +5136,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.86');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.89');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5144,7 +5144,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.86');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.89');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5152,7 +5152,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.86');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.2.89');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5160,7 +5160,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.86');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.2.89');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
