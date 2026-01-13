@@ -16,13 +16,13 @@
  * - Connection status updates
  */
 
-import { showToast } from './toast.js?v=0.2.89';
-import LiveStream from './live-stream.js?v=0.2.89';
+import { showToast } from './toast.js?v=0.2.91';
+import LiveStream from './live-stream.js?v=0.2.91';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake
-} from './device-unlock.js?v=0.2.89';
+} from './device-unlock.js?v=0.2.91';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -258,8 +258,8 @@ export async function startStreaming(wizard, drawElementOverlays) {
         }, 10000);
     }
 
-    // Stop any existing stream
-    stopStreaming(wizard);
+    // Stop any existing stream - MUST await to prevent WebSocket race condition
+    await stopStreaming(wizard);
 
     // Always create a fresh LiveStream to ensure it's bound to current canvas
     if (wizard.liveStream) {
@@ -397,10 +397,11 @@ export async function startStreaming(wizard, drawElementOverlays) {
 
 /**
  * Stop live streaming
+ * IMPORTANT: This is async - must be awaited to prevent race conditions with start
  *
  * @param {Object} wizard - The wizard state object
  */
-export function stopStreaming(wizard) {
+export async function stopStreaming(wizard) {
     // Stop element auto-refresh
     stopElementAutoRefresh(wizard);
 
@@ -413,9 +414,9 @@ export function stopStreaming(wizard) {
         wizard._streamLoadingTimeout = null;
     }
 
-    // Stop LiveStream if active
+    // Stop LiveStream if active - MUST await to prevent race condition
     if (wizard.liveStream) {
-        wizard.liveStream.stop();
+        await wizard.liveStream.stop();
     }
 
     updateStreamStatus(wizard, '', '');
@@ -439,11 +440,11 @@ export async function reconnectStream(wizard, drawElementOverlays) {
     // Reset slow connection warning
     wizard._slowConnectionWarned = false;
 
-    // Stop the stream
-    stopStreaming(wizard);
+    // Stop the stream and wait for it to fully stop
+    await stopStreaming(wizard);
 
-    // Small delay before reconnecting
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Small delay before reconnecting to ensure WebSocket is fully closed
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     // Ensure device is unlocked before reconnecting
     try {

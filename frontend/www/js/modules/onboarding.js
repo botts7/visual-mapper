@@ -14,7 +14,7 @@
  * @module OnboardingWizard
  */
 
-import DeviceSecurityUI from './device-security.js?v=0.2.89';
+import DeviceSecurityUI from './device-security.js?v=0.2.91';
 
 class OnboardingWizard {
     constructor() {
