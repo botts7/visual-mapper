@@ -24,8 +24,8 @@ const TUTORIAL_STEPS = [
     {
         id: 'devices',
         page: 'devices.html',
-        selector: '.connection-section, .card:has(#connectBtn), .card:has(#ipAddress)',
-        fallbackSelector: '.card',
+        selector: '#tab-connect .section-card:first-child, .section-card:has(#connectBtn)',
+        fallbackSelector: '.section-card, .container',
         title: 'Connect Your Device',
         description: 'Enter your Android device\'s IP address and port from Wireless Debugging settings, then click Connect. The tutorial will auto-advance when connected!',
         position: 'right',
@@ -48,8 +48,8 @@ const TUTORIAL_STEPS = [
     {
         id: 'pairing',
         page: 'devices.html',
-        selector: '.pairing-section, .card:has(#pairBtn), #pairModal',
-        fallbackSelector: '.card',
+        selector: '.section-card:has(#pairBtn), #pairBtn',
+        fallbackSelector: '.section-card',
         title: 'Pair with Code (Optional)',
         description: 'If you need to pair first, enter the pairing code from your Android device. Otherwise, click Next to continue.',
         position: 'right',
@@ -61,8 +61,8 @@ const TUTORIAL_STEPS = [
     {
         id: 'flow-start',
         page: 'flows.html',
-        selector: '.btn-create-flow, [href*="flow-wizard"], .create-flow-btn',
-        fallbackSelector: '.card, .container',
+        selector: '.flow-actions .btn-primary, .flow-actions button:first-child',
+        fallbackSelector: '.flow-header, .flow-container',
         title: 'Create Your First Flow',
         description: 'Flows automate app navigation to capture data. Click "Create Flow" to start the wizard!',
         position: 'bottom',
@@ -76,8 +76,8 @@ const TUTORIAL_STEPS = [
     {
         id: 'wizard-device',
         page: 'flow-wizard.html',
-        selector: '.device-card.available, .device-selection, .wizard-step-1',
-        fallbackSelector: '.wizard-container, .container',
+        selector: '#step1 #deviceList, #step1.wizard-step',
+        fallbackSelector: '.wizard-container',
         title: 'Select Your Device',
         description: 'Click on your connected device to use it for this flow.',
         position: 'right',
@@ -90,7 +90,7 @@ const TUTORIAL_STEPS = [
     {
         id: 'wizard-app',
         page: 'flow-wizard.html',
-        selector: '.app-selector, .app-list, #appList, .wizard-step-2',
+        selector: '#step2 #appList, #step2.wizard-step.active',
         fallbackSelector: '.wizard-container',
         title: 'Select an App',
         description: 'Choose the Android app you want to capture data from. Visual Mapper will navigate to this app automatically.',
@@ -104,7 +104,7 @@ const TUTORIAL_STEPS = [
     {
         id: 'wizard-record',
         page: 'flow-wizard.html',
-        selector: '.canvas-container, #screenshotCanvas, .screenshot-container',
+        selector: '#step3 .screenshot-panel, #step3 .recording-layout',
         fallbackSelector: '.wizard-container',
         title: 'Record Navigation',
         description: 'Tap on the screen preview to record navigation steps. Navigate to the screen with the data you want to capture. Click Next when ready.',
@@ -116,8 +116,8 @@ const TUTORIAL_STEPS = [
     {
         id: 'wizard-sensor',
         page: 'flow-wizard.html',
-        selector: '.element-panel, .element-tree, #elementPanel, .ui-element',
-        fallbackSelector: '.wizard-container',
+        selector: '#elementTreeContainer, .panel-tab[data-tab="elements"], .tree-content',
+        fallbackSelector: '#step3 .recording-layout',
         title: 'Create a Sensor',
         description: 'Click on a UI element to capture it as a sensor. This could be battery level, temperature, or any text value on screen.',
         position: 'left',
@@ -130,8 +130,8 @@ const TUTORIAL_STEPS = [
     {
         id: 'sensors',
         page: 'sensors.html',
-        selector: '.sensor-list, .sensor-card, #sensorList',
-        fallbackSelector: '.container .card',
+        selector: '#sensorsContainer, .container .card',
+        fallbackSelector: '.container',
         title: 'Your Sensors',
         description: 'Your sensors are now publishing to Home Assistant via MQTT! They update automatically when your flow runs.',
         position: 'bottom',

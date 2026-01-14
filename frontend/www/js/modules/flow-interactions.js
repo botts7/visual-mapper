@@ -9,7 +9,7 @@
  * v0.0.13: containerClasses Set for O(1) lookup
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.2.1';
+import { showToast } from './toast.js?v=0.4.0-beta.2.4';
 
 export class FlowInteractions {
     constructor(apiBase) {

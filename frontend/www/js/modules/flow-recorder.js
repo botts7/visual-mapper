@@ -9,8 +9,8 @@
  * v0.0.11: Add moveStep() method for reordering steps
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.2.1';
-import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.4.0-beta.2.1';
+import { showToast } from './toast.js?v=0.4.0-beta.2.4';
+import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.4.0-beta.2.4';
 
 /**
  * Get API base URL for proper routing (supports Home Assistant ingress)
