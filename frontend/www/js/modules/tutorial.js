@@ -159,6 +159,9 @@ class Tutorial {
         this.completionListeners = [];
         this.pollingInterval = null;
         this.stepCompleted = false;
+        this.mutationObserver = null;
+        this.positionUpdateInterval = null;
+        this.lastTargetRect = null;
     }
 
     /**
@@ -294,6 +297,7 @@ class Tutorial {
         // Clean up previous step
         this.cleanupCompletionListener();
         this.removeTargetHighlight();
+        this.stopPositionWatcher();
         this.stepCompleted = false;
 
         this.currentStepIndex = index;
@@ -342,6 +346,9 @@ class Tutorial {
 
         // Setup completion listener for this step
         this.setupCompletionListener(step);
+
+        // Start watching for DOM changes to update position
+        this.startPositionWatcher();
     }
 
     /**
@@ -738,11 +745,102 @@ class Tutorial {
     }
 
     /**
+     * Start watching for DOM changes and position updates
+     * Uses MutationObserver + interval fallback for reliable tracking
+     */
+    startPositionWatcher() {
+        this.stopPositionWatcher(); // Clean up any existing watchers
+
+        const step = this.steps[this.currentStepIndex];
+        if (!step || step.type === 'modal') return;
+
+        // Update position function
+        const updatePosition = () => {
+            if (!this.isActive) return;
+
+            const target = this.findTargetElement(step.selector) ||
+                           this.findTargetElement(step.fallbackSelector);
+
+            if (!target) return;
+
+            const rect = target.getBoundingClientRect();
+
+            // Check if position actually changed
+            if (this.lastTargetRect &&
+                this.lastTargetRect.top === rect.top &&
+                this.lastTargetRect.left === rect.left &&
+                this.lastTargetRect.width === rect.width &&
+                this.lastTargetRect.height === rect.height) {
+                return; // No change, skip update
+            }
+
+            // Save current rect
+            this.lastTargetRect = {
+                top: rect.top,
+                left: rect.left,
+                width: rect.width,
+                height: rect.height
+            };
+
+            // Update spotlight and tooltip positions
+            this.positionSpotlight(target);
+            this.positionTooltip(target, step.position || 'bottom');
+
+            // Update target highlight if element changed
+            if (this.currentTarget !== target) {
+                this.removeTargetHighlight();
+                this.addTargetHighlight(target);
+            }
+        };
+
+        // MutationObserver for DOM structure changes
+        this.mutationObserver = new MutationObserver((mutations) => {
+            // Debounce updates - use requestAnimationFrame
+            requestAnimationFrame(updatePosition);
+        });
+
+        // Observe the entire body for changes
+        this.mutationObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'style', 'hidden']
+        });
+
+        // Interval fallback for position changes not caught by MutationObserver
+        // (e.g., CSS transitions, scroll position changes)
+        this.positionUpdateInterval = setInterval(updatePosition, 200);
+
+        console.log('[Tutorial] Position watcher started');
+    }
+
+    /**
+     * Stop watching for DOM changes
+     */
+    stopPositionWatcher() {
+        if (this.mutationObserver) {
+            this.mutationObserver.disconnect();
+            this.mutationObserver = null;
+        }
+
+        if (this.positionUpdateInterval) {
+            clearInterval(this.positionUpdateInterval);
+            this.positionUpdateInterval = null;
+        }
+
+        this.lastTargetRect = null;
+        console.log('[Tutorial] Position watcher stopped');
+    }
+
+    /**
      * Destroy tutorial overlay
      */
     destroy() {
         this.isActive = false;
         window.removeEventListener('resize', this.boundHandleResize);
+
+        // Stop position watcher
+        this.stopPositionWatcher();
 
         // Clean up completion listeners
         this.cleanupCompletionListener();
