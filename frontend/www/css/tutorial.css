@@ -15,7 +15,9 @@
 
 .tutorial-overlay.active {
     opacity: 1;
-    pointer-events: auto;
+    /* Keep pointer-events: none so users can interact with page elements */
+    /* Only the tooltip has pointer-events: auto */
+    pointer-events: none;
 }
 
 /* Spotlight element that highlights the target */
