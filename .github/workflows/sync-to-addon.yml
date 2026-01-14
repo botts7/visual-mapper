@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: botts7/visual-mapper-addon
-          token: ${{ secrets.ADDON_REPO_TOKEN }}
+          token: ${{ secrets.VISUALMAPPERDOCKERTOADDON }}
           path: addon-repo
 
       - name: Sync files to addon
