@@ -1,0 +1,94 @@
+name: Sync to Addon Repository
+
+on:
+  push:
+    branches:
+      - main
+      - beta
+    paths-ignore:
+      - '**.md'
+      - '.github/**'
+
+jobs:
+  sync-to-addon:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version and branch info
+        id: info
+        run: |
+          VERSION=$(cat .build-version)
+          BRANCH=${GITHUB_REF##*/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+          if [ "$BRANCH" = "main" ]; then
+            echo "target=stable" >> $GITHUB_OUTPUT
+            echo "addon_folder=visual-mapper" >> $GITHUB_OUTPUT
+          else
+            echo "target=beta" >> $GITHUB_OUTPUT
+            echo "addon_folder=visual-mapper-beta" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Syncing $BRANCH ($VERSION) to addon repo"
+
+      - name: Checkout addon repo
+        uses: actions/checkout@v4
+        with:
+          repository: botts7/visual-mapper-addon
+          token: ${{ secrets.ADDON_REPO_TOKEN }}
+          path: addon-repo
+
+      - name: Sync files to addon
+        run: |
+          TARGET_DIR="addon-repo/${{ steps.info.outputs.addon_folder }}"
+
+          echo "Syncing to $TARGET_DIR..."
+
+          # Sync backend
+          rm -rf "$TARGET_DIR/backend"
+          cp -r backend "$TARGET_DIR/backend"
+
+          # Sync frontend
+          rm -rf "$TARGET_DIR/frontend"
+          cp -r frontend "$TARGET_DIR/frontend"
+
+          # Sync config
+          rm -rf "$TARGET_DIR/config"
+          cp -r config "$TARGET_DIR/config" 2>/dev/null || mkdir -p "$TARGET_DIR/config"
+
+          # Sync version files
+          cp .build-version "$TARGET_DIR/.build-version"
+          cp requirements.txt "$TARGET_DIR/requirements.txt" 2>/dev/null || true
+
+          # Update config.yaml version
+          sed -i "s/^version: .*/version: ${{ steps.info.outputs.version }}/" "$TARGET_DIR/config.yaml"
+
+          # Update CACHE_BUST in Dockerfile
+          CACHE_BUST=$(date +%Y%m%d%H%M%S)
+          sed -i "s/CACHE_BUST=.*/CACHE_BUST=$CACHE_BUST/" "$TARGET_DIR/Dockerfile"
+
+          echo "Sync complete!"
+
+      - name: Commit and push to addon repo
+        working-directory: addon-repo
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+          git add -A
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          git commit -m "chore: Auto-sync ${{ steps.info.outputs.target }} from ${{ steps.info.outputs.branch }} (${{ steps.info.outputs.version }})"
+          git push
+
+          echo "Pushed to addon repo - build will trigger automatically"
