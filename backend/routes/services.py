@@ -74,6 +74,8 @@ def check_mqtt_status() -> ServiceStatus:
 
         broker = os.environ.get("MQTT_BROKER", "localhost")
         port = int(os.environ.get("MQTT_PORT", "1883"))
+        username = os.environ.get("MQTT_USERNAME", "")
+        password = os.environ.get("MQTT_PASSWORD", "")
 
         # Compatible with both paho-mqtt 1.x and 2.x
         try:
@@ -82,6 +84,10 @@ def check_mqtt_status() -> ServiceStatus:
         except AttributeError:
             # paho-mqtt 1.x (used with aiomqtt)
             client = mqtt.Client()
+
+        # Set credentials if provided
+        if username:
+            client.username_pw_set(username, password)
 
         client.connect(broker, port, keepalive=5)
         client.disconnect()
