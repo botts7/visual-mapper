@@ -1338,4 +1338,26 @@ if __name__ == "__main__":
         f"HTML Cache: {'DISABLED (development mode)' if DISABLE_HTML_CACHE else 'ENABLED (production mode)'}"
     )
 
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    # Check if port is available before starting
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("0.0.0.0", port))
+        sock.close()
+        logger.info(f"Port {port} is available")
+    except OSError as e:
+        logger.error(f"Port {port} is already in use: {e}")
+        logger.error("Please stop any existing Visual Mapper instances and try again")
+        import sys
+        sys.exit(1)
+
+    # Use uvicorn.Config and Server for more control over startup sequence
+    config = uvicorn.Config(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+        lifespan="on",  # Explicitly enable lifespan
+    )
+    server = uvicorn.Server(config)
+    server.run()
