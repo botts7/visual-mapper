@@ -9,7 +9,7 @@
  * - Global initialization
  */
 
-const APP_VERSION = '0.3.1';
+const APP_VERSION = '0.3.2';
 
 // API Base Detection (for Home Assistant ingress)
 function getApiBase() {
@@ -121,8 +121,57 @@ async function initApp() {
     const loadTime = performance.now() - startTime;
     console.log(`[Init] Initialization complete in ${loadTime.toFixed(2)}ms`);
 
+    // Load tutorial CSS
+    loadTutorialCSS();
+
+    // Check if tutorial should resume or auto-start
+    await initTutorial();
+
     // Dispatch ready event
     window.dispatchEvent(new Event('visualmapper:ready'));
+}
+
+/**
+ * Load tutorial CSS dynamically
+ */
+function loadTutorialCSS() {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = `css/tutorial.css?v=${APP_VERSION}`;
+    document.head.appendChild(link);
+    console.log('[Init] Tutorial CSS loaded');
+}
+
+/**
+ * Initialize tutorial - resume if in progress, or auto-start for first-time users
+ */
+async function initTutorial() {
+    // Skip on onboarding page
+    const currentPage = window.location.pathname.split('/').pop();
+    if (currentPage === 'onboarding.html') {
+        return;
+    }
+
+    try {
+        const { default: tutorial } = await import(`./modules/tutorial.js?v=${APP_VERSION}`);
+
+        // Check if tutorial is in progress (cross-page navigation)
+        if (tutorial.isInProgress()) {
+            console.log('[Init] Resuming tutorial');
+            // Small delay to let page render
+            setTimeout(() => tutorial.resume(), 500);
+            return;
+        }
+
+        // Check if should auto-start for first-time users
+        if (tutorial.shouldAutoStart()) {
+            console.log('[Init] First visit detected, starting tutorial');
+            // Longer delay for first-time users to see the page first
+            setTimeout(() => tutorial.start(), 1000);
+        }
+    } catch (e) {
+        console.warn('[Init] Tutorial module not available:', e.message);
+    }
 }
 
 // Start when DOM ready

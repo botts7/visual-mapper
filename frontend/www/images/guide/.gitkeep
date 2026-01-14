@@ -1,0 +1,4 @@
+# Guide Screenshots
+# This directory contains screenshots for the interactive tutorial.
+# Generate screenshots by running: npm run screenshots
+# (Requires backend server running on localhost:8765)

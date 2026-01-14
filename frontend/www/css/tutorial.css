@@ -1,0 +1,367 @@
+/**
+ * Tutorial Overlay Styles
+ * Interactive step-by-step guide with spotlight highlighting
+ */
+
+/* Main overlay that darkens the background */
+.tutorial-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.tutorial-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Spotlight element that highlights the target */
+.tutorial-spotlight {
+    position: absolute;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.75);
+    border-radius: 8px;
+    z-index: 9999;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+}
+
+/* Pulse animation for the spotlight */
+.tutorial-spotlight::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border: 2px solid var(--primary-color, #2196F3);
+    border-radius: 10px;
+    animation: spotlight-pulse 2s ease-in-out infinite;
+}
+
+@keyframes spotlight-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.02); }
+}
+
+/* Tooltip container */
+.tutorial-tooltip {
+    position: absolute;
+    z-index: 10000;
+    background: var(--card-background, #ffffff);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    padding: 20px;
+    max-width: 360px;
+    min-width: 280px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: auto;
+}
+
+.tutorial-tooltip.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Dark mode support */
+body.dark-mode .tutorial-tooltip {
+    background: var(--card-background, #1e1e1e);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* Tooltip arrow */
+.tutorial-tooltip::before {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    background: inherit;
+    transform: rotate(45deg);
+    box-shadow: -2px -2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Arrow positions */
+.tutorial-tooltip[data-position="bottom"]::before {
+    top: -8px;
+    left: 50%;
+    margin-left: -8px;
+}
+
+.tutorial-tooltip[data-position="top"]::before {
+    bottom: -8px;
+    left: 50%;
+    margin-left: -8px;
+    box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tutorial-tooltip[data-position="left"]::before {
+    right: -8px;
+    top: 50%;
+    margin-top: -8px;
+    box-shadow: 2px -2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tutorial-tooltip[data-position="right"]::before {
+    left: -8px;
+    top: 50%;
+    margin-top: -8px;
+}
+
+/* Tooltip header */
+.tutorial-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.tutorial-step-indicator {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--primary-color, #2196F3);
+    background: rgba(33, 150, 243, 0.1);
+    padding: 4px 10px;
+    border-radius: 12px;
+}
+
+body.dark-mode .tutorial-step-indicator {
+    background: rgba(33, 150, 243, 0.2);
+}
+
+.tutorial-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: var(--text-secondary, #666);
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.tutorial-close:hover {
+    background: var(--hover-background, #f0f0f0);
+}
+
+body.dark-mode .tutorial-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Tooltip title */
+.tutorial-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-color, #222);
+    margin: 0 0 8px 0;
+}
+
+/* Tooltip description */
+.tutorial-description {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text-secondary, #666);
+    margin: 0 0 16px 0;
+}
+
+/* Tooltip screenshot */
+.tutorial-screenshot {
+    width: 100%;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border-color, #ddd);
+}
+
+/* Tooltip navigation */
+.tutorial-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.tutorial-progress {
+    display: flex;
+    gap: 6px;
+}
+
+.tutorial-progress-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border-color, #ddd);
+    transition: all 0.2s;
+}
+
+.tutorial-progress-dot.completed {
+    background: var(--secondary-color, #4CAF50);
+}
+
+.tutorial-progress-dot.current {
+    background: var(--primary-color, #2196F3);
+    transform: scale(1.2);
+}
+
+.tutorial-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.tutorial-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+}
+
+.tutorial-btn-secondary {
+    background: var(--hover-background, #f0f0f0);
+    color: var(--text-color, #222);
+}
+
+.tutorial-btn-secondary:hover {
+    background: var(--border-color, #ddd);
+}
+
+body.dark-mode .tutorial-btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-color, #eee);
+}
+
+body.dark-mode .tutorial-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.tutorial-btn-primary {
+    background: var(--primary-color, #2196F3);
+    color: white;
+}
+
+.tutorial-btn-primary:hover {
+    background: var(--primary-hover, #1976D2);
+}
+
+/* Skip link */
+.tutorial-skip {
+    display: block;
+    text-align: center;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-secondary, #666);
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.tutorial-skip:hover {
+    color: var(--text-color, #222);
+}
+
+/* Welcome modal (first step) */
+.tutorial-welcome {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10001;
+    background: var(--card-background, #ffffff);
+    border-radius: 16px;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.25);
+    padding: 32px;
+    max-width: 480px;
+    width: 90%;
+    text-align: center;
+}
+
+body.dark-mode .tutorial-welcome {
+    background: var(--card-background, #1e1e1e);
+}
+
+.tutorial-welcome-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.tutorial-welcome h2 {
+    font-size: 24px;
+    margin: 0 0 12px 0;
+    color: var(--text-color, #222);
+}
+
+.tutorial-welcome p {
+    font-size: 15px;
+    color: var(--text-secondary, #666);
+    margin: 0 0 24px 0;
+    line-height: 1.6;
+}
+
+.tutorial-welcome-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+/* Help button in navbar */
+.nav-help-btn {
+    background: none;
+    border: none;
+    color: var(--text-color, #222);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+    font-size: 18px;
+}
+
+.nav-help-btn:hover {
+    background: var(--hover-background, #f0f0f0);
+}
+
+body.dark-mode .nav-help-btn {
+    color: var(--text-color, #eee);
+}
+
+body.dark-mode .nav-help-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .tutorial-tooltip {
+        max-width: 300px;
+        min-width: 240px;
+        padding: 16px;
+    }
+
+    .tutorial-title {
+        font-size: 16px;
+    }
+
+    .tutorial-description {
+        font-size: 13px;
+    }
+
+    .tutorial-welcome {
+        padding: 24px;
+    }
+
+    .tutorial-welcome h2 {
+        font-size: 20px;
+    }
+}
+
+/* Animation for page transitions */
+.tutorial-transitioning .tutorial-overlay {
+    opacity: 0.5;
+}
+
+.tutorial-transitioning .tutorial-tooltip {
+    opacity: 0;
+    pointer-events: none;
+}

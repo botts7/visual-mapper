@@ -52,6 +52,11 @@ const NavBar = {
             ${navItems}
             <li class="version">v${version}</li>
             <li class="nav-logo"><img src="favicon.svg" alt="Visual Mapper"></li>
+            <li id="helpBtnContainer">
+                <button id="helpBtn" class="nav-help-btn" title="Start Tutorial" aria-label="Help">
+                    ?
+                </button>
+            </li>
             <li id="themeToggleContainer">
                 <button id="themeToggle" class="theme-toggle" title="Toggle dark/light mode" aria-label="Toggle theme">
                     <span class="theme-icon">🌙</span> Dark
@@ -152,6 +157,28 @@ const NavBar = {
         console.log('[NavBar] Theme toggle initialized, current theme:', currentTheme);
     },
 
+    // Initialize help button
+    initHelpButton() {
+        const helpBtn = document.getElementById('helpBtn');
+        if (!helpBtn) return;
+
+        helpBtn.addEventListener('click', async () => {
+            try {
+                // Dynamically import tutorial module
+                const cacheKey = sessionStorage.getItem('vmCacheKey') || Date.now();
+                const { default: tutorial } = await import(`../modules/tutorial.js?v=${cacheKey}`);
+
+                // Reset and start tutorial
+                tutorial.reset();
+                tutorial.start();
+            } catch (e) {
+                console.error('[NavBar] Failed to load tutorial:', e);
+            }
+        });
+
+        console.log('[NavBar] Help button initialized');
+    },
+
     // Set theme
     setTheme(theme) {
         // Apply theme using body class (matches existing CSS)
@@ -195,6 +222,7 @@ const NavBar = {
         // Initialize components
         this.initThemeToggle();
         this.initMobileNav();
+        this.initHelpButton();
 
         console.log('[NavBar] Initialized');
     },

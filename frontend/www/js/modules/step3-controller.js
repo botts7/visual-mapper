@@ -13,9 +13,9 @@
  */
 
 // Import extracted modules
-import * as StreamManager from './stream-manager.js?v=0.3.1';
-import * as CanvasOverlayRenderer from './canvas-overlay-renderer.js?v=0.3.1';
-import * as GestureHandler from './gesture-handler.js?v=0.3.1';
+import * as StreamManager from './stream-manager.js?v=0.3.2';
+import * as CanvasOverlayRenderer from './canvas-overlay-renderer.js?v=0.3.2';
+import * as GestureHandler from './gesture-handler.js?v=0.3.2';
 
 // ==========================================
 // Controller State
