@@ -26,6 +26,29 @@
     z-index: 9999;
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     pointer-events: none;
+    /* Allow clicks to pass through to the element underneath */
+    cursor: pointer;
+}
+
+/* Interactive mode - allows clicking the highlighted element */
+.tutorial-overlay.interactive .tutorial-spotlight {
+    pointer-events: auto;
+}
+
+/* Visual hint that element is clickable */
+.tutorial-overlay.interactive .tutorial-spotlight::after {
+    content: 'Click to try';
+    position: absolute;
+    bottom: -28px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--primary-color, #2196F3);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
 }
 
 /* Pulse animation for the spotlight */

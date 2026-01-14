@@ -21,9 +21,10 @@ const TUTORIAL_STEPS = [
         selector: '.device-connect-btn, .btn-primary, [data-action="connect"]',
         fallbackSelector: '.card',
         title: 'Connect Your Device',
-        description: 'First, connect your Android device via WiFi ADB. Make sure Wireless Debugging is enabled in Developer Options on your Android device.',
+        description: 'Connect your Android device via WiFi ADB. Make sure Wireless Debugging is enabled in Developer Options on your Android device. Click the highlighted area to try it!',
         position: 'bottom',
-        screenshot: '01-devices.png'
+        screenshot: '01-devices.png',
+        interactive: true  // Allow clicking the highlighted element
     },
     {
         id: 'pairing',
@@ -34,7 +35,8 @@ const TUTORIAL_STEPS = [
         description: 'Enter the pairing code shown on your Android device. You can find this in Settings → Developer Options → Wireless Debugging → Pair device with pairing code.',
         position: 'right',
         screenshot: '02-pairing.png',
-        optional: true  // Skip if modal not visible
+        optional: true,  // Skip if modal not visible
+        interactive: true
     },
     {
         id: 'flow-start',
@@ -42,9 +44,10 @@ const TUTORIAL_STEPS = [
         selector: '.wizard-step-1, #step1, .step-content:first-child',
         fallbackSelector: '.wizard-container, .container',
         title: 'Create a Flow',
-        description: 'Flows let you automate app navigation to capture data. Click "Create New Flow" to start recording your first automation.',
+        description: 'Flows let you automate app navigation to capture data. Click "Create New Flow" to start recording your first automation. Try clicking the highlighted area!',
         position: 'right',
-        screenshot: '03-flow-start.png'
+        screenshot: '03-flow-start.png',
+        interactive: true
     },
     {
         id: 'select-app',
@@ -52,9 +55,10 @@ const TUTORIAL_STEPS = [
         selector: '.app-selector, .app-list, #appList',
         fallbackSelector: '.wizard-container',
         title: 'Select an App',
-        description: 'Choose the Android app you want to capture data from. Visual Mapper will navigate to this app automatically when the flow runs.',
+        description: 'Choose the Android app you want to capture data from. Visual Mapper will navigate to this app automatically when the flow runs. Click an app to select it!',
         position: 'bottom',
-        screenshot: '04-select-app.png'
+        screenshot: '04-select-app.png',
+        interactive: true
     },
     {
         id: 'record-nav',
@@ -62,9 +66,10 @@ const TUTORIAL_STEPS = [
         selector: '.canvas-container, #screenshotCanvas, .screenshot-container',
         fallbackSelector: '.wizard-container',
         title: 'Record Navigation',
-        description: 'Tap on the screen preview to record navigation steps. Each tap becomes a step in your flow. Navigate to where your data is displayed.',
+        description: 'Tap on the screen preview to record navigation steps. Each tap becomes a step in your flow. Navigate to where your data is displayed. Try tapping!',
         position: 'left',
-        screenshot: '05-record-nav.png'
+        screenshot: '05-record-nav.png',
+        interactive: true
     },
     {
         id: 'select-element',
@@ -72,9 +77,10 @@ const TUTORIAL_STEPS = [
         selector: '.element-panel, .element-tree, #elementPanel',
         fallbackSelector: '.wizard-container',
         title: 'Select an Element',
-        description: 'Click on the UI element you want to capture as a sensor. This could be a battery percentage, temperature, status text, or any visible value.',
+        description: 'Click on the UI element you want to capture as a sensor. This could be a battery percentage, temperature, status text, or any visible value. Click to select!',
         position: 'left',
-        screenshot: '06-select-element.png'
+        screenshot: '06-select-element.png',
+        interactive: true
     },
     {
         id: 'sensors',
@@ -82,9 +88,10 @@ const TUTORIAL_STEPS = [
         selector: '.sensor-list, .sensor-card, #sensorList',
         fallbackSelector: '.container .card',
         title: 'Your Sensors',
-        description: 'Your sensors are now publishing to Home Assistant via MQTT! They update automatically each time your flow runs.',
+        description: 'Your sensors are now publishing to Home Assistant via MQTT! They update automatically each time your flow runs. Click a sensor to see details.',
         position: 'bottom',
-        screenshot: '07-sensors.png'
+        screenshot: '07-sensors.png',
+        interactive: true
     },
     {
         id: 'complete',
@@ -104,6 +111,8 @@ class Tutorial {
         this.spotlight = null;
         this.tooltip = null;
         this.boundHandleResize = this.handleResize.bind(this);
+        this.spotlightClickHandler = null;
+        this.currentTarget = null;
     }
 
     /**
@@ -271,8 +280,64 @@ class Tutorial {
         // Position spotlight
         this.positionSpotlight(target);
 
+        // Enable interactive mode if step allows it
+        this.setInteractiveMode(step.interactive, target);
+
         // Show tooltip
         this.showTooltip(step, target);
+    }
+
+    /**
+     * Enable or disable interactive mode (click-through on spotlight)
+     */
+    setInteractiveMode(enabled, target) {
+        if (!this.overlay || !this.spotlight) return;
+
+        // Remove existing click handler
+        if (this.spotlightClickHandler) {
+            this.spotlight.removeEventListener('click', this.spotlightClickHandler);
+            this.spotlightClickHandler = null;
+        }
+
+        if (enabled) {
+            this.overlay.classList.add('interactive');
+
+            // Store target reference for click forwarding
+            this.currentTarget = target;
+
+            // Create click handler that forwards clicks to target
+            this.spotlightClickHandler = (e) => {
+                e.stopPropagation();
+
+                // Calculate click position relative to target
+                const rect = target.getBoundingClientRect();
+                const spotlightRect = this.spotlight.getBoundingClientRect();
+
+                // Check if click is within the spotlight area
+                const clickX = e.clientX;
+                const clickY = e.clientY;
+
+                // Find the actual element at this position (under the spotlight)
+                // Temporarily hide spotlight to get element underneath
+                this.spotlight.style.pointerEvents = 'none';
+                const elementAtPoint = document.elementFromPoint(clickX, clickY);
+                this.spotlight.style.pointerEvents = 'auto';
+
+                if (elementAtPoint && target.contains(elementAtPoint)) {
+                    // Click the actual element
+                    elementAtPoint.click();
+                    console.log('[Tutorial] Forwarded click to:', elementAtPoint);
+                } else if (elementAtPoint === target) {
+                    target.click();
+                    console.log('[Tutorial] Forwarded click to target:', target);
+                }
+            };
+
+            this.spotlight.addEventListener('click', this.spotlightClickHandler);
+        } else {
+            this.overlay.classList.remove('interactive');
+            this.currentTarget = null;
+        }
     }
 
     /**
@@ -496,6 +561,13 @@ class Tutorial {
     destroy() {
         this.isActive = false;
         window.removeEventListener('resize', this.boundHandleResize);
+
+        // Clean up click handler
+        if (this.spotlight && this.spotlightClickHandler) {
+            this.spotlight.removeEventListener('click', this.spotlightClickHandler);
+        }
+        this.spotlightClickHandler = null;
+        this.currentTarget = null;
 
         if (this.overlay && this.overlay.parentNode) {
             this.overlay.classList.remove('active');
