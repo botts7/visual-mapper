@@ -15,6 +15,12 @@ from core.mqtt.mqtt_manager import MQTTManager
 
 logger = logging.getLogger(__name__)
 
+# Import flow_manager for checking if device has flows
+# We use TYPE_CHECKING to avoid circular imports
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from core.flows.flow_manager import FlowManager
+
 
 class SensorUpdater:
     """
@@ -31,10 +37,12 @@ class SensorUpdater:
         adb_bridge: ADBBridge,
         sensor_manager: SensorManager,
         mqtt_manager: MQTTManager,
+        flow_manager: "FlowManager" = None,
     ):
         self.adb_bridge = adb_bridge
         self.sensor_manager = sensor_manager
         self.mqtt_manager = mqtt_manager
+        self.flow_manager = flow_manager  # Used to check if device has flows
         # Initialize text extractor for sensor value extraction
         self.text_extractor = TextExtractor()
 
@@ -46,6 +54,11 @@ class SensorUpdater:
         )  # NEW: Devices with paused sensor updates
 
         logger.info("[SensorUpdater] Initialized")
+
+    def set_flow_manager(self, flow_manager: "FlowManager"):
+        """Set flow manager after initialization (to avoid circular imports)"""
+        self.flow_manager = flow_manager
+        logger.info("[SensorUpdater] FlowManager configured")
 
     def _get_stable_device_id(self, device_id: str) -> Optional[str]:
         """
@@ -177,10 +190,29 @@ class SensorUpdater:
         """Get set of devices with paused sensor updates"""
         return self._paused_devices.copy()
 
+    def _device_has_enabled_flows(self, device_id: str) -> bool:
+        """
+        Check if device has any enabled flows.
+        If so, SensorUpdater should NOT run - let FlowScheduler handle sensor updates.
+        """
+        if not self.flow_manager:
+            return False
+
+        try:
+            flows = self.flow_manager.get_device_flows(device_id)
+            enabled_flows = [f for f in flows if f.enabled]
+            return len(enabled_flows) > 0
+        except Exception as e:
+            logger.warning(f"[SensorUpdater] Error checking flows for {device_id}: {e}")
+            return False
+
     async def _device_update_loop(self, device_id: str):
         """
         Main update loop for a device
         Runs indefinitely until cancelled
+
+        NOTE: If device has enabled flows, this loop will skip updates and let
+        FlowScheduler handle sensor updates instead. This prevents ADB contention.
         """
         logger.info(f"[SensorUpdater] Update loop started for {device_id}")
 
@@ -189,6 +221,15 @@ class SensorUpdater:
                 # Check if updates are paused (during wizard editing or streaming)
                 if device_id in self._paused_devices:
                     await asyncio.sleep(1)  # Check again in 1 second
+                    continue
+
+                # IMPORTANT: Skip if device has enabled flows
+                # FlowScheduler handles sensor updates for devices with flows
+                if self._device_has_enabled_flows(device_id):
+                    logger.debug(
+                        f"[SensorUpdater] Skipping {device_id} - device has enabled flows (FlowScheduler handles updates)"
+                    )
+                    await asyncio.sleep(30)  # Check again in 30s in case flows are disabled
                     continue
 
                 # Load enabled sensors for this device

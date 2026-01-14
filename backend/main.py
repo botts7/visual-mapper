@@ -510,7 +510,9 @@ async def lifespan(app: FastAPI):
         logger.info("[Server] ✅ Connected to MQTT broker")
 
         # Initialize Sensor Updater (requires MQTT)
-        sensor_updater = SensorUpdater(adb_bridge, sensor_manager, mqtt_manager)
+        # Pass flow_manager so SensorUpdater can skip devices with enabled flows
+        # (FlowScheduler handles sensor updates for those devices)
+        sensor_updater = SensorUpdater(adb_bridge, sensor_manager, mqtt_manager, flow_manager)
 
         # Initialize Navigation MQTT Handler for passive navigation learning
         navigation_mqtt_handler = NavigationMqttHandler(navigation_manager)
