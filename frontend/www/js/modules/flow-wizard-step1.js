@@ -93,6 +93,11 @@ export async function loadStep(wizard) {
                 if (wizard.pauseSensorUpdates) {
                     await wizard.pauseSensorUpdates(wizard.selectedDevice);
                 }
+
+                // Dispatch tutorial event
+                window.dispatchEvent(new CustomEvent('tutorial:wizard-device-selected', {
+                    detail: { deviceId: wizard.selectedDevice }
+                }));
             });
         });
 

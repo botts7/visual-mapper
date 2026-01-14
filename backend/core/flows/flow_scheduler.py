@@ -1135,22 +1135,16 @@ class FlowScheduler:
         """
         Ensure device is unlocked before flow execution.
 
-        Enhanced with retry logic:
-        - 3 unlock attempts with progressive delays
-        - Tries swipe-to-unlock first (now with Samsung-specific handling)
-        - Uses PIN/passcode if AUTO_UNLOCK strategy is configured
+        Scheduler-specific wrapper that adds debounce protection before
+        delegating to FlowExecutor's unified unlock method.
 
         Returns True if device is ready (unlocked or successfully unlocked).
         Returns False if device is locked and couldn't be unlocked.
         """
-        from utils.device_security import LockStrategy
         import time
 
-        MAX_UNLOCK_ATTEMPTS = 3
-
-        # Pre-flight checks (do once, not in retry loop)
-
-        # Check debounce - prevent rapid unlock attempts
+        # Scheduler-specific debounce check - prevent rapid unlock attempts
+        # when multiple flows are scheduled close together
         last_attempt = self._last_unlock_attempt.get(device_id, 0)
         time_since_last = time.time() - last_attempt
         if time_since_last < self._unlock_debounce_seconds:
@@ -1160,119 +1154,12 @@ class FlowScheduler:
             )
             return False
 
-        # Check unlock cooldown (prevents device lockout)
-        unlock_status = self.flow_executor.adb_bridge.get_unlock_status(device_id)
-        if unlock_status.get("in_cooldown"):
-            cooldown_remaining = unlock_status.get("cooldown_remaining_seconds", 0)
-            logger.error(
-                f"[FlowScheduler] Unlock in cooldown ({cooldown_remaining}s remaining)"
-            )
-            return False
+        # Record unlock attempt time for debounce
+        self._last_unlock_attempt[device_id] = time.time()
 
-        # Get security config (try both device_id and stable_device_id)
-        security_config = self.flow_executor.security_manager.get_lock_config(device_id)
-        if not security_config:
-            try:
-                stable_id = await self.flow_executor.adb_bridge.get_stable_device_id(
-                    device_id
-                )
-                if stable_id and stable_id != device_id:
-                    security_config = (
-                        self.flow_executor.security_manager.get_lock_config(stable_id)
-                    )
-            except:
-                pass
-
-        has_auto_unlock = (
-            security_config
-            and security_config.get("strategy") == LockStrategy.AUTO_UNLOCK.value
-        )
-
-        # Get passcode if available
-        passcode = None
-        if has_auto_unlock:
-            passcode = self.flow_executor.security_manager.get_passcode(device_id)
-            if not passcode:
-                try:
-                    stable_id = (
-                        await self.flow_executor.adb_bridge.get_stable_device_id(
-                            device_id
-                        )
-                    )
-                    if stable_id and stable_id != device_id:
-                        passcode = self.flow_executor.security_manager.get_passcode(
-                            stable_id
-                        )
-                except:
-                    pass
-
-        # Retry loop with progressive delays
-        for attempt in range(MAX_UNLOCK_ATTEMPTS):
-            # Check if device is locked
-            is_locked = await self.flow_executor.adb_bridge.is_locked(device_id)
-            if not is_locked:
-                if attempt > 0:
-                    logger.info(
-                        f"[FlowScheduler] Device {device_id} unlocked after {attempt} attempts"
-                    )
-                else:
-                    logger.debug(f"[FlowScheduler] Device {device_id} already unlocked")
-                return True
-
-            logger.info(
-                f"[FlowScheduler] Device {device_id} is locked - unlock attempt {attempt + 1}/{MAX_UNLOCK_ATTEMPTS}"
-            )
-
-            # Record unlock attempt time for debounce
-            self._last_unlock_attempt[device_id] = time.time()
-
-            # Step 1: Try swipe unlock (Samsung devices now use unlock_screen_samsung with retry)
-            try:
-                logger.info(f"[FlowScheduler] Calling unlock_screen for {device_id}")
-                unlock_success = await self.flow_executor.adb_bridge.unlock_screen(
-                    device_id
-                )
-                await asyncio.sleep(0.8)  # Let screen stabilize
-
-                if (
-                    unlock_success
-                    and not await self.flow_executor.adb_bridge.is_locked(device_id)
-                ):
-                    logger.info(f"[FlowScheduler] Device unlocked via swipe")
-                    return True
-            except Exception as e:
-                logger.warning(f"[FlowScheduler] Swipe unlock failed: {e}")
-
-            # Step 2: Try PIN/passcode if configured
-            if passcode:
-                logger.info(f"[FlowScheduler] Attempting PIN unlock for {device_id}")
-                try:
-                    if await self.flow_executor.adb_bridge.unlock_device(
-                        device_id, passcode
-                    ):
-                        logger.info(f"[FlowScheduler] Device unlocked with passcode")
-                        return True
-                    else:
-                        logger.warning(f"[FlowScheduler] PIN unlock returned False")
-                except Exception as e:
-                    logger.error(f"[FlowScheduler] Passcode unlock error: {e}")
-
-            # Check if we unlocked after PIN attempt
-            if not await self.flow_executor.adb_bridge.is_locked(device_id):
-                logger.info(f"[FlowScheduler] Device {device_id} unlocked")
-                return True
-
-            # Wait before retry (progressive delay: 2s, 3s, 4s)
-            if attempt < MAX_UNLOCK_ATTEMPTS - 1:
-                wait_time = 2.0 + attempt
-                logger.info(f"[FlowScheduler] Waiting {wait_time}s before retry...")
-                await asyncio.sleep(wait_time)
-
-        # All retries exhausted
-        logger.error(
-            f"[FlowScheduler] Failed to unlock device {device_id} after {MAX_UNLOCK_ATTEMPTS} attempts"
-        )
-        return False
+        # Delegate to unified unlock method in FlowExecutor
+        # (has retry logic, cooldown check, swipe + PIN support)
+        return await self.flow_executor.auto_unlock_if_needed(device_id)
 
     def get_time_until_next_flow(self, device_id: str) -> Optional[float]:
         """

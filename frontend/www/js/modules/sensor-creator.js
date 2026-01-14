@@ -1034,6 +1034,13 @@ class SensorCreator {
             // Hide dialog
             this.hide();
 
+            // Dispatch tutorial event for sensor creation
+            if (!this.editMode) {
+                window.dispatchEvent(new CustomEvent('tutorial:sensor-created', {
+                    detail: { sensor: response, sensorData: sensorData }
+                }));
+            }
+
             // Fire callback if set (for flow wizard integration)
             if (!this.editMode && this.onSensorCreated) {
                 try {

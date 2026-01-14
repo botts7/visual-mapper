@@ -1,86 +1,131 @@
 /**
  * Tutorial Module
- * Interactive step-by-step guide with spotlight highlighting
+ * Non-blocking guided walkthrough with event-based progression
+ *
+ * Key features:
+ * - Overlay is purely visual (pointer-events: none)
+ * - Users can interact with ALL page elements while tutorial is active
+ * - Steps auto-advance when completion events fire
+ * - Manual Next button always available as fallback
  */
 
 const STORAGE_KEY = 'visual-mapper-tutorial';
 const SESSION_KEY = 'visual-mapper-tutorial-active';
 
-// Tutorial step definitions
+// Tutorial step definitions with event-based completion
 const TUTORIAL_STEPS = [
     {
         id: 'welcome',
         type: 'modal',
         title: 'Welcome to Visual Mapper!',
-        description: 'This quick tutorial will show you how to connect your Android device and create sensors from any app. It takes about 2 minutes.',
+        description: 'This quick guide will show you how to connect your Android device and create sensors from any app. You can interact with everything normally - the tutorial will follow along!',
         icon: '&#128075;'  // Wave emoji
     },
     {
         id: 'devices',
         page: 'devices.html',
-        selector: '.device-connect-btn, .btn-primary, [data-action="connect"]',
+        selector: '.connection-section, .card:has(#connectBtn), .card:has(#ipAddress)',
         fallbackSelector: '.card',
         title: 'Connect Your Device',
-        description: 'Connect your Android device via WiFi ADB. Make sure Wireless Debugging is enabled in Developer Options on your Android device. Click the highlighted area to try it!',
-        position: 'bottom',
-        screenshot: '01-devices.png',
-        interactive: true  // Allow clicking the highlighted element
+        description: 'Enter your Android device\'s IP address and port from Wireless Debugging settings, then click Connect. The tutorial will auto-advance when connected!',
+        position: 'right',
+        completionEvent: 'tutorial:device-connected',
+        completionCheck: async () => {
+            // Check if any device is connected
+            try {
+                const response = await fetch('/api/devices');
+                const devices = await response.json();
+                return devices.some(d => d.status === 'online' || d.connected);
+            } catch {
+                return false;
+            }
+        },
+        waitingMessage: 'Waiting for device connection...',
+        successMessage: 'Device connected!',
+        autoAdvance: true,
+        autoAdvanceDelay: 1500
     },
     {
         id: 'pairing',
         page: 'devices.html',
-        selector: '.pair-dialog, .modal, #pairModal',
+        selector: '.pairing-section, .card:has(#pairBtn), #pairModal',
         fallbackSelector: '.card',
-        title: 'Pair with Code',
-        description: 'Enter the pairing code shown on your Android device. You can find this in Settings → Developer Options → Wireless Debugging → Pair device with pairing code.',
+        title: 'Pair with Code (Optional)',
+        description: 'If you need to pair first, enter the pairing code from your Android device. Otherwise, click Next to continue.',
         position: 'right',
-        screenshot: '02-pairing.png',
-        optional: true,  // Skip if modal not visible
-        interactive: true
+        optional: true,
+        completionEvent: 'tutorial:device-paired',
+        waitingMessage: 'Enter pairing code if needed...',
+        autoAdvance: false  // Manual advance - pairing is optional
     },
     {
         id: 'flow-start',
-        page: 'flow-wizard.html',
-        selector: '.wizard-step-1, #step1, .step-content:first-child',
-        fallbackSelector: '.wizard-container, .container',
-        title: 'Create a Flow',
-        description: 'Flows let you automate app navigation to capture data. Click "Create New Flow" to start recording your first automation. Try clicking the highlighted area!',
-        position: 'right',
-        screenshot: '03-flow-start.png',
-        interactive: true
+        page: 'flows.html',
+        selector: '.btn-create-flow, [href*="flow-wizard"], .create-flow-btn',
+        fallbackSelector: '.card, .container',
+        title: 'Create Your First Flow',
+        description: 'Flows automate app navigation to capture data. Click "Create Flow" to start the wizard!',
+        position: 'bottom',
+        completionEvent: 'tutorial:page-navigate',
+        completionCheck: () => window.location.pathname.includes('flow-wizard'),
+        waitingMessage: 'Click Create Flow to continue...',
+        successMessage: 'Starting flow wizard!',
+        autoAdvance: true,
+        autoAdvanceDelay: 500
     },
     {
-        id: 'select-app',
+        id: 'wizard-device',
         page: 'flow-wizard.html',
-        selector: '.app-selector, .app-list, #appList',
+        selector: '.device-card.available, .device-selection, .wizard-step-1',
+        fallbackSelector: '.wizard-container, .container',
+        title: 'Select Your Device',
+        description: 'Click on your connected device to use it for this flow.',
+        position: 'right',
+        completionEvent: 'tutorial:wizard-device-selected',
+        waitingMessage: 'Select a device...',
+        successMessage: 'Device selected!',
+        autoAdvance: true,
+        autoAdvanceDelay: 1000
+    },
+    {
+        id: 'wizard-app',
+        page: 'flow-wizard.html',
+        selector: '.app-selector, .app-list, #appList, .wizard-step-2',
         fallbackSelector: '.wizard-container',
         title: 'Select an App',
-        description: 'Choose the Android app you want to capture data from. Visual Mapper will navigate to this app automatically when the flow runs. Click an app to select it!',
+        description: 'Choose the Android app you want to capture data from. Visual Mapper will navigate to this app automatically.',
         position: 'bottom',
-        screenshot: '04-select-app.png',
-        interactive: true
+        completionEvent: 'tutorial:wizard-app-selected',
+        waitingMessage: 'Select an app...',
+        successMessage: 'App selected!',
+        autoAdvance: true,
+        autoAdvanceDelay: 1000
     },
     {
-        id: 'record-nav',
+        id: 'wizard-record',
         page: 'flow-wizard.html',
         selector: '.canvas-container, #screenshotCanvas, .screenshot-container',
         fallbackSelector: '.wizard-container',
         title: 'Record Navigation',
-        description: 'Tap on the screen preview to record navigation steps. Each tap becomes a step in your flow. Navigate to where your data is displayed. Try tapping!',
+        description: 'Tap on the screen preview to record navigation steps. Navigate to the screen with the data you want to capture. Click Next when ready.',
         position: 'left',
-        screenshot: '05-record-nav.png',
-        interactive: true
+        completionEvent: 'tutorial:wizard-step-recorded',
+        waitingMessage: 'Tap screen to record steps...',
+        autoAdvance: false  // Manual - user may record multiple steps
     },
     {
-        id: 'select-element',
+        id: 'wizard-sensor',
         page: 'flow-wizard.html',
-        selector: '.element-panel, .element-tree, #elementPanel',
+        selector: '.element-panel, .element-tree, #elementPanel, .ui-element',
         fallbackSelector: '.wizard-container',
-        title: 'Select an Element',
-        description: 'Click on the UI element you want to capture as a sensor. This could be a battery percentage, temperature, status text, or any visible value. Click to select!',
+        title: 'Create a Sensor',
+        description: 'Click on a UI element to capture it as a sensor. This could be battery level, temperature, or any text value on screen.',
         position: 'left',
-        screenshot: '06-select-element.png',
-        interactive: true
+        completionEvent: 'tutorial:sensor-created',
+        waitingMessage: 'Click a UI element to create sensor...',
+        successMessage: 'Sensor created!',
+        autoAdvance: true,
+        autoAdvanceDelay: 1500
     },
     {
         id: 'sensors',
@@ -88,16 +133,15 @@ const TUTORIAL_STEPS = [
         selector: '.sensor-list, .sensor-card, #sensorList',
         fallbackSelector: '.container .card',
         title: 'Your Sensors',
-        description: 'Your sensors are now publishing to Home Assistant via MQTT! They update automatically each time your flow runs. Click a sensor to see details.',
+        description: 'Your sensors are now publishing to Home Assistant via MQTT! They update automatically when your flow runs.',
         position: 'bottom',
-        screenshot: '07-sensors.png',
-        interactive: true
+        autoAdvance: false  // End of main flow
     },
     {
         id: 'complete',
         type: 'modal',
         title: 'You\'re All Set!',
-        description: 'You\'ve learned the basics of Visual Mapper. Create more flows and sensors to capture data from any Android app.',
+        description: 'You\'ve learned the basics of Visual Mapper. Create more flows and sensors to capture data from any Android app. Click the ? button anytime to restart this guide.',
         icon: '&#127881;'  // Party emoji
     }
 ];
@@ -111,8 +155,10 @@ class Tutorial {
         this.spotlight = null;
         this.tooltip = null;
         this.boundHandleResize = this.handleResize.bind(this);
-        this.spotlightClickHandler = null;
         this.currentTarget = null;
+        this.completionListeners = [];
+        this.pollingInterval = null;
+        this.stepCompleted = false;
     }
 
     /**
@@ -174,6 +220,9 @@ class Tutorial {
         // Listen for resize
         window.addEventListener('resize', this.boundHandleResize);
 
+        // Listen for page navigation (for cross-page steps)
+        this.setupNavigationListener();
+
         console.log('[Tutorial] Started from step', fromStep);
     }
 
@@ -210,16 +259,16 @@ class Tutorial {
         // Remove existing if any
         this.destroy();
 
-        // Create overlay container
+        // Create overlay container (purely visual, non-blocking)
         this.overlay = document.createElement('div');
         this.overlay.className = 'tutorial-overlay';
 
-        // Create spotlight
+        // Create spotlight (purely visual)
         this.spotlight = document.createElement('div');
         this.spotlight.className = 'tutorial-spotlight';
         this.overlay.appendChild(this.spotlight);
 
-        // Create tooltip
+        // Create tooltip (only interactive element)
         this.tooltip = document.createElement('div');
         this.tooltip.className = 'tutorial-tooltip';
         this.overlay.appendChild(this.tooltip);
@@ -242,6 +291,11 @@ class Tutorial {
             return;
         }
 
+        // Clean up previous step
+        this.cleanupCompletionListener();
+        this.removeTargetHighlight();
+        this.stepCompleted = false;
+
         this.currentStepIndex = index;
         this.saveStorageData({ currentStepIndex: index });
 
@@ -260,9 +314,9 @@ class Tutorial {
         }
 
         // Find target element
-        let target = document.querySelector(step.selector);
+        let target = this.findTargetElement(step.selector);
         if (!target && step.fallbackSelector) {
-            target = document.querySelector(step.fallbackSelector);
+            target = this.findTargetElement(step.fallbackSelector);
         }
 
         // Skip optional steps if element not found
@@ -277,67 +331,188 @@ class Tutorial {
             return;
         }
 
-        // Position spotlight
+        // Position spotlight (visual only)
         this.positionSpotlight(target);
 
-        // Enable interactive mode if step allows it
-        this.setInteractiveMode(step.interactive, target);
+        // Add highlight to target element
+        this.addTargetHighlight(target);
 
         // Show tooltip
         this.showTooltip(step, target);
+
+        // Setup completion listener for this step
+        this.setupCompletionListener(step);
     }
 
     /**
-     * Enable or disable interactive mode (click-through on spotlight)
+     * Find target element, handling complex selectors
      */
-    setInteractiveMode(enabled, target) {
-        if (!this.overlay || !this.spotlight) return;
+    findTargetElement(selector) {
+        if (!selector) return null;
 
-        // Remove existing click handler
-        if (this.spotlightClickHandler) {
-            this.spotlight.removeEventListener('click', this.spotlightClickHandler);
-            this.spotlightClickHandler = null;
-        }
-
-        if (enabled) {
-            this.overlay.classList.add('interactive');
-
-            // Store target reference for click forwarding
-            this.currentTarget = target;
-
-            // Create click handler that forwards clicks to target
-            this.spotlightClickHandler = (e) => {
-                e.stopPropagation();
-
-                // Calculate click position relative to target
-                const rect = target.getBoundingClientRect();
-                const spotlightRect = this.spotlight.getBoundingClientRect();
-
-                // Check if click is within the spotlight area
-                const clickX = e.clientX;
-                const clickY = e.clientY;
-
-                // Find the actual element at this position (under the spotlight)
-                // Temporarily hide spotlight to get element underneath
-                this.spotlight.style.pointerEvents = 'none';
-                const elementAtPoint = document.elementFromPoint(clickX, clickY);
-                this.spotlight.style.pointerEvents = 'auto';
-
-                if (elementAtPoint && target.contains(elementAtPoint)) {
-                    // Click the actual element
-                    elementAtPoint.click();
-                    console.log('[Tutorial] Forwarded click to:', elementAtPoint);
-                } else if (elementAtPoint === target) {
-                    target.click();
-                    console.log('[Tutorial] Forwarded click to target:', target);
+        // Try each selector in a comma-separated list
+        const selectors = selector.split(',').map(s => s.trim());
+        for (const sel of selectors) {
+            try {
+                const element = document.querySelector(sel);
+                if (element && element.offsetParent !== null) {
+                    return element;
                 }
-            };
+            } catch (e) {
+                // Invalid selector, skip
+                console.warn('[Tutorial] Invalid selector:', sel);
+            }
+        }
+        return null;
+    }
 
-            this.spotlight.addEventListener('click', this.spotlightClickHandler);
-        } else {
-            this.overlay.classList.remove('interactive');
+    /**
+     * Add highlight class to target element
+     */
+    addTargetHighlight(element) {
+        if (!element) return;
+        this.currentTarget = element;
+        element.classList.add('tutorial-target');
+
+        // Scroll element into view if needed
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    /**
+     * Remove highlight from previous target
+     */
+    removeTargetHighlight() {
+        if (this.currentTarget) {
+            this.currentTarget.classList.remove('tutorial-target');
             this.currentTarget = null;
         }
+
+        // Also clean up any orphaned highlights
+        document.querySelectorAll('.tutorial-target').forEach(el => {
+            el.classList.remove('tutorial-target');
+        });
+    }
+
+    /**
+     * Setup completion listener for auto-advancement
+     */
+    setupCompletionListener(step) {
+        // Listen for custom completion event
+        if (step.completionEvent) {
+            const handler = (e) => {
+                console.log('[Tutorial] Completion event received:', step.completionEvent);
+                this.handleStepComplete(step);
+            };
+            window.addEventListener(step.completionEvent, handler);
+            this.completionListeners.push({ event: step.completionEvent, handler });
+        }
+
+        // Setup polling for completion check
+        if (step.completionCheck) {
+            this.pollingInterval = setInterval(async () => {
+                if (this.stepCompleted) return;
+
+                try {
+                    const completed = await step.completionCheck();
+                    if (completed) {
+                        console.log('[Tutorial] Completion check passed for step:', step.id);
+                        this.handleStepComplete(step);
+                    }
+                } catch (e) {
+                    console.warn('[Tutorial] Completion check error:', e);
+                }
+            }, 1000);
+        }
+    }
+
+    /**
+     * Clean up completion listeners
+     */
+    cleanupCompletionListener() {
+        // Remove event listeners
+        this.completionListeners.forEach(({ event, handler }) => {
+            window.removeEventListener(event, handler);
+        });
+        this.completionListeners = [];
+
+        // Clear polling interval
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+            this.pollingInterval = null;
+        }
+    }
+
+    /**
+     * Handle step completion (show success, auto-advance)
+     */
+    handleStepComplete(step) {
+        if (this.stepCompleted) return;
+        this.stepCompleted = true;
+
+        // Show success message if defined
+        if (step.successMessage) {
+            this.showSuccessMessage(step.successMessage);
+        }
+
+        // Auto-advance if enabled
+        if (step.autoAdvance) {
+            const delay = step.autoAdvanceDelay || 1500;
+            setTimeout(() => {
+                if (this.isActive && this.currentStepIndex === this.steps.indexOf(step)) {
+                    this.nextStep();
+                }
+            }, delay);
+        }
+    }
+
+    /**
+     * Show success message in tooltip
+     */
+    showSuccessMessage(message) {
+        const successEl = document.createElement('div');
+        successEl.className = 'tutorial-success';
+        successEl.innerHTML = `
+            <span class="tutorial-success-icon">&#10003;</span>
+            <span>${message}</span>
+        `;
+
+        // Insert at top of tooltip content
+        const description = this.tooltip.querySelector('.tutorial-description');
+        if (description) {
+            description.parentNode.insertBefore(successEl, description);
+        }
+
+        // Remove waiting indicator
+        const waiting = this.tooltip.querySelector('.tutorial-waiting');
+        if (waiting) {
+            waiting.remove();
+        }
+    }
+
+    /**
+     * Setup listener for page navigation
+     */
+    setupNavigationListener() {
+        // Listen for navigation events
+        const handler = () => {
+            window.dispatchEvent(new CustomEvent('tutorial:page-navigate'));
+        };
+
+        // Check for navigation on next tick
+        const checkNavigation = () => {
+            const step = this.steps[this.currentStepIndex];
+            if (step && step.completionCheck) {
+                step.completionCheck().then(result => {
+                    if (result) {
+                        this.handleStepComplete(step);
+                    }
+                });
+            }
+        };
+
+        // Use beforeunload as a hint, actual check on new page load
+        window.addEventListener('beforeunload', handler);
+        this.completionListeners.push({ event: 'beforeunload', handler });
     }
 
     /**
@@ -350,7 +525,6 @@ class Tutorial {
         }
 
         const isWelcome = step.id === 'welcome';
-        const isComplete = step.id === 'complete';
 
         const modalHtml = `
             <div class="tutorial-welcome">
@@ -377,7 +551,7 @@ class Tutorial {
     }
 
     /**
-     * Position the spotlight on target element
+     * Position the spotlight on target element (visual only)
      */
     positionSpotlight(target) {
         const rect = target.getBoundingClientRect();
@@ -409,6 +583,14 @@ class Tutorial {
             })
             .join('');
 
+        // Waiting indicator
+        const waitingHtml = step.waitingMessage ? `
+            <div class="tutorial-waiting">
+                <div class="tutorial-waiting-spinner"></div>
+                <span>${step.waitingMessage}</span>
+            </div>
+        ` : '';
+
         const html = `
             <div class="tutorial-header">
                 <span class="tutorial-step-indicator">Step ${currentNum} of ${totalSteps}</span>
@@ -416,7 +598,7 @@ class Tutorial {
             </div>
             <h3 class="tutorial-title">${step.title}</h3>
             <p class="tutorial-description">${step.description}</p>
-            ${step.screenshot ? `<img class="tutorial-screenshot" src="images/guide/${step.screenshot}" alt="${step.title}" onerror="this.style.display='none'">` : ''}
+            ${waitingHtml}
             <div class="tutorial-nav">
                 <div class="tutorial-progress">${dots}</div>
                 <div class="tutorial-buttons">
@@ -530,7 +712,7 @@ class Tutorial {
     }
 
     /**
-     * Reset tutorial state (for testing)
+     * Reset tutorial state (for testing or restart)
      */
     reset() {
         localStorage.removeItem(STORAGE_KEY);
@@ -547,8 +729,8 @@ class Tutorial {
         const step = this.steps[this.currentStepIndex];
         if (!step || step.type === 'modal') return;
 
-        const target = document.querySelector(step.selector) ||
-                       document.querySelector(step.fallbackSelector);
+        const target = this.findTargetElement(step.selector) ||
+                       this.findTargetElement(step.fallbackSelector);
         if (target) {
             this.positionSpotlight(target);
             this.positionTooltip(target, step.position || 'bottom');
@@ -562,12 +744,11 @@ class Tutorial {
         this.isActive = false;
         window.removeEventListener('resize', this.boundHandleResize);
 
-        // Clean up click handler
-        if (this.spotlight && this.spotlightClickHandler) {
-            this.spotlight.removeEventListener('click', this.spotlightClickHandler);
-        }
-        this.spotlightClickHandler = null;
-        this.currentTarget = null;
+        // Clean up completion listeners
+        this.cleanupCompletionListener();
+
+        // Remove target highlight
+        this.removeTargetHighlight();
 
         if (this.overlay && this.overlay.parentNode) {
             this.overlay.classList.remove('active');
