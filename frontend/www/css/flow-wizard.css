@@ -1336,9 +1336,10 @@ img.app-icon {
     padding: 12px;
     margin-bottom: 10px;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
     transition: all 0.2s ease;
+    overflow: hidden;
 }
 
 .flow-step-item:hover {
@@ -1386,6 +1387,7 @@ img.app-icon {
 
 .step-content {
     flex: 1;
+    min-width: 0; /* Allow shrinking in flexbox to prevent overflow */
 }
 
 .step-description {
@@ -1397,6 +1399,7 @@ img.app-icon {
 .step-actions {
     display: flex;
     gap: 4px;
+    flex-shrink: 0; /* Prevent buttons from being pushed outside container */
 }
 
 .step-actions .btn-sm {
@@ -1493,25 +1496,35 @@ img.app-icon {
 
 .wrong-screen-warning {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
+    flex-wrap: wrap;
     gap: 6px;
     font-size: 11px;
     color: #b45309;
     margin-top: 4px;
-    padding: 4px 8px;
+    padding: 6px 8px;
     background: rgba(245, 158, 11, 0.15);
     border-radius: 4px;
+    overflow: visible;
+}
+
+.wrong-screen-warning span {
+    flex: 1;
+    min-width: 150px;
+    word-break: break-word;
 }
 
 .wrong-screen-warning .btn-fix {
-    padding: 2px 8px;
-    font-size: 10px;
+    padding: 4px 10px;
+    font-size: 11px;
     background: #f59e0b;
     color: white;
     border: none;
-    border-radius: 3px;
+    border-radius: 4px;
     cursor: pointer;
     margin-left: auto;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .wrong-screen-warning .btn-fix:hover {

@@ -27,12 +27,41 @@ class ElementTree {
     }
 
     /**
-     * Update elements and re-render
+     * Update elements and re-render (only if changed)
      */
     setElements(elements) {
-        this.elements = elements || [];
+        const newElements = elements || [];
+
+        // Skip re-render if elements haven't changed (prevents dropdown reset)
+        if (this._elementsMatch(this.elements, newElements)) {
+            return;
+        }
+
+        this.elements = newElements;
         this.applyFilters();
         this.render();
+    }
+
+    /**
+     * Compare two element arrays to check if they're functionally the same
+     * Uses a fast hash comparison to avoid expensive deep equality checks
+     */
+    _elementsMatch(oldElements, newElements) {
+        if (!oldElements || !newElements) return false;
+        if (oldElements.length !== newElements.length) return false;
+        if (oldElements.length === 0) return true;
+
+        // Quick hash: compare first, middle, and last element key properties
+        const hashElement = (el) => {
+            if (!el) return '';
+            return `${el.text || ''}|${el.resource_id || ''}|${el.class || ''}|${el.bounds?.x || 0},${el.bounds?.y || 0}`;
+        };
+
+        const mid = Math.floor(oldElements.length / 2);
+        const oldHash = hashElement(oldElements[0]) + hashElement(oldElements[mid]) + hashElement(oldElements[oldElements.length - 1]);
+        const newHash = hashElement(newElements[0]) + hashElement(newElements[mid]) + hashElement(newElements[newElements.length - 1]);
+
+        return oldHash === newHash;
     }
 
     /**
