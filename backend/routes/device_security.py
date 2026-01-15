@@ -220,33 +220,40 @@ async def auto_unlock_device(device_id: str):
                 "unlock_status": unlock_status,
             }
 
-        # Step 1: Try swipe unlock first (fast, works for devices without passcode)
-        try:
-            await deps.adb_bridge.unlock_screen(device_id)
-            await asyncio.sleep(0.3)
-
-            # Check if swipe was enough
-            is_locked = await deps.adb_bridge.is_locked(device_id)
-            if not is_locked:
-                logger.info(f"[API] Device {device_id} unlocked via swipe")
-                return {
-                    "success": True,
-                    "message": "Device unlocked via swipe",
-                    "unlock_status": unlock_status,
-                }
-        except Exception as e:
-            logger.debug(f"[API] Swipe unlock attempt: {e}")
-
-        # Step 2: Try passcode if configured
+        # Get security config first to determine unlock strategy
         config = deps.device_security_manager.get_lock_config(device_id)
         passcode = (
             deps.device_security_manager.get_passcode(device_id) if config else None
         )
 
         success = False
+
+        # If passcode configured with auto_unlock, try PIN first (faster for PIN-locked devices)
         if passcode and config.get("strategy") == "auto_unlock":
-            # Attempt passcode unlock
-            success = await deps.adb_bridge.unlock_device(device_id, passcode)
+            logger.info(f"[API] Attempting PIN unlock for {device_id}")
+            try:
+                success = await deps.adb_bridge.unlock_device(device_id, passcode)
+                if success:
+                    logger.info(f"[API] Device {device_id} unlocked with PIN")
+            except Exception as e:
+                logger.warning(f"[API] PIN unlock failed: {e}")
+        else:
+            # No passcode configured - try swipe unlock
+            try:
+                await deps.adb_bridge.unlock_screen(device_id)
+                await asyncio.sleep(0.3)
+
+                # Check if swipe was enough
+                is_locked = await deps.adb_bridge.is_locked(device_id)
+                if not is_locked:
+                    logger.info(f"[API] Device {device_id} unlocked via swipe")
+                    return {
+                        "success": True,
+                        "message": "Device unlocked via swipe",
+                        "unlock_status": unlock_status,
+                    }
+            except Exception as e:
+                logger.debug(f"[API] Swipe unlock attempt: {e}")
 
         # Get updated status after attempt
         unlock_status = deps.adb_bridge.get_unlock_status(device_id)

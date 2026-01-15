@@ -302,18 +302,8 @@ class FlowExecutor:
                     f"[FlowExecutor] Unlock attempt {attempt + 1}/{MAX_UNLOCK_ATTEMPTS} for {device_id}"
                 )
 
-            # Try swipe-to-unlock first
-            try:
-                unlock_success = await self.adb_bridge.unlock_screen(device_id)
-                await asyncio.sleep(0.5)
-
-                if unlock_success and not await self.adb_bridge.is_locked(device_id):
-                    logger.info(f"[FlowExecutor] Device unlocked via swipe")
-                    return True
-            except Exception as e:
-                logger.warning(f"[FlowExecutor] Swipe unlock failed: {e}")
-
-            # Try PIN/passcode if available
+            # If passcode is configured, try PIN unlock FIRST (faster than swipe attempts)
+            # This matches the behavior of the "Test Unlock" button which works quickly
             if passcode:
                 logger.info(f"[FlowExecutor] Attempting PIN unlock for {device_id}")
                 try:
@@ -323,10 +313,21 @@ class FlowExecutor:
                 except Exception as e:
                     logger.warning(f"[FlowExecutor] PIN unlock failed: {e}")
 
-            # Check if we unlocked after PIN attempt
-            if not await self.adb_bridge.is_locked(device_id):
-                logger.info(f"[FlowExecutor] Device {device_id} unlocked")
-                return True
+                # Check if we unlocked after PIN attempt
+                if not await self.adb_bridge.is_locked(device_id):
+                    logger.info(f"[FlowExecutor] Device {device_id} unlocked")
+                    return True
+            else:
+                # No passcode configured - try swipe-to-unlock
+                try:
+                    unlock_success = await self.adb_bridge.unlock_screen(device_id)
+                    await asyncio.sleep(0.5)
+
+                    if unlock_success and not await self.adb_bridge.is_locked(device_id):
+                        logger.info(f"[FlowExecutor] Device unlocked via swipe")
+                        return True
+                except Exception as e:
+                    logger.warning(f"[FlowExecutor] Swipe unlock failed: {e}")
 
             # Wait before retry
             if attempt < MAX_UNLOCK_ATTEMPTS - 1:
