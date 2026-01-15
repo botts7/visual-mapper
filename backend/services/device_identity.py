@@ -116,6 +116,27 @@ class DeviceIdentityResolver:
             True if this is a new device or updated connection, False otherwise
         """
         with self._lock:
+            # Check for duplicate: connection_id may have been used as stable_id before
+            # This happens when device was registered before stable ID could be obtained
+            if connection_id in self._device_info and connection_id != stable_device_id:
+                logger.info(
+                    f"[DeviceIdentity] Merging duplicate: {connection_id} -> {stable_device_id}"
+                )
+                # Migrate any useful data from the old entry
+                old_info = self._device_info[connection_id]
+                if not device_model and old_info.get("model"):
+                    device_model = old_info.get("model")
+                if not device_manufacturer and old_info.get("manufacturer"):
+                    device_manufacturer = old_info.get("manufacturer")
+                # Remove the duplicate entry
+                del self._device_info[connection_id]
+                if connection_id in self._stable_to_conn:
+                    del self._stable_to_conn[connection_id]
+                # Clean up conn_to_stable entries pointing to old key
+                for conn, stable in list(self._conn_to_stable.items()):
+                    if stable == connection_id:
+                        del self._conn_to_stable[conn]
+
             is_new = stable_device_id not in self._stable_to_conn
             old_conn = self._stable_to_conn.get(stable_device_id)
 
