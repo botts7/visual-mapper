@@ -16,13 +16,13 @@
  * - Connection status updates
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.2.14';
-import LiveStream from './live-stream.js?v=0.4.0-beta.2.14';
+import { showToast } from './toast.js?v=0.4.0-beta.2.15';
+import LiveStream from './live-stream.js?v=0.4.0-beta.2.15';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake
-} from './device-unlock.js?v=0.4.0-beta.2.14';
+} from './device-unlock.js?v=0.4.0-beta.2.15';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {

@@ -52,6 +52,31 @@ class FlowManager:
             f"templates: {self.template_dir.absolute()}, data_dir: {self.data_dir.absolute()}"
         )
 
+    def reload_flows(self, device_id: str = None):
+        """
+        Clear cached flows and reload from disk.
+
+        Called after device migration to pick up updated device_id fields.
+
+        Args:
+            device_id: If specified, only reload flows for this device.
+                      If None, clear all cached flows.
+        """
+        if device_id:
+            # Clear specific device cache
+            if device_id in self._flows:
+                del self._flows[device_id]
+            logger.info(f"[FlowManager] Cleared cache for device {device_id}")
+        else:
+            # Clear all caches
+            self._flows.clear()
+            logger.info("[FlowManager] Cleared all flow caches")
+
+    # Alias for backward compatibility with main.py
+    def _load_all_flows(self):
+        """Alias for reload_flows() - clears cache to force reload from disk"""
+        self.reload_flows()
+
     def _get_flow_file(self, device_id: str) -> Path:
         """
         Get flow file path for device.

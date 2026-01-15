@@ -36,6 +36,15 @@ class SensorManager:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"[SensorManager] Initialized with data_dir={self.data_dir}")
 
+    def _load_all_sensors(self):
+        """
+        Reload sensors from disk.
+
+        SensorManager doesn't cache, so this is a no-op.
+        Called after device migration for consistency with FlowManager.
+        """
+        logger.info("[SensorManager] Reload requested (no-op, sensors load fresh each time)")
+
     def _get_sensor_file(self, device_id: str) -> Path:
         """
         Get sensor file path for device.
