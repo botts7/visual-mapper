@@ -147,7 +147,8 @@ async def get_elements_only(device_id: str):
     deps = get_deps()
     try:
         logger.info(f"[API] Getting elements only from {device_id}")
-        elements = await deps.adb_bridge.get_ui_elements(device_id)
+        # CRITICAL: force_refresh=True to avoid stale/cached elements from previous screen
+        elements = await deps.adb_bridge.get_ui_elements(device_id, force_refresh=True)
         logger.info(f"[API] Got {len(elements)} elements")
 
         # Get current app/activity info for stale element detection
