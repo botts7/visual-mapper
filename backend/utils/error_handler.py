@@ -234,6 +234,36 @@ def get_user_friendly_message(error: Exception) -> str:
         return f"An unexpected error occurred: {str(error)}"
 
 
+def create_success_response(
+    data: Any = None,
+    message: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Create a standardized success response
+
+    Args:
+        data: The response data payload
+        message: Optional success message
+
+    Returns:
+        Dict with success response format: {success: True, data: ..., message: ...}
+
+    Usage:
+        return create_success_response(data={"sensors": sensors})
+        return create_success_response(message="Sensor created")
+        return create_success_response(data=sensor, message="Sensor updated")
+    """
+    response = {"success": True}
+
+    if data is not None:
+        response["data"] = data
+
+    if message is not None:
+        response["message"] = message
+
+    return response
+
+
 # Decorator for error handling
 def handle_errors(func):
     """

@@ -261,8 +261,8 @@ class FlowExecutor:
                 stable_id = await self.adb_bridge.get_stable_device_id(device_id)
                 if stable_id and stable_id != device_id:
                     security_config = self.security_manager.get_lock_config(stable_id)
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"[FlowExecutor] Could not get security config via stable_id: {e}")
 
         has_auto_unlock = (
             security_config
@@ -278,8 +278,8 @@ class FlowExecutor:
                     stable_id = await self.adb_bridge.get_stable_device_id(device_id)
                     if stable_id and stable_id != device_id:
                         passcode = self.security_manager.get_passcode(stable_id)
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[FlowExecutor] Could not get passcode via stable_id: {e}")
 
         # Unlock attempts with retry logic
         for attempt in range(MAX_UNLOCK_ATTEMPTS):
@@ -634,8 +634,8 @@ class FlowExecutor:
                         activity_before_step = (
                             await self.adb_bridge.get_current_activity(flow.device_id)
                         )
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"[FlowExecutor] Could not get activity before step: {e}")
 
                 # Execute step with retry
                 try:
@@ -722,8 +722,8 @@ class FlowExecutor:
                                 logger.debug(
                                     f"  [Backtrack] Navigation depth now: {navigation_depth}"
                                 )
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"[FlowExecutor] Could not track activity for backtrack: {e}")
 
                     # Learn Mode: Capture UI elements after screen-changing steps
                     if learn_mode and success:

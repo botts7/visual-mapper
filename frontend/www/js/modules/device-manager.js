@@ -71,14 +71,14 @@ class DeviceManager {
                 method: 'POST'
             }).then(resp => {
                 if (resp.ok) console.log(`[DeviceManager] App names prefetch queued for ${deviceId}`);
-            }).catch(() => {}); // Silent fail - non-critical
+            }).catch(err => console.warn('[DeviceManager] App names prefetch failed:', err));
 
             // Prefetch app icons (slower, may extract from APKs)
             fetch(`${this.apiClient.baseUrl}/adb/prefetch-icons/${encodeURIComponent(deviceId)}`, {
                 method: 'POST'
             }).then(resp => {
                 if (resp.ok) console.log(`[DeviceManager] App icons prefetch queued for ${deviceId}`);
-            }).catch(() => {}); // Silent fail - non-critical
+            }).catch(err => console.warn('[DeviceManager] App icons prefetch failed:', err));
 
         } catch (error) {
             console.warn('[DeviceManager] Prefetch failed (non-critical):', error);

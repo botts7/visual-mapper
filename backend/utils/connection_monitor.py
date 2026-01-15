@@ -183,9 +183,12 @@ class ConnectionMonitor:
         if self._monitor_task:
             self._monitor_task.cancel()
             try:
-                await self._monitor_task
+                # Add timeout to prevent hanging on shutdown
+                await asyncio.wait_for(self._monitor_task, timeout=5.0)
             except asyncio.CancelledError:
                 pass
+            except asyncio.TimeoutError:
+                logger.warning("[ConnectionMonitor] Stop timed out, forcing shutdown")
         logger.info("[ConnectionMonitor] Stopped")
 
     async def add_device(self, device_id: str, stable_device_id: Optional[str] = None):

@@ -5,8 +5,8 @@
  * based on pattern detection heuristics.
  */
 
-import { getApiBase } from './api-base-detection.js?v=0.4.0-beta.2.24';
-import { showToast } from './toast.js?v=0.4.0-beta.2.24';
+import { getApiBase } from './api-base-detection.js?v=0.4.0-beta.3';
+import { showToast } from './toast.js?v=0.4.0-beta.3';
 
 class SmartSuggestions {
     constructor() {
@@ -395,7 +395,7 @@ class SmartSuggestions {
 
         import('./canvas-overlay-renderer.js').then(module => {
             module.clearHoverHighlight(this.wizard);
-        }).catch(() => {});
+        }).catch(err => console.warn('[SmartSuggestions] Failed to clear hover highlight:', err));
     }
 
     /**
@@ -611,7 +611,7 @@ class SmartSuggestions {
             };
 
             // Import Dialogs module to create action
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.2.24');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3');
             await Dialogs.createAction(this.wizard, element, null);
         }
     }

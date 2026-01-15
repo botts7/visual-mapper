@@ -23,23 +23,46 @@ class ElementTree {
         this.showClickableOnly = false;
         this.showTextOnly = false;
 
+        // Race condition prevention
+        this._isUpdating = false;
+        this._pendingElements = null;
+
         console.log('[ElementTree] Initialized');
     }
 
     /**
      * Update elements and re-render (only if changed)
+     * Includes race condition prevention to avoid concurrent updates
      */
     setElements(elements) {
         const newElements = elements || [];
+
+        // If already updating, queue the new elements for later
+        if (this._isUpdating) {
+            this._pendingElements = newElements;
+            return;
+        }
 
         // Skip re-render if elements haven't changed (prevents dropdown reset)
         if (this._elementsMatch(this.elements, newElements)) {
             return;
         }
 
-        this.elements = newElements;
-        this.applyFilters();
-        this.render();
+        this._isUpdating = true;
+        try {
+            this.elements = newElements;
+            this.applyFilters();
+            this.render();
+        } finally {
+            this._isUpdating = false;
+
+            // Process any pending update that came in during rendering
+            if (this._pendingElements !== null) {
+                const pending = this._pendingElements;
+                this._pendingElements = null;
+                this.setElements(pending);
+            }
+        }
     }
 
     /**

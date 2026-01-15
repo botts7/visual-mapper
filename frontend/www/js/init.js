@@ -9,7 +9,7 @@
  * - Global initialization
  */
 
-const APP_VERSION = '0.4.0-beta.2.24';
+const APP_VERSION = '0.4.0-beta.3';
 
 // API Base Detection (for Home Assistant ingress)
 function getApiBase() {
@@ -34,9 +34,14 @@ function getApiBase() {
 window.API_BASE = getApiBase();
 window.APP_VERSION = APP_VERSION;
 
-// Log initialization
+// Debug mode - set VM_DEBUG=true for verbose logging
+// Can be toggled at runtime: vmDebug.enable() / vmDebug.disable()
+window.VM_DEBUG = localStorage.getItem('VM_DEBUG') === 'true';
+
+// Log initialization (always show version info)
 console.log(`[Init] Visual Mapper v${APP_VERSION}`);
 console.log(`[Init] API Base: ${window.API_BASE}`);
+console.log(`[Init] Debug mode: ${window.VM_DEBUG ? 'ENABLED' : 'disabled'} (use vmDebug.enable() to enable)`);
 
 // Onboarding check - redirect to onboarding.html if not completed
 // To reset onboarding for testing: localStorage.removeItem('onboarding_complete')

@@ -16,13 +16,13 @@
  * - Connection status updates
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.2.24';
-import LiveStream from './live-stream.js?v=0.4.0-beta.2.24';
+import { showToast } from './toast.js?v=0.4.0-beta.3';
+import LiveStream from './live-stream.js?v=0.4.0-beta.3';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake
-} from './device-unlock.js?v=0.4.0-beta.2.24';
+} from './device-unlock.js?v=0.4.0-beta.3';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -139,14 +139,18 @@ export async function prepareDeviceForStreaming(wizard) {
 
                 // Fetch screenshot to preload (don't wait too long)
                 try {
-                    const screenshotPromise = fetch(`${apiBase}/adb/screenshot`, {
+                    const abortController = new AbortController();
+                    const timeoutId = setTimeout(() => abortController.abort(), 3000);
+
+                    const response = await fetch(`${apiBase}/adb/screenshot`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ device_id: wizard.selectedDevice, quick: false })
+                        body: JSON.stringify({ device_id: wizard.selectedDevice, quick: false }),
+                        signal: abortController.signal
                     });
-                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject('timeout'), 3000));
 
-                    const response = await Promise.race([screenshotPromise, timeoutPromise]);
+                    clearTimeout(timeoutId);
+
                     if (response && response.ok) {
                         const data = await response.json();
                         if (data.screenshot) {
@@ -157,7 +161,11 @@ export async function prepareDeviceForStreaming(wizard) {
                         }
                     }
                 } catch (e) {
-                    console.log('[StreamManager] Screenshot preload skipped:', e);
+                    if (e.name === 'AbortError') {
+                        console.log('[StreamManager] Screenshot preload timed out');
+                    } else {
+                        console.log('[StreamManager] Screenshot preload skipped:', e);
+                    }
                 }
 
                 updateStep('step-connect', 'done');

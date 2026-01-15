@@ -18,28 +18,28 @@
  * v0.0.22: Updated Step4 import for navigation issue detection
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.2.24';
-import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.2.24';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.2.24';
-import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.2.24';
-import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.2.24';
-import LiveStream from './live-stream.js?v=0.4.0-beta.2.24';
-import ElementTree from './element-tree.js?v=0.4.0-beta.2.24';
-import APIClient from './api-client.js?v=0.4.0-beta.2.24';
-import SensorCreator from './sensor-creator.js?v=0.4.0-beta.2.24';
+import { showToast } from './toast.js?v=0.4.0-beta.3';
+import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3';
+import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3';
+import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3';
+import LiveStream from './live-stream.js?v=0.4.0-beta.3';
+import ElementTree from './element-tree.js?v=0.4.0-beta.3';
+import APIClient from './api-client.js?v=0.4.0-beta.3';
+import SensorCreator from './sensor-creator.js?v=0.4.0-beta.3';
 
 // Step modules
-import * as Step1 from './flow-wizard-step1.js?v=0.4.0-beta.2.24';
-import * as Step2 from './flow-wizard-step2.js?v=0.4.0-beta.2.24';
-import * as Step3 from './flow-wizard-step3.js?v=0.4.0-beta.2.24';
-import * as Step4 from './flow-wizard-step4.js?v=0.4.0-beta.2.24';
-import * as Step5 from './flow-wizard-step5.js?v=0.4.0-beta.2.24';
+import * as Step1 from './flow-wizard-step1.js?v=0.4.0-beta.3';
+import * as Step2 from './flow-wizard-step2.js?v=0.4.0-beta.3';
+import * as Step3 from './flow-wizard-step3.js?v=0.4.0-beta.3';
+import * as Step4 from './flow-wizard-step4.js?v=0.4.0-beta.3';
+import * as Step5 from './flow-wizard-step5.js?v=0.4.0-beta.3';
 
 // Dialog module
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.2.24';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3';
 
 // Element actions module
-import * as ElementActions from './flow-wizard-element-actions.js?v=0.4.0-beta.2.24';
+import * as ElementActions from './flow-wizard-element-actions.js?v=0.4.0-beta.3';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -153,7 +153,7 @@ class FlowWizard {
             this.recorder.stop?.();
         }
 
-        const FlowRecorder = (await import('./flow-recorder.js?v=0.4.0-beta.2.24')).default;
+        const FlowRecorder = (await import('./flow-recorder.js?v=0.4.0-beta.3')).default;
         this.recorder = new FlowRecorder(deviceId, this.selectedApp, this.recordMode);
 
         // Load existing steps (convert from action format to flow format)
@@ -628,6 +628,30 @@ class FlowWizard {
      * Uses sendBeacon for reliable delivery during page close
      */
     _cleanupOnUnload() {
+        // Close WebSocket stream synchronously (best effort - can't await during unload)
+        try {
+            if (this.liveStream && this.liveStream.websocket) {
+                this.liveStream.websocket.onmessage = null;
+                this.liveStream.websocket.onerror = null;
+                this.liveStream.websocket.onclose = null;
+                this.liveStream.websocket.close();
+                console.log('[FlowWizard] Closed stream WebSocket on unload');
+            }
+        } catch (e) {
+            console.warn('[FlowWizard] Could not close stream on unload:', e);
+        }
+
+        // Clear any running intervals
+        try {
+            if (this.queueStatsInterval) {
+                clearInterval(this.queueStatsInterval);
+                this.queueStatsInterval = null;
+                console.log('[FlowWizard] Cleared queue stats interval on unload');
+            }
+        } catch (e) {
+            console.warn('[FlowWizard] Could not clear interval on unload:', e);
+        }
+
         // Resume scheduler (fire and forget with sendBeacon)
         try {
             const apiBase = window.API_BASE || '/api';

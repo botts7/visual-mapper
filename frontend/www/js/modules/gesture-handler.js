@@ -11,8 +11,8 @@
  * @module gesture-handler
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.2.24';
-import { refreshAfterAction } from './stream-manager.js?v=0.4.0-beta.2.24';
+import { showToast } from './toast.js?v=0.4.0-beta.3';
+import { refreshAfterAction } from './stream-manager.js?v=0.4.0-beta.3';
 
 // ==========================================
 // Utility Functions
@@ -100,6 +100,10 @@ export async function onGestureEnd(wizard, e) {
     wizard.isDragging = false;
 
     const container = document.getElementById('screenshotContainer');
+    if (!container) {
+        console.warn('[GestureHandler] Screenshot container not found');
+        return;
+    }
 
     // Get canvas offset within container for accurate ripple/path position
     const canvasRect = wizard.canvas.getBoundingClientRect();

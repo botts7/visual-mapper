@@ -286,6 +286,9 @@ adb_maintenance: Optional["ADBMaintenance"] = None
 shell_pool: Optional["PersistentShellPool"] = None
 connection_monitor: Optional["ConnectionMonitor"] = None
 
+# Track background tasks for graceful shutdown
+_background_tasks: list = []
+
 # MQTT Configuration (loaded from environment or config)
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
@@ -826,7 +829,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"[Server] Auto-reconnect failed: {e}")
 
-        asyncio.create_task(auto_reconnect_devices())
+        _background_tasks.append(asyncio.create_task(auto_reconnect_devices()))
 
         # Start connection monitor
         async def start_connection_monitor():
@@ -837,7 +840,7 @@ async def lifespan(app: FastAPI):
                 "[Server] ✅ Connection Monitor started - will check device health every 30s"
             )
 
-        asyncio.create_task(start_connection_monitor())
+        _background_tasks.append(asyncio.create_task(start_connection_monitor()))
 
         # Background task to publish discovery for already-connected devices
         async def publish_existing_devices():
@@ -903,7 +906,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"[Server] Failed to publish delayed discoveries: {e}")
 
-        asyncio.create_task(publish_existing_devices())
+        _background_tasks.append(asyncio.create_task(publish_existing_devices()))
 
         # Register action command callback to handle MQTT button presses from HA
         async def on_action_command(device_id: str, action_id: str):
@@ -1013,6 +1016,17 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("[Server] Shutting down Visual Mapper...")
+
+    # Cancel background tasks
+    for task in _background_tasks:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+    _background_tasks.clear()
+    logger.info("[Server] Background tasks cancelled")
 
     # Stop all sensor updates
     if sensor_updater:
@@ -1256,7 +1270,8 @@ async def websocket_logs(websocket: WebSocket):
                 # Send keepalive ping
                 try:
                     await websocket.send_json({"type": "ping"})
-                except:
+                except Exception as e:
+                    logger.debug(f"[WS-Logs] Keepalive ping failed, closing: {e}")
                     break
 
     except WebSocketDisconnect:

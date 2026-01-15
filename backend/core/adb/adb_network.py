@@ -220,30 +220,31 @@ class NetworkADBConnection(BaseADBConnection):
 
         def _send():
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(10)
-            sock.connect((self.adb_host, self.adb_port))
+            try:
+                sock.settimeout(10)
+                sock.connect((self.adb_host, self.adb_port))
 
-            # Send command length + command
-            msg = f"{len(command):04x}{command}".encode()
-            sock.sendall(msg)
+                # Send command length + command
+                msg = f"{len(command):04x}{command}".encode()
+                sock.sendall(msg)
 
-            # Read response status
-            status = sock.recv(4).decode()
-            if status != "OKAY":
-                error = sock.recv(1024).decode()
+                # Read response status
+                status = sock.recv(4).decode()
+                if status != "OKAY":
+                    error = sock.recv(1024).decode()
+                    raise Exception(f"ADB command failed: {error}")
+
+                # Read response data
+                response = b""
+                while True:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+
+                return response.decode()
+            finally:
                 sock.close()
-                raise Exception(f"ADB command failed: {error}")
-
-            # Read response data
-            response = b""
-            while True:
-                chunk = sock.recv(4096)
-                if not chunk:
-                    break
-                response += chunk
-
-            sock.close()
-            return response.decode()
 
         return await self._run_in_executor(_send)
 
@@ -267,41 +268,41 @@ class NetworkADBConnection(BaseADBConnection):
 
             def _shell():
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(30)
-                sock.connect((self.adb_host, self.adb_port))
+                try:
+                    sock.settimeout(30)
+                    sock.connect((self.adb_host, self.adb_port))
 
-                # Switch to device transport
-                transport_cmd = f"host:transport:{self.device_id}"
-                msg = f"{len(transport_cmd):04x}{transport_cmd}".encode()
-                sock.sendall(msg)
+                    # Switch to device transport
+                    transport_cmd = f"host:transport:{self.device_id}"
+                    msg = f"{len(transport_cmd):04x}{transport_cmd}".encode()
+                    sock.sendall(msg)
 
-                status = sock.recv(4).decode()
-                if status != "OKAY":
-                    error = sock.recv(1024).decode()
+                    status = sock.recv(4).decode()
+                    if status != "OKAY":
+                        error = sock.recv(1024).decode()
+                        raise Exception(f"Transport failed: {error}")
+
+                    # Send shell command
+                    shell_cmd = f"shell:{command}"
+                    msg = f"{len(shell_cmd):04x}{shell_cmd}".encode()
+                    sock.sendall(msg)
+
+                    status = sock.recv(4).decode()
+                    if status != "OKAY":
+                        error = sock.recv(1024).decode()
+                        raise Exception(f"Shell command failed: {error}")
+
+                    # Read response
+                    response = b""
+                    while True:
+                        chunk = sock.recv(4096)
+                        if not chunk:
+                            break
+                        response += chunk
+
+                    return response
+                finally:
                     sock.close()
-                    raise Exception(f"Transport failed: {error}")
-
-                # Send shell command
-                shell_cmd = f"shell:{command}"
-                msg = f"{len(shell_cmd):04x}{shell_cmd}".encode()
-                sock.sendall(msg)
-
-                status = sock.recv(4).decode()
-                if status != "OKAY":
-                    error = sock.recv(1024).decode()
-                    sock.close()
-                    raise Exception(f"Shell command failed: {error}")
-
-                # Read response
-                response = b""
-                while True:
-                    chunk = sock.recv(4096)
-                    if not chunk:
-                        break
-                    response += chunk
-
-                sock.close()
-                return response
 
             result = await self._run_in_executor(_shell)
 

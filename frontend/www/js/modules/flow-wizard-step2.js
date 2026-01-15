@@ -5,7 +5,7 @@
  * Handles app list loading, icon detection, system app filtering, and app search
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.2.24';
+import { showToast } from './toast.js?v=0.4.0-beta.3';
 
 // Helper to get API base
 function getApiBase() {
@@ -100,7 +100,7 @@ export async function loadStep(wizard) {
         fetch(`${getApiBase()}/adb/prefetch-icons/${encodeURIComponent(wizard.selectedDevice)}`, {
             method: 'POST'
         }).then(() => console.log('[Step2] Icon prefetch triggered'))
-          .catch(() => {});
+          .catch(err => console.warn('[Step2] Icon prefetch failed:', err));
 
         // Start queue stats polling to auto-refresh icons/names when fetching completes
         startQueueStatsPolling(wizard);
