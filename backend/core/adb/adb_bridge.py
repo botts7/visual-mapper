@@ -14,6 +14,7 @@ import asyncio
 import logging
 import os
 import re
+import subprocess
 import time
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional
@@ -2323,9 +2324,9 @@ class ADBBridge:
         has_pin_configured = False
         if skip_swipe_if_pin:
             try:
-                from utils.device_security import SecurityManager, LockStrategy
+                from utils.device_security import DeviceSecurityManager, LockStrategy
 
-                security_mgr = SecurityManager()
+                security_mgr = DeviceSecurityManager()
 
                 # Try device_id first
                 logger.info(f"[ADBBridge] PIN lookup: checking device_id={device_id}")
@@ -3699,11 +3700,11 @@ class ADBBridge:
                         # Try to get passcode from security manager
                         try:
                             from utils.device_security import (
-                                SecurityManager,
+                                DeviceSecurityManager,
                                 LockStrategy,
                             )
 
-                            security_mgr = SecurityManager()
+                            security_mgr = DeviceSecurityManager()
                             config = security_mgr.get_lock_config(device_id)
 
                             # Also try stable_device_id

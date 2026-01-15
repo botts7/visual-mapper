@@ -1076,9 +1076,9 @@
             }
         };
 
-        // Remove a known device from the saved list
+        // Remove a known device from the saved list (localStorage only - no backend call needed)
         window.removeKnownDevice = async (stableDeviceId) => {
-            console.log('[Devices] Removing device:', stableDeviceId);
+            console.log('[Devices] Removing device from saved list:', stableDeviceId);
 
             if (!confirm(`Remove this device from the known devices list?\n\nDevice: ${stableDeviceId}\n\nThis will not affect the device itself, just remove it from your saved list.`)) {
                 return;
@@ -1086,40 +1086,28 @@
 
             const status = document.getElementById('connectionStatus');
 
-            try {
-                // Try to unregister from backend API
-                await apiClient.delete(`/devices/${encodeURIComponent(stableDeviceId)}`);
-
-                if (status) {
-                    status.textContent = `✓ Device removed from list`;
-                    status.className = 'status success';
-                }
-
-                await loadDevices();
-            } catch (error) {
-                console.warn('[Devices] Backend unregister failed, removing from localStorage only:', error.message);
-
-                // Fallback: remove from localStorage saved devices
-                const devices = getSavedDevices();
-                const filtered = devices.filter(d => d.deviceId !== stableDeviceId && d.stableId !== stableDeviceId);
-                if (filtered.length !== devices.length) {
-                    saveDevicesToStorage(filtered);
-                }
-
-                // Also remove auto-reconnect setting
-                const settings = getDeviceAutoReconnectSettings();
-                if (settings[stableDeviceId]) {
-                    delete settings[stableDeviceId];
-                    localStorage.setItem(DEVICE_AUTO_RECONNECT_KEY, JSON.stringify(settings));
-                }
-
-                if (status) {
-                    status.textContent = `✓ Device removed from saved list`;
-                    status.className = 'status success';
-                }
-
-                await loadDevices();
+            // Remove from localStorage saved devices
+            const devices = getSavedDevices();
+            const filtered = devices.filter(d => d.deviceId !== stableDeviceId && d.stableId !== stableDeviceId);
+            if (filtered.length !== devices.length) {
+                saveDevicesToStorage(filtered);
+                console.log('[Devices] Removed device from saved list');
             }
+
+            // Also remove auto-reconnect setting
+            const settings = getDeviceAutoReconnectSettings();
+            if (settings[stableDeviceId]) {
+                delete settings[stableDeviceId];
+                localStorage.setItem(DEVICE_AUTO_RECONNECT_KEY, JSON.stringify(settings));
+                console.log('[Devices] Removed auto-reconnect setting');
+            }
+
+            if (status) {
+                status.textContent = `✓ Device removed from saved list`;
+                status.className = 'status success';
+            }
+
+            await loadDevices();
         };
 
         // Load devices using DeviceManager
