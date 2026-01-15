@@ -198,3 +198,45 @@ async def get_device_identity(device_id: str):
     except Exception as e:
         logger.error(f"[API] Failed to get device identity: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/devices/{device_id}")
+async def forget_device(device_id: str):
+    """Forget a device - remove from known devices list permanently.
+
+    This removes the device from the persistent identity mapping.
+    The device will need to be re-paired/connected to appear again.
+
+    Args:
+        device_id: Either connection_id (IP:port) or stable_device_id
+    """
+    deps = get_deps()
+    try:
+        resolver = get_device_identity_resolver(deps.data_dir)
+
+        # First disconnect if connected
+        stable_id = resolver.resolve_any_id(device_id)
+        conn_id = resolver.get_connection_id(stable_id)
+        if conn_id and deps.adb_bridge and conn_id in deps.adb_bridge.devices:
+            logger.info(f"[API] Disconnecting {conn_id} before forgetting")
+            await deps.adb_bridge.disconnect_device(conn_id)
+
+        # Now forget the device from persistent storage
+        success = resolver.forget_device(device_id)
+
+        if success:
+            logger.info(f"[API] Forgot device {device_id}")
+            return {
+                "forgotten": True,
+                "device_id": device_id,
+                "message": f"Device {device_id} has been forgotten",
+            }
+        else:
+            logger.warning(f"[API] Device {device_id} not found in registry")
+            raise HTTPException(status_code=404, detail=f"Device {device_id} not found")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to forget device: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -1076,15 +1076,35 @@
             }
         };
 
-        // Remove a known device from the saved list (localStorage only - no backend call needed)
+        // Remove a known device - calls backend to forget device permanently
         window.removeKnownDevice = async (stableDeviceId) => {
-            console.log('[Devices] Removing device from saved list:', stableDeviceId);
+            console.log('[Devices] Removing device:', stableDeviceId);
 
-            if (!confirm(`Remove this device from the known devices list?\n\nDevice: ${stableDeviceId}\n\nThis will not affect the device itself, just remove it from your saved list.`)) {
+            if (!confirm(`Remove this device permanently?\n\nDevice: ${stableDeviceId}\n\nThis will disconnect the device and remove it from the known devices list. You will need to re-pair to connect again.`)) {
                 return;
             }
 
             const status = document.getElementById('connectionStatus');
+            if (status) {
+                status.textContent = `Removing device...`;
+                status.className = 'status';
+            }
+
+            // Call backend to forget device (this also disconnects if connected)
+            try {
+                const response = await fetch(`${API_BASE}/adb/devices/${encodeURIComponent(stableDeviceId)}`, {
+                    method: 'DELETE'
+                });
+                if (response.ok) {
+                    console.log('[Devices] Backend forgot device successfully');
+                } else if (response.status === 404) {
+                    console.log('[Devices] Device not in backend registry, removing locally');
+                } else {
+                    console.warn('[Devices] Backend forget failed:', response.status);
+                }
+            } catch (e) {
+                console.warn('[Devices] Backend forget error (continuing with local removal):', e.message);
+            }
 
             // Remove from localStorage saved devices
             const devices = getSavedDevices();
@@ -1103,7 +1123,7 @@
             }
 
             if (status) {
-                status.textContent = `✓ Device removed from saved list`;
+                status.textContent = `✓ Device removed`;
                 status.className = 'status success';
             }
 

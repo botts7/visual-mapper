@@ -254,6 +254,49 @@ class DeviceIdentityResolver:
                 )
             return devices
 
+    def forget_device(self, device_id: str) -> bool:
+        """
+        Remove a device from persistent storage (forget it completely).
+
+        Args:
+            device_id: Either stable_device_id or connection_id (IP:port)
+
+        Returns:
+            True if device was found and removed, False otherwise
+        """
+        with self._lock:
+            # Try to resolve to stable_id first
+            stable_id = None
+
+            # Check if it's already a stable_id
+            if device_id in self._device_info:
+                stable_id = device_id
+            # Check if it's a connection_id
+            elif device_id in self._conn_to_stable:
+                stable_id = self._conn_to_stable[device_id]
+
+            if not stable_id:
+                logger.warning(f"[DeviceIdentity] Device {device_id} not found in registry")
+                return False
+
+            # Remove from all mappings
+            conn_id = self._stable_to_conn.get(stable_id)
+            if conn_id and conn_id in self._conn_to_stable:
+                del self._conn_to_stable[conn_id]
+            if stable_id in self._stable_to_conn:
+                del self._stable_to_conn[stable_id]
+            if stable_id in self._device_info:
+                del self._device_info[stable_id]
+
+            # Also check legacy mappings
+            legacy_to_remove = [k for k, v in self._legacy_to_stable.items() if v == stable_id]
+            for legacy_id in legacy_to_remove:
+                del self._legacy_to_stable[legacy_id]
+
+            self._save_mapping()
+            logger.info(f"[DeviceIdentity] Forgot device {stable_id} (was {device_id})")
+            return True
+
     def sanitize_for_filename(self, device_id: str) -> str:
         """
         Sanitize a device ID for use in filenames.

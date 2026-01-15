@@ -876,19 +876,41 @@ class ADBBridge:
 
     async def disconnect_device(self, device_id: str) -> None:
         """
-        Disconnect from device.
+        Disconnect from device and remove from ADB daemon.
 
         Args:
             device_id: Device identifier
         """
         if device_id not in self.devices:
-            logger.warning(f"[ADBBridge] Device {device_id} not found")
+            logger.warning(f"[ADBBridge] Device {device_id} not found in active connections")
+            # Still try to disconnect from ADB daemon in case it's a stale connection
+            try:
+                result = subprocess.run(
+                    ["adb", "disconnect", device_id],
+                    capture_output=True,
+                    timeout=5
+                )
+                logger.info(f"[ADBBridge] ADB daemon disconnect: {result.stdout.decode().strip()}")
+            except Exception as e:
+                logger.debug(f"[ADBBridge] ADB disconnect command failed: {e}")
             return
 
         try:
             conn = self.devices[device_id]
             await conn.close()
             del self.devices[device_id]
+
+            # Tell ADB daemon to forget this device so it won't be re-discovered
+            try:
+                result = subprocess.run(
+                    ["adb", "disconnect", device_id],
+                    capture_output=True,
+                    timeout=5
+                )
+                logger.info(f"[ADBBridge] ADB daemon disconnect: {result.stdout.decode().strip()}")
+            except Exception as e:
+                logger.warning(f"[ADBBridge] ADB disconnect command failed: {e}")
+
             logger.info(f"[ADBBridge] Disconnected from {device_id}")
         except Exception as e:
             logger.error(f"[ADBBridge] Error disconnecting {device_id}: {e}")
