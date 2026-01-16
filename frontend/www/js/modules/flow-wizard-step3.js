@@ -62,23 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.12';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3.12';
-import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3.12';
-import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3.12';
-import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3.12';
-import LiveStream from './live-stream.js?v=0.4.0-beta.3.12';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3.12';
+import { showToast } from './toast.js?v=0.4.0-beta.3.13';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3.13';
+import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3.13';
+import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3.13';
+import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3.13';
+import LiveStream from './live-stream.js?v=0.4.0-beta.3.13';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3.13';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.4.0-beta.3.12';
+} from './device-unlock.js?v=0.4.0-beta.3.13';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.3.12';
+import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.3.13';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -2611,6 +2611,9 @@ export function handleCanvasHover(wizard, e, hoverTooltip, container) {
     }
 
     // Prioritize: elements with text first, then clickable, then smallest area
+    // IMPORTANT: elementsAtPoint is built in reverse order, so elements that were
+    // later in the original array (visually on top in Android) are FIRST in this array.
+    // We prefer elements visually on top (like popup elements over background elements).
     let foundElement = null;
     if (elementsAtPoint.length > 0) {
         // Prefer elements with text
@@ -2618,11 +2621,24 @@ export function handleCanvasHover(wizard, e, hoverTooltip, container) {
         const clickable = elementsAtPoint.filter(el => el.clickable);
         const candidates = withText.length > 0 ? withText : (clickable.length > 0 ? clickable : elementsAtPoint);
 
-        foundElement = candidates.reduce((smallest, el) => {
-            const area = el.bounds.width * el.bounds.height;
-            const smallestArea = smallest.bounds.width * smallest.bounds.height;
-            return area < smallestArea ? el : smallest;
-        });
+        // Among candidates, prefer:
+        // 1. First in candidates array (later in original = visually on top)
+        // 2. If similar z-order, prefer smaller elements (more specific targets)
+        // Threshold: if top element is not massively bigger, prefer it for z-order
+        const topElement = candidates[0]; // First candidate = visually on top
+        const topArea = topElement.bounds.width * topElement.bounds.height;
+
+        foundElement = candidates.reduce((best, el, idx) => {
+            const elArea = el.bounds.width * el.bounds.height;
+            const bestArea = best.bounds.width * best.bounds.height;
+
+            // If current element is much smaller (< 30% of best), prefer it
+            // But only if it's not too far down in the z-order (first 3 elements)
+            if (idx < 3 && elArea < bestArea * 0.3) {
+                return el;
+            }
+            return best;
+        }, topElement);
     }
 
     // Check if element changed (compare by bounds, not object reference)
@@ -3316,7 +3332,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.12');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.13');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3350,7 +3366,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.12');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.13');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -5200,7 +5216,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.12');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.13');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5208,7 +5224,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.12');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.13');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5216,7 +5232,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.12');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.13');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5224,7 +5240,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.12');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.13');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
