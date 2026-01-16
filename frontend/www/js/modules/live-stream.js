@@ -851,7 +851,7 @@ class LiveStream {
 
     /**
      * Filter elements to only include those in the top layer (not occluded)
-     * Uses heuristics: elements that significantly overlap with later elements are likely occluded
+     * An element is considered occluded if a LATER element (higher z-order) significantly overlaps it
      * @param {Array} elements - All elements
      * @returns {Array} Elements that appear to be in the top layer
      */
@@ -859,54 +859,50 @@ class LiveStream {
         const filtered = this._getFilteredElements(elements);
         if (filtered.length === 0) return filtered;
 
-        // Find potential popup/dialog by looking for large elements near the end
-        // that might be covering earlier elements
-        const topLayerCandidates = [];
-        let potentialPopup = null;
-
-        // Look for popup-like elements (large elements in the later part of the array)
-        for (let i = filtered.length - 1; i >= 0; i--) {
+        // Find all potential overlay elements (elements that might be covering others)
+        // Look for elements in the later part of the array that are reasonably sized
+        const overlayElements = [];
+        for (let i = Math.floor(filtered.length * 0.3); i < filtered.length; i++) {
             const el = filtered[i];
             const area = el.bounds.width * el.bounds.height;
-            const screenArea = this.deviceWidth * this.deviceHeight;
-
-            // If element covers more than 10% of screen and is in top half of z-order
-            if (area > screenArea * 0.1 && i > filtered.length / 2) {
-                potentialPopup = el;
-                break;
+            // Elements larger than 5000 pixels could be overlays (cards, dialogs, etc.)
+            if (area > 5000) {
+                overlayElements.push({ element: el, index: i });
             }
         }
 
-        // If we found a popup, only include elements that are:
-        // 1. Inside the popup bounds, OR
-        // 2. Come after the popup in the array (on top of popup)
-        if (potentialPopup) {
-            const popupIdx = filtered.indexOf(potentialPopup);
-            for (let i = 0; i < filtered.length; i++) {
-                const el = filtered[i];
+        // For each element, check if it's significantly covered by a later element
+        const visibleElements = [];
+        for (let i = 0; i < filtered.length; i++) {
+            const el = filtered[i];
+            let isOccluded = false;
 
-                // Elements after popup are always included
-                if (i > popupIdx) {
-                    topLayerCandidates.push(el);
-                    continue;
-                }
+            // Check against each potential overlay that comes AFTER this element
+            for (const overlay of overlayElements) {
+                if (overlay.index <= i) continue; // Only check elements that come later (on top)
 
-                // Check if element is inside popup bounds
-                const isInsidePopup =
-                    el.bounds.x >= potentialPopup.bounds.x &&
-                    el.bounds.y >= potentialPopup.bounds.y &&
-                    el.bounds.x + el.bounds.width <= potentialPopup.bounds.x + potentialPopup.bounds.width &&
-                    el.bounds.y + el.bounds.height <= potentialPopup.bounds.y + potentialPopup.bounds.height;
+                const overlayEl = overlay.element;
 
-                if (isInsidePopup) {
-                    topLayerCandidates.push(el);
+                // Calculate overlap between this element and the overlay
+                const overlapX = Math.max(0, Math.min(el.bounds.x + el.bounds.width, overlayEl.bounds.x + overlayEl.bounds.width) - Math.max(el.bounds.x, overlayEl.bounds.x));
+                const overlapY = Math.max(0, Math.min(el.bounds.y + el.bounds.height, overlayEl.bounds.y + overlayEl.bounds.height) - Math.max(el.bounds.y, overlayEl.bounds.y));
+                const overlapArea = overlapX * overlapY;
+
+                const elArea = el.bounds.width * el.bounds.height;
+
+                // If more than 50% of this element is covered by the overlay, consider it occluded
+                if (elArea > 0 && overlapArea / elArea > 0.5) {
+                    isOccluded = true;
+                    break;
                 }
             }
-            return topLayerCandidates;
+
+            if (!isOccluded) {
+                visibleElements.push(el);
+            }
         }
 
-        // No popup detected - return all filtered elements
-        return filtered;
+        return visibleElements;
     }
 
     /**
