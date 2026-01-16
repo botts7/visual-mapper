@@ -62,23 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.13';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3.13';
-import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3.13';
-import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3.13';
-import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3.13';
-import LiveStream from './live-stream.js?v=0.4.0-beta.3.13';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3.13';
+import { showToast } from './toast.js?v=0.4.0-beta.3.14';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3.14';
+import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3.14';
+import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3.14';
+import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3.14';
+import LiveStream from './live-stream.js?v=0.4.0-beta.3.14';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3.14';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.4.0-beta.3.13';
+} from './device-unlock.js?v=0.4.0-beta.3.14';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.3.13';
+import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.3.14';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -1422,6 +1422,47 @@ export function toggleRightPanel(wizard) {
  * Setup overlay filter controls
  */
 export function setupOverlayFilters(wizard) {
+    // Helper to save overlay filters to localStorage
+    const saveOverlayFilters = () => {
+        localStorage.setItem('visualMapper.overlayFilters', JSON.stringify(wizard.overlayFilters));
+    };
+
+    // Helper to apply overlay settings to LiveStream
+    const applyOverlaySettings = () => {
+        if (wizard.liveStream) {
+            wizard.liveStream.setDisplayMode(wizard.overlayFilters.displayMode);
+            wizard.liveStream.setOverlaysVisible(
+                wizard.overlayFilters.showClickable || wizard.overlayFilters.showNonClickable
+            );
+            wizard.liveStream.setShowClickable(wizard.overlayFilters.showClickable);
+            wizard.liveStream.setShowNonClickable(wizard.overlayFilters.showNonClickable);
+            wizard.liveStream.setTextLabelsVisible(wizard.overlayFilters.showTextLabels);
+            wizard.liveStream.setHideContainers(wizard.overlayFilters.hideContainers);
+            wizard.liveStream.setHideEmptyElements(wizard.overlayFilters.hideEmptyElements);
+            wizard.liveStream.setHideSmall(wizard.overlayFilters.hideSmall);
+            wizard.liveStream.setHideDividers(wizard.overlayFilters.hideDividers);
+        }
+    };
+
+    // Setup display mode dropdown
+    const displayModeSelect = document.getElementById('overlayDisplayMode');
+    if (displayModeSelect) {
+        displayModeSelect.value = wizard.overlayFilters.displayMode || 'all';
+        displayModeSelect.addEventListener('change', () => {
+            wizard.overlayFilters.displayMode = displayModeSelect.value;
+            saveOverlayFilters();
+            console.log(`[FlowWizard] Display mode = ${displayModeSelect.value}`);
+            if (wizard.captureMode === 'streaming') {
+                applyOverlaySettings();
+            } else if (wizard.canvasRenderer) {
+                wizard.canvasRenderer.setOverlayFilters(wizard.overlayFilters);
+                if (wizard.recorder?.currentScreenshot) {
+                    wizard.updateScreenshotDisplay();
+                }
+            }
+        });
+    }
+
     const filterIds = {
         showClickable: 'filterClickable',
         showNonClickable: 'filterNonClickable',
@@ -1441,6 +1482,7 @@ export function setupOverlayFilters(wizard) {
 
         checkbox.addEventListener('change', () => {
             wizard.overlayFilters[filterName] = checkbox.checked;
+            saveOverlayFilters(); // Persist to localStorage
             // Update canvas renderer filters
             if (wizard.canvasRenderer) {
                 wizard.canvasRenderer.setOverlayFilters(wizard.overlayFilters);
@@ -1449,26 +1491,14 @@ export function setupOverlayFilters(wizard) {
 
             // Only refresh display in polling mode WITH valid screenshot data
             if (wizard.captureMode === 'streaming') {
-                // Streaming mode: update all LiveStream overlay settings
-                if (wizard.liveStream) {
-                    wizard.liveStream.setOverlaysVisible(
-                        wizard.overlayFilters.showClickable || wizard.overlayFilters.showNonClickable
-                    );
-                    wizard.liveStream.setShowClickable(wizard.overlayFilters.showClickable);
-                    wizard.liveStream.setShowNonClickable(wizard.overlayFilters.showNonClickable);
-                    wizard.liveStream.setTextLabelsVisible(wizard.overlayFilters.showTextLabels);
-                    wizard.liveStream.setHideContainers(wizard.overlayFilters.hideContainers);
-                    wizard.liveStream.setHideEmptyElements(wizard.overlayFilters.hideEmptyElements);
-                    wizard.liveStream.setHideSmall(wizard.overlayFilters.hideSmall);
-                    wizard.liveStream.setHideDividers(wizard.overlayFilters.hideDividers);
-                }
+                applyOverlaySettings();
             } else if (wizard.recorder?.currentScreenshot) {
                 // Polling mode: only redraw if we have valid screenshot data
                 wizard.updateScreenshotDisplay();
             }
         });
 
-        // Set initial state
+        // Set initial state from saved preferences
         checkbox.checked = wizard.overlayFilters[filterName];
     });
 
@@ -1991,7 +2021,8 @@ export async function startStreaming(wizard) {
         }
     };
 
-    // Apply current overlay settings
+    // Apply current overlay settings (including display mode from persistent user preferences)
+    wizard.liveStream.setDisplayMode(wizard.overlayFilters.displayMode || 'all');
     wizard.liveStream.setOverlaysVisible(wizard.overlayFilters.showClickable || wizard.overlayFilters.showNonClickable);
     wizard.liveStream.setShowClickable(wizard.overlayFilters.showClickable);
     wizard.liveStream.setShowNonClickable(wizard.overlayFilters.showNonClickable);
@@ -2650,11 +2681,19 @@ export function handleCanvasHover(wizard, e, hoverTooltip, container) {
     if (foundElement && !isSameElement) {
         // New element - rebuild tooltip content
         wizard.hoveredElement = foundElement;
+        // Update LiveStream's hovered element for hoverOnly display mode
+        if (wizard.liveStream) {
+            wizard.liveStream.setHoveredElement(foundElement);
+        }
         showHoverTooltip(wizard, e, foundElement, hoverTooltip, container);
         highlightHoveredElement(wizard, foundElement);
     } else if (!foundElement && wizard.hoveredElement) {
         // No longer hovering any element
         wizard.hoveredElement = null;
+        // Clear LiveStream's hovered element
+        if (wizard.liveStream) {
+            wizard.liveStream.setHoveredElement(null);
+        }
         hideHoverTooltip(wizard, hoverTooltip);
         clearHoverHighlight(wizard);
     }
@@ -3332,7 +3371,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.13');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.14');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3366,7 +3405,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.13');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.14');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -5216,7 +5255,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.13');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.14');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5224,7 +5263,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.13');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.14');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5232,7 +5271,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.13');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.14');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5240,7 +5279,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.13');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.14');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });

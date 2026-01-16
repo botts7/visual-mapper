@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.4.0-beta.3.13" data-build="dynamic">
+    <meta name="version" content="0.4.0-beta.3.14" data-build="dynamic">
     <title>Flow Wizard - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -12,9 +12,9 @@
     <script>
         const cacheKey = sessionStorage.getItem('vmCacheKey') || Date.now();
         sessionStorage.setItem('vmCacheKey', cacheKey);
-        document.write('<link rel="stylesheet" href="css/styles.css?v=0.4.0-beta.3.13">');
-        document.write('<link rel="stylesheet" href="css/flow-wizard.css?v=0.4.0-beta.3.13">');
-        document.write('<link rel="stylesheet" href="css/smart-suggestions.css?v=0.4.0-beta.3.13">');
+        document.write('<link rel="stylesheet" href="css/styles.css?v=0.4.0-beta.3.14">');
+        document.write('<link rel="stylesheet" href="css/flow-wizard.css?v=0.4.0-beta.3.14">');
+        document.write('<link rel="stylesheet" href="css/smart-suggestions.css?v=0.4.0-beta.3.14">');
     </script>
     <noscript>
         <link rel="stylesheet" href="css/styles.css">
@@ -254,6 +254,14 @@
 
                     <!-- Overlay Settings (collapsible) -->
                     <div id="overlaySettings" class="overlay-settings" style="display: none;">
+                        <label title="How to display element overlays">
+                            Display: <select id="overlayDisplayMode" style="padding: 2px 4px; font-size: 12px;">
+                                <option value="all">All Elements</option>
+                                <option value="hoverOnly">Hover Only</option>
+                                <option value="topLayer">Top Layer</option>
+                            </select>
+                        </label>
+                        <span class="settings-divider">|</span>
                         <label><input type="checkbox" id="filterClickable" checked> Clickable</label>
                         <label><input type="checkbox" id="filterNonClickable"> Non-Clickable</label>
                         <label><input type="checkbox" id="filterTextLabels" checked> Labels</label>
@@ -508,6 +516,6 @@
     </div>
 
     <!-- Note: ThemeToggle and MobileNav now handled by js/components/navbar.js -->
-    <script type="module" src="js/modules/flow-wizard.js?v=0.4.0-beta.3.13"></script>
+    <script type="module" src="js/modules/flow-wizard.js?v=0.4.0-beta.3.14"></script>
 </body>
 </html>

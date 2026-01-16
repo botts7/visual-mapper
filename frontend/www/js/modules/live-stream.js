@@ -91,6 +91,8 @@ class LiveStream {
         this.hideDividers = true;        // Hide horizontal line dividers
         this.showClickable = true;       // Show clickable elements
         this.showNonClickable = false;   // Show non-clickable elements
+        this.displayMode = 'all';        // 'all', 'hoverOnly', 'topLayer'
+        this.hoveredElement = null;      // Currently hovered element (for hoverOnly mode)
 
         // Element staleness tracking - hide elements when screen content has changed significantly
         this.elementsTimestamp = 0;      // When elements were last fetched
@@ -822,13 +824,89 @@ class LiveStream {
         // Draw screenshot
         this.ctx.drawImage(img, 0, 0);
 
-        // Draw overlays if enabled and we have elements
-        // Note: Stale element detection via frame hashing was too unreliable due to
-        // video compression noise. Instead, we clear elements explicitly on tap/action
-        // and let refreshElements update them. This is simpler and more reliable.
+        // Draw overlays based on display mode
         if (this.showOverlays && elements.length > 0) {
-            this._drawElements(elements);
+            switch (this.displayMode) {
+                case 'hoverOnly':
+                    // Only draw the currently hovered element
+                    if (this.hoveredElement) {
+                        this._drawElements([this.hoveredElement]);
+                    }
+                    break;
+
+                case 'topLayer':
+                    // Only draw elements that are not occluded by other elements
+                    const topLayerElements = this._filterTopLayerElements(elements);
+                    this._drawElements(topLayerElements);
+                    break;
+
+                case 'all':
+                default:
+                    // Draw all elements (original behavior)
+                    this._drawElements(elements);
+                    break;
+            }
         }
+    }
+
+    /**
+     * Filter elements to only include those in the top layer (not occluded)
+     * Uses heuristics: elements that significantly overlap with later elements are likely occluded
+     * @param {Array} elements - All elements
+     * @returns {Array} Elements that appear to be in the top layer
+     */
+    _filterTopLayerElements(elements) {
+        const filtered = this._getFilteredElements(elements);
+        if (filtered.length === 0) return filtered;
+
+        // Find potential popup/dialog by looking for large elements near the end
+        // that might be covering earlier elements
+        const topLayerCandidates = [];
+        let potentialPopup = null;
+
+        // Look for popup-like elements (large elements in the later part of the array)
+        for (let i = filtered.length - 1; i >= 0; i--) {
+            const el = filtered[i];
+            const area = el.bounds.width * el.bounds.height;
+            const screenArea = this.deviceWidth * this.deviceHeight;
+
+            // If element covers more than 10% of screen and is in top half of z-order
+            if (area > screenArea * 0.1 && i > filtered.length / 2) {
+                potentialPopup = el;
+                break;
+            }
+        }
+
+        // If we found a popup, only include elements that are:
+        // 1. Inside the popup bounds, OR
+        // 2. Come after the popup in the array (on top of popup)
+        if (potentialPopup) {
+            const popupIdx = filtered.indexOf(potentialPopup);
+            for (let i = 0; i < filtered.length; i++) {
+                const el = filtered[i];
+
+                // Elements after popup are always included
+                if (i > popupIdx) {
+                    topLayerCandidates.push(el);
+                    continue;
+                }
+
+                // Check if element is inside popup bounds
+                const isInsidePopup =
+                    el.bounds.x >= potentialPopup.bounds.x &&
+                    el.bounds.y >= potentialPopup.bounds.y &&
+                    el.bounds.x + el.bounds.width <= potentialPopup.bounds.x + potentialPopup.bounds.width &&
+                    el.bounds.y + el.bounds.height <= potentialPopup.bounds.y + potentialPopup.bounds.height;
+
+                if (isInsidePopup) {
+                    topLayerCandidates.push(el);
+                }
+            }
+            return topLayerCandidates;
+        }
+
+        // No popup detected - return all filtered elements
+        return filtered;
     }
 
     /**
@@ -973,6 +1051,23 @@ class LiveStream {
      */
     setShowNonClickable(show) {
         this.showNonClickable = show;
+    }
+
+    /**
+     * Set overlay display mode
+     * @param {string} mode - 'all', 'hoverOnly', or 'topLayer'
+     */
+    setDisplayMode(mode) {
+        this.displayMode = mode;
+        console.log(`[LiveStream] Display mode set to: ${mode}`);
+    }
+
+    /**
+     * Set currently hovered element (for hoverOnly display mode)
+     * @param {Object|null} element - The element being hovered, or null
+     */
+    setHoveredElement(element) {
+        this.hoveredElement = element;
     }
 
     /**
