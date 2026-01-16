@@ -2214,6 +2214,7 @@ class MLTrainingServer:
         password: str = "",
         use_dqn: bool = False,
         use_coral: bool = False,
+        data_dir: str = None,
     ):
         self.broker = broker
         self.port = port
@@ -2244,7 +2245,8 @@ class MLTrainingServer:
             logger.info("Using enhanced Q-table trainer")
 
         # Q-table file path (uses DATA_DIR for HA Add-on compatibility)
-        self.data_dir = DATA_DIR
+        self.data_dir = Path(data_dir) if data_dir else DATA_DIR
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         self.q_table_path = self.data_dir / "exploration_q_table.json"
 
         # Load existing Q-table if available
