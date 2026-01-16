@@ -10,7 +10,7 @@
  * v0.0.6: Added headless mode options (auto_wake_before, auto_sleep_after, verify_screen_on)
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.2';
+import { showToast } from './toast.js?v=0.4.0-beta.3.3';
 
 function getApiBase() {
     return window.API_BASE || '/api';
