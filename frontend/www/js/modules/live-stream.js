@@ -825,13 +825,20 @@ class LiveStream {
         this.ctx.drawImage(img, 0, 0);
 
         // Draw overlays based on display mode
+        // DEBUG: Log display mode periodically (every 100 frames)
+        this._frameCount = (this._frameCount || 0) + 1;
+        if (this._frameCount % 100 === 0) {
+            console.log(`[LiveStream] Frame ${this._frameCount}: displayMode=${this.displayMode}, elements=${elements.length}, showOverlays=${this.showOverlays}`);
+        }
+
         if (this.showOverlays && elements.length > 0) {
             switch (this.displayMode) {
                 case 'hoverOnly':
-                    // Only draw the currently hovered element
-                    if (this.hoveredElement) {
-                        this._drawElements([this.hoveredElement]);
+                    // Only draw the currently hovered element - draw directly without filtering
+                    if (this.hoveredElement && this.hoveredElement.bounds) {
+                        this._drawSingleElement(this.hoveredElement);
                     }
+                    // If not hovering anything, draw nothing (clean view)
                     break;
 
                 case 'topLayer':
@@ -846,6 +853,34 @@ class LiveStream {
                     this._drawElements(elements);
                     break;
             }
+        }
+    }
+
+    /**
+     * Draw a single element overlay (bypasses filtering for hover-only mode)
+     * @param {Object} el - Element to draw
+     */
+    _drawSingleElement(el) {
+        if (!el.bounds) return;
+
+        // Calculate scale factor
+        const scaleX = this.canvas.width / this.deviceWidth;
+        const scaleY = this.canvas.height / this.deviceHeight;
+
+        // Scale coordinates from device to canvas resolution
+        const x = Math.floor(el.bounds.x * scaleX);
+        const y = Math.floor(el.bounds.y * scaleY);
+        const width = Math.floor(el.bounds.width * scaleX);
+        const height = Math.floor(el.bounds.height * scaleY);
+
+        // Draw bounding box
+        this.ctx.strokeStyle = el.clickable ? '#00ff00' : '#ffff00';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(x, y, width, height);
+
+        // Draw text label
+        if (this.showTextLabels && el.text && el.text.trim()) {
+            this._drawTextLabel(el.text, x, y, width);
         }
     }
 
@@ -1054,6 +1089,11 @@ class LiveStream {
      * @param {string} mode - 'all', 'hoverOnly', or 'topLayer'
      */
     setDisplayMode(mode) {
+        const validModes = ['all', 'hoverOnly', 'topLayer'];
+        if (!validModes.includes(mode)) {
+            console.warn(`[LiveStream] Invalid display mode: ${mode}, defaulting to 'all'`);
+            mode = 'all';
+        }
         this.displayMode = mode;
         console.log(`[LiveStream] Display mode set to: ${mode}`);
     }
