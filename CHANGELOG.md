@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0-beta.3.1
+
+### Bug Fixes
+- Fix: Duplicate flows showing in table (deduplicate by flow_id)
+- Fix: Flow file consolidation when device port changes
+- Fix: ML Training Server UI now shows mode (Local/Remote/Disabled)
+- Fix: Default port changed to 8085 to avoid conflicts
+- Fix: Data now stored in /data (properly deleted on addon uninstall)
+
+### New Features
+- Add POST /api/cleanup-duplicates endpoint for manual duplicate cleanup
+- ML Training mode badge in Services page (color-coded)
+- Contextual action buttons based on ML training mode
+
+### Improvements
+- Device migrator now consolidates flow files automatically
+- Better device ID migration handling across port changes
+
 ## 0.3.0
 
 ### Dynamic Cache Busting & Dark Mode
