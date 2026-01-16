@@ -62,27 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.18';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3.18';
-import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3.18';
-import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3.18';
-import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3.18';
-import LiveStream from './live-stream.js?v=0.4.0-beta.3.18';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3.18';
+import { showToast } from './toast.js?v=0.4.0-beta.3.19';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3.19';
+import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3.19';
+import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3.19';
+import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3.19';
+import LiveStream from './live-stream.js?v=0.4.0-beta.3.19';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3.19';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.4.0-beta.3.18';
+} from './device-unlock.js?v=0.4.0-beta.3.19';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.3.18';
-
-// Throttle timestamp for HoverHighlight debug logs (reduces log spam)
-let _lastHoverHighlightLogTime = 0;
-const HOVER_LOG_THROTTLE_MS = 500;
+import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.3.19';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -2829,23 +2825,6 @@ export function highlightHoveredElement(wizard, element) {
     const cssScaleX = canvasRect.width / wizard.canvas.width;
     const cssScaleY = canvasRect.height / wizard.canvas.height;
 
-    // DEBUG: Log scaling info with throttling to reduce spam
-    const now = Date.now();
-    const shouldLog = now - _lastHoverHighlightLogTime > HOVER_LOG_THROTTLE_MS;
-    if (shouldLog) {
-        _lastHoverHighlightLogTime = now;
-        console.log('[HoverHighlight] Scaling:', {
-            mode: wizard.captureMode,
-            canvasBitmap: `${wizard.canvas.width}x${wizard.canvas.height}`,
-            canvasCSS: `${canvasRect.width.toFixed(0)}x${canvasRect.height.toFixed(0)}`,
-            cssScale: `${cssScaleX.toFixed(3)}x${cssScaleY.toFixed(3)}`,
-            offset: `${offsetX.toFixed(0)}x${offsetY.toFixed(0)}`,
-            scroll: `${container.scrollLeft}x${container.scrollTop}`,
-            canvasPos: `(${canvasRect.left.toFixed(0)},${canvasRect.top.toFixed(0)})`,
-            containerPos: `(${containerRect.left.toFixed(0)},${containerRect.top.toFixed(0)})`
-        });
-    }
-
     // In streaming mode, element bounds are in device coords, canvas may be at lower res
     // We need to scale: device coords → canvas coords → CSS display coords
     // IMPORTANT: Use separate X and Y scales to handle aspect ratio differences
@@ -2865,15 +2844,6 @@ export function highlightHoveredElement(wizard, element) {
     const y = b.y * totalScaleY + offsetY;
     const w = b.width * totalScaleX;
     const h = b.height * totalScaleY;
-
-    // DEBUG: Log element positioning (uses same throttle as scaling log above)
-    if (shouldLog) {
-        console.log('[HoverHighlight] Element:', {
-            bounds: `(${b.x},${b.y}) ${b.width}x${b.height}`,
-            scaled: `(${x.toFixed(0)},${y.toFixed(0)}) ${w.toFixed(0)}x${h.toFixed(0)}`,
-            text: element.text?.substring(0, 30) || element.class
-        });
-    }
 
     highlight.style.cssText = `
         position: absolute;
@@ -3382,7 +3352,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.18');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.19');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3416,7 +3386,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.18');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.19');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -5266,7 +5236,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.18');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.19');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5274,7 +5244,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.18');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.19');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5282,7 +5252,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.18');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.19');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5290,7 +5260,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.18');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.19');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
