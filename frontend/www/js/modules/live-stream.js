@@ -94,12 +94,14 @@ class LiveStream {
 
         // Element staleness tracking - hide elements when screen content has changed significantly
         this.elementsTimestamp = 0;      // When elements were last fetched
-        this.autoHideStaleElements = false; // DISABLED by default - too sensitive to compression artifacts
+        this.autoHideStaleElements = false; // DISABLED by default - but smartRefreshEnabled handles this
         this.smartRefreshEnabled = true;  // Smart refresh: detect screen changes and fire onScreenChange callback
         this._lastFrameHash = 0;         // Simple hash of last frame for change detection
         this._screenChanged = false;     // True if screen content changed since last element refresh
-        this._significantChangeThreshold = 3; // Require 3 consecutive different frames to trigger
+        this._differentFrameCount = 0;   // Count of consecutive different frames (filters compression noise)
+        this._stableFrameCount = 0;      // Count of consecutive same frames (confirms stabilization)
         this._lastScreenChangeCallback = 0;  // Rate limiting for screen change callback
+        this._elementsStale = false;     // True when elements should be hidden (screen changed)
 
         // OPTIMIZATION: Cache filtered elements to avoid re-filtering every frame
         this._filteredElements = [];
@@ -1068,24 +1070,26 @@ class LiveStream {
 
             // Compare with previous frame
             if (this._lastFrameHash !== 0 && newHash !== this._lastFrameHash) {
-                // Screen changed - track that we're in a "changing" state
-                if (!this._screenChanged) {
-                    console.log('[LiveStream] Smart: screen change detected, marking elements stale');
-                    // Mark elements as stale - _renderFrame will skip drawing them
-                    // Don't clear immediately to avoid flicker - let refresh replace atomically
+                // Frame is different - could be real change or compression noise
+                this._differentFrameCount = (this._differentFrameCount || 0) + 1;
+                this._stableFrameCount = 0;
+
+                // Only mark as "screen changing" after multiple consecutive different frames
+                // This filters out compression noise (single-frame differences)
+                // CHANGED: Require 2 consecutive different frames before marking elements stale
+                if (this._differentFrameCount >= 2 && !this._screenChanged) {
+                    console.log('[LiveStream] Smart: significant change detected, marking elements stale');
+                    this._screenChanged = true;
                     this._elementsStale = true;
                     this._elementsStaleTime = Date.now();
-                    // Note: We intentionally do NOT clear this.elements here
-                    // The autoHideStaleElements check in _renderFrame handles not drawing stale overlays
-                    // onElementsCleared callback removed - was causing double-clear flicker
                 }
-                this._screenChanged = true;
-                this._stableFrameCount = 0;
             } else {
+                // Frame is same as previous
+                this._differentFrameCount = 0;
                 this._stableFrameCount++;
 
                 // Screen stabilized after a change - fire callback
-                // Wait for 3 consecutive stable frames to avoid false positives from compression
+                // Wait for 3 consecutive stable frames to confirm stabilization
                 if (this._screenChanged && this._stableFrameCount >= 3) {
                     this._screenChanged = false;
 
