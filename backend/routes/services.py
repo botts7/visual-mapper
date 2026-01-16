@@ -52,6 +52,7 @@ class ServiceStatus(BaseModel):
     docker_mode: Optional[bool] = (
         None  # True if running as Docker container (Start/Stop disabled)
     )
+    mode: Optional[str] = None  # For ML: disabled, local, or remote
 
 
 class AllServicesStatus(BaseModel):
@@ -100,9 +101,30 @@ def check_mqtt_status() -> ServiceStatus:
         return ServiceStatus(name="MQTT Broker", running=False, details=str(e))
 
 
+def _get_ml_training_mode() -> str:
+    """Get the configured ML training mode from env/settings"""
+    # Check environment variable first
+    mode = os.environ.get("ML_TRAINING_MODE", "").lower()
+    if mode in ("local", "remote", "disabled"):
+        return mode
+
+    # Check saved settings for auto-start preference
+    try:
+        settings = load_settings()
+        if settings.get("ml_server_auto_start", False):
+            return "local"
+    except Exception:
+        pass
+
+    return "disabled"
+
+
 def check_ml_training_status() -> ServiceStatus:
     """Check ML training server status"""
     global ml_training_process
+
+    # Get configured mode
+    mode = _get_ml_training_mode()
 
     # Check subprocess first (standalone mode)
     if ml_training_process is not None:
@@ -113,7 +135,8 @@ def check_ml_training_status() -> ServiceStatus:
                 name="ML Training Server",
                 running=True,
                 pid=ml_training_process.pid,
-                details="Running via subprocess",
+                details="Running locally",
+                mode="local",
             )
         else:
             # Process exited
@@ -132,6 +155,7 @@ def check_ml_training_status() -> ServiceStatus:
                 pid=None,
                 details="Running via Docker container",
                 docker_mode=True,  # Start/Stop disabled in Docker mode
+                mode="local",
             )
         else:
             return ServiceStatus(
@@ -139,10 +163,32 @@ def check_ml_training_status() -> ServiceStatus:
                 running=False,
                 details="Docker container mode but MQTT disconnected",
                 docker_mode=True,  # Start/Stop disabled in Docker mode
+                mode="local",
+            )
+
+    # Check for remote mode
+    if mode == "remote":
+        remote_host = os.environ.get("ML_REMOTE_HOST", "")
+        if remote_host:
+            return ServiceStatus(
+                name="ML Training Server",
+                running=True,  # Assume remote is running
+                details=f"Remote: {remote_host}",
+                mode="remote",
+            )
+        else:
+            return ServiceStatus(
+                name="ML Training Server",
+                running=False,
+                details="Remote mode but no host configured",
+                mode="remote",
             )
 
     return ServiceStatus(
-        name="ML Training Server", running=False, details="Not running"
+        name="ML Training Server",
+        running=False,
+        details="Not running",
+        mode=mode,  # disabled or local (but not started)
     )
 
 

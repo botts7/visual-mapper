@@ -312,6 +312,27 @@
             font-size: 0.85em;
             margin-top: 10px;
         }
+        .ml-mode-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.7em;
+            font-weight: normal;
+            vertical-align: middle;
+            margin-left: 8px;
+        }
+        .ml-mode-badge.local {
+            background: rgba(33, 150, 243, 0.2);
+            color: #2196F3;
+        }
+        .ml-mode-badge.remote {
+            background: rgba(156, 39, 176, 0.2);
+            color: #9C27B0;
+        }
+        .ml-mode-badge.disabled {
+            background: rgba(158, 158, 158, 0.2);
+            color: #9E9E9E;
+        }
     </style>
 </head>
 <body>
@@ -368,14 +389,14 @@
             <!-- ML Training Server -->
             <div class="service-card" id="ml-service">
                 <div class="service-info">
-                    <div class="service-name">ML Training Server</div>
+                    <div class="service-name">ML Training Server <span class="ml-mode-badge" id="ml-mode-badge"></span></div>
                     <div class="service-status checking" id="ml-status">
                         <span class="status-indicator checking"></span>
                         <span>Checking...</span>
                     </div>
                     <div class="service-details" id="ml-details">Q-Learning model training with NPU/GPU acceleration</div>
                 </div>
-                <div class="service-actions">
+                <div class="service-actions" id="ml-actions">
                     <button class="btn-start" id="ml-start" onclick="startMl()">Start</button>
                     <button class="btn-stop" id="ml-stop" onclick="stopMl()">Stop</button>
                     <button class="btn-restart" id="ml-restart" onclick="restartMl()">Restart</button>
@@ -515,11 +536,33 @@
                 detailsEl.textContent = status.details;
             }
 
-            // Update button states for ML service
+            // Update ML-specific UI
             if (serviceId === 'ml') {
-                document.getElementById('ml-start').disabled = status.running;
-                document.getElementById('ml-stop').disabled = !status.running;
-                document.getElementById('ml-restart').disabled = !status.running;
+                // Update mode badge
+                const modeBadge = document.getElementById('ml-mode-badge');
+                const mode = status.mode || 'disabled';
+                modeBadge.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+                modeBadge.className = `ml-mode-badge ${mode}`;
+
+                // Update buttons based on mode
+                const actionsEl = document.getElementById('ml-actions');
+                if (mode === 'disabled') {
+                    // Show hint to enable in config
+                    actionsEl.innerHTML = `<span style="color: var(--text-secondary); font-size: 0.9em;">Configure in Add-on settings</span>`;
+                } else if (mode === 'remote') {
+                    // Remote mode - no start/stop controls
+                    actionsEl.innerHTML = `<span style="color: var(--text-secondary); font-size: 0.9em;">Managed by remote server</span>`;
+                } else if (status.docker_mode) {
+                    // Docker mode - no start/stop controls
+                    actionsEl.innerHTML = `<span style="color: var(--text-secondary); font-size: 0.9em;">Managed by Docker</span>`;
+                } else {
+                    // Local mode - show start/stop buttons
+                    actionsEl.innerHTML = `
+                        <button class="btn-start" id="ml-start" onclick="startMl()" ${status.running ? 'disabled' : ''}>Start</button>
+                        <button class="btn-stop" id="ml-stop" onclick="stopMl()" ${!status.running ? 'disabled' : ''}>Stop</button>
+                        <button class="btn-restart" id="ml-restart" onclick="restartMl()" ${!status.running ? 'disabled' : ''}>Restart</button>
+                    `;
+                }
             }
         }
 

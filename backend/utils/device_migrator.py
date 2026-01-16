@@ -231,7 +231,10 @@ class DeviceMigrator:
                         f"[DeviceMigrator] Failed to migrate flows in {flow_file}: {e}"
                     )
 
-        # 4. Update device mapping
+        # 4. Consolidate flow files - move flows from old device file to new device file
+        self._consolidate_flow_files(old_device_id, new_device_id, stable_device_id)
+
+        # 5. Update device mapping
         if stable_device_id not in self.device_map:
             self.device_map[stable_device_id] = set()
         self.device_map[stable_device_id].add(new_device_id)
@@ -240,6 +243,75 @@ class DeviceMigrator:
             f"[DeviceMigrator] Migration complete: {counts['sensors']} sensors, {counts['actions']} actions, {counts['flows']} flows"
         )
         return counts
+
+    def _consolidate_flow_files(
+        self, old_device_id: str, new_device_id: str, stable_device_id: str
+    ):
+        """
+        Consolidate flows from old device file into new device file.
+        This prevents duplicate flows from appearing when the same device
+        has multiple flow files due to IP/port changes.
+        """
+        flows_dir = self.config_dir / "flows"
+        if not flows_dir.exists():
+            return
+
+        old_file_pattern = f"flows_{old_device_id.replace(':', '_').replace('.', '_')}.json"
+        new_file_pattern = f"flows_{new_device_id.replace(':', '_').replace('.', '_')}.json"
+
+        old_file = flows_dir / old_file_pattern
+        new_file = flows_dir / new_file_pattern
+
+        if not old_file.exists():
+            return
+
+        try:
+            # Load old flows
+            with open(old_file, "r", encoding="utf-8") as f:
+                old_data = json.load(f)
+            old_flows = old_data.get("flows", [])
+
+            if not old_flows:
+                # No flows in old file, just delete it
+                old_file.unlink()
+                logger.info(f"[DeviceMigrator] Deleted empty old flow file: {old_file.name}")
+                return
+
+            # Load or create new file
+            if new_file.exists():
+                with open(new_file, "r", encoding="utf-8") as f:
+                    new_data = json.load(f)
+            else:
+                new_data = {"device_id": new_device_id, "flows": []}
+
+            # Build set of existing flow_ids in new file
+            existing_flow_ids = {f.get("flow_id") for f in new_data.get("flows", [])}
+
+            # Move flows from old file to new file (if not already present)
+            moved_count = 0
+            for flow in old_flows:
+                flow_id = flow.get("flow_id")
+                if flow_id and flow_id not in existing_flow_ids:
+                    # Update device_id and add to new file
+                    flow["device_id"] = new_device_id
+                    new_data["flows"].append(flow)
+                    existing_flow_ids.add(flow_id)
+                    moved_count += 1
+
+            # Save new file
+            if moved_count > 0:
+                with open(new_file, "w", encoding="utf-8") as f:
+                    json.dump(new_data, f, indent=2)
+                logger.info(
+                    f"[DeviceMigrator] Moved {moved_count} flows from {old_file.name} to {new_file.name}"
+                )
+
+            # Delete old file
+            old_file.unlink()
+            logger.info(f"[DeviceMigrator] Deleted old flow file: {old_file.name}")
+
+        except Exception as e:
+            logger.error(f"[DeviceMigrator] Failed to consolidate flow files: {e}")
 
     def check_and_migrate(
         self, new_device_id: str, stable_device_id: str
