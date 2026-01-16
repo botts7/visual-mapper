@@ -5,7 +5,7 @@
  * Handles app list loading, icon detection, system app filtering, and app search
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.19';
+import { showToast } from './toast.js?v=0.4.0-beta.3.20';
 
 // Helper to get API base
 function getApiBase() {
@@ -13,6 +13,7 @@ function getApiBase() {
 }
 
 let activeWizard = null;
+let _lastStep2LogTime = 0; // Throttle log spam
 
 /**
  * Load Step 2: App Selection
@@ -485,7 +486,12 @@ async function refreshAppNames(finalRefresh = false) {
         const deviceId = activeWizard?.selectedDevice || activeWizard?.selectedDeviceStableId;
         if (!deviceId) return;
 
-        console.log('[Step2] Refreshing app names...');
+        // Throttle log - only show once every 30 seconds
+        const now = Date.now();
+        if (now - _lastStep2LogTime > 30000) {
+            _lastStep2LogTime = now;
+            console.log('[Step2] Refreshing app names...');
+        }
         const response = await fetch(`${getApiBase()}/adb/apps/${encodeURIComponent(deviceId)}`);
         if (!response.ok) return;
 
@@ -506,7 +512,10 @@ async function refreshAppNames(finalRefresh = false) {
             }
         });
 
-        console.log(`[Step2] App names refreshed, updated ${updatedCount} labels`);
+        // Only log when we actually update something
+        if (updatedCount > 0) {
+            console.log(`[Step2] App names refreshed, updated ${updatedCount} labels`);
+        }
     } catch (error) {
         console.debug('[Step2] Failed to refresh app names:', error);
     }
@@ -631,7 +640,12 @@ async function updateQueueStats() {
                     lastAppNameRefreshPending = totalPending; // Initialize on first poll with pending items
                 }
                 if (lastAppNameRefreshPending - totalPending >= 5) {
-                    console.log(`[Step2] Progress: ${lastAppNameRefreshPending - totalPending} names fetched since last refresh, refreshing...`);
+                    // Throttle this log too - only show once every 30 seconds
+                    const now = Date.now();
+                    if (now - _lastStep2LogTime > 30000) {
+                        _lastStep2LogTime = now;
+                        console.log(`[Step2] Progress: ${lastAppNameRefreshPending - totalPending} names fetched since last refresh, refreshing...`);
+                    }
                     refreshAppNames(false);
                     lastAppNameRefreshPending = totalPending; // Reset counter after refresh
                 }
