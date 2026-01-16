@@ -16,13 +16,13 @@
  * - Connection status updates
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.9';
-import LiveStream from './live-stream.js?v=0.4.0-beta.3.9';
+import { showToast } from './toast.js?v=0.4.0-beta.3.10';
+import LiveStream from './live-stream.js?v=0.4.0-beta.3.10';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake
-} from './device-unlock.js?v=0.4.0-beta.3.9';
+} from './device-unlock.js?v=0.4.0-beta.3.10';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -745,6 +745,10 @@ export async function refreshElements(wizard, clearAllElementsAndHover) {
         // The WebSocket handler will naturally redraw the current live frame with new elements.
         if (wizard.liveStream) {
             wizard.liveStream.elements = elements;
+            // Mark elements as fresh so they'll be drawn on the next frame
+            if (wizard.liveStream.markElementsFresh) {
+                wizard.liveStream.markElementsFresh();
+            }
         }
 
         // Update element tree (deferred to avoid blocking)

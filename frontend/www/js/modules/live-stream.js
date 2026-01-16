@@ -823,15 +823,16 @@ class LiveStream {
         // Draw overlays (skip if screen has changed since elements were fetched)
         if (this.showOverlays && elements.length > 0) {
             // Check if screen has changed since elements were fetched
-            const elementsStale = this.autoHideStaleElements && this.areElementsStale();
+            // Hide stale elements when either autoHideStaleElements OR smartRefreshEnabled is on
+            // This prevents drawing old element overlays on a changed screen
+            const elementsStale = (this.autoHideStaleElements || this.smartRefreshEnabled) && this.areElementsStale();
 
             if (!elementsStale) {
                 this._drawElements(elements);
             } else {
-                // Draw subtle indicator that elements are stale
-                this.ctx.fillStyle = 'rgba(255, 200, 0, 0.8)';
-                this.ctx.font = '12px monospace';
-                this.ctx.fillText('Screen changed - click Refresh Elements', 10, 20);
+                // Screen changed - elements are stale, skip drawing them
+                // Smart refresh will fetch new elements shortly
+                // Note: No message shown to avoid visual clutter during normal operation
             }
         }
     }
@@ -1003,8 +1004,21 @@ class LiveStream {
     areElementsStale() {
         // No elements fetched yet
         if (this.elementsTimestamp === 0) return true;
-        // Screen content has changed since elements were fetched
+        // Check if elements were marked stale by screen change detection
+        // _elementsStale is set when screen change is detected and cleared when new elements arrive
+        if (this._elementsStale) return true;
+        // Also check if screen is currently changing (transitional state)
         return this._screenChanged;
+    }
+
+    /**
+     * Mark elements as fresh (call after new elements are fetched)
+     * This clears the stale flag so overlays will be drawn again
+     */
+    markElementsFresh() {
+        this._elementsStale = false;
+        this._elementsStaleTime = 0;
+        this.elementsTimestamp = Date.now();
     }
 
     /**
