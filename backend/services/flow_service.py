@@ -568,6 +568,9 @@ class FlowService:
         flow_id: str,
         execution_method: str = "auto",
         learn_mode: bool = False,
+        strict_mode: bool = False,
+        repair_mode: bool = False,
+        force_execute: bool = False,
     ) -> Dict[str, Any]:
         """
         Phase 2: Execute a flow with proper execution routing.
@@ -587,7 +590,10 @@ class FlowService:
             device_id: Device identifier
             flow_id: Flow identifier
             execution_method: Execution routing method
-            learn_mode: If True, capture UI elements at each screen to improve navigation graph
+            learn_mode: Capture UI elements at each screen for navigation improvement
+            strict_mode: Fail on navigation errors instead of continuing
+            repair_mode: Auto-fix element bounds when drift detected
+            force_execute: Run ALL steps, ignoring sensor intervals
         """
         if not self.flow_executor:
             raise HTTPException(status_code=503, detail="Flow executor not initialized")
@@ -631,7 +637,13 @@ class FlowService:
             # Use unified unlock method from FlowExecutor (has retry logic and debounce)
             await self.flow_executor.auto_unlock_if_needed(flow.device_id)
             # Default to server execution via ADB
-            result = await self.flow_executor.execute_flow(flow, learn_mode=learn_mode)
+            result = await self.flow_executor.execute_flow(
+                flow,
+                learn_mode=learn_mode,
+                strict_mode=strict_mode,
+                repair_mode=repair_mode,
+                force_execute=force_execute,
+            )
 
         # Convert to dict
         response = {
@@ -649,6 +661,16 @@ class FlowService:
             "android_active": android_active,
             "execution_method": actual_method,
         }
+
+        # Add enhanced tracking fields (v0.4.0-beta.3.21)
+        if hasattr(result, "navigation_failures") and result.navigation_failures:
+            response["navigation_failures"] = result.navigation_failures
+
+        if hasattr(result, "bounds_repaired") and result.bounds_repaired:
+            response["bounds_repaired"] = result.bounds_repaired
+
+        if hasattr(result, "partial_success"):
+            response["partial_success"] = result.partial_success
 
         # Add learning stats if learn_mode was enabled
         if learn_mode and hasattr(result, "learned_screens"):

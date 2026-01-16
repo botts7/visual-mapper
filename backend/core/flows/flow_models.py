@@ -361,6 +361,16 @@ class FlowExecutionResult(BaseModel):
     execution_time_ms: int
     timestamp: datetime = Field(default_factory=datetime.now)
 
+    # Enhanced tracking (v0.4.0-beta.3.21)
+    navigation_failures: List[Dict[str, Any]] = []  # Steps where navigation failed
+    bounds_repaired: List[Dict[str, Any]] = []  # Elements with auto-repaired bounds
+    partial_success: bool = False  # True if some steps succeeded but flow had issues
+
+    # Execution mode flags (set by caller, used by step executors)
+    strict_mode: bool = False  # Fail on navigation errors
+    repair_mode: bool = False  # Auto-update drifted bounds
+    force_execute: bool = False  # Bypass sensor-due-check
+
 
 class FlowList(BaseModel):
     """List of flows for a device"""

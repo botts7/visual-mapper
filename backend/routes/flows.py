@@ -214,20 +214,55 @@ async def execute_flow_on_demand(
     learn_mode: bool = Query(
         default=False, description="Capture UI elements to improve navigation graph"
     ),
+    strict_mode: bool = Query(
+        default=False, description="Fail steps when navigation doesn't reach expected screen"
+    ),
+    repair_mode: bool = Query(
+        default=False, description="Auto-update element bounds when drift detected"
+    ),
+    force_execute: bool = Query(
+        default=False, description="Execute ALL steps regardless of sensor update intervals"
+    ),
     service: FlowService = Depends(get_flow_service),
 ):
     """
-    Execute a flow on-demand.
+    Execute a flow on-demand with configurable execution modes.
 
     Args:
         device_id: Device identifier
         flow_id: Flow identifier
-        learn_mode: If True, capture UI elements at each screen and update navigation graph.
-                   This makes execution slower but improves future Smart Flow generation.
+        learn_mode: Capture UI elements at each screen for navigation improvement
+        strict_mode: Fail on navigation errors instead of continuing (helps find broken flows)
+        repair_mode: Auto-fix element bounds when drift detected (self-healing)
+        force_execute: Run ALL steps, ignoring sensor intervals (for manual testing)
+
+    Recommended mode combinations:
+        - Production scheduled: repair_mode=true (auto-fix drift silently)
+        - Manual testing: force_execute=true, strict_mode=true, learn_mode=true
+        - Debug/troubleshoot: force_execute=true, strict_mode=true, learn_mode=true
+        - New flow validation: all modes enabled
     """
     try:
-        logger.info(f"[API] Execute flow {flow_id} with learn_mode={learn_mode}")
-        return await service.execute_flow(device_id, flow_id, learn_mode=learn_mode)
+        modes = []
+        if learn_mode:
+            modes.append("learn")
+        if strict_mode:
+            modes.append("strict")
+        if repair_mode:
+            modes.append("repair")
+        if force_execute:
+            modes.append("force")
+        mode_str = f" modes=[{','.join(modes)}]" if modes else ""
+        logger.info(f"[API] Execute flow {flow_id}{mode_str}")
+
+        return await service.execute_flow(
+            device_id,
+            flow_id,
+            learn_mode=learn_mode,
+            strict_mode=strict_mode,
+            repair_mode=repair_mode,
+            force_execute=force_execute,
+        )
     except HTTPException:
         raise
     except Exception as e:

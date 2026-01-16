@@ -18,28 +18,28 @@
  * v0.0.22: Updated Step4 import for navigation issue detection
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.20';
-import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3.20';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3.20';
-import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3.20';
-import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3.20';
-import LiveStream from './live-stream.js?v=0.4.0-beta.3.20';
-import ElementTree from './element-tree.js?v=0.4.0-beta.3.20';
-import APIClient from './api-client.js?v=0.4.0-beta.3.20';
-import SensorCreator from './sensor-creator.js?v=0.4.0-beta.3.20';
+import { showToast } from './toast.js?v=0.4.0-beta.3.21';
+import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3.21';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3.21';
+import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3.21';
+import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3.21';
+import LiveStream from './live-stream.js?v=0.4.0-beta.3.21';
+import ElementTree from './element-tree.js?v=0.4.0-beta.3.21';
+import APIClient from './api-client.js?v=0.4.0-beta.3.21';
+import SensorCreator from './sensor-creator.js?v=0.4.0-beta.3.21';
 
 // Step modules
-import * as Step1 from './flow-wizard-step1.js?v=0.4.0-beta.3.20';
-import * as Step2 from './flow-wizard-step2.js?v=0.4.0-beta.3.20';
-import * as Step3 from './flow-wizard-step3.js?v=0.4.0-beta.3.20';
-import * as Step4 from './flow-wizard-step4.js?v=0.4.0-beta.3.20';
-import * as Step5 from './flow-wizard-step5.js?v=0.4.0-beta.3.20';
+import * as Step1 from './flow-wizard-step1.js?v=0.4.0-beta.3.21';
+import * as Step2 from './flow-wizard-step2.js?v=0.4.0-beta.3.21';
+import * as Step3 from './flow-wizard-step3.js?v=0.4.0-beta.3.21';
+import * as Step4 from './flow-wizard-step4.js?v=0.4.0-beta.3.21';
+import * as Step5 from './flow-wizard-step5.js?v=0.4.0-beta.3.21';
 
 // Dialog module
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3.20';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3.21';
 
 // Element actions module
-import * as ElementActions from './flow-wizard-element-actions.js?v=0.4.0-beta.3.20';
+import * as ElementActions from './flow-wizard-element-actions.js?v=0.4.0-beta.3.21';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -157,7 +157,7 @@ class FlowWizard {
             this.recorder.stop?.();
         }
 
-        const FlowRecorder = (await import('./flow-recorder.js?v=0.4.0-beta.3.20')).default;
+        const FlowRecorder = (await import('./flow-recorder.js?v=0.4.0-beta.3.21')).default;
         this.recorder = new FlowRecorder(deviceId, this.selectedApp, this.recordMode);
 
         // Load existing steps (convert from action format to flow format)

@@ -12,8 +12,8 @@
     <script>
         const cacheKey = sessionStorage.getItem('vmCacheKey') || Date.now();
         sessionStorage.setItem('vmCacheKey', cacheKey);
-        document.write('<link rel="stylesheet" href="css/styles.css?v=0.4.0-beta.3.20">');
-        document.write('<link rel="stylesheet" href="css/flows.css?v=0.4.0-beta.3.20">');
+        document.write('<link rel="stylesheet" href="css/styles.css?v=0.4.0-beta.3.21">');
+        document.write('<link rel="stylesheet" href="css/flows.css?v=0.4.0-beta.3.21">');
     </script>
     <noscript>
         <link rel="stylesheet" href="css/styles.css">
@@ -36,7 +36,7 @@
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.4.0-beta.3.20"></script>
+    <script type="module" src="js/init.js?v=0.4.0-beta.3.21"></script>
 
     <div class="flow-container">
         <div class="flow-header">
@@ -139,6 +139,39 @@
                 </a>
             </div>
         </div>
+
+        <!-- Execution Options Panel (v0.4.0-beta.3.21) -->
+        <details class="execution-options-panel" id="executionOptionsPanel" style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; margin-bottom: 15px;">
+            <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary);">
+                Execution Options
+                <span id="activeModesIndicator" style="font-weight: normal; color: var(--text-secondary); margin-left: 8px;"></span>
+            </summary>
+            <div style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 16px;">
+                <label class="execution-mode-option" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="execForceExecute">
+                    <span><strong>Force Execute</strong> - Run all steps (ignore sensor timers)</span>
+                </label>
+                <label class="execution-mode-option" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="execStrictMode">
+                    <span><strong>Strict Mode</strong> - Fail if navigation doesn't work</span>
+                </label>
+                <label class="execution-mode-option" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="execRepairMode">
+                    <span><strong>Repair Mode</strong> - Auto-fix element bounds drift</span>
+                </label>
+                <label class="execution-mode-option" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="execLearnMode">
+                    <span><strong>Learn Mode</strong> - Capture UI elements for improvement</span>
+                </label>
+            </div>
+            <div style="margin-top: 10px; font-size: 12px; color: var(--text-secondary);">
+                <strong>Presets:</strong>
+                <button class="btn btn-sm" onclick="setExecutionPreset('production')" style="margin-left: 8px; padding: 2px 8px;">Production</button>
+                <button class="btn btn-sm" onclick="setExecutionPreset('test')" style="margin-left: 4px; padding: 2px 8px;">Manual Test</button>
+                <button class="btn btn-sm" onclick="setExecutionPreset('debug')" style="margin-left: 4px; padding: 2px 8px;">Debug</button>
+                <button class="btn btn-sm" onclick="setExecutionPreset('none')" style="margin-left: 4px; padding: 2px 8px;">None</button>
+            </div>
+        </details>
 
         <div class="flow-filters">
             <select id="flowDeviceFilter">
@@ -1541,10 +1574,31 @@
                     executeBtn.innerHTML = '⏳';
                 }
 
-                showToast('Flow execution started...', 'info');
+                // Get execution mode options
+                const forceExecute = document.getElementById('execForceExecute')?.checked || false;
+                const strictMode = document.getElementById('execStrictMode')?.checked || false;
+                const repairMode = document.getElementById('execRepairMode')?.checked || false;
+                const learnMode = document.getElementById('execLearnMode')?.checked || false;
+
+                // Build query params
+                const params = new URLSearchParams();
+                if (forceExecute) params.append('force_execute', 'true');
+                if (strictMode) params.append('strict_mode', 'true');
+                if (repairMode) params.append('repair_mode', 'true');
+                if (learnMode) params.append('learn_mode', 'true');
+
+                const queryStr = params.toString() ? `?${params.toString()}` : '';
+                const modes = [];
+                if (forceExecute) modes.push('Force');
+                if (strictMode) modes.push('Strict');
+                if (repairMode) modes.push('Repair');
+                if (learnMode) modes.push('Learn');
+
+                const modeInfo = modes.length > 0 ? ` [${modes.join(', ')}]` : '';
+                showToast(`Flow execution started...${modeInfo}`, 'info');
 
                 // Execute the flow via API and get execution result
-                const response = await fetch(`${window.flowManager.apiBase}/flows/${deviceId}/${flowId}/execute`, {
+                const response = await fetch(`${window.flowManager.apiBase}/flows/${deviceId}/${flowId}/execute${queryStr}`, {
                     method: 'POST'
                 });
 
@@ -2617,11 +2671,75 @@
             }
         });
 
+        // Execution mode preset functions (v0.4.0-beta.3.21)
+        function setExecutionPreset(preset) {
+            const forceEl = document.getElementById('execForceExecute');
+            const strictEl = document.getElementById('execStrictMode');
+            const repairEl = document.getElementById('execRepairMode');
+            const learnEl = document.getElementById('execLearnMode');
+
+            switch (preset) {
+                case 'production':
+                    // Auto-fix drift silently
+                    forceEl.checked = false;
+                    strictEl.checked = false;
+                    repairEl.checked = true;
+                    learnEl.checked = false;
+                    break;
+                case 'test':
+                    // Manual testing: run all steps, fail on errors, learn
+                    forceEl.checked = true;
+                    strictEl.checked = true;
+                    repairEl.checked = false;
+                    learnEl.checked = true;
+                    break;
+                case 'debug':
+                    // Full debugging: all options enabled
+                    forceEl.checked = true;
+                    strictEl.checked = true;
+                    repairEl.checked = true;
+                    learnEl.checked = true;
+                    break;
+                case 'none':
+                default:
+                    forceEl.checked = false;
+                    strictEl.checked = false;
+                    repairEl.checked = false;
+                    learnEl.checked = false;
+                    break;
+            }
+            updateExecutionModeIndicator();
+        }
+
+        function updateExecutionModeIndicator() {
+            const modes = [];
+            if (document.getElementById('execForceExecute')?.checked) modes.push('Force');
+            if (document.getElementById('execStrictMode')?.checked) modes.push('Strict');
+            if (document.getElementById('execRepairMode')?.checked) modes.push('Repair');
+            if (document.getElementById('execLearnMode')?.checked) modes.push('Learn');
+
+            const indicator = document.getElementById('activeModesIndicator');
+            if (indicator) {
+                indicator.textContent = modes.length > 0 ? `(Active: ${modes.join(', ')})` : '(Default)';
+            }
+        }
+
+        // Add change listeners for mode checkboxes
+        document.addEventListener('DOMContentLoaded', () => {
+            ['execForceExecute', 'execStrictMode', 'execRepairMode', 'execLearnMode'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.addEventListener('change', updateExecutionModeIndicator);
+            });
+            updateExecutionModeIndicator();
+        });
+
         // Make functions globally available
         window.loadFlows = loadFlows;
         window.loadAlerts = loadAlerts;
         window.clearAllAlerts = clearAllAlerts;
         window.dismissAlert = dismissAlert;
+        window.setExecutionPreset = setExecutionPreset;
+        window.updateExecutionModeIndicator = updateExecutionModeIndicator;
         window.executeFlow = executeFlow;
         window.testFlow = testFlow;
         window.testCurrentFlow = testCurrentFlow;

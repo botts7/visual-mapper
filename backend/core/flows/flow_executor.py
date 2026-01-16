@@ -385,15 +385,24 @@ class FlowExecutor:
         flow: SensorCollectionFlow,
         device_lock: Optional[asyncio.Lock] = None,
         learn_mode: bool = False,
+        strict_mode: bool = False,
+        repair_mode: bool = False,
+        force_execute: bool = False,
     ) -> FlowExecutionResult:
         """
-        Execute complete flow
+        Execute complete flow with configurable execution modes.
 
         Args:
             flow: Flow to execute
             device_lock: Optional device lock (from scheduler)
             learn_mode: If True, capture UI elements at each screen and update navigation graph.
                        Makes execution slower but improves future Smart Flow generation.
+            strict_mode: If True, fail steps when navigation doesn't reach expected screen.
+                        Default False maintains backward compatibility (warn but continue).
+            repair_mode: If True, auto-update element bounds when drift is detected.
+                        Fixes "Element moved Xpx" issues automatically.
+            force_execute: If True, execute ALL steps regardless of sensor update intervals.
+                          Useful for manual testing - bypasses "sensors not due" skip logic.
 
         Returns:
             FlowExecutionResult with success/failure details
@@ -406,6 +415,8 @@ class FlowExecutor:
         5. Publish to MQTT in real-time
         6. Update flow metrics
         7. (Learn Mode) Capture UI elements and update navigation graph
+        8. (Strict Mode) Fail on navigation errors instead of continuing
+        9. (Repair Mode) Auto-update drifted element bounds
         """
         start_time = time.time()
         result = FlowExecutionResult(
@@ -414,12 +425,27 @@ class FlowExecutor:
             executed_steps=0,
             captured_sensors={},
             execution_time_ms=0,
+            # Set execution mode flags
+            strict_mode=strict_mode,
+            repair_mode=repair_mode,
+            force_execute=force_execute,
         )
 
         # Track learned screens if learn_mode is enabled
         learned_screens = []
+
+        # Log enabled modes
+        enabled_modes = []
         if learn_mode:
-            logger.info(f"[FlowExecutor] Learn Mode enabled - will capture UI elements")
+            enabled_modes.append("Learn")
+        if strict_mode:
+            enabled_modes.append("Strict")
+        if repair_mode:
+            enabled_modes.append("Repair")
+        if force_execute:
+            enabled_modes.append("Force")
+        if enabled_modes:
+            logger.info(f"[FlowExecutor] Execution modes: {', '.join(enabled_modes)}")
 
         # Create execution log for history tracking
         execution_log = FlowExecutionLog(
@@ -440,9 +466,14 @@ class FlowExecutor:
 
         # Pre-analyze flow for page-skipping optimization
         # This identifies steps that can be skipped because all sensors in them are not due for update
-        skippable_steps = self._analyze_skippable_steps(flow)
-        if skippable_steps:
-            logger.info(f"[FlowExecutor] Page-skip optimization: {len(skippable_steps)} steps can be skipped (sensors not due)")
+        # force_execute bypasses this optimization entirely
+        if force_execute:
+            skippable_steps = set()
+            logger.info(f"[FlowExecutor] Force execute: ALL steps will run (ignoring sensor intervals)")
+        else:
+            skippable_steps = self._analyze_skippable_steps(flow)
+            if skippable_steps:
+                logger.info(f"[FlowExecutor] Page-skip optimization: {len(skippable_steps)} steps can be skipped (sensors not due)")
 
         # Dynamic timeout calculation - use the higher of configured or calculated minimum
         calculated_timeout = self._calculate_dynamic_timeout(flow)
@@ -726,7 +757,8 @@ class FlowExecutor:
                             logger.debug(f"[FlowExecutor] Could not track activity for backtrack: {e}")
 
                     # Learn Mode: Capture UI elements after screen-changing steps
-                    if learn_mode and success:
+                    # Learn from BOTH successes AND failures (failures help understand what went wrong)
+                    if learn_mode:
                         learn_step_types = {
                             FlowStepType.SCREENSHOT,
                             FlowStepType.LAUNCH_APP,
@@ -746,10 +778,22 @@ class FlowExecutor:
                                     flow.device_id, step_package
                                 )
                                 if learned:
+                                    # Add step outcome context to learned data
+                                    learned['step_success'] = success
+                                    learned['step_type'] = step.step_type.value
+                                    learned['step_index'] = i
+                                    learned['expected_activity'] = getattr(step, 'expected_activity', None)
+
                                     learned_screens.append(learned)
-                                    logger.info(
-                                        f"  [Learn Mode] Captured screen: {learned.get('activity', 'unknown')[:50]}"
-                                    )
+
+                                    if success:
+                                        logger.info(
+                                            f"  [Learn Mode] Captured screen: {learned.get('activity', 'unknown')[:50]}"
+                                        )
+                                    else:
+                                        logger.info(
+                                            f"  [Learn Mode] Captured FAILURE context at: {learned.get('activity', 'unknown')[:50]}"
+                                        )
                             except Exception as learn_err:
                                 logger.warning(
                                     f"  [Learn Mode] Failed to learn screen: {learn_err}"
@@ -1574,7 +1618,7 @@ class FlowExecutor:
                 # Screen didn't change or expected activity not reached - retry tap once
                 logger.warning("  Screen didn't change after tap, retrying...")
                 await asyncio.sleep(0.3)
-                await self.adb_bridge.tap(device_id, step.x, step.y)
+                await self.adb_bridge.tap(device_id, tap_x, tap_y)
                 await asyncio.sleep(0.8)
 
                 if expected_activity:
@@ -1586,6 +1630,34 @@ class FlowExecutor:
                             f"  Activity {expected_name} detected after retry tap"
                         )
                         return True
+
+                # Navigation FAILED after retry - handle based on mode
+                if expected_activity:
+                    final_activity = await self.adb_bridge.get_current_activity(device_id)
+                    final_name = final_activity.split('/')[-1] if final_activity and '/' in final_activity else final_activity
+
+                    # Record the navigation failure
+                    nav_failure = {
+                        "step_description": step.description or f"Tap at ({tap_x}, {tap_y})",
+                        "expected_activity": expected_activity,
+                        "actual_activity": final_activity,
+                        "tap_coordinates": {"x": tap_x, "y": tap_y},
+                    }
+                    result.navigation_failures.append(nav_failure)
+
+                    if result.strict_mode:
+                        logger.error(
+                            f"  [Strict Mode] Navigation FAILED: Expected {expected_name}, "
+                            f"still on {final_name or 'unknown'}"
+                        )
+                        return False
+
+                    # Non-strict mode: warn but continue (original behavior)
+                    logger.warning(
+                        f"  Navigation failed but continuing (strict_mode=False): "
+                        f"Expected {expected_name}, on {final_name or 'unknown'}"
+                    )
+
             except Exception as e:
                 logger.debug(f"  Could not verify navigation: {e}")
 
@@ -2286,7 +2358,7 @@ class FlowExecutor:
                     # Collect for batch publishing (20-30% faster than individual)
                     sensor_updates.append((sensor, value))
 
-                    # Optionally update stored bounds if element moved significantly
+                    # Check if element moved significantly from stored position
                     if (
                         match.method != "stored_bounds"
                         and stored_bounds
@@ -2296,9 +2368,37 @@ class FlowExecutor:
                             stored_bounds, match.bounds
                         )
                         if not is_similar and distance > 10:  # Moved more than 10px
-                            logger.info(
-                                f"  Element moved {distance:.0f}px - consider updating sensor bounds"
-                            )
+                            if result.repair_mode:
+                                # Auto-repair: Update sensor bounds
+                                logger.info(
+                                    f"  [Repair Mode] Element moved {distance:.0f}px - auto-updating bounds"
+                                )
+                                try:
+                                    # Update the sensor's element bounds
+                                    old_bounds = sensor.element_bounds.copy() if sensor.element_bounds else None
+                                    sensor.element_bounds = match.bounds
+                                    self.sensor_manager.update_sensor(sensor)
+
+                                    # Track the repair in result
+                                    result.bounds_repaired.append({
+                                        "sensor_id": sensor_id,
+                                        "sensor_name": sensor.friendly_name,
+                                        "old_bounds": old_bounds,
+                                        "new_bounds": match.bounds,
+                                        "drift_distance": distance,
+                                        "detection_method": match.method,
+                                    })
+                                    logger.info(
+                                        f"  [Repair Mode] Updated bounds for {sensor.friendly_name}"
+                                    )
+                                except Exception as repair_err:
+                                    logger.warning(
+                                        f"  [Repair Mode] Failed to update bounds: {repair_err}"
+                                    )
+                            else:
+                                logger.info(
+                                    f"  Element moved {distance:.0f}px - consider updating sensor bounds (use repair_mode=true to auto-fix)"
+                                )
 
                 except Exception as e:
                     logger.error(f"  Failed to extract sensor {sensor_id}: {e}")
