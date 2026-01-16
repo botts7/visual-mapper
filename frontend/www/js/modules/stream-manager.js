@@ -16,13 +16,13 @@
  * - Connection status updates
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.8';
-import LiveStream from './live-stream.js?v=0.4.0-beta.3.8';
+import { showToast } from './toast.js?v=0.4.0-beta.3.9';
+import LiveStream from './live-stream.js?v=0.4.0-beta.3.9';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake
-} from './device-unlock.js?v=0.4.0-beta.3.8';
+} from './device-unlock.js?v=0.4.0-beta.3.9';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -678,10 +678,11 @@ export async function refreshElements(wizard, clearAllElementsAndHover) {
                     wizard.clearAllElementsAndHover();
                 }
 
-                // Force immediate redraw without old overlays
-                if (wizard.liveStream?.currentImage) {
-                    wizard.liveStream.ctx.clearRect(0, 0, wizard.liveStream.canvas.width, wizard.liveStream.canvas.height);
-                    wizard.liveStream.ctx.drawImage(wizard.liveStream.currentImage, 0, 0);
+                // Clear elements from liveStream - next frame will draw without old overlays
+                // CRITICAL: Do NOT manually redraw here with currentImage as it may be stale
+                // The WebSocket handler will naturally draw the next frame without overlays
+                if (wizard.liveStream) {
+                    wizard.liveStream.elements = [];
                 }
             }
 
@@ -738,12 +739,12 @@ export async function refreshElements(wizard, clearAllElementsAndHover) {
         }
 
         // Update LiveStream elements for overlay
+        // Only update elements - next WebSocket frame will redraw with new elements
+        // CRITICAL: Do NOT call _renderFrame manually here!
+        // Calling _renderFrame(currentImage) draws the LAST processed frame which may be stale.
+        // The WebSocket handler will naturally redraw the current live frame with new elements.
         if (wizard.liveStream) {
             wizard.liveStream.elements = elements;
-
-            if (wizard.liveStream.currentImage) {
-                wizard.liveStream._renderFrame(wizard.liveStream.currentImage, elements);
-            }
         }
 
         // Update element tree (deferred to avoid blocking)

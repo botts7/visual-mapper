@@ -62,23 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.8';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3.8';
-import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3.8';
-import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3.8';
-import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3.8';
-import LiveStream from './live-stream.js?v=0.4.0-beta.3.8';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3.8';
+import { showToast } from './toast.js?v=0.4.0-beta.3.9';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3.9';
+import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3.9';
+import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3.9';
+import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3.9';
+import LiveStream from './live-stream.js?v=0.4.0-beta.3.9';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3.9';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.4.0-beta.3.8';
+} from './device-unlock.js?v=0.4.0-beta.3.9';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.3.8';
+import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.3.9';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -2403,16 +2403,17 @@ export async function refreshElements(wizard) {
             // and element overlays, so no need to update liveStream separately
         }
 
-        // Only in streaming mode: Update LiveStream elements for overlay (batched - single redraw)
+        // Only in streaming mode: Update LiveStream elements for overlay
         // In polling mode, canvasRenderer.render() already handles this
         if (wizard.captureMode === 'streaming' && wizard.liveStream) {
-            // Set new elements and redraw in one operation (no intermediate states)
+            // Update elements atomically - next WebSocket frame will redraw with new elements
+            // CRITICAL: Do NOT call _renderFrame manually here!
+            // Calling _renderFrame(currentImage) draws the LAST processed frame which may be stale
+            // (showing old screen before the tap). The WebSocket handler will naturally redraw
+            // the current live frame with the new elements on the next frame arrival.
+            // This follows the principle: "video should just be video" - let the stream continue
+            // uninterrupted instead of forcing a redraw with potentially stale cached images.
             wizard.liveStream.elements = elements;
-
-            // Single atomic redraw with new elements
-            if (wizard.liveStream.currentImage) {
-                wizard.liveStream._renderFrame(wizard.liveStream.currentImage, elements);
-            }
         }
 
         // Update element tree (deferred to avoid blocking frame rendering)
@@ -3311,7 +3312,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.8');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.9');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3345,7 +3346,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.8');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.9');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -4762,8 +4763,15 @@ export async function handleRefreshWithRetries(wizard) {
     // Perform multiple refreshes
     for (let i = 0; i < attempts; i++) {
         showToast(`Refresh ${i + 1}/${attempts}...`, 'info', 1000);
-        await wizard.recorder.refresh(false); // Don't add step yet
-        updateScreenshotDisplay(wizard);
+
+        if (wizard.captureMode === 'streaming') {
+            // Streaming mode: just refresh elements (video handles screenshot)
+            await refreshElements(wizard);
+        } else {
+            // Polling mode: capture screenshot and display
+            await wizard.recorder.refresh(false); // Don't add step yet
+            updateScreenshotDisplay(wizard);
+        }
 
         // Wait between attempts (except after the last one)
         if (i < attempts - 1) {
@@ -5175,7 +5183,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.8');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.9');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5183,7 +5191,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.8');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.9');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5191,7 +5199,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.8');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.9');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5199,7 +5207,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.8');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.9');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
