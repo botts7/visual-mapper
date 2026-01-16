@@ -62,23 +62,23 @@
  * - Visual feedback (ripples, swipe paths)
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3';
-import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3';
-import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3';
-import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3';
-import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3';
-import LiveStream from './live-stream.js?v=0.4.0-beta.3';
-import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3';
+import { showToast } from './toast.js?v=0.4.0-beta.3.1';
+import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.3.1';
+import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.3.1';
+import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.3.1';
+import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.3.1';
+import LiveStream from './live-stream.js?v=0.4.0-beta.3.1';
+import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.3.1';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake,
     sendWakeSignal
-} from './device-unlock.js?v=0.4.0-beta.3';
+} from './device-unlock.js?v=0.4.0-beta.3.1';
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.3';
+import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.3.1';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -3299,7 +3299,7 @@ export async function handleTreeSensor(wizard, element) {
     };
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.1');
 
     // Go directly to text sensor creation (most common case from element tree)
     // Use element.index if available (from tree), otherwise default to 0
@@ -3333,7 +3333,7 @@ export async function handleTreeTimestamp(wizard, element) {
     }
 
     // Import Dialogs module dynamically
-    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3');
+    const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.1');
 
     // Show configuration dialog
     const config = await Dialogs.promptForTimestampConfig(wizard, element, steps[lastRefreshIndex]);
@@ -5163,7 +5163,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-tap').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.1');
             await ElementActions.addTapStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5171,7 +5171,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-type').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.1');
             await ElementActions.addTypeStepFromElement(wizard, interactiveElements[index]);
         });
     });
@@ -5179,7 +5179,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-sensor').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3');
+            const ElementActions = await import('./flow-wizard-element-actions.js?v=0.4.0-beta.3.1');
             await ElementActions.addSensorCaptureFromElement(wizard, interactiveElements[index], index);
         });
     });
@@ -5187,7 +5187,7 @@ export function renderFilteredElements(wizard) {
     panel.querySelectorAll('.btn-action').forEach(btn => {
         btn.addEventListener('click', async () => {
             const index = parseInt(btn.dataset.index);
-            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3');
+            const Dialogs = await import('./flow-wizard-dialogs.js?v=0.4.0-beta.3.1');
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
