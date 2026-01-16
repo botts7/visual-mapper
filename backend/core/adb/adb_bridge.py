@@ -128,6 +128,35 @@ class ADBBridge:
 
         logger.info("[ADBBridge] Initialized (Phase 2 - hybrid connection strategy)")
 
+        # Load persisted backend preferences from settings.json
+        self._load_persisted_preferences()
+
+    def _load_persisted_preferences(self):
+        """Load capture_backend preferences from settings.json on startup"""
+        import json
+        from pathlib import Path
+
+        # Find settings.json - check DATA_DIR env var first, then fallback to ./data
+        data_dir = Path(os.environ.get("DATA_DIR", "data"))
+        settings_file = data_dir / "settings.json"
+
+        try:
+            if settings_file.exists():
+                with open(settings_file, "r") as f:
+                    settings = json.load(f)
+
+                # Load device backend preferences
+                device_prefs = settings.get("device_backend_prefs", {})
+                for device_id, prefs in device_prefs.items():
+                    capture_backend = prefs.get("capture_backend")
+                    if capture_backend and capture_backend != "auto":
+                        self._preferred_backend[device_id] = capture_backend
+                        logger.info(
+                            f"[ADBBridge] Loaded persisted capture_backend for {device_id}: {capture_backend}"
+                        )
+        except Exception as e:
+            logger.warning(f"[ADBBridge] Failed to load persisted preferences: {e}")
+
     async def _run_shell_adaptive(
         self, device_id: str, command: str, conn=None
     ) -> str:

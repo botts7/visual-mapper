@@ -302,6 +302,15 @@ async def set_backend_preference(device_id: str, prefs: BackendPreference):
         else:
             deps.adb_bridge._preferred_backend[device_id] = prefs.capture_backend
 
+        # PERSIST to settings.json so it survives restart
+        settings = load_settings()
+        if "device_backend_prefs" not in settings:
+            settings["device_backend_prefs"] = {}
+        if device_id not in settings["device_backend_prefs"]:
+            settings["device_backend_prefs"][device_id] = {}
+        settings["device_backend_prefs"][device_id]["capture_backend"] = prefs.capture_backend
+        save_settings(settings)
+
         result["capture_backend"] = prefs.capture_backend
         result["updated"].append("capture_backend")
         logger.info(f"[Settings] Set capture backend for {device_id}: {prefs.capture_backend}")
