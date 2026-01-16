@@ -982,6 +982,7 @@ async def lifespan(app: FastAPI):
     if ml_training_mode == "local":
         try:
             from ml_components.ml_training_server import MLTrainingServer
+            import routes.services as services_module
 
             ml_server = MLTrainingServer(
                 broker=MQTT_BROKER,
@@ -995,6 +996,11 @@ async def lifespan(app: FastAPI):
 
             ml_training_thread = threading.Thread(target=ml_server.start, daemon=True)
             ml_training_thread.start()
+
+            # Store references so status check can detect running server
+            services_module.ml_training_thread = ml_training_thread
+            services_module.ml_training_instance = ml_server
+
             logger.info("[Server] ✅ ML Training Server started (local mode)")
         except ImportError as e:
             logger.warning(f"[Server] ⚠️ ML Training dependencies not available: {e}")

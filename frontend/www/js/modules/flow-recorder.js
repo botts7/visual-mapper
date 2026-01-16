@@ -9,8 +9,8 @@
  * v0.0.11: Add moveStep() method for reordering steps
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.6';
-import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.4.0-beta.3.6';
+import { showToast } from './toast.js?v=0.4.0-beta.3.7';
+import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.4.0-beta.3.7';
 
 /**
  * Get API base URL for proper routing (supports Home Assistant ingress)
@@ -216,6 +216,87 @@ class FlowRecorder {
     }
 
     /**
+     * Detect if current screen is a splash/loading screen
+     * Returns true if splash screen is detected
+     */
+    detectSplashScreen() {
+        if (!this.screenshotMetadata?.current_activity) {
+            return false;
+        }
+
+        const activity = this.screenshotMetadata.current_activity;
+        const activityName = (activity.activity || '').toLowerCase();
+        const packageName = (activity.package || '').toLowerCase();
+
+        // Common splash screen activity name patterns
+        const splashPatterns = [
+            /splash/i,
+            /launch/i,
+            /loading/i,
+            /intro/i,
+            /welcome/i,
+            /startup/i,
+            /bootstrap/i,
+            /initializ/i,
+            /preload/i,
+            /^\.main$/i,  // Some apps use .Main as splash
+            /logo/i       // BYD uses BYDLogo
+        ];
+
+        // Check activity name for splash patterns
+        for (const pattern of splashPatterns) {
+            if (pattern.test(activityName)) {
+                console.log(`[FlowRecorder] Splash screen detected: ${activityName} (pattern: ${pattern})`);
+                return true;
+            }
+        }
+
+        // Also check if very few interactive elements (splash screens are usually minimal)
+        const elements = this.screenshotMetadata?.elements || [];
+        const clickableElements = elements.filter(el => el.clickable);
+        if (clickableElements.length < 3 && elements.length < 10) {
+            console.log(`[FlowRecorder] Possible splash screen: only ${clickableElements.length} clickable elements`);
+            // Only flag as splash if activity name is somewhat suspicious
+            if (/activity|main|app/i.test(activityName)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Wait for splash screen to finish
+     * Keeps capturing screenshots until splash screen is gone or timeout
+     */
+    async waitForSplashScreen(maxWaitMs = 8000, checkIntervalMs = 500) {
+        const startTime = Date.now();
+        let attempts = 0;
+        const maxAttempts = Math.ceil(maxWaitMs / checkIntervalMs);
+
+        console.log(`[FlowRecorder] Waiting for splash screen to finish (max ${maxWaitMs}ms)...`);
+
+        while (attempts < maxAttempts) {
+            // Capture current screen state
+            await this.captureScreenshot();
+
+            // Check if we're past the splash screen
+            if (!this.detectSplashScreen()) {
+                const elapsed = Date.now() - startTime;
+                console.log(`[FlowRecorder] Splash screen finished after ${elapsed}ms`);
+                return true;
+            }
+
+            attempts++;
+            console.log(`[FlowRecorder] Still on splash screen, waiting... (attempt ${attempts}/${maxAttempts})`);
+            await this.wait(checkIntervalMs);
+        }
+
+        console.warn(`[FlowRecorder] Splash screen timeout after ${maxWaitMs}ms - proceeding anyway`);
+        return false;
+    }
+
+    /**
      * Launch the target app
      */
     async launchApp() {
@@ -238,10 +319,18 @@ class FlowRecorder {
         const result = await response.json();
         console.log('[FlowRecorder] App launched:', result);
 
-        // Brief wait for app activity to register (reduced from 2s)
-        await this.wait(1000);
+        // Brief wait for app to start
+        await this.wait(500);
+
+        // Wait for any splash screen to finish before capturing activity
+        // This ensures we record the main app activity, not a splash/loading screen
+        await this.waitForSplashScreen(8000, 500);
+
+        // Also wait for any loading indicators to clear
+        await this.waitForUIToSettle(3, 500);
 
         // Capture the activity that was launched for state validation
+        // This is now the ACTUAL main screen, not the splash screen
         const screenInfo = await this.getCurrentScreen();
         const expectedActivity = screenInfo?.activity?.activity || null;
         const screenPackage = screenInfo?.activity?.package || this.appPackage;

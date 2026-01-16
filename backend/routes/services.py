@@ -36,9 +36,14 @@ def _save_ml_auto_start(enabled: bool):
 
 router = APIRouter(prefix="/api/services", tags=["services"])
 
-# Track subprocess for ML training server
+# Track subprocess for ML training server (started via Start button)
 ml_training_process: Optional[subprocess.Popen] = None
 ml_training_log_file = None  # Track log file for proper cleanup
+
+# Track in-process ML server (auto-started on server startup)
+# Set by main.py when ML server starts as a thread
+ml_training_thread = None  # threading.Thread reference
+ml_training_instance = None  # MLTrainingServer instance
 
 
 class ServiceStatus(BaseModel):
@@ -121,12 +126,12 @@ def _get_ml_training_mode() -> str:
 
 def check_ml_training_status() -> ServiceStatus:
     """Check ML training server status"""
-    global ml_training_process
+    global ml_training_process, ml_training_thread, ml_training_instance
 
     # Get configured mode
     mode = _get_ml_training_mode()
 
-    # Check subprocess first (standalone mode)
+    # Check subprocess first (started via Start button)
     if ml_training_process is not None:
         poll = ml_training_process.poll()
         if poll is None:
@@ -135,12 +140,22 @@ def check_ml_training_status() -> ServiceStatus:
                 name="ML Training Server",
                 running=True,
                 pid=ml_training_process.pid,
-                details="Running locally",
+                details="Running locally (subprocess)",
                 mode="local",
             )
         else:
             # Process exited
             ml_training_process = None
+
+    # Check in-process ML server (auto-started on server startup as thread)
+    if ml_training_thread is not None and ml_training_thread.is_alive():
+        return ServiceStatus(
+            name="ML Training Server",
+            running=True,
+            pid=None,
+            details="Running locally (auto-started)",
+            mode="local",
+        )
 
     # Check if running as Docker container (ML_SERVER_ENABLED env var)
     ml_server_enabled = os.environ.get("ML_SERVER_ENABLED", "").lower() == "true"
