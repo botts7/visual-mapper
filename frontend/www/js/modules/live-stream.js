@@ -822,20 +822,12 @@ class LiveStream {
         // Draw screenshot
         this.ctx.drawImage(img, 0, 0);
 
-        // Draw overlays (skip if screen has changed since elements were fetched)
+        // Draw overlays if enabled and we have elements
+        // Note: Stale element detection via frame hashing was too unreliable due to
+        // video compression noise. Instead, we clear elements explicitly on tap/action
+        // and let refreshElements update them. This is simpler and more reliable.
         if (this.showOverlays && elements.length > 0) {
-            // Check if screen has changed since elements were fetched
-            // Hide stale elements when either autoHideStaleElements OR smartRefreshEnabled is on
-            // This prevents drawing old element overlays on a changed screen
-            const elementsStale = (this.autoHideStaleElements || this.smartRefreshEnabled) && this.areElementsStale();
-
-            if (!elementsStale) {
-                this._drawElements(elements);
-            } else {
-                // Screen changed - elements are stale, skip drawing them
-                // Smart refresh will fetch new elements shortly
-                // Note: No message shown to avoid visual clutter during normal operation
-            }
+            this._drawElements(elements);
         }
     }
 
