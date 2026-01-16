@@ -9,8 +9,8 @@
  * v0.0.11: Add moveStep() method for reordering steps
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.4';
-import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.4.0-beta.3.4';
+import { showToast } from './toast.js?v=0.4.0-beta.3.5';
+import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.4.0-beta.3.5';
 
 /**
  * Get API base URL for proper routing (supports Home Assistant ingress)
@@ -325,8 +325,15 @@ class FlowRecorder {
                 timestamp: data.timestamp,
                 width: null,
                 height: null,
-                quick: data.quick || false
+                quick: data.quick || false,
+                current_activity: data.current_activity || null
             };
+
+            // Store current activity for sensor/step creation
+            // This is the ACTUAL activity from the device at capture time
+            this.currentScreenActivity = data.current_activity
+                ? `${data.current_activity.package}/${data.current_activity.activity}`
+                : null;
 
             // Load image to get dimensions immediately
             await this.loadImageDimensions();

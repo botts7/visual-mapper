@@ -43,15 +43,17 @@ class ScreenshotStitchRequest(BaseModel):
 
 @router.post("/screenshot")
 async def capture_screenshot(request: ScreenshotRequest):
-    """Capture screenshot and UI elements from device
+    """Capture screenshot and UI elements from device (atomic capture)
 
     Quick mode (quick=true): Only captures screenshot image, skips UI element extraction
-    Normal mode (quick=false): Captures both screenshot and UI elements
+    Normal mode (quick=false): Captures both screenshot and UI elements atomically
 
     Screen change detection: If the screen changes between screenshot capture and
-    element extraction, returns empty elements to prevent overlay mismatch.
+    element extraction, RETRIES to get fresh coherent data (up to 2 retries).
     """
     deps = get_deps()
+    MAX_RETRIES = 2
+
     try:
         # Verify device is connected
         devices = await deps.adb_bridge.get_devices()
@@ -63,9 +65,33 @@ async def capture_screenshot(request: ScreenshotRequest):
         mode = "quick" if request.quick else "full"
         logger.info(f"[API] Capturing {mode} screenshot from {request.device_id}")
 
-        # Get activity info BEFORE screenshot (for screen change detection)
-        activity_before = None
-        if not request.quick:
+        if request.quick:
+            # Quick mode: just capture screenshot, no elements
+            screenshot_bytes = await deps.adb_bridge.capture_screenshot(
+                request.device_id, force_refresh=True
+            )
+            logger.info(
+                f"[API] Quick screenshot captured: {len(screenshot_bytes)} bytes (UI elements skipped)"
+            )
+            screenshot_base64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            return {
+                "screenshot": screenshot_base64,
+                "elements": [],
+                "timestamp": datetime.now().isoformat(),
+                "quick": True,
+                "screen_changed": False,
+                "current_activity": None,
+            }
+
+        # Full mode: atomic capture of screenshot + elements with retry on screen change
+        screenshot_bytes = None
+        elements = []
+        screen_changed = False
+        activity_after = None
+
+        for attempt in range(MAX_RETRIES + 1):
+            # Get activity info BEFORE screenshot
+            activity_before = None
             try:
                 activity_before = await deps.adb_bridge.get_current_activity(
                     request.device_id
@@ -73,27 +99,18 @@ async def capture_screenshot(request: ScreenshotRequest):
             except Exception as e:
                 logger.debug(f"[API] Could not get activity before capture: {e}")
 
-        # Capture PNG screenshot (force_refresh to avoid cached/stale screenshots)
-        screenshot_bytes = await deps.adb_bridge.capture_screenshot(
-            request.device_id, force_refresh=True
-        )
-
-        # Extract UI elements (skip if quick mode)
-        elements = []
-        screen_changed = False
-        activity_after = None
-
-        if request.quick:
-            logger.info(
-                f"[API] Quick screenshot captured: {len(screenshot_bytes)} bytes (UI elements skipped)"
+            # Capture PNG screenshot (force_refresh to avoid cached/stale screenshots)
+            screenshot_bytes = await deps.adb_bridge.capture_screenshot(
+                request.device_id, force_refresh=True
             )
-        else:
+
             # Force fresh elements (bypass cache to ensure we get current screen state)
             elements = await deps.adb_bridge.get_ui_elements(
                 request.device_id, force_refresh=True
             )
 
             # Check if screen changed during capture
+            screen_changed = False
             try:
                 activity_after = await deps.adb_bridge.get_current_activity(
                     request.device_id
@@ -104,21 +121,28 @@ async def capture_screenshot(request: ScreenshotRequest):
                     if before_key != after_key:
                         screen_changed = True
                         logger.warning(
-                            f"[API] Screen changed during capture: {before_key} → {after_key}"
+                            f"[API] Screen changed during capture (attempt {attempt + 1}): {before_key} → {after_key}"
                         )
-                        # Clear elements to prevent mismatch with screenshot
-                        elements = []
             except Exception as e:
                 logger.debug(f"[API] Could not verify screen change: {e}")
 
-            if screen_changed:
+            # If screen didn't change, we have coherent data - exit retry loop
+            if not screen_changed:
                 logger.info(
-                    f"[API] Screenshot captured but elements cleared (screen changed)"
+                    f"[API] Atomic capture successful: {len(screenshot_bytes)} bytes, {len(elements)} UI elements"
                 )
-            else:
-                logger.info(
-                    f"[API] Full screenshot captured: {len(screenshot_bytes)} bytes, {len(elements)} UI elements"
-                )
+                break
+
+            # Screen changed - retry if we have attempts left
+            if attempt < MAX_RETRIES:
+                logger.info(f"[API] Retrying atomic capture (attempt {attempt + 2}/{MAX_RETRIES + 1})...")
+                import asyncio
+                await asyncio.sleep(0.3)  # Brief wait for screen to stabilize
+
+        if screen_changed:
+            logger.warning(
+                f"[API] Screen still changing after {MAX_RETRIES + 1} attempts, returning last capture"
+            )
 
         # Encode screenshot to base64
         screenshot_base64 = base64.b64encode(screenshot_bytes).decode("utf-8")
@@ -127,7 +151,7 @@ async def capture_screenshot(request: ScreenshotRequest):
             "screenshot": screenshot_base64,
             "elements": elements,
             "timestamp": datetime.now().isoformat(),
-            "quick": request.quick,
+            "quick": False,
             "screen_changed": screen_changed,
             "current_activity": activity_after,
         }

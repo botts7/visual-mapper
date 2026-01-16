@@ -275,7 +275,7 @@ export class FlowCanvasRenderer {
         return new Promise((resolve, reject) => {
             const img = new Image();
 
-            img.onload = () => {
+            img.onload = async () => {
                 // Store current image
                 this.currentImage = img;
 
@@ -304,6 +304,11 @@ export class FlowCanvasRenderer {
                 this.currentScale = 1.0;
                 this.offsetX = 0;
                 this.offsetY = 0;
+
+                // TIMING FIX: Wait for CSS layout to stabilize before drawing overlays
+                // Double requestAnimationFrame ensures browser has completed reflow
+                await new Promise(r => requestAnimationFrame(r));
+                await new Promise(r => requestAnimationFrame(r));
 
                 // Draw UI element overlays at full resolution (1:1)
                 if (metadata && metadata.elements && metadata.elements.length > 0) {
