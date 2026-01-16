@@ -891,8 +891,18 @@ class LiveStream {
      * @returns {Array} Elements that appear to be in the top layer
      */
     _filterTopLayerElements(elements) {
+        // OPTIMIZATION: Return cached result if elements and filter settings unchanged
+        const currentHash = this._getFilterSettingsHash();
+        if (elements === this._lastTopLayerElementsRef &&
+            currentHash === this._lastTopLayerSettingsHash) {
+            return this._cachedTopLayerElements;
+        }
+
         const filtered = this._getFilteredElements(elements);
-        if (filtered.length === 0) return filtered;
+        if (filtered.length === 0) {
+            this._cacheTopLayerResult(elements, currentHash, filtered);
+            return filtered;
+        }
 
         // Find all potential overlay elements (elements that might be covering others)
         // Look for elements in the later part of the array that are reasonably sized
@@ -937,7 +947,18 @@ class LiveStream {
             }
         }
 
+        this._cacheTopLayerResult(elements, currentHash, visibleElements);
         return visibleElements;
+    }
+
+    /**
+     * Cache the top layer filtering result
+     * @private
+     */
+    _cacheTopLayerResult(elements, hash, result) {
+        this._lastTopLayerElementsRef = elements;
+        this._lastTopLayerSettingsHash = hash;
+        this._cachedTopLayerElements = result;
     }
 
     /**

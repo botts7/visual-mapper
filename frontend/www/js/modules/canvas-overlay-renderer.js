@@ -11,6 +11,10 @@
  * @module canvas-overlay-renderer
  */
 
+// Throttle timestamp for HoverHighlight debug logs (reduces log spam)
+let _lastHoverHighlightLogTime = 0;
+const HOVER_LOG_THROTTLE_MS = 500;
+
 // Container classes to filter out (same as FlowInteractions)
 // Use Set for O(1) lookup instead of Array.includes() O(n)
 const CONTAINER_CLASSES = new Set([
@@ -298,15 +302,20 @@ export function highlightHoveredElement(wizard, element) {
     const cssScaleX = canvasRect.width / wizard.canvas.width;
     const cssScaleY = canvasRect.height / wizard.canvas.height;
 
-    // DEBUG: Log scaling info for diagnosis
-    console.log('[HoverHighlight] Scaling:', {
-        mode: wizard.captureMode,
-        canvasBitmap: `${wizard.canvas.width}x${wizard.canvas.height}`,
-        canvasCSS: `${canvasRect.width.toFixed(0)}x${canvasRect.height.toFixed(0)}`,
-        cssScale: `${cssScaleX.toFixed(3)}x${cssScaleY.toFixed(3)}`,
-        offset: `${offsetX.toFixed(0)}x${offsetY.toFixed(0)}`,
-        scroll: `${container.scrollLeft}x${container.scrollTop}`
-    });
+    // DEBUG: Log scaling info with throttling to reduce spam
+    const now = Date.now();
+    const shouldLog = now - _lastHoverHighlightLogTime > HOVER_LOG_THROTTLE_MS;
+    if (shouldLog) {
+        _lastHoverHighlightLogTime = now;
+        console.log('[HoverHighlight] Scaling:', {
+            mode: wizard.captureMode,
+            canvasBitmap: `${wizard.canvas.width}x${wizard.canvas.height}`,
+            canvasCSS: `${canvasRect.width.toFixed(0)}x${canvasRect.height.toFixed(0)}`,
+            cssScale: `${cssScaleX.toFixed(3)}x${cssScaleY.toFixed(3)}`,
+            offset: `${offsetX.toFixed(0)}x${offsetY.toFixed(0)}`,
+            scroll: `${container.scrollLeft}x${container.scrollTop}`
+        });
+    }
 
     // In streaming mode, element bounds are in device coords, canvas may be at lower res
     // We need to scale: device coords → canvas coords → CSS display coords
@@ -328,12 +337,14 @@ export function highlightHoveredElement(wizard, element) {
     const w = b.width * totalScaleX;
     const h = b.height * totalScaleY;
 
-    // DEBUG: Log element positioning
-    console.log('[HoverHighlight] Element:', {
-        bounds: `(${b.x},${b.y}) ${b.width}x${b.height}`,
-        scaled: `(${x.toFixed(0)},${y.toFixed(0)}) ${w.toFixed(0)}x${h.toFixed(0)}`,
-        text: element.text?.substring(0, 30) || element.class
-    });
+    // DEBUG: Log element positioning (uses same throttle as scaling log above)
+    if (shouldLog) {
+        console.log('[HoverHighlight] Element:', {
+            bounds: `(${b.x},${b.y}) ${b.width}x${b.height}`,
+            scaled: `(${x.toFixed(0)},${y.toFixed(0)}) ${w.toFixed(0)}x${h.toFixed(0)}`,
+            text: element.text?.substring(0, 30) || element.class
+        });
+    }
 
     highlight.style.cssText = `
         position: absolute;
