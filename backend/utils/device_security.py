@@ -340,3 +340,106 @@ class DeviceSecurityManager:
             logger.error(f"Failed to list configured devices: {e}")
 
         return devices
+
+    def migrate_config_to_stable_id(
+        self, old_device_id: str, stable_id: str
+    ) -> bool:
+        """
+        Migrate a security config from old device_id (IP:port) to stable_id (serial).
+
+        This preserves the passcode encryption by re-encrypting with the new device_id.
+
+        Args:
+            old_device_id: Old device identifier (e.g., "192.168.86.2:5555")
+            stable_id: New stable identifier (e.g., "R9YT50J4S9D")
+
+        Returns:
+            True if migration successful, False otherwise
+        """
+        if old_device_id == stable_id:
+            logger.debug(f"No migration needed - IDs are the same: {old_device_id}")
+            return True
+
+        old_config_path = self._get_config_path(old_device_id)
+        if not old_config_path.exists():
+            logger.debug(f"No old config to migrate for {old_device_id}")
+            return True
+
+        # Check if new config already exists
+        new_config_path = self._get_config_path(stable_id)
+        if new_config_path.exists():
+            logger.info(f"Config already exists for stable_id {stable_id}, skipping migration")
+            return True
+
+        try:
+            # Load old config
+            with open(old_config_path, "r") as f:
+                config = json.load(f)
+
+            # Get decrypted passcode (encrypted with old device_id)
+            encrypted_passcode = config.get("encrypted_passcode")
+            decrypted_passcode = None
+            if encrypted_passcode:
+                try:
+                    decrypted_passcode = self.decrypt_passcode(old_device_id, encrypted_passcode)
+                except Exception as e:
+                    logger.error(f"Could not decrypt passcode for migration: {e}")
+                    return False
+
+            # Save with new stable_id
+            from utils.device_security import LockStrategy
+            strategy = LockStrategy(config.get("strategy", "manual_only"))
+
+            success = self.save_lock_config(
+                device_id=stable_id,
+                strategy=strategy,
+                passcode=decrypted_passcode,
+                notes=config.get("notes", ""),
+                sleep_grace_period=config.get("sleep_grace_period", 300),
+            )
+
+            if success:
+                # Delete old config
+                try:
+                    old_config_path.unlink()
+                    logger.info(
+                        f"Migrated security config from {old_device_id} to {stable_id}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not delete old config file: {e}")
+                return True
+
+        except Exception as e:
+            logger.error(f"Failed to migrate config from {old_device_id} to {stable_id}: {e}")
+
+        return False
+
+    def find_config_by_ip(self, ip_address: str) -> Optional[str]:
+        """
+        Find a config file by IP address (ignoring port).
+
+        Used for migrating old configs when device reconnects on different port.
+
+        Args:
+            ip_address: IP address to search for (e.g., "192.168.86.2")
+
+        Returns:
+            device_id of found config, or None
+        """
+        # Sanitize IP for pattern matching
+        safe_ip = ip_address.replace(":", "_").replace(".", "_")
+
+        try:
+            for config_file in self.security_dir.glob(f"{safe_ip}*_security.json"):
+                try:
+                    with open(config_file, "r") as f:
+                        config = json.load(f)
+                        device_id = config.get("device_id")
+                        if device_id and device_id.startswith(ip_address):
+                            return device_id
+                except Exception as e:
+                    logger.warning(f"Could not read config file {config_file}: {e}")
+        except Exception as e:
+            logger.error(f"Failed to find config by IP {ip_address}: {e}")
+
+        return None

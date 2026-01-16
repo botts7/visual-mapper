@@ -11,6 +11,9 @@ Security features:
 - Per-device encryption keys derived from stable_device_id
 - Security JSON files stored in data/security/ with 600 permissions (Unix)
 - Passcodes never logged in decrypted form
+
+IMPORTANT: All configs are stored by stable_id (serial number), NOT by dynamic
+device_id (IP:port). This ensures configs survive device reconnections on different ports.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -22,6 +25,45 @@ from routes import get_deps
 from utils.device_security import LockStrategy
 
 logger = logging.getLogger(__name__)
+
+
+async def _resolve_stable_id(device_id: str, auto_migrate: bool = True) -> str:
+    """
+    Resolve device_id to stable_id (serial number) for config storage.
+
+    This ensures security configs survive device reconnections on different ports.
+    Falls back to device_id if serial cannot be determined.
+
+    If auto_migrate is True and an old config is found by IP (different port),
+    it will be automatically migrated to the stable_id format.
+    """
+    deps = get_deps()
+    try:
+        stable_id = await deps.adb_bridge.get_device_serial(device_id)
+        if stable_id and stable_id != device_id:
+            logger.debug(f"[Security] Resolved {device_id} -> stable_id {stable_id}")
+
+            # Auto-migrate old configs if needed
+            if auto_migrate:
+                try:
+                    # Check if there's an old config stored by IP:port
+                    ip_part = device_id.split(":")[0] if ":" in device_id else device_id
+                    old_device_id = deps.device_security_manager.find_config_by_ip(ip_part)
+
+                    if old_device_id and old_device_id != stable_id:
+                        logger.info(
+                            f"[Security] Found old config for {old_device_id}, migrating to {stable_id}"
+                        )
+                        deps.device_security_manager.migrate_config_to_stable_id(
+                            old_device_id, stable_id
+                        )
+                except Exception as e:
+                    logger.warning(f"[Security] Auto-migration failed: {e}")
+
+            return stable_id
+    except Exception as e:
+        logger.warning(f"[Security] Could not resolve stable_id for {device_id}: {e}")
+    return device_id
 
 router = APIRouter(prefix="/api/device", tags=["device_security"])
 
@@ -67,7 +109,9 @@ async def get_device_security(device_id: str):
     """
     deps = get_deps()
     try:
-        config = deps.device_security_manager.get_lock_config(device_id)
+        # Resolve to stable_id for consistent lookup
+        stable_id = await _resolve_stable_id(device_id)
+        config = deps.device_security_manager.get_lock_config(stable_id)
         return {"config": config}
     except Exception as e:
         logger.error(f"[API] Failed to get security config for {device_id}: {e}")
@@ -90,6 +134,7 @@ async def save_device_security(device_id: str, request: DeviceSecurityRequest):
         {
             "success": true,
             "device_id": str,
+            "stable_id": str,
             "strategy": str
         }
     """
@@ -110,9 +155,13 @@ async def save_device_security(device_id: str, request: DeviceSecurityRequest):
                 status_code=400, detail="Passcode is required for auto_unlock strategy"
             )
 
-        # Save configuration
+        # Resolve to stable_id for consistent storage
+        stable_id = await _resolve_stable_id(device_id)
+        logger.info(f"[API] Saving security config: device_id={device_id} -> stable_id={stable_id}")
+
+        # Save configuration using stable_id
         success = deps.device_security_manager.save_lock_config(
-            device_id=device_id,
+            device_id=stable_id,  # Use stable_id for storage
             strategy=strategy,
             passcode=request.passcode,
             notes=request.notes,
@@ -121,9 +170,14 @@ async def save_device_security(device_id: str, request: DeviceSecurityRequest):
 
         if success:
             logger.info(
-                f"[API] Saved security config for {device_id}: strategy={strategy.value}"
+                f"[API] Saved security config for {stable_id}: strategy={strategy.value}"
             )
-            return {"success": True, "device_id": device_id, "strategy": strategy.value}
+            return {
+                "success": True,
+                "device_id": device_id,
+                "stable_id": stable_id,
+                "strategy": strategy.value,
+            }
         else:
             raise HTTPException(status_code=500, detail="Failed to save configuration")
 
@@ -220,10 +274,14 @@ async def auto_unlock_device(device_id: str):
                 "unlock_status": unlock_status,
             }
 
-        # Get security config first to determine unlock strategy
-        config = deps.device_security_manager.get_lock_config(device_id)
+        # Resolve to stable_id for config lookup
+        stable_id = await _resolve_stable_id(device_id)
+        logger.info(f"[API] Auto-unlock: device_id={device_id} -> stable_id={stable_id}")
+
+        # Get security config using stable_id
+        config = deps.device_security_manager.get_lock_config(stable_id)
         passcode = (
-            deps.device_security_manager.get_passcode(device_id) if config else None
+            deps.device_security_manager.get_passcode(stable_id) if config else None
         )
 
         success = False

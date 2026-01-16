@@ -5,7 +5,7 @@
  * Handles app list loading, icon detection, system app filtering, and app search
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.3';
+import { showToast } from './toast.js?v=0.4.0-beta.3.4';
 
 // Helper to get API base
 function getApiBase() {

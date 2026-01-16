@@ -2351,36 +2351,32 @@ class ADBBridge:
 
                 security_mgr = DeviceSecurityManager()
 
-                # Try device_id first
-                logger.info(f"[ADBBridge] PIN lookup: checking device_id={device_id}")
-                config = security_mgr.get_lock_config(device_id)
-                lookup_id = device_id
+                # Always use stable_id for config lookup (configs are stored by stable_id)
+                stable_id = await self.get_device_serial(device_id)
+                lookup_id = stable_id if stable_id else device_id
+                logger.info(f"[ADBBridge] PIN lookup: using stable_id={lookup_id}")
 
-                # Fallback to stable_id if no config found
-                if not config:
-                    stable_id = await self.get_device_serial(device_id)
-                    logger.info(
-                        f"[ADBBridge] PIN lookup: no config for device_id, trying stable_id={stable_id}"
-                    )
-                    if stable_id and stable_id != device_id:
-                        config = security_mgr.get_lock_config(stable_id)
-                        if config:
-                            lookup_id = stable_id
+                config = security_mgr.get_lock_config(lookup_id)
 
                 if config:
+                    strategy = config.get('strategy')
                     logger.info(
-                        f"[ADBBridge] PIN lookup: found config for {lookup_id}, strategy={config.get('strategy')}"
+                        f"[ADBBridge] PIN lookup: found config for {lookup_id}, strategy={strategy}"
                     )
-                    if config.get("strategy") == LockStrategy.AUTO_UNLOCK.value:
-                        # Use the same ID that had the config for passcode lookup
+                    if strategy == LockStrategy.AUTO_UNLOCK.value:
                         passcode = security_mgr.get_passcode(lookup_id)
                         has_pin_configured = bool(passcode)
                         logger.info(
                             f"[ADBBridge] PIN lookup: passcode found={has_pin_configured}"
                         )
+                    elif strategy == LockStrategy.MANUAL_ONLY.value:
+                        logger.warning(
+                            f"[ADBBridge] Device {device_id} has MANUAL_ONLY unlock strategy - user must unlock manually"
+                        )
                 else:
-                    logger.info(
-                        f"[ADBBridge] PIN lookup: no config found for device_id or stable_id"
+                    logger.warning(
+                        f"[ADBBridge] No unlock config found for device {device_id} (stable_id={lookup_id}). "
+                        f"Configure auto-unlock in Device Settings to enable automatic PIN entry."
                     )
             except Exception as e:
                 logger.warning(f"[ADBBridge] PIN lookup failed: {e}")
@@ -3764,11 +3760,13 @@ class ADBBridge:
                                         )
                                 else:
                                     logger.warning(
-                                        f"[ADBBridge] No passcode found for PIN unlock"
+                                        f"[ADBBridge] No passcode found for device. "
+                                        f"Configure auto-unlock in Device Settings to enable automatic unlock."
                                     )
                             else:
                                 logger.warning(
-                                    f"[ADBBridge] Device still locked, no AUTO_UNLOCK config"
+                                    f"[ADBBridge] Device {device_id} is locked but no auto-unlock configured. "
+                                    f"Please configure Lock Screen settings in Device Settings page."
                                 )
                         except Exception as e:
                             logger.warning(
