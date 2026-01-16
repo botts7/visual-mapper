@@ -9,8 +9,8 @@
  * v0.0.11: Add moveStep() method for reordering steps
  */
 
-import { showToast } from './toast.js?v=0.4.0-beta.3.7';
-import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.4.0-beta.3.7';
+import { showToast } from './toast.js?v=0.4.0-beta.3.8';
+import { ensureDeviceUnlocked as sharedEnsureUnlocked } from './device-unlock.js?v=0.4.0-beta.3.8';
 
 /**
  * Get API base URL for proper routing (supports Home Assistant ingress)
@@ -203,12 +203,9 @@ class FlowRecorder {
                 }
             }
 
-            // Check for "Updated:" timestamp with very recent time (within last 3 seconds)
-            // This detects the BYD app's "Updated: 24/12/25 3:19 pm" refresh indicator
-            if (text.toLowerCase().includes('updated:')) {
-                console.log(`[FlowRecorder] Update timestamp detected: "${text}"`);
-                return true;
-            }
+            // NOTE: "Updated:" timestamps are NOT loading indicators
+            // They're static displays showing last refresh time, not active loading state
+            // Removed check that was causing infinite loops in BYD app
         }
 
         console.log('[FlowRecorder] No loading indicators detected');
