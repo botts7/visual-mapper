@@ -2558,6 +2558,9 @@ def main():
     parser.add_argument(
         "--info", action="store_true", help="Show hardware info and exit"
     )
+    parser.add_argument(
+        "--data-dir", type=str, default=None, help="Data directory for Q-table storage"
+    )
 
     args = parser.parse_args()
 
@@ -2595,6 +2598,7 @@ def main():
 
     # Start server
     use_coral = getattr(args, "use_coral", False)
+    data_dir = getattr(args, "data_dir", None)
     server = MLTrainingServer(
         args.broker,
         args.port,
@@ -2602,6 +2606,7 @@ def main():
         password=args.password,
         use_dqn=args.dqn,
         use_coral=use_coral,
+        data_dir=data_dir,
     )
 
     # Load existing Q-table if specified
