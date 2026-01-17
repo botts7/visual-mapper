@@ -500,6 +500,10 @@ export function startElementAutoRefresh(wizard) {
         };
     }
 
+    // Track when elements were last refreshed (for static screen optimization)
+    wizard._lastElementRefreshTime = 0;
+    wizard._lastScreenChangeTime = 0;
+
     // Start refresh with configured interval
     wizard.elementRefreshIntervalTimer = setInterval(() => {
         if (wizard.captureMode === 'streaming' && wizard.liveStream?.connectionState === 'connected') {
@@ -508,11 +512,28 @@ export function startElementAutoRefresh(wizard) {
             if (timeSinceFrame < 200) {
                 return;
             }
+
+            // Skip refresh if screen is static and elements already up-to-date
+            // Check if screen has changed since last element refresh
+            const liveStream = wizard.liveStream;
+            if (liveStream && !liveStream._screenChanged && liveStream._stableFrameCount > 5) {
+                // Screen is stable - check if we already have current elements
+                const timeSinceRefresh = performance.now() - (wizard._lastElementRefreshTime || 0);
+                if (timeSinceRefresh < intervalMs * 2) {
+                    // Elements were refreshed recently and screen hasn't changed - skip
+                    if (window.VM_DEBUG) {
+                        console.log('[StreamManager] Skipping refresh - screen static');
+                    }
+                    return;
+                }
+            }
+
             refreshElements(wizard);
+            wizard._lastElementRefreshTime = performance.now();
         }
     }, intervalMs);
 
-    console.log(`[StreamManager] Element auto-refresh started (${intervalMs / 1000}s interval, debounced)`);
+    console.log(`[StreamManager] Element auto-refresh started (${intervalMs / 1000}s interval, debounced, static-skip enabled)`);
 }
 
 /**

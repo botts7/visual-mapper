@@ -2111,6 +2111,8 @@ export function startElementAutoRefresh(wizard) {
             if (wizard.captureMode === 'streaming' && wizard.liveStream?.connectionState === 'connected') {
                 console.log('[FlowWizard] Smart refresh triggered');
                 refreshElements(wizard);
+                // Track refresh time for static screen optimization
+                wizard._lastElementRefreshTime = performance.now();
             }
         };
         // Note: onElementsCleared callback removed - was causing element flicker
