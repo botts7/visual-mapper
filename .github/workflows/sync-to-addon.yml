@@ -66,6 +66,13 @@ jobs:
           cp .build-version "$TARGET_DIR/.build-version"
           cp requirements.txt "$TARGET_DIR/requirements.txt" 2>/dev/null || true
 
+          # Sync addon config.yaml (HA addon UI configuration)
+          cp backend/config/config.yaml "$TARGET_DIR/config.yaml"
+
+          # Sync translations for HA addon UI
+          rm -rf "$TARGET_DIR/translations"
+          cp -r backend/translations/translations "$TARGET_DIR/translations"
+
           # Update config.yaml version
           sed -i "s/^version: .*/version: ${{ steps.info.outputs.version }}/" "$TARGET_DIR/config.yaml"
 
