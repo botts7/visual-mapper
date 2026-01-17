@@ -406,6 +406,21 @@ async def create_flow_from_template(template_id: str, request: dict):
             raise HTTPException(
                 status_code=409, detail="Flow already exists or could not be created"
             )
+
+        # CRITICAL: Reload scheduler to register periodic task for the new flow
+        # Without this, flows created from templates won't run on schedule
+        if device_id and flow.enabled:
+            if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
+                try:
+                    await deps.flow_scheduler.reload_flows(device_id)
+                    logger.info(
+                        f"[API] Reloaded scheduler for device {device_id} after template flow creation"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[API] Failed to reload scheduler after template flow creation: {e}"
+                    )
+
         return {"success": True, "flow": flow.dict()}
     except HTTPException:
         raise

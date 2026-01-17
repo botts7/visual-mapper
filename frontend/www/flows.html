@@ -901,6 +901,12 @@
 
             const { success, error, started_at, duration_ms, executed_steps, total_steps } = executionData;
 
+            // Check if flow has never been executed (success is null/undefined)
+            if (success === null || success === undefined) {
+                statusCell.innerHTML = '<span class="status-none" title="Never executed">—</span>';
+                return;
+            }
+
             // Format timestamp
             const timeAgo = formatTimeAgo(started_at);
 
