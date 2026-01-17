@@ -54,14 +54,9 @@ configuration:
       Logging level for the add-on. Use 'debug' for troubleshooting,
       'info' for normal operation.
 
-  labs:
-    name: Labs (Experimental Features)
+  labs_flow_consolidation:
+    name: "Labs: Flow Consolidation"
     description: >-
-      Experimental features that are still being tested. These may change
-      or be removed in future versions. Enable at your own risk.
-
-  labs.flow_consolidation:
-    name: Flow Consolidation
-    description: >-
-      Batches multiple flows targeting the same app into a single execution.
-      Reduces app launches and navigation steps. May improve battery life.
+      EXPERIMENTAL - Batches multiple flows targeting the same app into a
+      single execution. Reduces app launches and navigation steps.
+      May improve battery life. Enable at your own risk.
