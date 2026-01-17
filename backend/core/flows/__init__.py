@@ -14,6 +14,12 @@ from .flow_models import (
     FlowExecutionResult,
     sensor_to_simple_flow,
 )
+from .flow_consolidation import (
+    FlowConsolidator,
+    ConsolidationGroup,
+    ConsolidatedExecutionPlan,
+    ConsolidationStats,
+)
 
 __all__ = [
     "FlowManager",
@@ -26,4 +32,9 @@ __all__ = [
     "FlowList",
     "FlowExecutionResult",
     "sensor_to_simple_flow",
+    # Flow Consolidation (Beta)
+    "FlowConsolidator",
+    "ConsolidationGroup",
+    "ConsolidatedExecutionPlan",
+    "ConsolidationStats",
 ]

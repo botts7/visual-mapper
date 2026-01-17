@@ -1004,6 +1004,187 @@ class FlowExecutor:
 
         return result
 
+    async def execute_consolidated_flows(
+        self,
+        group: "ConsolidationGroup",
+        device_lock: "asyncio.Lock" = None,
+    ) -> FlowExecutionResult:
+        """
+        Execute a consolidated group of flows as a single optimized batch.
+
+        This method executes multiple flows targeting the same app with a single:
+        - App launch
+        - Unlock cycle
+        - Shared navigation prefix
+
+        Args:
+            group: ConsolidationGroup containing flows to execute
+            device_lock: Optional device lock for ADB operations
+
+        Returns:
+            FlowExecutionResult with combined results from all flows
+        """
+        from .flow_consolidation import ConsolidationGroup
+
+        start_time = time.time()
+
+        # Use first flow for device_id and app info
+        if not group.flows:
+            return FlowExecutionResult(
+                flow_id=group.group_id,
+                success=False,
+                executed_steps=0,
+                error_message="No flows in consolidation group",
+                execution_time_ms=0,
+            )
+
+        primary_flow = group.flows[0]
+        device_id = primary_flow.device_id
+
+        # Create consolidated result
+        result = FlowExecutionResult(
+            flow_id=group.group_id,
+            success=False,
+            executed_steps=0,
+            captured_sensors={},
+            execution_time_ms=0,
+        )
+
+        logger.info(
+            f"[FlowExecutor] Starting consolidated execution: "
+            f"{len(group.flows)} flows, app={group.app_package}, "
+            f"savings={group.estimated_savings_seconds:.1f}s"
+        )
+
+        try:
+            # Auto-wake screen
+            logger.info(f"  [Consolidated] Auto-waking screen")
+            wake_success = await self.adb_bridge.ensure_screen_on(
+                device_id, timeout_ms=3000
+            )
+            if not wake_success:
+                result.error_message = "Failed to wake screen"
+                logger.error(f"  [Consolidated] {result.error_message}")
+                result.execution_time_ms = int((time.time() - start_time) * 1000)
+                return result
+
+            await asyncio.sleep(0.5)
+
+            # Build consolidated step sequence
+            from .flow_consolidation import FlowConsolidator
+
+            consolidator = FlowConsolidator()
+            consolidated_steps = consolidator.build_consolidated_steps(group)
+
+            logger.info(
+                f"  [Consolidated] Built {len(consolidated_steps)} consolidated steps "
+                f"(from {sum(len(f.steps) for f in group.flows)} original steps)"
+            )
+
+            # Execute consolidated steps
+            all_captured_sensors = {}
+            step_results = []
+
+            for i, step in enumerate(consolidated_steps):
+                step_start = time.time()
+                step_desc = step.description or step.step_type
+
+                logger.debug(f"  [Consolidated] Step {i+1}: {step_desc}")
+
+                try:
+                    # Get the handler for this step type
+                    handler = self.step_handlers.get(step.step_type)
+                    if not handler:
+                        logger.warning(
+                            f"  [Consolidated] Unknown step type: {step.step_type}"
+                        )
+                        continue
+
+                    # Execute step (use primary flow's device_id)
+                    step_success, step_details = await handler(
+                        device_id, step, primary_flow
+                    )
+
+                    if step_success:
+                        result.executed_steps += 1
+
+                        # Collect sensor captures
+                        if (
+                            step.step_type == "capture_sensors"
+                            and step_details
+                            and "captures" in step_details
+                        ):
+                            all_captured_sensors.update(step_details["captures"])
+
+                        step_results.append(
+                            StepResult(
+                                step_index=i,
+                                step_type=step.step_type,
+                                description=step_desc,
+                                success=True,
+                                details=step_details or {},
+                            )
+                        )
+                    else:
+                        error_msg = step_details.get("error", "Step failed") if step_details else "Step failed"
+                        step_results.append(
+                            StepResult(
+                                step_index=i,
+                                step_type=step.step_type,
+                                description=step_desc,
+                                success=False,
+                                error_message=error_msg,
+                            )
+                        )
+                        logger.warning(f"  [Consolidated] Step {i+1} failed: {error_msg}")
+
+                except Exception as e:
+                    logger.error(f"  [Consolidated] Step {i+1} error: {e}")
+                    step_results.append(
+                        StepResult(
+                            step_index=i,
+                            step_type=step.step_type,
+                            description=step_desc,
+                            success=False,
+                            error_message=str(e),
+                        )
+                    )
+
+            # Mark success if we captured at least some sensors
+            result.captured_sensors = all_captured_sensors
+            result.step_results = step_results
+            result.success = len(all_captured_sensors) > 0
+
+            # Update each flow's metadata
+            for flow in group.flows:
+                flow.last_executed = datetime.now(timezone.utc)
+                flow.execution_count += 1
+                if result.success:
+                    flow.success_count += 1
+                    flow.last_success = True
+                    flow.last_error = None
+                else:
+                    flow.failure_count += 1
+                    flow.last_success = False
+                    flow.last_error = result.error_message
+                self.flow_manager.update_flow(flow)
+
+            logger.info(
+                f"[FlowExecutor] Consolidated execution completed: "
+                f"{result.executed_steps}/{len(consolidated_steps)} steps, "
+                f"{len(all_captured_sensors)} sensors captured"
+            )
+
+        except Exception as e:
+            result.success = False
+            result.error_message = f"Consolidated execution error: {str(e)}"
+            logger.error(
+                f"[FlowExecutor] Consolidated execution error: {e}", exc_info=True
+            )
+
+        result.execution_time_ms = int((time.time() - start_time) * 1000)
+        return result
+
     async def _learn_current_screen(
         self, device_id: str, package: str = None
     ) -> Optional[Dict]:

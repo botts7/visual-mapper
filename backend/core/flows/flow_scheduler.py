@@ -11,7 +11,9 @@ from datetime import datetime
 from dataclasses import dataclass
 
 from .flow_models import SensorCollectionFlow
+from .flow_consolidation import FlowConsolidator, ConsolidationGroup
 from services.device_identity import get_device_identity_resolver
+from services.feature_manager import get_feature_manager
 
 logger = logging.getLogger(__name__)
 
@@ -472,6 +474,18 @@ class FlowScheduler:
         from collections import deque
         self._activity_log: deque = deque(maxlen=100)
 
+        # Flow consolidation (beta feature)
+        fm = get_feature_manager()
+        self._consolidation_enabled = fm.is_enabled("flow_consolidation")
+        self._consolidator = FlowConsolidator(
+            config=fm.get_consolidation_config()
+        )
+
+        if self._consolidation_enabled:
+            logger.info("[FlowScheduler] Flow consolidation ENABLED")
+        else:
+            logger.debug("[FlowScheduler] Flow consolidation disabled")
+
         logger.info("[FlowScheduler] Initialized")
 
     def _log_activity(self, event_type: str, flow_id: str = None, device_id: str = None,
@@ -632,6 +646,20 @@ class FlowScheduler:
         queued = QueuedFlow(
             priority=priority, timestamp=time.time(), flow=flow, reason=reason
         )
+
+        # ============================================
+        # FLOW CONSOLIDATION (Beta)
+        # Check if this flow can be consolidated with pending flows
+        # Skip consolidation for on-demand flows (priority < 5)
+        # ============================================
+        if self._consolidation_enabled and reason == "periodic" and priority >= 5:
+            should_consolidate, group = self._try_consolidation(device_id, queued)
+            if should_consolidate and group:
+                # Execute consolidated group immediately
+                asyncio.create_task(
+                    self._execute_consolidated_group(device_id, group)
+                )
+                return
 
         # Track that this flow is now queued
         self._queued_flow_ids[device_id].add(flow_id)
@@ -1414,3 +1442,184 @@ class FlowScheduler:
             f"[FlowScheduler] Next flow in {time_until_next:.0f}s (> {grace_period_seconds}s grace) - will lock"
         )
         return True
+
+    # ============================================================================
+    # Flow Consolidation (Beta Feature)
+    # ============================================================================
+
+    def _try_consolidation(
+        self, device_id: str, queued: "QueuedFlow"
+    ) -> Tuple[bool, Optional[ConsolidationGroup]]:
+        """
+        Try to consolidate a new flow with pending flows
+
+        Args:
+            device_id: Device ID
+            queued: New QueuedFlow being scheduled
+
+        Returns:
+            Tuple of (should_consolidate, ConsolidationGroup or None)
+        """
+        # Add to pending consolidation queue
+        self._consolidator.add_pending_flow(device_id, queued)
+
+        # Check if we have enough flows for consolidation
+        pending = self._consolidator.get_pending_flows(device_id)
+        if len(pending) < 2:
+            return False, None
+
+        # Find consolidation opportunities
+        flows = [qf.flow for qf in pending]
+        groups = self._consolidator.find_consolidation_opportunities(flows)
+
+        if not groups:
+            return False, None
+
+        # Check if savings meet threshold
+        config = self._consolidator.config
+        min_savings = config.get("minimum_savings_threshold", 5)
+
+        for group in groups:
+            if group.estimated_savings_seconds >= min_savings:
+                logger.info(
+                    f"[FlowScheduler] Consolidation triggered: "
+                    f"{len(group.flows)} flows, savings={group.estimated_savings_seconds:.1f}s"
+                )
+                return True, group
+
+        return False, None
+
+    async def _execute_consolidated_group(
+        self, device_id: str, group: ConsolidationGroup
+    ):
+        """
+        Execute a consolidated group of flows
+
+        Args:
+            device_id: Device ID
+            group: ConsolidationGroup to execute
+        """
+        lock = self._device_locks.get(device_id)
+        if not lock:
+            lock = asyncio.Lock()
+            self._device_locks[device_id] = lock
+
+        self._log_activity(
+            "consolidation_started",
+            None,
+            device_id,
+            f"Executing {len(group.flows)} consolidated flows",
+            details={
+                "group_id": group.group_id,
+                "app_package": group.app_package,
+                "flows": [f.flow_id for f in group.flows],
+                "estimated_savings": group.estimated_savings_seconds,
+            },
+        )
+
+        async with lock:
+            try:
+                # Clear pending flows for this device
+                self._consolidator.clear_pending_flows(device_id)
+
+                # Resolve device ID (handle port changes)
+                resolved_device_id = device_id
+                if group.flows:
+                    resolved_device_id = self.resolve_device_id(group.flows[0]) or device_id
+
+                # Auto-unlock before execution
+                unlocked = await self._auto_unlock_if_needed(resolved_device_id)
+                if not unlocked:
+                    logger.warning(
+                        f"[FlowScheduler] Consolidated execution deferred - device locked"
+                    )
+                    self._log_activity(
+                        "consolidation_failed",
+                        None,
+                        device_id,
+                        "Device locked, could not unlock",
+                        success=False,
+                    )
+                    # Re-queue flows individually
+                    for flow in group.flows:
+                        await self.schedule_flow(flow, priority=15, reason="retry_after_consolidation_failed")
+                    return
+
+                # Execute consolidated flows via flow executor
+                result = await self.flow_executor.execute_consolidated_flows(
+                    group, device_lock=lock
+                )
+
+                # Record consolidation stats
+                self._consolidator.record_consolidation(group, result.success)
+
+                # Update metrics for each flow
+                for flow in group.flows:
+                    self._last_execution[flow.device_id] = datetime.now()
+                    self._total_executions[flow.device_id] = (
+                        self._total_executions.get(flow.device_id, 0) + 1
+                    )
+
+                if result.success:
+                    self._log_activity(
+                        "consolidation_completed",
+                        None,
+                        device_id,
+                        f"Consolidated execution completed: {len(group.flows)} flows",
+                        success=True,
+                        details={
+                            "group_id": group.group_id,
+                            "executed_steps": result.executed_steps,
+                            "sensors_captured": len(result.captured_sensors),
+                        },
+                    )
+
+                    # Auto-lock if appropriate
+                    if await self.should_lock_device(device_id):
+                        try:
+                            await self.flow_executor.adb_bridge.sleep_screen(device_id)
+                            logger.info(f"[FlowScheduler] Locked device after consolidation")
+                        except Exception as lock_error:
+                            logger.warning(f"[FlowScheduler] Failed to lock: {lock_error}")
+                else:
+                    self._log_activity(
+                        "consolidation_failed",
+                        None,
+                        device_id,
+                        f"Consolidated execution failed: {result.error_message}",
+                        success=False,
+                        details={"error": result.error_message},
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"[FlowScheduler] Consolidated execution error: {e}", exc_info=True
+                )
+                self._log_activity(
+                    "consolidation_failed",
+                    None,
+                    device_id,
+                    f"Error: {str(e)}",
+                    success=False,
+                )
+
+    def get_consolidation_stats(self) -> Dict:
+        """
+        Get flow consolidation statistics
+
+        Returns:
+            Dictionary with consolidation metrics
+        """
+        return self._consolidator.get_stats()
+
+    def get_pending_consolidations(self, device_id: Optional[str] = None) -> List[Dict]:
+        """
+        Get pending consolidation opportunities
+
+        Args:
+            device_id: Optional device to filter by
+
+        Returns:
+            List of pending consolidation info dicts
+        """
+        return self._consolidator.get_pending_consolidations(device_id)

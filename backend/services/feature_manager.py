@@ -9,6 +9,7 @@ Features:
 - ML components (torch, tensorflow)
 - Real app icons (cv2, extraction)
 - Advanced navigation (q-learning)
+- Flow consolidation (beta)
 """
 
 import os
@@ -35,6 +36,17 @@ class FeatureManager:
             "performance_monitoring": self._get_env_bool(
                 "PERFORMANCE_MONITORING", True
             ),
+            # Flow consolidation (beta) - batches flows targeting same app/screens
+            "flow_consolidation": self._get_env_bool("FLOW_CONSOLIDATION", False),
+        }
+
+        # Consolidation-specific configuration
+        self._consolidation_config = {
+            "window_seconds": int(os.environ.get("CONSOLIDATION_WINDOW_SECONDS", "30")),
+            "minimum_savings_threshold": int(
+                os.environ.get("MINIMUM_SAVINGS_THRESHOLD", "5")
+            ),
+            "max_batch_size": int(os.environ.get("MAX_CONSOLIDATION_BATCH", "10")),
         }
 
         # Log active flags
@@ -57,6 +69,10 @@ class FeatureManager:
     def get_all_flags(self) -> Dict[str, bool]:
         """Get all feature flags"""
         return self._flags.copy()
+
+    def get_consolidation_config(self) -> Dict[str, Any]:
+        """Get flow consolidation configuration"""
+        return self._consolidation_config.copy()
 
 
 # Singleton instance
