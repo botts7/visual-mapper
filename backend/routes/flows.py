@@ -729,6 +729,125 @@ async def clear_all_queues():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/scheduler/execution-status")
+async def get_execution_status():
+    """
+    Get detailed execution status for all flows.
+
+    Returns information about why flows may not be running:
+    - Device connection status
+    - Scheduler state (running/paused)
+    - Queue depths
+    - Last execution details
+    - Issues/blockers
+    """
+    deps = get_deps()
+    result = {
+        "scheduler_running": False,
+        "scheduler_paused": False,
+        "connected_devices": [],
+        "flows": []
+    }
+
+    try:
+        # Get connected devices
+        if deps.adb_bridge:
+            try:
+                devices = await deps.adb_bridge.get_connected_devices()
+                result["connected_devices"] = [d.get("id") for d in devices]
+            except Exception as e:
+                logger.warning(f"[API] Could not get connected devices: {e}")
+
+        # Get scheduler status
+        if hasattr(deps, "flow_scheduler") and deps.flow_scheduler:
+            scheduler_status = deps.flow_scheduler.get_status()
+            result["scheduler_running"] = scheduler_status.get("running", False)
+            result["scheduler_paused"] = scheduler_status.get("paused", False)
+            result["total_periodic_tasks"] = scheduler_status.get("total_periodic_tasks", 0)
+
+        # Get all flows with their execution status
+        if deps.flow_manager:
+            all_flows = deps.flow_manager.get_all_flows()
+
+            for flow in all_flows:
+                flow_status = {
+                    "flow_id": flow.flow_id,
+                    "device_id": flow.device_id,
+                    "stable_device_id": flow.stable_device_id,
+                    "name": flow.name,
+                    "enabled": flow.enabled,
+                    "last_executed": flow.last_executed,
+                    "last_success": flow.last_success,
+                    "last_error": flow.last_error,
+                    "execution_count": flow.execution_count,
+                    "update_interval_seconds": flow.update_interval_seconds,
+                    "issues": []
+                }
+
+                # Check for issues
+                device_connected = flow.device_id in result["connected_devices"]
+
+                # Also check if stable_device_id matches any connected device
+                if not device_connected and flow.stable_device_id:
+                    from services.device_identity import get_device_identity_resolver
+                    try:
+                        resolver = get_device_identity_resolver()
+                        current_conn = resolver.get_connection_id(flow.stable_device_id)
+                        if current_conn and current_conn in result["connected_devices"]:
+                            device_connected = True
+                            flow_status["resolved_device_id"] = current_conn
+                    except Exception:
+                        pass
+
+                if not flow.enabled:
+                    flow_status["issues"].append({
+                        "type": "disabled",
+                        "message": "Flow is disabled"
+                    })
+                elif not device_connected:
+                    flow_status["issues"].append({
+                        "type": "device_disconnected",
+                        "message": f"Device {flow.device_id} is not connected"
+                    })
+                elif result["scheduler_paused"]:
+                    flow_status["issues"].append({
+                        "type": "scheduler_paused",
+                        "message": "Scheduler is paused"
+                    })
+                elif not result["scheduler_running"]:
+                    flow_status["issues"].append({
+                        "type": "scheduler_stopped",
+                        "message": "Scheduler is not running"
+                    })
+
+                # Calculate time since last execution
+                if flow.last_executed:
+                    try:
+                        from datetime import datetime
+                        last_exec = datetime.fromisoformat(flow.last_executed.replace('Z', '+00:00'))
+                        now = datetime.now(last_exec.tzinfo) if last_exec.tzinfo else datetime.now()
+                        seconds_since = (now - last_exec).total_seconds()
+                        flow_status["seconds_since_last_execution"] = int(seconds_since)
+
+                        # Check if overdue
+                        if seconds_since > flow.update_interval_seconds * 2:
+                            if not flow_status["issues"]:  # Only add if no other issues
+                                flow_status["issues"].append({
+                                    "type": "overdue",
+                                    "message": f"Last run {int(seconds_since/60)} minutes ago (interval: {int(flow.update_interval_seconds/60)} min)"
+                                })
+                    except Exception as e:
+                        logger.debug(f"[API] Could not calculate time since execution: {e}")
+
+                result["flows"].append(flow_status)
+
+        return result
+
+    except Exception as e:
+        logger.error(f"[API] Failed to get execution status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # =============================================================================
 # WIZARD SESSION MANAGEMENT
 # =============================================================================

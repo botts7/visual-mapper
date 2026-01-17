@@ -848,7 +848,7 @@
                 updateFlowFilters();
                 renderFlowTable();
                 updateStats();
-                updateDisconnectedAlert(); // Show alert if devices are disconnected
+                await loadExecutionIssues(); // Load execution issues (also updates disconnected alert)
                 await loadAlerts(); // Load alerts after flows
                 await loadSchedulerStatus(); // Load scheduler status
                 await loadFlowExecutionStatuses(); // Load execution history for each flow
@@ -1067,6 +1067,134 @@
                         </p>
                     `;
                 }
+            }
+        }
+
+        // Store execution status for each flow
+        let flowExecutionIssues = {};
+
+        async function loadExecutionIssues() {
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/scheduler/execution-status`);
+                if (!response.ok) throw new Error('Failed to fetch execution status');
+
+                const data = await response.json();
+
+                // Store issues by flow_id
+                flowExecutionIssues = {};
+                for (const flow of data.flows || []) {
+                    if (flow.issues && flow.issues.length > 0) {
+                        flowExecutionIssues[flow.flow_id] = flow.issues;
+                    }
+                }
+
+                // Update the disconnected alert with better info
+                updateDisconnectedAlertWithIssues(data);
+
+                // Update flow table issue indicators
+                updateFlowIssueIndicators();
+
+                console.log(`[Flows] Loaded execution issues for ${Object.keys(flowExecutionIssues).length} flows`);
+            } catch (error) {
+                console.warn('[Flows] Could not load execution issues:', error);
+            }
+        }
+
+        function updateDisconnectedAlertWithIssues(data) {
+            const alert = document.getElementById('disconnectedAlert');
+            const disconnectedList = document.getElementById('disconnectedDevicesList');
+
+            // Collect all unique issues
+            const deviceIssues = new Map(); // device_id -> issues
+            for (const flow of data.flows || []) {
+                for (const issue of flow.issues || []) {
+                    if (issue.type === 'device_disconnected') {
+                        if (!deviceIssues.has(flow.device_id)) {
+                            deviceIssues.set(flow.device_id, {
+                                flows: [],
+                                stable_id: flow.stable_device_id
+                            });
+                        }
+                        deviceIssues.get(flow.device_id).flows.push(flow.name);
+                    }
+                }
+            }
+
+            if (deviceIssues.size === 0) {
+                alert.style.display = 'none';
+                return;
+            }
+
+            alert.style.display = 'block';
+
+            // Build list
+            let html = '';
+            for (const [deviceId, info] of deviceIssues) {
+                const identityInfo = deviceIdentityMap[deviceId] || {};
+                const model = identityInfo.model || deviceId;
+                const lastConnection = identityInfo.current_connection || deviceId;
+                const hasReconnectable = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/.test(lastConnection);
+
+                html += `
+                    <div style="display: flex; align-items: center; gap: 8px; margin: 8px 0; padding: 8px; background: var(--background-color); border-radius: 4px; flex-wrap: wrap;">
+                        <span style="font-size: 13px;"><strong>${escapeHtml(model)}</strong></span>
+                        <span style="color: var(--text-secondary); font-size: 12px;">(${info.flows.length} flow${info.flows.length > 1 ? 's' : ''} affected)</span>
+                        ${hasReconnectable ? `
+                            <button onclick="window.reconnectDevice('${lastConnection}')" class="btn btn-sm" style="padding: 2px 8px; font-size: 11px; background: #4CAF50; margin-left: auto;">
+                                Reconnect
+                            </button>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            // Add scheduler issues
+            if (data.scheduler_paused) {
+                html += `
+                    <div style="display: flex; align-items: center; gap: 8px; margin: 8px 0; padding: 8px; background: #ff980010; border: 1px solid #FF9800; border-radius: 4px;">
+                        <span style="font-size: 16px;">⏸️</span>
+                        <span style="font-size: 13px;"><strong>Scheduler is paused</strong> - flows will not execute automatically</span>
+                        <button onclick="resumeScheduler()" class="btn btn-sm" style="padding: 2px 8px; font-size: 11px; background: #4CAF50; margin-left: auto;">
+                            Resume
+                        </button>
+                    </div>
+                `;
+            }
+
+            disconnectedList.innerHTML = html;
+        }
+
+        function updateFlowIssueIndicators() {
+            // Add issue indicators to flow status cells
+            for (const [flowId, issues] of Object.entries(flowExecutionIssues)) {
+                const safeFlowId = flowId.replace(/[^a-zA-Z0-9]/g, '_');
+                const statusCell = document.getElementById(`last-run-status-${safeFlowId}`);
+
+                if (statusCell && issues.length > 0) {
+                    const issueMessages = issues.map(i => i.message).join('\n');
+                    const issueIcon = getIssueIcon(issues[0].type);
+
+                    // Add issue indicator if not already present
+                    if (!statusCell.querySelector('.issue-indicator')) {
+                        const indicator = document.createElement('span');
+                        indicator.className = 'issue-indicator';
+                        indicator.style.cssText = 'margin-left: 8px; cursor: help;';
+                        indicator.title = issueMessages;
+                        indicator.innerHTML = issueIcon;
+                        statusCell.appendChild(indicator);
+                    }
+                }
+            }
+        }
+
+        function getIssueIcon(issueType) {
+            switch (issueType) {
+                case 'device_disconnected': return '🔌';
+                case 'scheduler_paused': return '⏸️';
+                case 'scheduler_stopped': return '🛑';
+                case 'disabled': return '⏹️';
+                case 'overdue': return '⏰';
+                default: return '⚠️';
             }
         }
 

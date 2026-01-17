@@ -11,6 +11,7 @@ from datetime import datetime
 from dataclasses import dataclass
 
 from .flow_models import SensorCollectionFlow
+from services.device_identity import get_device_identity_resolver
 
 logger = logging.getLogger(__name__)
 
@@ -480,6 +481,41 @@ class FlowScheduler:
         self.execution_router.set_mqtt_manager(mqtt_manager)
         logger.info("[FlowScheduler] MQTT manager configured for execution routing")
 
+    def resolve_device_id(self, flow: SensorCollectionFlow) -> Optional[str]:
+        """
+        Resolve a flow's device_id to the currently connected device.
+
+        Uses stable_device_id to find the current connection_id, which may
+        have changed if the device reconnected with a different port.
+
+        Args:
+            flow: Flow to resolve device for
+
+        Returns:
+            Current connection_id if device is connected, None if not found
+        """
+        try:
+            resolver = get_device_identity_resolver()
+
+            # If flow has stable_device_id, try to resolve to current connection
+            if flow.stable_device_id:
+                current_conn = resolver.get_connection_id(flow.stable_device_id)
+                if current_conn and current_conn != flow.device_id:
+                    logger.info(
+                        f"[FlowScheduler] Resolved device {flow.stable_device_id}: "
+                        f"{flow.device_id} -> {current_conn}"
+                    )
+                    return current_conn
+                elif current_conn:
+                    return current_conn
+
+            # Fall back to original device_id
+            return flow.device_id
+
+        except Exception as e:
+            logger.warning(f"[FlowScheduler] Error resolving device ID: {e}")
+            return flow.device_id
+
     async def start(self):
         """Start the scheduler"""
         if self._running:
@@ -673,17 +709,29 @@ class FlowScheduler:
                 except ImportError:
                     pass
 
-                # 3. Acquire device lock (only needed for server/ADB execution)
+                # 3. Resolve device ID (handle port changes when device reconnects)
+                resolved_device_id = self.resolve_device_id(queued.flow)
+                if resolved_device_id and resolved_device_id != device_id:
+                    # Update flow's device_id in memory for this execution
+                    queued.flow.device_id = resolved_device_id
+                    logger.info(
+                        f"[FlowScheduler] Updated flow {queued.flow.flow_id} device: {device_id} -> {resolved_device_id}"
+                    )
+
+                # 4. Acquire device lock (only needed for server/ADB execution)
                 async with lock:
                     logger.info(
                         f"[FlowScheduler] Executing flow {queued.flow.flow_id} (priority={queued.priority}, reason={queued.reason}, method={getattr(queued.flow, 'execution_method', 'server')})"
                     )
 
                     try:
+                        # Use resolved device_id for unlock check
+                        exec_device_id = queued.flow.device_id
+
                         # ============================================
                         # AUTO-UNLOCK: Before flow execution
                         # ============================================
-                        unlocked = await self._auto_unlock_if_needed(device_id)
+                        unlocked = await self._auto_unlock_if_needed(exec_device_id)
                         if not unlocked:
                             # Re-queue instead of skipping - device may unlock soon
                             logger.warning(
