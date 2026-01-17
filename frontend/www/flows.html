@@ -110,6 +110,18 @@
             <div class="device-queue-grid" id="deviceQueueGrid">
                 <!-- Device queue cards will be rendered here -->
             </div>
+
+            <!-- Activity Log Panel -->
+            <details class="activity-log-panel" id="activityLogPanel" style="margin-top: 15px;">
+                <summary style="cursor: pointer; font-weight: 600; padding: 8px 0;">
+                    📋 Activity Log <span id="activityLogCount" style="color: var(--text-secondary); font-weight: normal;"></span>
+                </summary>
+                <div class="activity-log-container" id="activityLogContainer" style="max-height: 300px; overflow-y: auto; margin-top: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary);">
+                    <div id="activityLogList" style="padding: 8px;">
+                        <p style="color: var(--text-secondary); text-align: center; padding: 20px;">Loading activity...</p>
+                    </div>
+                </div>
+            </details>
         </div>
 
         <!-- Alerts Panel -->
@@ -1063,6 +1075,9 @@
                 const status = data.status;
 
                 renderSchedulerStatus(status);
+
+                // Also load activity log
+                loadActivityLog();
             } catch (error) {
                 console.error('Failed to load scheduler status:', error);
                 const deviceGrid = document.getElementById('deviceQueueGrid');
@@ -1074,6 +1089,79 @@
                     `;
                 }
             }
+        }
+
+        async function loadActivityLog() {
+            try {
+                const response = await fetch(`${window.flowManager.apiBase}/scheduler/activity?limit=30`);
+                if (!response.ok) throw new Error('Failed to fetch activity log');
+
+                const data = await response.json();
+                renderActivityLog(data.activity || []);
+            } catch (error) {
+                console.error('Failed to load activity log:', error);
+                const logList = document.getElementById('activityLogList');
+                if (logList) {
+                    logList.innerHTML = `<p style="color: var(--text-secondary); text-align: center; padding: 20px;">Unable to load activity</p>`;
+                }
+            }
+        }
+
+        function renderActivityLog(activities) {
+            const logList = document.getElementById('activityLogList');
+            const logCount = document.getElementById('activityLogCount');
+            if (!logList) return;
+
+            if (logCount) {
+                logCount.textContent = activities.length > 0 ? `(${activities.length} recent)` : '';
+            }
+
+            if (activities.length === 0) {
+                logList.innerHTML = `<p style="color: var(--text-secondary); text-align: center; padding: 20px;">No recent activity</p>`;
+                return;
+            }
+
+            // Reverse to show most recent first
+            const reversed = [...activities].reverse();
+
+            const icons = {
+                'queued': '📥',
+                'executing': '▶️',
+                'completed': '✅',
+                'failed': '❌',
+                'deferred': '⏸️',
+                'skipped': '⏭️',
+                'unlock_attempt': '🔓',
+                'unlock_success': '🔓',
+                'unlock_failed': '🔒'
+            };
+
+            const colors = {
+                'queued': '#2196F3',
+                'executing': '#FF9800',
+                'completed': '#4CAF50',
+                'failed': '#F44336',
+                'deferred': '#9E9E9E',
+                'skipped': '#9E9E9E',
+                'unlock_attempt': '#FF9800',
+                'unlock_success': '#4CAF50',
+                'unlock_failed': '#F44336'
+            };
+
+            logList.innerHTML = reversed.map(entry => {
+                const icon = icons[entry.event_type] || '📋';
+                const color = colors[entry.event_type] || 'var(--text-secondary)';
+                const time = new Date(entry.timestamp).toLocaleTimeString();
+                const flowName = entry.flow_id ? `<strong>${entry.flow_id}</strong>: ` : '';
+
+                return `
+                    <div style="padding: 6px 8px; border-bottom: 1px solid var(--border-color); font-size: 13px; display: flex; gap: 8px; align-items: flex-start;">
+                        <span style="flex-shrink: 0;">${icon}</span>
+                        <span style="color: var(--text-secondary); flex-shrink: 0; font-size: 12px;">${time}</span>
+                        <span style="color: ${color}; flex: 1;">${flowName}${escapeHtml(entry.message || entry.event_type)}</span>
+                    </div>
+                `;
+            }).join('');
         }
 
         // Store execution status for each flow

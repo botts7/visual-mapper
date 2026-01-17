@@ -863,6 +863,85 @@ async def get_execution_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/scheduler/activity")
+async def get_scheduler_activity(limit: int = Query(default=50, ge=1, le=100)):
+    """
+    Get recent scheduler activity log for UI display.
+
+    Returns a list of recent events including:
+    - queued: Flow added to queue
+    - executing: Flow starting execution
+    - completed: Flow finished successfully
+    - failed: Flow execution failed
+    - deferred: Flow deferred due to locked device
+    - skipped: Flow skipped (already queued)
+    - unlock_attempt: Device unlock attempted
+    - unlock_success: Device unlocked successfully
+    - unlock_failed: Device unlock failed
+    """
+    deps = get_deps()
+    try:
+        if not hasattr(deps, "flow_scheduler") or not deps.flow_scheduler:
+            return {"activity": [], "message": "Scheduler not initialized"}
+
+        activity = deps.flow_scheduler.get_activity_log(limit)
+        return {
+            "activity": activity,
+            "count": len(activity),
+            "scheduler_running": deps.flow_scheduler.is_running,
+            "scheduler_paused": deps.flow_scheduler.is_paused
+        }
+    except Exception as e:
+        logger.error(f"[API] Failed to get scheduler activity: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scheduler/queue-details")
+async def get_queue_details():
+    """
+    Get detailed queue information for all devices.
+
+    Returns actual flow IDs in queue (not just counts).
+    """
+    deps = get_deps()
+    try:
+        if not hasattr(deps, "flow_scheduler") or not deps.flow_scheduler:
+            return {"queues": {}}
+
+        scheduler = deps.flow_scheduler
+        queues = {}
+
+        for device_id in scheduler._queued_flow_ids:
+            flow_ids = list(scheduler._queued_flow_ids.get(device_id, set()))
+            queue_depth = scheduler._queue_depths.get(device_id, 0)
+
+            # Get flow names for better UI display
+            flows_info = []
+            for flow_id in flow_ids:
+                flow = scheduler.flow_manager.get_flow(device_id, flow_id)
+                if flow:
+                    flows_info.append({
+                        "flow_id": flow_id,
+                        "name": flow.name,
+                        "update_interval": flow.update_interval_seconds
+                    })
+                else:
+                    flows_info.append({"flow_id": flow_id, "name": flow_id})
+
+            last_exec = scheduler._last_execution.get(device_id)
+            queues[device_id] = {
+                "queue_depth": queue_depth,
+                "queued_flows": flows_info,
+                "last_execution": last_exec.isoformat() if last_exec else None,
+                "total_executions": scheduler._total_executions.get(device_id, 0)
+            }
+
+        return {"queues": queues}
+    except Exception as e:
+        logger.error(f"[API] Failed to get queue details: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # =============================================================================
 # WIZARD SESSION MANAGEMENT
 # =============================================================================

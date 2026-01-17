@@ -468,7 +468,30 @@ class FlowScheduler:
         self._running = False
         self._paused = False  # Pause state for periodic scheduling
 
+        # Activity log for UI visibility (circular buffer, max 100 entries)
+        from collections import deque
+        self._activity_log: deque = deque(maxlen=100)
+
         logger.info("[FlowScheduler] Initialized")
+
+    def _log_activity(self, event_type: str, flow_id: str = None, device_id: str = None,
+                      message: str = None, success: bool = None, details: dict = None):
+        """Log scheduler activity for UI visibility"""
+        from datetime import datetime
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "event_type": event_type,  # queued, executing, completed, failed, unlock_attempt, unlock_failed, skipped
+            "flow_id": flow_id,
+            "device_id": device_id,
+            "message": message,
+            "success": success,
+            "details": details or {}
+        }
+        self._activity_log.append(entry)
+
+    def get_activity_log(self, limit: int = 50) -> list:
+        """Get recent scheduler activity for UI display"""
+        return list(self._activity_log)[-limit:]
 
     def set_mqtt_manager(self, mqtt_manager):
         """
@@ -598,6 +621,8 @@ class FlowScheduler:
             logger.info(
                 f"[FlowScheduler] Skipping {flow_id} - already queued (queue_depth={self._queue_depths.get(device_id, 0)})"
             )
+            self._log_activity("skipped", flow_id, device_id,
+                               f"Already queued (depth={self._queue_depths.get(device_id, 0)})")
             return
 
         # Create queued flow item
@@ -617,6 +642,9 @@ class FlowScheduler:
         logger.debug(
             f"[FlowScheduler] Queued flow {flow_id} (priority={priority}, reason={reason}, queue_depth={self._queue_depths[device_id]})"
         )
+        self._log_activity("queued", flow_id, device_id,
+                           f"Priority {priority}, reason: {reason}",
+                           details={"queue_depth": self._queue_depths[device_id], "reason": reason})
 
         # Start scheduler task if not running
         if (
@@ -731,12 +759,16 @@ class FlowScheduler:
                         # ============================================
                         # AUTO-UNLOCK: Before flow execution
                         # ============================================
+                        self._log_activity("executing", queued.flow.flow_id, exec_device_id,
+                                           f"Starting execution ({queued.flow.name})")
                         unlocked = await self._auto_unlock_if_needed(exec_device_id)
                         if not unlocked:
                             # Re-queue instead of skipping - device may unlock soon
                             logger.warning(
                                 f"[FlowScheduler] Flow {queued.flow.flow_id} deferred - device locked, re-queuing in 10s"
                             )
+                            self._log_activity("deferred", queued.flow.flow_id, exec_device_id,
+                                               "Device locked, re-queuing in 10s", success=False)
                             queue.task_done()
 
                             # Re-queue with slight delay (don't block the queue)
@@ -776,6 +808,16 @@ class FlowScheduler:
                             logger.debug(
                                 f"[FlowScheduler] Flow {queued.flow.flow_id} completed successfully via {method}{fallback_msg}"
                             )
+                            self._log_activity("completed", queued.flow.flow_id, device_id,
+                                               f"Completed successfully via {method}{fallback_msg}",
+                                               success=True,
+                                               details={"steps": result.executed_steps, "method": method})
+                        else:
+                            error_msg = result.error_message or "Unknown error"
+                            self._log_activity("failed", queued.flow.flow_id, device_id,
+                                               f"Failed: {error_msg[:100]}",
+                                               success=False,
+                                               details={"error": error_msg, "failed_step": result.failed_step})
 
                             # ============================================
                             # AUTO-LOCK: After successful flow execution
@@ -1208,8 +1250,16 @@ class FlowScheduler:
         # Delegate to unified unlock method in FlowExecutor
         # (has retry logic, cooldown check, swipe + PIN support)
         # FlowExecutor returns dict with "success" key - extract it for bool return
+        self._log_activity("unlock_attempt", None, device_id, "Attempting device unlock")
         result = await self.flow_executor.auto_unlock_if_needed(device_id)
-        return result.get("success", False)
+        success = result.get("success", False)
+        if success:
+            self._log_activity("unlock_success", None, device_id, "Device unlocked", success=True)
+        else:
+            error_msg = result.get("error", "Unknown unlock error")
+            self._log_activity("unlock_failed", None, device_id, error_msg, success=False,
+                               details={"reason": result.get("reason", "unknown")})
+        return success
 
     def get_time_until_next_flow(self, device_id: str) -> Optional[float]:
         """
