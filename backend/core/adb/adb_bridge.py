@@ -3759,7 +3759,9 @@ class ADBBridge:
                                 LockStrategy,
                             )
 
-                            security_mgr = DeviceSecurityManager()
+                            # Use the correct data_dir for security config lookup
+                            data_dir = self._data_dir if self._data_dir else "data"
+                            security_mgr = DeviceSecurityManager(data_dir=data_dir)
                             config = security_mgr.get_lock_config(device_id)
 
                             # Also try stable_device_id
