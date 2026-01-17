@@ -1239,9 +1239,11 @@ class FlowScheduler:
         time_since_last = time.time() - last_attempt
         if time_since_last < self._unlock_debounce_seconds:
             remaining = int(self._unlock_debounce_seconds - time_since_last)
-            logger.debug(
-                f"[FlowScheduler] Unlock debounce active for {device_id} ({remaining}s remaining)"
+            logger.warning(
+                f"[FlowScheduler] Unlock debounce blocking {device_id} ({remaining}s remaining) - skipping unlock"
             )
+            self._log_activity("unlock_debounced", None, device_id,
+                               f"Debounce active ({remaining}s remaining)", success=False)
             return False
 
         # Record unlock attempt time for debounce

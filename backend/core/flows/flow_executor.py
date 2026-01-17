@@ -262,13 +262,16 @@ class FlowExecutor:
 
         # Get security config (try both device_id and stable_device_id)
         security_config = self.security_manager.get_lock_config(device_id)
+        logger.info(f"[FlowExecutor] Security config for {device_id}: {security_config is not None}")
         if not security_config:
             try:
                 stable_id = await self.adb_bridge.get_device_serial(device_id)
+                logger.info(f"[FlowExecutor] Trying stable_id lookup: {stable_id}")
                 if stable_id and stable_id != device_id:
                     security_config = self.security_manager.get_lock_config(stable_id)
+                    logger.info(f"[FlowExecutor] Security config via stable_id: {security_config is not None}")
             except Exception as e:
-                logger.debug(f"[FlowExecutor] Could not get security config via stable_id: {e}")
+                logger.warning(f"[FlowExecutor] Could not get security config via stable_id: {e}")
 
         has_auto_unlock = (
             security_config
@@ -279,13 +282,18 @@ class FlowExecutor:
         passcode = None
         if has_auto_unlock:
             passcode = self.security_manager.get_passcode(device_id)
+            logger.info(f"[FlowExecutor] Passcode for {device_id}: {'found' if passcode else 'NOT FOUND'}")
             if not passcode:
                 try:
                     stable_id = await self.adb_bridge.get_device_serial(device_id)
+                    logger.info(f"[FlowExecutor] Trying passcode via stable_id: {stable_id}")
                     if stable_id and stable_id != device_id:
                         passcode = self.security_manager.get_passcode(stable_id)
+                        logger.info(f"[FlowExecutor] Passcode via stable_id: {'found' if passcode else 'NOT FOUND'}")
                 except Exception as e:
-                    logger.debug(f"[FlowExecutor] Could not get passcode via stable_id: {e}")
+                    logger.warning(f"[FlowExecutor] Could not get passcode via stable_id: {e}")
+        else:
+            logger.info(f"[FlowExecutor] AUTO_UNLOCK not configured for {device_id}")
 
         # Unlock attempts with retry logic
         for attempt in range(MAX_UNLOCK_ATTEMPTS):

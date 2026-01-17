@@ -1133,7 +1133,8 @@
                 'skipped': '⏭️',
                 'unlock_attempt': '🔓',
                 'unlock_success': '🔓',
-                'unlock_failed': '🔒'
+                'unlock_failed': '🔒',
+                'unlock_debounced': '⏳'
             };
 
             const colors = {
@@ -1145,7 +1146,8 @@
                 'skipped': '#9E9E9E',
                 'unlock_attempt': '#FF9800',
                 'unlock_success': '#4CAF50',
-                'unlock_failed': '#F44336'
+                'unlock_failed': '#F44336',
+                'unlock_debounced': '#9E9E9E'
             };
 
             logList.innerHTML = reversed.map(entry => {
