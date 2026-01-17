@@ -247,7 +247,7 @@ async def update_device_name(ip: str, port: int, name: str):
 
 
 class BackendPreference(BaseModel):
-    capture_backend: Optional[str] = None  # "auto", "adbutils", "subprocess"
+    capture_backend: Optional[str] = None  # "auto", "companion", "adbutils", "subprocess"
     shell_method: Optional[str] = None  # "auto", "persistent", "regular"
 
 
@@ -273,7 +273,7 @@ async def get_backend_preference(device_id: str):
         "device_id": device_id,
         "capture_backend": current_capture,
         "shell_method": shell_method,
-        "available_capture_backends": ["auto", "adbutils", "subprocess"],
+        "available_capture_backends": ["auto", "companion", "adbutils", "subprocess"],
         "available_shell_methods": ["auto", "persistent", "regular"]
     }
 
@@ -289,7 +289,7 @@ async def set_backend_preference(device_id: str, prefs: BackendPreference):
 
     # Update capture backend preference
     if prefs.capture_backend:
-        valid_backends = ["auto", "adbutils", "subprocess"]
+        valid_backends = ["auto", "companion", "adbutils", "subprocess"]
         if prefs.capture_backend not in valid_backends:
             raise HTTPException(
                 status_code=400,
@@ -363,6 +363,6 @@ async def get_all_backend_preferences():
 
     return {
         "preferences": all_prefs,
-        "available_capture_backends": ["auto", "adbutils", "subprocess"],
+        "available_capture_backends": ["auto", "companion", "adbutils", "subprocess"],
         "available_shell_methods": ["auto", "persistent", "regular"]
     }

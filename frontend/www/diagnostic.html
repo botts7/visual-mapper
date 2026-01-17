@@ -339,10 +339,14 @@
                             <h4>Capture Backend</h4>
                             <select id="captureBackendSelect" class="form-select" style="margin-top:8px;">
                                 <option value="auto">Auto (recommended)</option>
+                                <option value="companion">Companion App (lowest latency)</option>
                                 <option value="adbutils">adbutils (Python)</option>
                                 <option value="subprocess">subprocess (adb_bridge)</option>
                             </select>
                             <div class="benchmark-label" style="margin-top:6px;">Used for screenshots</div>
+                            <div id="companionStreamStatus" style="margin-top:8px;display:none;font-size:11px;color:var(--success-color);">
+                                Companion app streaming active
+                            </div>
                         </div>
                         <div class="benchmark-card">
                             <h4>Shell Method</h4>

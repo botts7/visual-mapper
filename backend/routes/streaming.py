@@ -286,6 +286,65 @@ class SharedCaptureManager:
             "frame_counts": dict(self._frame_counts),
         }
 
+    async def inject_frame(self, device_id: str, frame_data: bytes):
+        """
+        Inject a frame from an external source (like companion app).
+
+        This allows the companion app to push frames that get distributed
+        to all subscribers for that device without starting the ADB producer.
+
+        Args:
+            device_id: The device identifier
+            frame_data: Binary frame data (8-byte header + JPEG)
+        """
+        async with self._lock:
+            if device_id not in self._subscribers:
+                return  # No subscribers for this device
+
+            # Update frame count
+            self._frame_counts[device_id] = self._frame_counts.get(device_id, 0) + 1
+            frame_number = self._frame_counts[device_id]
+
+            # Broadcast to all subscribers
+            queues = self._subscribers[device_id]
+            for q in queues:
+                try:
+                    q.put_nowait(frame_data)
+                except asyncio.QueueFull:
+                    try:
+                        q.get_nowait()
+                        q.put_nowait(frame_data)
+                    except:
+                        pass
+
+            # Log periodically
+            if frame_number == 1 or frame_number % 60 == 0:
+                logger.info(
+                    f"[SharedCapture] Injected frame {frame_number} for {device_id}: "
+                    f"{len(frame_data)} bytes, {len(queues)} subscribers"
+                )
+
+    async def subscribe_without_producer(self, device_id: str) -> asyncio.Queue:
+        """
+        Subscribe to frames for a device without starting the ADB producer.
+
+        Use this when frames will be provided by an external source
+        (like the companion app) via inject_frame().
+        """
+        async with self._lock:
+            if device_id not in self._subscribers:
+                self._subscribers[device_id] = []
+                self._frame_counts[device_id] = 0
+
+            queue: asyncio.Queue = asyncio.Queue(maxsize=3)
+            self._subscribers[device_id].append(queue)
+
+            logger.info(
+                f"[SharedCapture] New subscriber (no producer) for {device_id}, "
+                f"total: {len(self._subscribers[device_id])}"
+            )
+            return queue
+
 
 # Global shared capture manager instance
 shared_capture_manager = SharedCaptureManager()
@@ -701,3 +760,149 @@ async def stream_device_mjpeg_v2(websocket: WebSocket, device_id: str):
 async def get_shared_capture_stats():
     """Get statistics about the shared capture pipeline."""
     return {"success": True, "shared_capture": shared_capture_manager.get_stats()}
+
+
+# =============================================================================
+# COMPANION APP STREAMING - Receives frames from Android companion app
+# =============================================================================
+
+# Import companion receiver
+from core.streaming.companion_receiver import companion_stream_manager
+
+
+@router.websocket("/ws/companion-stream/{device_id}")
+async def companion_stream(websocket: WebSocket, device_id: str):
+    """
+    WebSocket endpoint for receiving screen captures from Android companion app.
+
+    The companion app uses MediaProjection to capture the screen and streams
+    MJPEG frames to this endpoint. Frames are then injected into the
+    SharedCaptureManager for distribution to all web UI clients.
+
+    Wire format (same as MJPEG):
+    - Binary JPEG with 8-byte header
+        - Bytes 0-3: Frame number (uint32 big-endian)
+        - Bytes 4-7: Capture time ms (uint32 big-endian)
+        - Bytes 8+: JPEG image data
+
+    Quality control messages (JSON to companion):
+    - {"type": "quality", "quality": "fast"}
+    - {"type": "pause"}
+    - {"type": "resume"}
+    """
+    await websocket.accept()
+
+    # Register device with companion receiver
+    registered = await companion_stream_manager.register_device(device_id)
+    if not registered:
+        logger.warning(f"[Companion-Stream] Device {device_id} already streaming")
+        await websocket.send_json({
+            "type": "error",
+            "message": "Device already streaming from companion"
+        })
+        await websocket.close()
+        return
+
+    logger.info(f"[Companion-Stream] Companion app connected for device: {device_id}")
+
+    # Track frames for SharedCaptureManager injection
+    frames_received = 0
+
+    # Set up frame callback to inject into SharedCaptureManager
+    def on_companion_frame(frame_data: bytes):
+        """Inject companion frame into SharedCaptureManager for web clients."""
+        nonlocal frames_received
+        frames_received += 1
+
+        # Get subscribers for this device
+        if device_id in shared_capture_manager._subscribers:
+            queues = shared_capture_manager._subscribers[device_id]
+            for q in queues:
+                try:
+                    q.put_nowait(frame_data)
+                except asyncio.QueueFull:
+                    try:
+                        q.get_nowait()
+                        q.put_nowait(frame_data)
+                    except:
+                        pass
+
+    companion_stream_manager.set_frame_callback(device_id, on_companion_frame)
+
+    try:
+        # Send config to companion app
+        await websocket.send_json({
+            "type": "config",
+            "message": "Companion stream ready. Send binary MJPEG frames.",
+            "quality": "fast"
+        })
+
+        while True:
+            try:
+                # Receive frame from companion app
+                message = await websocket.receive()
+
+                if "bytes" in message:
+                    # Binary frame data
+                    frame_data = message["bytes"]
+                    await companion_stream_manager.receive_frame(device_id, frame_data)
+
+                elif "text" in message:
+                    # JSON control message from companion
+                    import json
+                    try:
+                        data = json.loads(message["text"])
+                        msg_type = data.get("type", "")
+                        if msg_type == "stats":
+                            # Companion requesting stats
+                            stats = companion_stream_manager.get_stats(device_id)
+                            await websocket.send_json({
+                                "type": "stats",
+                                "data": stats
+                            })
+                        elif msg_type == "ping":
+                            await websocket.send_json({"type": "pong", "timestamp": time.time()})
+                    except json.JSONDecodeError:
+                        pass
+
+            except WebSocketDisconnect:
+                logger.info(f"[Companion-Stream] Companion disconnected: {device_id}")
+                break
+            except Exception as e:
+                logger.error(f"[Companion-Stream] Error receiving frame: {e}")
+                break
+
+    except Exception as e:
+        logger.error(f"[Companion-Stream] Connection error: {e}")
+    finally:
+        # Cleanup
+        companion_stream_manager.remove_frame_callback(device_id)
+        await companion_stream_manager.unregister_device(device_id)
+        logger.info(
+            f"[Companion-Stream] Stream ended for device: {device_id}, "
+            f"frames received: {frames_received}"
+        )
+
+
+@router.get("/stream/companion/stats")
+async def get_companion_stream_stats():
+    """Get statistics about companion app streaming."""
+    return {
+        "success": True,
+        "companion_streams": companion_stream_manager.get_stats(),
+        "active_devices": companion_stream_manager.get_active_devices()
+    }
+
+
+@router.get("/stream/companion/{device_id}/status")
+async def get_companion_device_status(device_id: str):
+    """Get companion streaming status for a specific device."""
+    is_streaming = companion_stream_manager.is_streaming(device_id)
+    stats = companion_stream_manager.get_stats(device_id)
+
+    return {
+        "success": True,
+        "device_id": device_id,
+        "companion_streaming": is_streaming,
+        "stats": stats
+    }

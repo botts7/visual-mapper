@@ -40,6 +40,7 @@ class CaptureBackend(Enum):
     ADBUTILS = "adbutils"
     ADB_BRIDGE = "adb_bridge"
     SCRCPY = "scrcpy"
+    COMPANION = "companion"  # Android companion app streaming
 
 
 @dataclass
