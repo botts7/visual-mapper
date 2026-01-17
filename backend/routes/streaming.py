@@ -889,6 +889,7 @@ async def get_companion_stream_stats():
     """Get statistics about companion app streaming."""
     return {
         "success": True,
+        "version": "v2",  # Marker to confirm new code deployed
         "companion_streams": companion_stream_manager.get_stats(),
         "active_devices": companion_stream_manager.get_active_devices()
     }
