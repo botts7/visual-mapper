@@ -13,7 +13,7 @@ import os
 import uuid
 from pathlib import Path
 from typing import List, Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from .sensor_models import SensorDefinition, SensorList
@@ -79,7 +79,7 @@ class SensorManager:
         sensor_file = self._get_sensor_file(sensor_list.device_id)
 
         try:
-            sensor_list.last_modified = datetime.now()
+            sensor_list.last_modified = datetime.now(timezone.utc)
             with open(sensor_file, "w", encoding="utf-8") as f:
                 json.dump(
                     sensor_list.model_dump(mode="json"),
@@ -124,7 +124,7 @@ class SensorManager:
             )
 
         # Set timestamps
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         sensor.created_at = now
         sensor.updated_at = now
 
@@ -253,7 +253,7 @@ class SensorManager:
         found = False
         for i, s in enumerate(sensor_list.sensors):
             if s.sensor_id == sensor.sensor_id:
-                sensor.updated_at = datetime.now()
+                sensor.updated_at = datetime.now(timezone.utc)
                 sensor_list.sensors[i] = sensor
                 found = True
                 break

@@ -10,7 +10,7 @@ import uuid
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from PIL import Image
 import io
 
@@ -855,7 +855,7 @@ class FlowExecutor:
             result.success = result.executed_steps == len(flow.steps)
 
             # Update flow metadata
-            flow.last_executed = datetime.now()
+            flow.last_executed = datetime.now(timezone.utc)
             flow.execution_count += 1
 
             if result.success:
@@ -2454,7 +2454,7 @@ class FlowExecutor:
                 # 6. Persist captured sensor values to disk (fixes stale current_value issue)
                 for sensor, value in sensor_updates:
                     sensor.current_value = str(value) if value is not None else None
-                    sensor.last_updated = datetime.now()
+                    sensor.last_updated = datetime.now(timezone.utc)
                     self.sensor_manager.update_sensor(sensor)
                     logger.debug(f"  Persisted {sensor.friendly_name} = {value}")
 
