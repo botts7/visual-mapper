@@ -474,17 +474,17 @@ class FlowScheduler:
         from collections import deque
         self._activity_log: deque = deque(maxlen=100)
 
-        # Flow consolidation (beta feature)
+        # Flow consolidation (Labs feature)
         fm = get_feature_manager()
-        self._consolidation_enabled = fm.is_enabled("flow_consolidation")
+        self._consolidation_enabled = fm.is_lab_enabled("flow_consolidation")
         self._consolidator = FlowConsolidator(
-            config=fm.get_consolidation_config()
+            config=fm.get_lab_config("flow_consolidation")
         )
 
         if self._consolidation_enabled:
-            logger.info("[FlowScheduler] Flow consolidation ENABLED")
+            logger.info("[FlowScheduler] Labs: Flow consolidation ENABLED")
         else:
-            logger.debug("[FlowScheduler] Flow consolidation disabled")
+            logger.debug("[FlowScheduler] Labs: Flow consolidation disabled")
 
         logger.info("[FlowScheduler] Initialized")
 

@@ -64,6 +64,8 @@ options:
   ml_use_dqn: false
   ml_batch_size: 64
   ml_save_interval: 60
+  labs:
+    flow_consolidation: false
 
 # Options schema
 schema:
@@ -90,6 +92,8 @@ schema:
   ml_use_dqn: bool
   ml_batch_size: int(16,256)
   ml_save_interval: int(10,300)
+  labs:
+    flow_consolidation: bool?
 
 # Service dependencies
 services:
