@@ -93,7 +93,8 @@ schema:
   ml_batch_size: int(16,256)
   ml_save_interval: int(10,300)
   labs:
-    flow_consolidation: bool?
+    schema:
+      flow_consolidation: bool?
 
 # Service dependencies
 services:
