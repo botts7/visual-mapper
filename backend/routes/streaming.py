@@ -364,6 +364,32 @@ async def get_stream_isolation_stats():
     return {"success": True, "stream": deps.adb_bridge.get_stream_stats()}
 
 
+# IMPORTANT: Companion routes must come BEFORE {device_id} routes to avoid path conflicts
+@router.get("/stream/companion/stats")
+async def get_companion_stream_stats():
+    """Get statistics about companion app streaming."""
+    return {
+        "success": True,
+        "version": "v2",  # Marker to confirm new code deployed
+        "companion_streams": companion_stream_manager.get_stats(),
+        "active_devices": companion_stream_manager.get_active_devices()
+    }
+
+
+@router.get("/stream/companion/{device_id}/status")
+async def get_companion_device_status(device_id: str):
+    """Get companion streaming status for a specific device."""
+    is_streaming = companion_stream_manager.is_streaming(device_id)
+    stats = companion_stream_manager.get_stats(device_id)
+
+    return {
+        "success": True,
+        "device_id": device_id,
+        "companion_streaming": is_streaming,
+        "stats": stats
+    }
+
+
 @router.get("/stream/{device_id}/stats")
 async def get_device_stream_stats(device_id: str):
     """Get streaming stats for a specific device"""
@@ -882,28 +908,3 @@ async def companion_stream(websocket: WebSocket, device_id: str):
             f"[Companion-Stream] Stream ended for device: {device_id}, "
             f"frames received: {frames_received}"
         )
-
-
-@router.get("/stream/companion/stats")
-async def get_companion_stream_stats():
-    """Get statistics about companion app streaming."""
-    return {
-        "success": True,
-        "version": "v2",  # Marker to confirm new code deployed
-        "companion_streams": companion_stream_manager.get_stats(),
-        "active_devices": companion_stream_manager.get_active_devices()
-    }
-
-
-@router.get("/stream/companion/{device_id}/status")
-async def get_companion_device_status(device_id: str):
-    """Get companion streaming status for a specific device."""
-    is_streaming = companion_stream_manager.is_streaming(device_id)
-    stats = companion_stream_manager.get_stats(device_id)
-
-    return {
-        "success": True,
-        "device_id": device_id,
-        "companion_streaming": is_streaming,
-        "stats": stats
-    }
