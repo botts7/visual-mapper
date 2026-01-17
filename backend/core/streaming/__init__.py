@@ -1,5 +1,6 @@
 """
 Streaming module for companion app video streaming.
+Provides low-latency screen capture from Android companion app.
 """
 
 from .companion_receiver import CompanionStreamReceiver, companion_stream_manager
