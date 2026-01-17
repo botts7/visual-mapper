@@ -80,6 +80,11 @@ import {
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
 import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.3.21';
+import {
+    drawElementOverlays,
+    drawElementOverlaysScaled,
+    drawTextLabel
+} from './canvas-overlay-renderer.js?v=0.4.0-beta.3.21';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -5291,174 +5296,6 @@ export function renderFilteredElements(wizard) {
             await Dialogs.addActionStepFromElement(wizard, interactiveElements[index]);
         });
     });
-}
-
-// ==========================================
-// Drawing Methods
-// ==========================================
-
-/**
- * Draw UI element overlays on canvas
- */
-export function drawElementOverlays(wizard) {
-    if (!wizard.currentImage || !wizard.recorder.screenshotMetadata) {
-        console.warn('[FlowWizard] Cannot draw overlays: no screenshot loaded');
-        return;
-    }
-
-    // Redraw the screenshot image first (to clear old overlays)
-    wizard.ctx.drawImage(wizard.currentImage, 0, 0);
-
-    const elements = wizard.recorder.screenshotMetadata.elements || [];
-
-    // Count elements by type
-    const clickableElements = elements.filter(e => e.clickable === true);
-    const nonClickableElements = elements.filter(e => e.clickable === false || e.clickable === undefined);
-
-    console.log(`[FlowWizard] Drawing ${elements.length} elements (${clickableElements.length} clickable, ${nonClickableElements.length} non-clickable)`);
-    console.log('[FlowWizard] Overlay filters:', wizard.overlayFilters);
-
-    let visibleCount = 0;
-    let drawnCount = 0;
-    let filteredClickable = 0;
-    let filteredNonClickable = 0;
-    let drawnClickable = 0;
-    let drawnNonClickable = 0;
-
-    elements.forEach(el => {
-        // Only draw elements with bounds
-        if (!el.bounds) {
-            return;
-        }
-
-        visibleCount++;
-
-        // Apply filters (same as screenshot-capture.js)
-        if (el.clickable && !wizard.overlayFilters.showClickable) {
-            filteredClickable++;
-            return;
-        }
-        if (!el.clickable && !wizard.overlayFilters.showNonClickable) {
-            filteredNonClickable++;
-            return;
-        }
-
-        // Filter by size (hide small elements < 50px width or height)
-        if (wizard.overlayFilters.hideSmall && (el.bounds.width < 50 || el.bounds.height < 50)) {
-            if (el.clickable) filteredClickable++; else filteredNonClickable++;
-            return;
-        }
-
-        // Filter: text elements only
-        if (wizard.overlayFilters.textOnly && (!el.text || !el.text.trim())) {
-            if (el.clickable) filteredClickable++; else filteredNonClickable++;
-            return;
-        }
-
-        // Get coordinates (no scaling - 1:1)
-        const x = el.bounds.x;
-        const y = el.bounds.y;
-        const w = el.bounds.width;
-        const h = el.bounds.height;
-
-        // Skip elements outside canvas
-        if (x + w < 0 || x > wizard.canvas.width || y + h < 0 || y > wizard.canvas.height) {
-            return;
-        }
-
-        // Draw bounding box
-        // Green for clickable, blue for non-clickable (matching flow-wizard colors)
-        wizard.ctx.strokeStyle = el.clickable ? '#22c55e' : '#3b82f6';
-        wizard.ctx.fillStyle = el.clickable ? 'rgba(34, 197, 94, 0.1)' : 'rgba(59, 130, 246, 0.1)';
-        wizard.ctx.lineWidth = 2;
-
-        // Fill background
-        wizard.ctx.fillRect(x, y, w, h);
-
-        // Draw border
-        wizard.ctx.strokeRect(x, y, w, h);
-        drawnCount++;
-        if (el.clickable) drawnClickable++; else drawnNonClickable++;
-
-        // Draw text label if element has text (and labels are enabled)
-        if (wizard.overlayFilters.showTextLabels && el.text && el.text.trim()) {
-            drawTextLabel(wizard, el.text, x, y, w, el.clickable);
-        }
-    });
-
-    console.log(`[FlowWizard] Total visible: ${visibleCount}`);
-    console.log(`[FlowWizard] Filtered: ${filteredClickable + filteredNonClickable} (${filteredClickable} clickable, ${filteredNonClickable} non-clickable)`);
-    console.log(`[FlowWizard] Drawn: ${drawnCount} (${drawnClickable} clickable, ${drawnNonClickable} non-clickable)`);
-}
-
-/**
- * Draw UI element overlays with scaling
- */
-export function drawElementOverlaysScaled(wizard, scale) {
-    if (!wizard.currentImage || !wizard.recorder.screenshotMetadata) {
-        console.warn('[FlowWizard] Cannot draw overlays: no screenshot loaded');
-        return;
-    }
-
-    const elements = wizard.recorder.screenshotMetadata.elements || [];
-
-    elements.forEach(el => {
-        if (!el.bounds) return;
-
-        // Apply overlay filters
-        if (el.clickable && !wizard.overlayFilters.showClickable) return;
-        if (!el.clickable && !wizard.overlayFilters.showNonClickable) return;
-        if (wizard.overlayFilters.hideSmall && (el.bounds.width < 50 || el.bounds.height < 50)) return;
-        if (wizard.overlayFilters.textOnly && (!el.text || !el.text.trim())) return;
-
-        // Scale coordinates
-        const x = Math.floor(el.bounds.x * scale);
-        const y = Math.floor(el.bounds.y * scale);
-        const w = Math.floor(el.bounds.width * scale);
-        const h = Math.floor(el.bounds.height * scale);
-
-        // Skip elements outside canvas
-        if (x + w < 0 || x > wizard.canvas.width || y + h < 0 || y > wizard.canvas.height) return;
-
-        // Draw bounding box
-        wizard.ctx.strokeStyle = el.clickable ? '#22c55e' : '#3b82f6';
-        wizard.ctx.lineWidth = 2;
-        wizard.ctx.strokeRect(x, y, w, h);
-
-        // Draw text label if element has text and showTextLabels is enabled
-        if (el.text && el.text.trim() && wizard.overlayFilters.showTextLabels) {
-            drawTextLabel(wizard, el.text.trim(), x, y, w, el.clickable);
-        }
-    });
-}
-
-/**
- * Draw text label for UI element on canvas
- * Scales font size based on canvas width to look appropriate at all resolutions
- */
-export function drawTextLabel(wizard, text, x, y, w, isClickable) {
-    // Scale font based on canvas width (reference: 720px = 12px font)
-    const scaleFactor = Math.max(0.6, Math.min(1.5, wizard.canvas.width / 720));
-    const fontSize = Math.round(12 * scaleFactor);
-    const labelHeight = Math.round(20 * scaleFactor);
-    const charWidth = Math.round(7 * scaleFactor);
-    const padding = Math.round(2 * scaleFactor);
-
-    // Truncate long text
-    const maxChars = Math.floor(w / charWidth); // Approximate chars that fit
-    const displayText = text.length > maxChars
-        ? text.substring(0, maxChars - 3) + '...'
-        : text;
-
-    // Draw background (matching element color)
-    wizard.ctx.fillStyle = isClickable ? '#22c55e' : '#3b82f6';
-    wizard.ctx.fillRect(x, y, w, labelHeight);
-
-    // Draw text
-    wizard.ctx.fillStyle = '#ffffff';
-    wizard.ctx.font = `${fontSize}px monospace`;
-    wizard.ctx.textBaseline = 'top';
-    wizard.ctx.fillText(displayText, x + padding, y + padding);
 }
 
 /**

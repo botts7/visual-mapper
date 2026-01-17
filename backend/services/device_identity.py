@@ -236,6 +236,54 @@ class DeviceIdentityResolver:
             # Unknown - return as-is (might be a new device)
             return device_id
 
+    def resolve_to_connection_id(self, device_id: str) -> Optional[str]:
+        """
+        Resolve any device ID to the current connection ID.
+
+        This is the inverse of resolve_any_id() - instead of returning
+        the stable ID, it returns the current connection ID (IP:port).
+
+        Args:
+            device_id: Either connection_id (IP:port) or stable_device_id
+
+        Returns:
+            Current connection_id if device is connected, None if not found
+        """
+        with self._lock:
+            # If it's already a connection_id and device is registered, return it
+            if device_id in self._conn_to_stable:
+                return device_id
+
+            # If it's a stable_device_id, get the current connection
+            if device_id in self._stable_to_conn:
+                return self._stable_to_conn[device_id]
+
+            # Try resolving through legacy ID
+            if device_id in self._legacy_to_stable:
+                stable_id = self._legacy_to_stable[device_id]
+                return self._stable_to_conn.get(stable_id)
+
+            # Unknown ID - not connected
+            return None
+
+    def is_same_device(self, id1: str, id2: str) -> bool:
+        """
+        Check if two device IDs refer to the same physical device.
+
+        Useful for comparing IDs that may be in different formats
+        (connection ID vs stable ID).
+
+        Args:
+            id1: First device ID (any format)
+            id2: Second device ID (any format)
+
+        Returns:
+            True if both IDs resolve to the same stable device
+        """
+        stable1 = self.resolve_any_id(id1)
+        stable2 = self.resolve_any_id(id2)
+        return stable1 == stable2
+
     def register_legacy_id(self, legacy_id: str, stable_device_id: str):
         """
         Register a legacy ID that should map to a stable device ID.

@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from core.stream_manager import StreamManager
     from core.adb.adb_helpers import ADBMaintenance
     from core.adb.adb_subprocess import PersistentShellPool
-    from utils.connection_monitor import ConnectionMonitor
+    from services.connection_monitor import ConnectionMonitor
     from utils.device_security import DeviceSecurityManager
     from core.navigation_manager import NavigationManager
 

@@ -508,8 +508,8 @@ class FlowScheduler:
         """
         Resolve a flow's device_id to the currently connected device.
 
-        Uses stable_device_id to find the current connection_id, which may
-        have changed if the device reconnected with a different port.
+        Uses device_identity resolver to find the current connection_id,
+        which may have changed if the device reconnected with a different port.
 
         Args:
             flow: Flow to resolve device for
@@ -520,17 +520,20 @@ class FlowScheduler:
         try:
             resolver = get_device_identity_resolver()
 
-            # If flow has stable_device_id, try to resolve to current connection
-            if flow.stable_device_id:
-                current_conn = resolver.get_connection_id(flow.stable_device_id)
-                if current_conn and current_conn != flow.device_id:
-                    logger.info(
-                        f"[FlowScheduler] Resolved device {flow.stable_device_id}: "
-                        f"{flow.device_id} -> {current_conn}"
-                    )
-                    return current_conn
-                elif current_conn:
-                    return current_conn
+            # Try to resolve using stable_device_id if available
+            device_id_to_resolve = flow.stable_device_id or flow.device_id
+
+            # Use centralized resolution
+            current_conn = resolver.resolve_to_connection_id(device_id_to_resolve)
+
+            if current_conn and current_conn != flow.device_id:
+                logger.info(
+                    f"[FlowScheduler] Resolved device {device_id_to_resolve}: "
+                    f"{flow.device_id} -> {current_conn}"
+                )
+                return current_conn
+            elif current_conn:
+                return current_conn
 
             # Fall back to original device_id
             return flow.device_id

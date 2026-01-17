@@ -45,7 +45,7 @@ from utils.action_models import (
 )
 from utils.error_handler import handle_api_error
 from utils.device_migrator import DeviceMigrator
-from utils.connection_monitor import ConnectionMonitor
+from services.connection_monitor import ConnectionMonitor
 from utils.device_security import DeviceSecurityManager
 
 # Phase 8: Flow System

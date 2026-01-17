@@ -300,28 +300,20 @@ class ADBBridge:
         if conn:
             return conn, device_id
 
-        # Try to resolve stable ID to connection ID
+        # Try to resolve using centralized device identity resolver
         try:
             from services.device_identity import get_device_identity_resolver
 
             data_dir = os.environ.get("DATA_DIR", "data")
             resolver = get_device_identity_resolver(data_dir)
 
-            current_conn_id = resolver.get_connection_id(device_id)
+            # Use centralized resolution to get connection ID
+            current_conn_id = resolver.resolve_to_connection_id(device_id)
             if current_conn_id and current_conn_id in self.devices:
                 logger.debug(
                     f"[ADBBridge] Resolved {device_id} -> {current_conn_id} via identity resolver"
                 )
                 return self.devices[current_conn_id], current_conn_id
-
-            stable_id = resolver.resolve_any_id(device_id)
-            if stable_id != device_id:
-                current_conn_id = resolver.get_connection_id(stable_id)
-                if current_conn_id and current_conn_id in self.devices:
-                    logger.debug(
-                        f"[ADBBridge] Resolved {device_id} -> {current_conn_id} via stable ID {stable_id}"
-                    )
-                    return self.devices[current_conn_id], current_conn_id
         except Exception as e:
             logger.debug(f"[ADBBridge] Device identity resolution failed: {e}")
 
