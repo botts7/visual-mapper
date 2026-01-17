@@ -750,11 +750,11 @@ async def get_execution_status():
     }
 
     try:
-        # Get connected devices
+        # Get connected devices (use get_devices(), same as /adb/devices endpoint)
         if deps.adb_bridge:
             try:
-                devices = await deps.adb_bridge.get_connected_devices()
-                result["connected_devices"] = [d.get("id") for d in devices]
+                devices = await deps.adb_bridge.get_devices()
+                result["connected_devices"] = [d.get("id") for d in devices if d.get("connected")]
             except Exception as e:
                 logger.warning(f"[API] Could not get connected devices: {e}")
 
