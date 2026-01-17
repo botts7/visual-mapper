@@ -224,7 +224,7 @@ class FlowExecutor:
         calculated = base_timeout + nav_time + capture_time
         return calculated
 
-    async def auto_unlock_if_needed(self, device_id: str) -> bool:
+    async def auto_unlock_if_needed(self, device_id: str) -> dict:
         """
         Unified device unlock method with retry logic and debounce protection.
 
@@ -237,8 +237,10 @@ class FlowExecutor:
         - Cooldown check: Respects device lockout cooldown from ADB bridge
         - Swipe + PIN: Tries swipe first, then PIN if AUTO_UNLOCK configured
 
-        Returns True if device is ready (unlocked or successfully unlocked).
-        Returns False if device is locked and couldn't be unlocked.
+        Returns dict with:
+        - success: True if device is ready (unlocked or successfully unlocked)
+        - error: Error message if unlock failed (only present if success=False)
+        - reason: Reason code (only present if success=False)
         """
         from utils.device_security import LockStrategy
 
@@ -252,7 +254,11 @@ class FlowExecutor:
             logger.warning(
                 f"[FlowExecutor] Device {device_id} in unlock cooldown ({cooldown_remaining:.0f}s remaining)"
             )
-            return False
+            return {
+                "success": False,
+                "error": f"Device is in unlock cooldown ({int(cooldown_remaining)}s remaining). Too many failed unlock attempts.",
+                "reason": "cooldown"
+            }
 
         # Get security config (try both device_id and stable_device_id)
         security_config = self.security_manager.get_lock_config(device_id)
@@ -292,7 +298,7 @@ class FlowExecutor:
                     )
                 else:
                     logger.debug(f"[FlowExecutor] Device {device_id} already unlocked")
-                return True
+                return {"success": True}
 
             # Log unlock attempt
             if attempt == 0:
@@ -302,6 +308,18 @@ class FlowExecutor:
                     f"[FlowExecutor] Unlock attempt {attempt + 1}/{MAX_UNLOCK_ATTEMPTS} for {device_id}"
                 )
 
+            # Check if AUTO_UNLOCK is configured - if not, return helpful error on first attempt
+            if attempt == 0 and not has_auto_unlock:
+                # Device is locked but AUTO_UNLOCK not configured - tell user what to do
+                logger.warning(
+                    f"[FlowExecutor] Device {device_id} is locked but AUTO_UNLOCK not configured"
+                )
+                return {
+                    "success": False,
+                    "error": "Device is locked but unlock is not configured. Go to Device Settings > Security and enable AUTO_UNLOCK with your PIN/passcode.",
+                    "reason": "not_configured"
+                }
+
             # If passcode is configured, try PIN unlock FIRST (faster than swipe attempts)
             # This matches the behavior of the "Test Unlock" button which works quickly
             if passcode:
@@ -309,14 +327,14 @@ class FlowExecutor:
                 try:
                     if await self.adb_bridge.unlock_device(device_id, passcode):
                         logger.info(f"[FlowExecutor] Device unlocked with PIN")
-                        return True
+                        return {"success": True}
                 except Exception as e:
                     logger.warning(f"[FlowExecutor] PIN unlock failed: {e}")
 
                 # Check if we unlocked after PIN attempt
                 if not await self.adb_bridge.is_locked(device_id):
                     logger.info(f"[FlowExecutor] Device {device_id} unlocked")
-                    return True
+                    return {"success": True}
             else:
                 # No passcode configured - try swipe-to-unlock
                 try:
@@ -325,7 +343,7 @@ class FlowExecutor:
 
                     if unlock_success and not await self.adb_bridge.is_locked(device_id):
                         logger.info(f"[FlowExecutor] Device unlocked via swipe")
-                        return True
+                        return {"success": True}
                 except Exception as e:
                     logger.warning(f"[FlowExecutor] Swipe unlock failed: {e}")
 
@@ -339,7 +357,11 @@ class FlowExecutor:
         logger.error(
             f"[FlowExecutor] Failed to unlock device {device_id} after {MAX_UNLOCK_ATTEMPTS} attempts"
         )
-        return False
+        return {
+            "success": False,
+            "error": f"Failed to unlock device after {MAX_UNLOCK_ATTEMPTS} attempts. Check that your PIN/passcode is correct in Device Settings > Security.",
+            "reason": "unlock_failed"
+        }
 
     def _sensor_needs_update(self, sensor, device_id: str) -> tuple[bool, float]:
         """

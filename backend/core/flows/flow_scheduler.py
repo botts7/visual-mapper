@@ -1159,7 +1159,9 @@ class FlowScheduler:
 
         # Delegate to unified unlock method in FlowExecutor
         # (has retry logic, cooldown check, swipe + PIN support)
-        return await self.flow_executor.auto_unlock_if_needed(device_id)
+        # FlowExecutor returns dict with "success" key - extract it for bool return
+        result = await self.flow_executor.auto_unlock_if_needed(device_id)
+        return result.get("success", False)
 
     def get_time_until_next_flow(self, device_id: str) -> Optional[float]:
         """

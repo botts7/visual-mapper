@@ -27,6 +27,9 @@ class CompanionStreamStats:
     connect_time: float = field(default_factory=time.time)
     disconnected: bool = False
     last_error: Optional[str] = None
+    # Frame dimensions from latest frame (for orientation detection)
+    frame_width: int = 0
+    frame_height: int = 0
 
     @property
     def uptime_seconds(self) -> float:
@@ -38,6 +41,13 @@ class CompanionStreamStats:
             return self.frames_received / self.uptime_seconds
         return 0.0
 
+    @property
+    def orientation(self) -> str:
+        """Detect orientation from frame dimensions."""
+        if self.frame_width == 0 or self.frame_height == 0:
+            return "unknown"
+        return "landscape" if self.frame_width > self.frame_height else "portrait"
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "frames_received": self.frames_received,
@@ -45,7 +55,10 @@ class CompanionStreamStats:
             "uptime_seconds": round(self.uptime_seconds, 1),
             "fps": round(self.fps, 2),
             "connected": not self.disconnected,
-            "last_error": self.last_error
+            "last_error": self.last_error,
+            "frame_width": self.frame_width,
+            "frame_height": self.frame_height,
+            "orientation": self.orientation
         }
 
 
@@ -87,10 +100,14 @@ class CompanionStreamReceiver:
         """
         Receive a frame from the companion app.
 
-        Frame format: 8-byte header + JPEG data
+        Frame format v2: 12-byte header + JPEG data
         - Bytes 0-3: Frame number (uint32 big-endian)
         - Bytes 4-7: Capture time ms (uint32 big-endian)
-        - Bytes 8+: JPEG image data
+        - Bytes 8-9: Width (uint16 big-endian)
+        - Bytes 10-11: Height (uint16 big-endian)
+        - Bytes 12+: JPEG image data
+
+        Also supports legacy 8-byte header for backwards compatibility.
 
         Args:
             device_id: The device identifier
@@ -99,7 +116,7 @@ class CompanionStreamReceiver:
         Returns:
             True if frame was processed successfully
         """
-        if len(frame_data) < 10:  # 8-byte header + at least 2 bytes JPEG
+        if len(frame_data) < 14:  # 12-byte header + at least 2 bytes JPEG
             logger.warning(f"[CompanionReceiver] Frame too small: {len(frame_data)} bytes")
             return False
 
@@ -111,9 +128,16 @@ class CompanionStreamReceiver:
         if stats.disconnected:
             return False
 
-        # Parse header
+        # Parse header - try 12-byte format first (v2), fall back to 8-byte (v1)
         try:
-            frame_number, capture_time = struct.unpack(">II", frame_data[:8])
+            frame_number, capture_time, width, height = struct.unpack(">IIHH", frame_data[:12])
+            header_size = 12
+            # Sanity check dimensions (valid if reasonable and make the frame size match)
+            if width < 100 or width > 4096 or height < 100 or height > 4096:
+                # May be old 8-byte format - width/height look like JPEG marker bytes
+                frame_number, capture_time = struct.unpack(">II", frame_data[:8])
+                width, height = 0, 0
+                header_size = 8
         except struct.error as e:
             logger.error(f"[CompanionReceiver] Invalid frame header: {e}")
             return False
@@ -122,13 +146,17 @@ class CompanionStreamReceiver:
         stats.frames_received += 1
         stats.bytes_received += len(frame_data)
         stats.last_frame_time = time.time()
+        if width > 0 and height > 0:
+            stats.frame_width = width
+            stats.frame_height = height
 
-        # Log periodically
+        # Log periodically (include orientation)
         if stats.frames_received == 1 or stats.frames_received % 60 == 0:
-            jpeg_size = len(frame_data) - 8
+            jpeg_size = len(frame_data) - header_size
+            dim_info = f"{width}x{height} ({stats.orientation})" if width > 0 else "no dims"
             logger.info(
                 f"[CompanionReceiver] {device_id} frame {frame_number}: "
-                f"{jpeg_size} bytes, FPS: {stats.fps:.1f}"
+                f"{jpeg_size} bytes, {dim_info}, FPS: {stats.fps:.1f}"
             )
 
         # Invoke frame callback if registered (for SharedCaptureManager injection)

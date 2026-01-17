@@ -635,7 +635,25 @@ class FlowService:
         else:
             # For server execution, ensure device is unlocked first
             # Use unified unlock method from FlowExecutor (has retry logic and debounce)
-            await self.flow_executor.auto_unlock_if_needed(flow.device_id)
+            unlock_result = await self.flow_executor.auto_unlock_if_needed(flow.device_id)
+            if not unlock_result.get("success", False):
+                # Device is locked and couldn't be unlocked - return error to user
+                from core.flows import FlowExecutionResult
+                error_msg = unlock_result.get("error", "Device is locked and could not be unlocked")
+                logger.warning(f"[FlowService] Flow {flow_id} blocked: {error_msg}")
+                return {
+                    "flow_id": flow_id,
+                    "success": False,
+                    "executed_steps": 0,
+                    "failed_step": None,
+                    "error_message": error_msg,
+                    "captured_sensors": {},
+                    "step_results": [],
+                    "execution_time_ms": 0,
+                    "timestamp": None,
+                    "android_active": android_active,
+                    "execution_method": actual_method,
+                }
             # Default to server execution via ADB
             result = await self.flow_executor.execute_flow(
                 flow,
