@@ -2426,7 +2426,15 @@ class FlowExecutor:
                     logger.error(f"  Failed to extract sensor {sensor_id}: {e}")
                     # Continue with other sensors (don't fail entire step)
 
-            # 4. Batch publish all sensor states at once (20-30% faster)
+            # 4. Ensure MQTT discovery is published before state (auto-recreates deleted entities)
+            if sensor_updates:
+                for sensor, _ in sensor_updates:
+                    try:
+                        await self.mqtt_manager.publish_discovery(sensor)
+                    except Exception as e:
+                        logger.debug(f"  Discovery publish for {sensor.sensor_id}: {e}")
+
+            # 5. Batch publish all sensor states at once (20-30% faster)
             if sensor_updates:
                 batch_result = await self.mqtt_manager.publish_state_batch(
                     sensor_updates
@@ -2435,7 +2443,7 @@ class FlowExecutor:
                     f"  Batch published {batch_result['success']}/{len(sensor_updates)} sensors to MQTT"
                 )
 
-                # 5. Persist captured sensor values to disk (fixes stale current_value issue)
+                # 6. Persist captured sensor values to disk (fixes stale current_value issue)
                 for sensor, value in sensor_updates:
                     sensor.current_value = str(value) if value is not None else None
                     sensor.last_updated = datetime.now()
