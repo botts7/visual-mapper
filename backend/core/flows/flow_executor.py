@@ -264,7 +264,7 @@ class FlowExecutor:
         security_config = self.security_manager.get_lock_config(device_id)
         if not security_config:
             try:
-                stable_id = await self.adb_bridge.get_stable_device_id(device_id)
+                stable_id = await self.adb_bridge.get_device_serial(device_id)
                 if stable_id and stable_id != device_id:
                     security_config = self.security_manager.get_lock_config(stable_id)
             except Exception as e:
@@ -281,7 +281,7 @@ class FlowExecutor:
             passcode = self.security_manager.get_passcode(device_id)
             if not passcode:
                 try:
-                    stable_id = await self.adb_bridge.get_stable_device_id(device_id)
+                    stable_id = await self.adb_bridge.get_device_serial(device_id)
                     if stable_id and stable_id != device_id:
                         passcode = self.security_manager.get_passcode(stable_id)
                 except Exception as e:
