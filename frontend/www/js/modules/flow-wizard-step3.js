@@ -1,7 +1,8 @@
 /**
  * Flow Wizard Step 3 Module - Recording Mode
- * Visual Mapper v0.0.63
+ * Visual Mapper v0.0.64
  *
+ * v0.0.64: Dynamic orientation handling - onDimensionsChange callback triggers applyZoom and element refresh
  * v0.0.63: Companion app integration for fast UI element fetching
  *          - checkCompanionAppStatus() checks if companion app is available for device
  *          - refreshElements() now uses companion API when available (100-300ms vs 1-3s)
@@ -2019,6 +2020,22 @@ export async function startStreaming(wizard) {
                 showToast('Slow connection - try USB for better performance', 'warning', 5000);
             }
         }
+    };
+
+    // Handle dimension changes (orientation change)
+    wizard.liveStream.onDimensionsChange = (newWidth, newHeight, oldWidth, oldHeight) => {
+        console.log(`[FlowWizard] Dimensions changed: ${oldWidth}x${oldHeight} -> ${newWidth}x${newHeight}`);
+        // Clear old elements when orientation changes - they won't match new layout
+        wizard.liveStream.elements = [];
+        wizard.liveStream.markElementsFresh(); // Clear stale flag
+        // Apply zoom to update CSS dimensions for new aspect ratio
+        if (wizard.canvasRenderer) {
+            requestAnimationFrame(() => {
+                wizard.canvasRenderer.applyZoom();
+            });
+        }
+        // Trigger element refresh after orientation change
+        refreshElements(wizard);
     };
 
     // Apply current overlay settings (including display mode from persistent user preferences)

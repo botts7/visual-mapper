@@ -1,6 +1,6 @@
 /**
  * Visual Mapper - Live Stream Module
- * Version: 0.0.36 (improved smart refresh - better hash, more debug logging)
+ * Version: 0.0.37 (onDimensionsChange callback for orientation handling)
  *
  * WebSocket-based live screenshot streaming with UI element overlays.
  * Supports two modes:
@@ -81,6 +81,7 @@ class LiveStream {
         this.onConnectionStateChange = null; // New callback for connection state
         this.onScreenChange = null;          // Smart refresh: fires when screen stabilizes after change
         this.onElementsCleared = null;       // Fires immediately when screen change detected (before stabilization)
+        this.onDimensionsChange = null;      // Fires when canvas dimensions change (orientation change)
 
         // Overlay settings
         this.showOverlays = true;
@@ -792,6 +793,8 @@ class LiveStream {
     _renderFrame(img, elements) {
         // Resize canvas if needed
         if (this.canvas.width !== img.width || this.canvas.height !== img.height) {
+            const oldWidth = this.canvas.width;
+            const oldHeight = this.canvas.height;
             this.canvas.width = img.width;
             this.canvas.height = img.height;
 
@@ -808,6 +811,12 @@ class LiveStream {
                 this.deviceWidth = img.width;
                 this.deviceHeight = img.height;
                 console.log(`[LiveStream] Updated device dimensions from frame: ${img.width}x${img.height}`);
+            }
+
+            // Fire callback when dimensions change (for orientation handling)
+            if (oldWidth !== 0 && oldHeight !== 0 && this.onDimensionsChange) {
+                console.log(`[LiveStream] Dimensions changed: ${oldWidth}x${oldHeight} -> ${img.width}x${img.height}`);
+                this.onDimensionsChange(img.width, img.height, oldWidth, oldHeight);
             }
         }
 
