@@ -386,19 +386,20 @@ class FlowExecutor:
         if not sensor.last_updated:
             return True, 0
 
-        # Calculate time since last update
-        now = datetime.now()
+        # Calculate time since last update (use naive UTC for consistency)
+        now = datetime.utcnow()
         last_updated = sensor.last_updated
 
         # Handle string datetime (from JSON deserialization)
         if isinstance(last_updated, str):
             try:
                 last_updated = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
-                # Remove timezone for comparison if naive datetime
-                if last_updated.tzinfo is not None:
-                    last_updated = last_updated.replace(tzinfo=None)
             except ValueError:
                 return True, 0  # Can't parse, needs update
+
+        # Ensure both are naive for comparison (strip timezone if present)
+        if hasattr(last_updated, 'tzinfo') and last_updated.tzinfo is not None:
+            last_updated = last_updated.replace(tzinfo=None)
 
         elapsed_seconds = (now - last_updated).total_seconds()
         interval = sensor.update_interval_seconds
