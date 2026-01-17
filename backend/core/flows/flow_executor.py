@@ -563,36 +563,27 @@ class FlowExecutor:
                     "[FlowExecutor] start_from_current_screen enabled - skipping app reset"
                 )
             elif first_step_is_launch:
-                # First step is LAUNCH_APP - check if already on correct screen before resetting
+                # First step is LAUNCH_APP - always reset app for consistent starting point
                 if target_package:
-                    # Smart check: skip reset if already on correct screen
                     try:
                         current_activity = await self.adb_bridge.get_current_activity(
                             flow.device_id
-                        )
-                        current_pkg = (
-                            current_activity.split("/")[0]
-                            if current_activity and "/" in current_activity
-                            else current_activity
                         )
                         expected_activity = (
                             first_step.expected_activity or first_step.screen_activity
                         )
 
-                        # Skip reset if already on correct screen
+                        # Only skip reset if we have a SPECIFIC expected_activity AND we're already on it
                         if expected_activity and self._activity_matches(
                             current_activity, expected_activity
                         ):
                             logger.info(
-                                f"[FlowExecutor] Already on correct screen - skipping app reset"
-                            )
-                        elif current_pkg == target_package and not expected_activity:
-                            logger.info(
-                                f"[FlowExecutor] Already on target app - skipping app reset"
+                                f"[FlowExecutor] Already on exact expected screen ({expected_activity}) - skipping app reset"
                             )
                         else:
+                            # Always reset to ensure clean start - app may be on different internal screen
                             logger.info(
-                                "[FlowExecutor] Resetting app state before launch_app step"
+                                "[FlowExecutor] Resetting app state before launch_app step for clean start"
                             )
                             reset_success = await self._reset_app_state(
                                 flow.device_id, target_package
@@ -1331,21 +1322,15 @@ class FlowExecutor:
                 logger.info(f"  App already on correct screen: {expected_activity}")
                 return True
 
-            # Already on correct app (package match) - skip launch if no specific activity required
-            if current_pkg == package and not expected_activity:
-                logger.info(f"  App already in foreground: {package}")
-                return True
-
-            # If we expect a specific activity and aren't on it, force-stop before launch
-            if expected_activity and not activity_match:
+            # App is running but not on expected screen - force-stop for clean restart
+            # This ensures the app starts fresh instead of resuming from an arbitrary screen
+            if current_pkg == package:
                 logger.info(
-                    f"  App not on expected screen ({current}), force stopping before launch..."
+                    f"  App running but not on expected screen, force stopping for clean start..."
                 )
                 await self.adb_bridge.stop_app(device_id, package)
                 await asyncio.sleep(0.5)
-
-            # Different app in foreground? May need to force-stop target first for clean launch
-            if current_pkg and current_pkg != package:
+            elif current_pkg:
                 logger.debug(
                     f"  Different app in foreground: {current_pkg}, will launch {package}"
                 )
