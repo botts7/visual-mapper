@@ -45,10 +45,12 @@ class ADBBridge:
     Uses ADBManager to automatically select optimal connection method.
     """
 
-    def __init__(self):
+    def __init__(self, data_dir: str = None):
         """Initialize ADB bridge with ADBManager"""
         self.manager = ADBManager(hass=None)  # Standalone mode
         self.devices: Dict[str, BaseADBConnection] = {}
+        # Data directory for security config lookup (set via set_data_dir or constructor)
+        self._data_dir = data_dir
         self._adb_lock = (
             asyncio.Lock()
         )  # Global lock for device scanning operations only
@@ -2378,7 +2380,9 @@ class ADBBridge:
             try:
                 from utils.device_security import DeviceSecurityManager, LockStrategy
 
-                security_mgr = DeviceSecurityManager()
+                # Use the correct data_dir for security config lookup
+                data_dir = self._data_dir if self._data_dir else "data"
+                security_mgr = DeviceSecurityManager(data_dir=data_dir)
 
                 # Always use stable_id for config lookup (configs are stored by stable_id)
                 stable_id = await self.get_device_serial(device_id)

@@ -245,8 +245,8 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 logger.info(f"[Server] Data directory: {DATA_DIR.absolute()}")
 
-# Initialize ADB Bridge
-adb_bridge = ADBBridge()
+# Initialize ADB Bridge (with data_dir for security config lookup)
+adb_bridge = ADBBridge(data_dir=str(DATA_DIR))
 
 # Initialize Device Migrator (handles IP/port changes)
 device_migrator = DeviceMigrator(data_dir=str(DATA_DIR), config_dir=str(DATA_DIR))
