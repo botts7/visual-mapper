@@ -1,6 +1,7 @@
 name: Sync to Addon Repository
 
 on:
+  workflow_dispatch:  # Allow manual triggering
   push:
     branches:
       - main
