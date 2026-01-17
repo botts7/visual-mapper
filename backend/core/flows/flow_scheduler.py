@@ -812,12 +812,6 @@ class FlowScheduler:
                                                f"Completed successfully via {method}{fallback_msg}",
                                                success=True,
                                                details={"steps": result.executed_steps, "method": method})
-                        else:
-                            error_msg = result.error_message or "Unknown error"
-                            self._log_activity("failed", queued.flow.flow_id, device_id,
-                                               f"Failed: {error_msg[:100]}",
-                                               success=False,
-                                               details={"error": error_msg, "failed_step": result.failed_step})
 
                             # ============================================
                             # AUTO-LOCK: After successful flow execution
@@ -835,6 +829,11 @@ class FlowScheduler:
                                         f"[FlowScheduler] Failed to lock device: {lock_error}"
                                     )
                         else:
+                            error_msg = result.error_message or "Unknown error"
+                            self._log_activity("failed", queued.flow.flow_id, device_id,
+                                               f"Failed: {error_msg[:100]}",
+                                               success=False,
+                                               details={"error": error_msg, "failed_step": result.failed_step})
                             logger.warning(
                                 f"[FlowScheduler] Flow {queued.flow.flow_id} failed: {result.error_message}"
                             )
