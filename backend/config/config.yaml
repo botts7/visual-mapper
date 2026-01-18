@@ -19,7 +19,6 @@ arch:
 init: false
 startup: application
 boot: auto
-watchdog: true
 
 # Host network access required for ADB connections
 host_network: true
