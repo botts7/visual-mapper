@@ -93,12 +93,12 @@ schema:
   ml_save_interval: int(10,300)
   labs_flow_consolidation: bool?
 
-# Service dependencies
+# Service dependencies (want = optional, need = required)
 services:
-  - mqtt:need
+  - mqtt:want
 
-# Container image
-image: ghcr.io/yourusername/visual-mapper-{arch}
+# Container image - commented out to build locally
+# image: ghcr.io/botts7/visual-mapper-{arch}
 
 # Map directories
 map:
