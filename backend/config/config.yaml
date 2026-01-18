@@ -5,8 +5,7 @@ name: Visual Mapper
 version: 0.2.0
 slug: visual_mapper
 description: Android device control and sensor creation for Home Assistant via ADB
-url: https://github.com/yourusername/visual-mapper
-codenotary: notary@home-assistant.io
+url: https://github.com/botts7/visual-mapper
 
 # Supported architectures
 arch:
@@ -117,5 +116,5 @@ apparmor: false
 translations:
   en: translations/en.yaml
 
-# Backup configuration
-backup: simple
+# Backup configuration (hot = backup while running, cold = stop before backup)
+backup: cold
