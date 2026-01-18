@@ -329,6 +329,17 @@ button:active,
     margin-top: 8px;
 }
 
+/* Logo image dark mode filter - brightens dark text */
+body.dark-mode img[src*="logo-horizontal"] {
+    filter: brightness(1.8) saturate(0.9);
+}
+
+@media (prefers-color-scheme: dark) {
+    body:not(.light-mode) img[src*="logo-horizontal"] {
+        filter: brightness(1.8) saturate(0.9);
+    }
+}
+
 /* Theme toggle container */
 #themeToggleContainer {
     white-space: nowrap;
