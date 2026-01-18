@@ -62,12 +62,17 @@ HA sensors created
 
 The optional Android companion app provides enhanced automation via Accessibility Service instead of ADB. This gives you reliable, native access to UI elements without ADB connection issues.
 
-**[Download APK](https://github.com/botts7/visual-mapper-android/releases)** (v0.2.0 - Signed)
+**[Download APK](https://github.com/botts7/visual-mapper-android/releases)** (v0.3.1 - Signed)
 
 ### Features
 
 | Feature | Status |
 |---------|--------|
+| **Screen Streaming** | |
+| MediaProjection low-latency capture (50-150ms) | ✅ New |
+| Adaptive FPS based on battery state | ✅ New |
+| WebSocket MJPEG binary protocol | ✅ New |
+| Orientation change handling | ✅ New |
 | **Accessibility Service** | |
 | UI element capture & interaction | ✅ Working |
 | Gesture dispatch (tap, swipe, scroll) | ✅ Working |
@@ -226,6 +231,13 @@ This is **beta software** - it works, but there are rough edges:
 - **Mobile Responsive Design**: Flows and Navigation Learn pages now work properly on mobile/tablet devices
 - **Elements Tab Redesign**: Card-based layout matching Smart tab style with type icons, alternative names dropdown, current value display, and collapsible grouped tree structure
 - **UI Consistency**: All container widths now consistent across dashboard, flows, performance, and flow wizard pages
+
+### Android Companion App v0.3.1
+- **MediaProjection Screen Streaming**: Low-latency capture (50-150ms vs 100-3000ms ADB)
+- **Adaptive FPS**: 25 FPS when charging, 20/12/5 FPS on battery based on level
+- **WebSocket MJPEG Protocol**: Binary streaming compatible with backend SharedCaptureManager
+- **Orientation Handling**: Automatically recreates VirtualDisplay when device rotates
+- **WebSocket URL Fix**: Corrected /api prefix for companion WebSocket endpoint
 
 ### v0.3.1
 - **Dynamic Cache Busting**: All pages now use session-based cache busting - no more stale CSS/JS
