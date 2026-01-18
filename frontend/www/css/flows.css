@@ -20,6 +20,11 @@
     --flow-muted-bg: #f1f5f9;
     --flow-step-error-bg: #fee2e2;
     --flow-step-error-text: #991b1b;
+
+    /* JSON Editor theme variables */
+    --json-editor-bg: #f8f9fa;
+    --json-editor-text: #1e1e1e;
+    --json-editor-border: #e2e8f0;
 }
 
 /* Dark mode overrides */
@@ -30,6 +35,11 @@
         --flow-muted-bg: #2a2a2a;
         --flow-step-error-bg: #3a1a1a;
         --flow-step-error-text: #fca5a5;
+
+        /* JSON Editor dark theme */
+        --json-editor-bg: #1e1e1e;
+        --json-editor-text: #d4d4d4;
+        --json-editor-border: #444;
     }
 }
 
@@ -40,6 +50,11 @@ body.dark-mode {
     --flow-muted-bg: #2a2a2a;
     --flow-step-error-bg: #3a1a1a;
     --flow-step-error-text: #fca5a5;
+
+    /* JSON Editor dark theme */
+    --json-editor-bg: #1e1e1e;
+    --json-editor-text: #d4d4d4;
+    --json-editor-border: #444;
 }
 
 /* ==========================================
@@ -549,9 +564,9 @@ body.dark-mode {
             width: 100%;
             box-sizing: border-box;
             overflow-y: auto;
-            background: #1e1e1e;
-            color: #d4d4d4;
-            border: 1px solid #e2e8f0;
+            background: var(--json-editor-bg);
+            color: var(--json-editor-text);
+            border: 1px solid var(--json-editor-border);
             border-radius: 4px;
             white-space: pre;
         }

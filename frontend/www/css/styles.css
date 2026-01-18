@@ -2,6 +2,10 @@
 
 /* Light theme (default) */
 :root {
+    /* Dynamic viewport height - accounts for mobile browser chrome */
+    --vh-full: 100vh;
+    --vh-full: 100dvh;
+
     --primary-color: #2196F3;
     --primary-hover: #1976D2;
     --secondary-color: #4CAF50;
@@ -134,11 +138,18 @@ body.dark-mode {
     box-sizing: border-box;
 }
 
+html {
+    height: 100%;
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     background-color: var(--background-color);
     color: var(--text-color);
     line-height: 1.6;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
 /* Navigation */
@@ -227,6 +238,7 @@ nav a.active {
     max-width: 1200px;
     margin: 2rem auto;
     padding: 0 1rem;
+    flex: 1;
 }
 
 /* Cards */
@@ -402,7 +414,10 @@ button:active,
     background: var(--modal-background);
     color: var(--text-color);
     margin: 50px auto;
+    width: calc(100% - 40px);
     max-width: 600px;
+    max-height: calc(var(--vh-full) - 100px);
+    overflow-y: auto;
     border-radius: 8px;
     padding: 20px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.3);
@@ -858,7 +873,7 @@ label {
         top: 0;
         left: 0;
         width: 280px;
-        height: 100vh;
+        height: var(--vh-full);
         background-color: var(--primary-color);
         padding: 4rem 0 2rem 0;
         box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
@@ -901,7 +916,7 @@ label {
         top: 0;
         left: 0;
         width: 100%;
-        height: 100vh;
+        height: var(--vh-full);
         background-color: rgba(0, 0, 0, 0.5);
         z-index: 999;
     }
@@ -967,7 +982,7 @@ label {
         top: 0;
         left: 0;
         width: 280px;
-        height: 100vh;
+        height: var(--vh-full);
         background-color: var(--primary-color);
         padding: 4rem 0 2rem 0;
         box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
@@ -1048,7 +1063,7 @@ label {
         top: 0;
         left: 0;
         width: 280px;
-        height: 100vh;
+        height: var(--vh-full);
         background-color: var(--primary-color);
         padding: 4rem 0 2rem 0;
         box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
@@ -1109,7 +1124,7 @@ label {
         top: 0;
         left: 0;
         width: 100%;
-        height: 100vh;
+        height: var(--vh-full);
         background-color: rgba(0, 0, 0, 0.5);
         opacity: 0;
         visibility: hidden;
@@ -1443,4 +1458,23 @@ body.dark-mode .test-result.info {
     background: #1a2a3a;
     color: #64b5f6;
     border-color: #42a5f5;
+}
+
+/* Dark mode scrollbar */
+body.dark-mode ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+body.dark-mode ::-webkit-scrollbar-track {
+    background: var(--background-color);
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 5px;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb:hover {
+    background: #666666;
 }

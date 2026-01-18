@@ -3,6 +3,12 @@
  * Version: 0.0.9 - FPS performance hints + connection type indicators
  */
 
+/* Dynamic viewport height - accounts for mobile browser chrome */
+:root {
+    --vh-full: 100vh;
+    --vh-full: 100dvh;
+}
+
 /* Controls */
 .controls-row {
     display: flex;
@@ -806,12 +812,12 @@
 }
 
 .stream-card.fullscreen .canvas-container {
-    height: calc(100vh - 120px); /* Account for quick actions bar + taskbar */
+    height: calc(var(--vh-full) - 120px); /* Account for quick actions bar + taskbar */
     max-height: none;
 }
 
 .stream-card.fullscreen #streamCanvas {
-    max-height: calc(100vh - 120px);
+    max-height: calc(var(--vh-full) - 120px);
 }
 
 .stream-card.fullscreen h2 {

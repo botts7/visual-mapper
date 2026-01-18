@@ -2,6 +2,10 @@
 
 /* Light theme variables (onboarding-specific) */
 :root {
+    /* Dynamic viewport height - accounts for mobile browser chrome */
+    --vh-full: 100vh;
+    --vh-full: 100dvh;
+
     --onboarding-gradient-start: #667eea;
     --onboarding-gradient-end: #764ba2;
     --onboarding-card-bg: #ffffff;
@@ -74,7 +78,7 @@ body.dark-mode {
 /* Base layout */
 body {
     background: linear-gradient(135deg, var(--onboarding-gradient-start) 0%, var(--onboarding-gradient-end) 100%);
-    min-height: 100vh;
+    min-height: var(--vh-full);
     display: flex;
     align-items: center;
     justify-content: center;
