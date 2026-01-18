@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.0-beta.3.65
+
+### UI/UX Improvements
+- Full-width layout for all pages (dashboard, flows, performance, flow wizard)
+- Removed 95% max-width constraints - content now uses full viewport with 24px edge padding
+- Consistent layout across all pages with `width: 100%; max-width: none;` pattern
+
+### Mobile Responsive Design
+- Flows page: Stats cards stack vertically, flow table scrolls horizontally, filters go full-width
+- Navigation Learn page: Grid changes from 2-column to single column on mobile
+- Proper breakpoints at 1024px, 768px, and 480px for progressive layout changes
+
+### Elements Tab Redesign
+- Card-based layout matching Smart tab design pattern
+- Type icons for different UI elements (buttons, text fields, images, etc.)
+- Alternative names dropdown showing text/description/resource-id options
+- Prominent current value display for each element
+- Collapsible grouped tree structure by element type
+- Checkbox selection for elements
+- Meta badges showing element properties
+
+### Bug Fixes
+- Fixed missing `onTimestamp` callback in Element Tree constructor
+- Fixed element tree not displaying grouped structure
+
 ## 0.4.0-beta.3.1
 
 ### Bug Fixes
