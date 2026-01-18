@@ -235,7 +235,7 @@ nav a.active {
 
 /* Container */
 .container {
-    max-width: 1200px;
+    max-width: 95%;
     margin: 2rem auto;
     padding: 0 1rem;
     flex: 1;
@@ -1252,9 +1252,16 @@ label {
 }
 
 @media (min-width: 1025px) {
-    /* Desktop view - already optimized */
+    /* Desktop view - use more screen real estate */
     .container {
-        max-width: 1200px;
+        max-width: 95%;
+    }
+}
+
+@media (min-width: 1600px) {
+    /* Large desktop - slightly constrain for readability */
+    .container {
+        max-width: 92%;
     }
 }
 
