@@ -7,13 +7,15 @@
 
 /* Wizard Container */
 .wizard-container {
-    max-width: 95%;
-    margin: 0 auto;
-    padding: 20px;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 20px 24px;
     display: flex;
     flex-direction: column;
     height: calc(var(--vh-full) - 60px); /* Subtract nav height */
     overflow: hidden;
+    box-sizing: border-box;
 }
 
 /* Progress Indicator */

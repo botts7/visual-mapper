@@ -235,10 +235,12 @@ nav a.active {
 
 /* Container */
 .container {
-    max-width: 95%;
-    margin: 2rem auto;
-    padding: 0 1rem;
+    width: 100%;
+    max-width: none;
+    margin: 1rem 0;
+    padding: 0 24px;
     flex: 1;
+    box-sizing: border-box;
 }
 
 /* Cards */
@@ -1253,26 +1255,8 @@ label {
 
 @media (min-width: 769px) and (max-width: 1024px) {
     /* Tablet view */
-    .container {
-        max-width: 90%;
-    }
-
     .modal-content {
         max-width: 500px;
-    }
-}
-
-@media (min-width: 1025px) {
-    /* Desktop view - use more screen real estate */
-    .container {
-        max-width: 95%;
-    }
-}
-
-@media (min-width: 1600px) {
-    /* Large desktop - slightly constrain for readability */
-    .container {
-        max-width: 92%;
     }
 }
 

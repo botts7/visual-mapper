@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="0.4.0-beta.3.59" data-build="dynamic">
+    <meta name="version" content="0.4.0-beta.3.62" data-build="dynamic">
     <title>Learn Navigation - Visual Mapper</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
 
@@ -11,7 +11,7 @@
     <script>
         const cacheKey = sessionStorage.getItem('vmCacheKey') || Date.now();
         sessionStorage.setItem('vmCacheKey', cacheKey);
-        document.write('<link rel="stylesheet" href="css/styles.css?v=0.4.0-beta.3.59">');
+        document.write('<link rel="stylesheet" href="css/styles.css?v=0.4.0-beta.3.62">');
     </script>
     <noscript>
         <link rel="stylesheet" href="css/styles.css">
@@ -306,12 +306,176 @@
             0% { transform: scale(0.5); opacity: 1; }
             100% { transform: scale(1.5); opacity: 0; }
         }
+
+        /* ==========================================
+           Mobile Responsive Styles
+           ========================================== */
+
+        /* Tablet view */
+        @media (max-width: 1024px) {
+            .learn-container {
+                grid-template-columns: 1fr 280px;
+                gap: 15px;
+            }
+
+            .sidebar-card {
+                padding: 12px;
+            }
+
+            .screen-list {
+                max-height: 200px;
+            }
+
+            .transition-list {
+                max-height: 150px;
+            }
+        }
+
+        /* Mobile view */
+        @media (max-width: 768px) {
+            .learn-container {
+                grid-template-columns: 1fr;
+                height: auto;
+                min-height: calc(100vh - 120px);
+            }
+
+            .screen-area {
+                min-height: 50vh;
+                order: 1;
+            }
+
+            .sidebar {
+                order: 2;
+            }
+
+            .controls-bar {
+                gap: 8px;
+            }
+
+            .controls-bar select {
+                width: 100% !important;
+                max-width: none !important;
+            }
+
+            .controls-bar .btn {
+                flex: 1 1 auto;
+                min-width: 80px;
+                padding: 8px 12px;
+                font-size: 13px;
+            }
+
+            .status-indicator {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .stat-value {
+                font-size: 20px;
+            }
+
+            .screen-list {
+                max-height: 200px;
+            }
+
+            .transition-list {
+                max-height: 150px;
+            }
+
+            .screen-header {
+                flex-direction: column;
+                gap: 10px;
+                align-items: flex-start;
+            }
+
+            .screen-info {
+                width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
+
+        /* Small mobile */
+        @media (max-width: 480px) {
+            .learn-container {
+                gap: 10px;
+            }
+
+            .screen-area {
+                padding: 12px;
+                min-height: 40vh;
+            }
+
+            .sidebar-card {
+                padding: 10px;
+            }
+
+            .sidebar-card h3 {
+                font-size: 12px;
+                margin-bottom: 10px;
+            }
+
+            .controls-bar {
+                gap: 6px;
+            }
+
+            .controls-bar .btn {
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+
+            .stat-item {
+                padding: 8px;
+            }
+
+            .stat-value {
+                font-size: 18px;
+            }
+
+            .stat-label {
+                font-size: 10px;
+            }
+
+            .screen-item {
+                padding: 8px;
+            }
+
+            .screen-icon {
+                width: 32px;
+                height: 32px;
+                font-size: 14px;
+            }
+
+            .screen-name {
+                font-size: 13px;
+            }
+
+            .screen-activity {
+                font-size: 10px;
+            }
+
+            .transition-item {
+                padding: 6px;
+                font-size: 11px;
+            }
+
+            .empty-state {
+                padding: 20px;
+            }
+
+            .empty-state-icon {
+                font-size: 36px;
+            }
+        }
     </style>
 </head>
 <body>
     <!-- Navbar injected by js/components/navbar.js -->
     <nav></nav>
-    <script type="module" src="js/init.js?v=0.4.0-beta.3.59"></script>
+    <script type="module" src="js/init.js?v=0.4.0-beta.3.62"></script>
 
     <div class="container">
         <div class="card">
