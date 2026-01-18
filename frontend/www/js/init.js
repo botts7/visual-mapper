@@ -9,7 +9,7 @@
  * - Global initialization
  */
 
-const APP_VERSION = '0.4.0-beta.3.58';
+const APP_VERSION = '0.4.0-beta.3.59';
 
 // API Base Detection (for Home Assistant ingress)
 function getApiBase() {
