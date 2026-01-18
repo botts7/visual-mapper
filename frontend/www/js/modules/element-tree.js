@@ -260,7 +260,23 @@ class ElementTree {
     }
 
     /**
-     * Render the element list
+     * Group elements by class name
+     */
+    groupByClass(elements) {
+        const grouped = {};
+        elements.forEach((el, idx) => {
+            const className = el.class || 'Unknown';
+            const shortClass = className.split('.').pop();
+            if (!grouped[shortClass]) {
+                grouped[shortClass] = [];
+            }
+            grouped[shortClass].push({ element: el, originalIndex: idx });
+        });
+        return grouped;
+    }
+
+    /**
+     * Render the element tree grouped by type
      */
     render() {
         if (!this.container) return;
@@ -276,21 +292,40 @@ class ElementTree {
             return;
         }
 
-        // Sort: clickable first, then by position
-        const sorted = [...this.filteredElements].sort((a, b) => {
-            if (a.clickable && !b.clickable) return -1;
-            if (!a.clickable && b.clickable) return 1;
-            const yDiff = (a.bounds?.y || 0) - (b.bounds?.y || 0);
-            if (Math.abs(yDiff) > 20) return yDiff;
-            return (a.bounds?.x || 0) - (b.bounds?.x || 0);
+        // Group elements by class type
+        const grouped = this.groupByClass(this.filteredElements);
+
+        // Sort groups: groups with clickable elements first
+        const sortedGroups = Object.entries(grouped).sort((a, b) => {
+            const aHasClickable = a[1].some(item => item.element.clickable);
+            const bHasClickable = b[1].some(item => item.element.clickable);
+            if (aHasClickable && !bHasClickable) return -1;
+            if (!aHasClickable && bHasClickable) return 1;
+            return a[0].localeCompare(b[0]);
         });
 
-        let html = '<div class="element-list">';
-        sorted.forEach((el, idx) => {
-            html += this.renderElement(el, idx);
-        });
+        let html = '<div class="element-tree">';
+
+        for (const [className, items] of sortedGroups) {
+            const hasClickable = items.some(item => item.element.clickable);
+            const typeIcon = this.getTypeIcon(className);
+
+            html += `
+                <div class="element-group">
+                    <div class="element-group-header ${hasClickable ? 'has-clickable' : ''}" data-class="${className}">
+                        <span class="element-group-toggle">▶</span>
+                        <span class="element-group-icon">${typeIcon}</span>
+                        <span class="element-group-name">${className}</span>
+                        <span class="element-group-count">(${items.length})</span>
+                    </div>
+                    <div class="element-group-items" style="display: none;">
+                        ${items.map(item => this.renderElement(item.element, item.originalIndex)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
         html += '</div>';
-
         this.container.innerHTML = html;
         this.attachEventHandlers();
     }
@@ -307,11 +342,49 @@ class ElementTree {
         const bounds = element.bounds;
         const isSelected = this.selectedIndices.has(index);
 
+        // Get element's current text value (the main data)
+        const textValue = element.text?.trim() || '';
+        const contentDesc = element.content_desc?.trim() || '';
+        const resourceId = element.resource_id ? element.resource_id.split('/').pop() : '';
+
+        // Build display name - prefer resource ID for name, text for value
+        let displayName = '';
+        let displayValue = '';
+
+        if (resourceId) {
+            // Use formatted resource ID as the name
+            displayName = this.formatResourceId(resourceId);
+            // Use text as the value
+            displayValue = textValue || contentDesc || '';
+        } else if (textValue) {
+            // No resource ID - use text as name
+            displayName = textValue;
+            displayValue = '';
+        } else if (contentDesc) {
+            displayName = contentDesc;
+            displayValue = '';
+        } else {
+            displayName = `Element ${index + 1}`;
+            displayValue = '';
+        }
+
+        // Truncate display name
+        const maxNameLen = 28;
+        const truncatedName = displayName.length > maxNameLen
+            ? displayName.substring(0, maxNameLen - 1) + '…'
+            : displayName;
+
         // Truncate display value
-        const maxLen = 32;
-        const displayValue = primaryName.value.length > maxLen
-            ? primaryName.value.substring(0, maxLen - 1) + '…'
-            : primaryName.value;
+        const maxValLen = 35;
+        const truncatedValue = displayValue.length > maxValLen
+            ? displayValue.substring(0, maxValLen - 1) + '…'
+            : displayValue;
+
+        // Build value display (prominent like Smart tab)
+        let valueHtml = '';
+        if (truncatedValue) {
+            valueHtml = `<div class="element-value">"${this.escapeHtml(truncatedValue)}"</div>`;
+        }
 
         // Build alternatives dropdown if multiple names available
         let alternativesHtml = '';
@@ -339,7 +412,8 @@ class ElementTree {
                 </label>
                 <div class="element-icon">${typeIcon}</div>
                 <div class="element-details">
-                    <div class="element-name">${this.escapeHtml(displayValue)}</div>
+                    <div class="element-name">${this.escapeHtml(truncatedName)}</div>
+                    ${valueHtml}
                     ${alternativesHtml}
                     <div class="element-meta">
                         <span class="element-type-badge">${typeName}</span>
@@ -353,6 +427,19 @@ class ElementTree {
                 </div>
             </div>
         `;
+    }
+
+    /**
+     * Format resource ID to readable name
+     */
+    formatResourceId(id) {
+        if (!id) return '';
+        let clean = id
+            .replace(/^(btn_|txt_|img_|et_|tv_|iv_|cb_|rb_|sw_|ll_|rl_|fl_|cl_|rv_)/, '')
+            .replace(/_/g, ' ');
+        return clean.split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
     }
 
     /**
@@ -372,6 +459,18 @@ class ElementTree {
      * Attach event handlers
      */
     attachEventHandlers() {
+        // Group header toggle
+        this.container.querySelectorAll('.element-group-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const items = header.nextElementSibling;
+                const toggle = header.querySelector('.element-group-toggle');
+                const isExpanded = items.style.display !== 'none';
+
+                items.style.display = isExpanded ? 'none' : 'block';
+                toggle.textContent = isExpanded ? '▶' : '▼';
+            });
+        });
+
         // Checkbox selection
         this.container.querySelectorAll('.element-checkbox input').forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
@@ -471,15 +570,9 @@ class ElementTree {
         const bounds = JSON.parse(row.dataset.bounds || '{}');
         const index = parseInt(row.dataset.index, 10);
 
-        const sorted = [...this.filteredElements].sort((a, b) => {
-            if (a.clickable && !b.clickable) return -1;
-            if (!a.clickable && b.clickable) return 1;
-            const yDiff = (a.bounds?.y || 0) - (b.bounds?.y || 0);
-            if (Math.abs(yDiff) > 20) return yDiff;
-            return (a.bounds?.x || 0) - (b.bounds?.x || 0);
-        });
-
-        return { ...sorted[index], bounds };
+        // Index refers to original filteredElements index
+        const element = this.filteredElements[index];
+        return element ? { ...element, bounds } : null;
     }
 
     /**
@@ -495,6 +588,18 @@ class ElementTree {
             const rowBounds = JSON.parse(row.dataset.bounds || '{}');
             if (rowBounds.x === element.bounds?.x && rowBounds.y === element.bounds?.y) {
                 row.classList.add('highlighted');
+
+                // Expand parent group if collapsed
+                const group = row.closest('.element-group');
+                if (group) {
+                    const items = group.querySelector('.element-group-items');
+                    const toggle = group.querySelector('.element-group-toggle');
+                    if (items && items.style.display === 'none') {
+                        items.style.display = 'block';
+                        if (toggle) toggle.textContent = '▼';
+                    }
+                }
+
                 row.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 break;
             }
