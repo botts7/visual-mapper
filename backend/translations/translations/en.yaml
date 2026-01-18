@@ -22,7 +22,8 @@ configuration:
 
   mqtt_port:
     name: MQTT Port
-    description: MQTT broker port (default: 1883 for unencrypted, 8883 for TLS).
+    description: >-
+      MQTT broker port (default 1883 for unencrypted, 8883 for TLS).
 
   mqtt_username:
     name: MQTT Username
