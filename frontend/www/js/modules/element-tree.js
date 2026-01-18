@@ -1,9 +1,9 @@
 /**
  * Element Tree Module
- * Visual Mapper v0.0.5
+ * Visual Mapper v0.0.6
  *
  * Hierarchical view of UI elements with search, filtering, and actions
- * v0.0.5: Redesigned for cleaner, more intuitive display
+ * v0.0.6: Redesigned to match Smart tab style with cards and alternative names
  */
 
 class ElementTree {
@@ -13,10 +13,12 @@ class ElementTree {
         this.filteredElements = [];
         this.searchQuery = '';
         this.highlightedElement = null;
+        this.selectedIndices = new Set();
 
         // Callbacks
         this.onTap = options.onTap || null;
         this.onSensor = options.onSensor || null;
+        this.onTimestamp = options.onTimestamp || null;
         this.onHighlight = options.onHighlight || null;
 
         // Filter settings
@@ -53,6 +55,7 @@ class ElementTree {
             'Toolbar': '🔧',
             'NavigationView': '🧭',
             'BottomNavigationView': '⬇️',
+            'View': '◻️',
             'default': '◻️'
         };
 
@@ -92,7 +95,6 @@ class ElementTree {
     getTypeName(className) {
         if (!className) return 'View';
         const shortClass = className.split('.').pop();
-        // Remove common prefixes/suffixes for cleaner display
         return shortClass
             .replace(/^AppCompat/, '')
             .replace(/^Material/, '')
@@ -100,59 +102,71 @@ class ElementTree {
     }
 
     /**
-     * Get best display name for element
+     * Get all available names/identifiers for an element
      */
-    getDisplayName(element, index) {
-        const text = element.text?.trim();
-        const contentDesc = element.content_desc?.trim();
-        const resourceId = element.resource_id;
-        const shortId = resourceId ? resourceId.split('/').pop() : '';
+    getAlternativeNames(element) {
+        const alternatives = [];
 
-        // Priority: text > content-desc > resource-id > generic
-        if (text && text.length > 0) {
-            return { name: text, source: 'text' };
-        }
-        if (contentDesc && contentDesc.length > 0) {
-            return { name: contentDesc, source: 'desc' };
-        }
-        if (shortId && shortId.length > 0) {
-            // Convert resource IDs to readable format: btn_submit -> "Submit"
-            const readable = this.formatResourceId(shortId);
-            return { name: readable, source: 'id', rawId: shortId };
+        if (element.text?.trim()) {
+            alternatives.push({
+                value: element.text.trim(),
+                source: 'text',
+                icon: '📝',
+                label: 'Text'
+            });
         }
 
-        return { name: `Element ${index + 1}`, source: 'index' };
+        if (element.content_desc?.trim()) {
+            alternatives.push({
+                value: element.content_desc.trim(),
+                source: 'desc',
+                icon: '💬',
+                label: 'Description'
+            });
+        }
+
+        if (element.resource_id) {
+            const shortId = element.resource_id.split('/').pop();
+            if (shortId) {
+                alternatives.push({
+                    value: shortId,
+                    source: 'id',
+                    icon: '🏷️',
+                    label: 'Resource ID'
+                });
+            }
+        }
+
+        return alternatives;
     }
 
     /**
-     * Format resource ID to readable name
+     * Get primary display name
      */
-    formatResourceId(id) {
-        if (!id) return '';
-        // Remove common prefixes
-        let clean = id
-            .replace(/^(btn_|txt_|img_|et_|tv_|iv_|cb_|rb_|sw_|ll_|rl_|fl_|cl_|rv_)/, '')
-            .replace(/_/g, ' ');
-        // Capitalize first letter of each word
-        return clean.split(' ')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(' ');
+    getPrimaryName(element, index) {
+        const alts = this.getAlternativeNames(element);
+        if (alts.length > 0) {
+            return alts[0];
+        }
+        return {
+            value: `Element ${index + 1}`,
+            source: 'index',
+            icon: '◻️',
+            label: 'Index'
+        };
     }
 
     /**
-     * Update elements and re-render (only if changed)
-     * Includes race condition prevention to avoid concurrent updates
+     * Update elements and re-render
      */
     setElements(elements) {
         const newElements = elements || [];
 
-        // If already updating, queue the new elements for later
         if (this._isUpdating) {
             this._pendingElements = newElements;
             return;
         }
 
-        // Skip re-render if elements haven't changed (prevents dropdown reset)
         if (this._elementsMatch(this.elements, newElements)) {
             return;
         }
@@ -165,7 +179,6 @@ class ElementTree {
         } finally {
             this._isUpdating = false;
 
-            // Process any pending update that came in during rendering
             if (this._pendingElements !== null) {
                 const pending = this._pendingElements;
                 this._pendingElements = null;
@@ -175,7 +188,7 @@ class ElementTree {
     }
 
     /**
-     * Compare two element arrays to check if they're functionally the same
+     * Compare two element arrays
      */
     _elementsMatch(oldElements, newElements) {
         if (!oldElements || !newElements) return false;
@@ -222,17 +235,14 @@ class ElementTree {
      */
     applyFilters() {
         this.filteredElements = this.elements.filter(el => {
-            // Clickable filter
             if (this.showClickableOnly && !el.clickable) {
                 return false;
             }
 
-            // Text only filter
             if (this.showTextOnly && !el.text?.trim()) {
                 return false;
             }
 
-            // Search filter
             if (this.searchQuery) {
                 const text = (el.text || '').toLowerCase();
                 const className = (el.class || '').toLowerCase();
@@ -250,95 +260,96 @@ class ElementTree {
     }
 
     /**
-     * Render the element tree with new cleaner design
+     * Render the element list
      */
     render() {
         if (!this.container) return;
 
         if (this.filteredElements.length === 0) {
             this.container.innerHTML = `
-                <div class="tree-empty">
-                    <div class="tree-empty-icon">📱</div>
-                    <div class="tree-empty-text">${this.searchQuery ? 'No matching elements' : 'No elements detected'}</div>
-                    <div class="tree-empty-hint">${this.searchQuery ? 'Try a different search term' : 'Elements will appear when a screen is loaded'}</div>
+                <div class="element-empty">
+                    <div class="element-empty-icon">📱</div>
+                    <div class="element-empty-text">${this.searchQuery ? 'No matching elements' : 'No elements detected'}</div>
+                    <div class="element-empty-hint">${this.searchQuery ? 'Try a different search term' : 'Elements will appear when a screen is loaded'}</div>
                 </div>
             `;
             return;
         }
 
-        // Sort elements: clickable first, then by position (top to bottom, left to right)
+        // Sort: clickable first, then by position
         const sorted = [...this.filteredElements].sort((a, b) => {
-            // Clickable elements first
             if (a.clickable && !b.clickable) return -1;
             if (!a.clickable && b.clickable) return 1;
-            // Then by Y position (top to bottom)
             const yDiff = (a.bounds?.y || 0) - (b.bounds?.y || 0);
             if (Math.abs(yDiff) > 20) return yDiff;
-            // Then by X position (left to right)
             return (a.bounds?.x || 0) - (b.bounds?.x || 0);
         });
 
-        let html = '<div class="element-tree">';
-
+        let html = '<div class="element-list">';
         sorted.forEach((el, idx) => {
             html += this.renderElement(el, idx);
         });
-
         html += '</div>';
-        this.container.innerHTML = html;
 
-        // Wire up event handlers
+        this.container.innerHTML = html;
         this.attachEventHandlers();
     }
 
     /**
-     * Render a single element with clean, compact design
+     * Render a single element card (matching Smart tab style)
      */
     renderElement(element, index) {
-        const displayInfo = this.getDisplayName(element, index);
+        const primaryName = this.getPrimaryName(element, index);
+        const alternatives = this.getAlternativeNames(element);
         const typeName = this.getTypeName(element.class);
         const typeIcon = this.getTypeIcon(element.class);
         const isClickable = element.clickable;
         const bounds = element.bounds;
-        const resourceId = element.resource_id;
-        const shortId = resourceId ? resourceId.split('/').pop() : '';
+        const isSelected = this.selectedIndices.has(index);
 
-        // Truncate name if too long
-        const maxLen = 28;
-        const truncatedName = displayInfo.name.length > maxLen
-            ? displayInfo.name.substring(0, maxLen - 1) + '…'
-            : displayInfo.name;
+        // Truncate display value
+        const maxLen = 32;
+        const displayValue = primaryName.value.length > maxLen
+            ? primaryName.value.substring(0, maxLen - 1) + '…'
+            : primaryName.value;
 
-        // Build subtitle - show ID if name came from text/desc
-        let subtitle = '';
-        if (displayInfo.source === 'text' && shortId) {
-            subtitle = shortId;
-        } else if (displayInfo.source === 'desc' && shortId) {
-            subtitle = shortId;
-        } else if (displayInfo.source === 'id') {
-            subtitle = typeName;
-        } else {
-            subtitle = typeName;
+        // Build alternatives dropdown if multiple names available
+        let alternativesHtml = '';
+        if (alternatives.length > 1) {
+            const options = alternatives.map(alt => {
+                const truncVal = alt.value.length > 25 ? alt.value.substring(0, 22) + '…' : alt.value;
+                return `<option value="${this.escapeHtml(alt.source)}" title="${this.escapeHtml(alt.value)}">${alt.icon} ${this.escapeHtml(truncVal)}</option>`;
+            }).join('');
+
+            alternativesHtml = `
+                <div class="element-alt-names">
+                    <select class="alt-name-select" data-index="${index}" title="Alternative identifiers">
+                        ${options}
+                    </select>
+                </div>
+            `;
         }
 
         return `
-            <div class="tree-element ${isClickable ? 'clickable' : ''}"
+            <div class="element-item ${isSelected ? 'selected' : ''} ${isClickable ? 'clickable' : ''}"
                  data-index="${index}"
                  data-bounds='${JSON.stringify(bounds)}'>
-                <div class="tree-element-main">
-                    <span class="tree-element-icon">${typeIcon}</span>
-                    <div class="tree-element-info">
-                        <span class="tree-element-name" title="${this.escapeHtml(displayInfo.name)}">${this.escapeHtml(truncatedName)}</span>
-                        <span class="tree-element-subtitle">${this.escapeHtml(subtitle)}</span>
+                <label class="element-checkbox">
+                    <input type="checkbox" ${isSelected ? 'checked' : ''}>
+                </label>
+                <div class="element-icon">${typeIcon}</div>
+                <div class="element-details">
+                    <div class="element-name">${this.escapeHtml(displayValue)}</div>
+                    ${alternativesHtml}
+                    <div class="element-meta">
+                        <span class="element-type-badge">${typeName}</span>
+                        ${isClickable ? '<span class="element-clickable-badge">Clickable</span>' : ''}
                     </div>
                 </div>
-                <div class="tree-element-right">
-                    ${isClickable ? '<span class="tree-badge clickable-badge">tap</span>' : ''}
-                    <div class="tree-element-actions">
-                        ${isClickable ? `<button class="tree-btn tree-btn-tap" title="Add tap action">👆</button>` : ''}
-                        <button class="tree-btn tree-btn-sensor" title="Add as sensor">📊</button>
-                        <button class="tree-btn tree-btn-highlight" title="Highlight on screen">🔍</button>
-                    </div>
+                <div class="element-buttons">
+                    ${isClickable ? `<button class="btn-tap" data-index="${index}" title="Tap this element">👆 Tap</button>` : ''}
+                    <button class="btn-sensor" data-index="${index}" title="Add as sensor">📊</button>
+                    <button class="btn-highlight" data-index="${index}" title="Highlight on screen">🔍</button>
                 </div>
             </div>
         `;
@@ -358,11 +369,28 @@ class ElementTree {
     }
 
     /**
-     * Attach event handlers to rendered elements
+     * Attach event handlers
      */
     attachEventHandlers() {
-        // Element action buttons
-        this.container.querySelectorAll('.tree-btn-tap').forEach(btn => {
+        // Checkbox selection
+        this.container.querySelectorAll('.element-checkbox input').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                e.stopPropagation();
+                const item = e.target.closest('.element-item');
+                const index = parseInt(item.dataset.index, 10);
+
+                if (e.target.checked) {
+                    this.selectedIndices.add(index);
+                    item.classList.add('selected');
+                } else {
+                    this.selectedIndices.delete(index);
+                    item.classList.remove('selected');
+                }
+            });
+        });
+
+        // Tap button
+        this.container.querySelectorAll('.btn-tap').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const element = this.getElementFromButton(btn);
@@ -372,7 +400,8 @@ class ElementTree {
             });
         });
 
-        this.container.querySelectorAll('.tree-btn-sensor').forEach(btn => {
+        // Sensor button
+        this.container.querySelectorAll('.btn-sensor').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const element = this.getElementFromButton(btn);
@@ -382,44 +411,11 @@ class ElementTree {
             });
         });
 
-        this.container.querySelectorAll('.tree-btn-timestamp').forEach(btn => {
+        // Highlight button
+        this.container.querySelectorAll('.btn-highlight').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const element = this.getElementFromButton(btn);
-                if (element && this.onTimestamp) {
-                    this.onTimestamp(element);
-                }
-            });
-        });
-
-        this.container.querySelectorAll('.tree-btn-highlight').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const element = this.getElementFromButton(btn);
-                if (element && this.onHighlight) {
-                    this.highlightElement(element);
-                    this.onHighlight(element);
-                }
-            });
-        });
-
-        // Hover to highlight
-        this.container.querySelectorAll('.tree-element').forEach(el => {
-            el.addEventListener('mouseenter', () => {
-                const element = this.getElementFromRow(el);
-                if (element && this.onHighlight) {
-                    this.onHighlight(element);
-                }
-            });
-        });
-
-        // Click on row to highlight
-        this.container.querySelectorAll('.tree-element').forEach(el => {
-            el.addEventListener('click', (e) => {
-                // Don't trigger if clicking a button
-                if (e.target.closest('.tree-btn')) return;
-
-                const element = this.getElementFromRow(el);
                 if (element) {
                     this.highlightElement(element);
                     if (this.onHighlight) {
@@ -428,14 +424,43 @@ class ElementTree {
                 }
             });
         });
+
+        // Hover to highlight
+        this.container.querySelectorAll('.element-item').forEach(item => {
+            item.addEventListener('mouseenter', () => {
+                const element = this.getElementFromRow(item);
+                if (element && this.onHighlight) {
+                    this.onHighlight(element);
+                }
+            });
+        });
+
+        // Click row to select
+        this.container.querySelectorAll('.element-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                // Don't trigger if clicking button, checkbox, or dropdown
+                if (e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
+
+                const checkbox = item.querySelector('.element-checkbox input');
+                checkbox.checked = !checkbox.checked;
+                checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        });
+
+        // Alternative name dropdown change
+        this.container.querySelectorAll('.alt-name-select').forEach(select => {
+            select.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        });
     }
 
     /**
-     * Get element data from button click
+     * Get element data from button
      */
     getElementFromButton(btn) {
-        const row = btn.closest('.tree-element');
-        return this.getElementFromRow(row);
+        const item = btn.closest('.element-item');
+        return this.getElementFromRow(item);
     }
 
     /**
@@ -446,7 +471,6 @@ class ElementTree {
         const bounds = JSON.parse(row.dataset.bounds || '{}');
         const index = parseInt(row.dataset.index, 10);
 
-        // Find the element in filteredElements that matches this position
         const sorted = [...this.filteredElements].sort((a, b) => {
             if (a.clickable && !b.clickable) return -1;
             if (!a.clickable && b.clickable) return 1;
@@ -459,16 +483,14 @@ class ElementTree {
     }
 
     /**
-     * Highlight an element and scroll to it
+     * Highlight an element
      */
     highlightElement(element) {
-        // Remove previous highlight
-        this.container.querySelectorAll('.tree-element.highlighted').forEach(el => {
+        this.container.querySelectorAll('.element-item.highlighted').forEach(el => {
             el.classList.remove('highlighted');
         });
 
-        // Find and highlight the element row
-        const rows = this.container.querySelectorAll('.tree-element');
+        const rows = this.container.querySelectorAll('.element-item');
         for (const row of rows) {
             const rowBounds = JSON.parse(row.dataset.bounds || '{}');
             if (rowBounds.x === element.bounds?.x && rowBounds.y === element.bounds?.y) {
@@ -485,15 +507,47 @@ class ElementTree {
      * Clear all highlights
      */
     clearHighlight() {
-        this.container.querySelectorAll('.tree-element.highlighted').forEach(el => {
+        this.container.querySelectorAll('.element-item.highlighted').forEach(el => {
             el.classList.remove('highlighted');
         });
         this.highlightedElement = null;
+    }
+
+    /**
+     * Get selected elements
+     */
+    getSelectedElements() {
+        const sorted = [...this.filteredElements].sort((a, b) => {
+            if (a.clickable && !b.clickable) return -1;
+            if (!a.clickable && b.clickable) return 1;
+            const yDiff = (a.bounds?.y || 0) - (b.bounds?.y || 0);
+            if (Math.abs(yDiff) > 20) return yDiff;
+            return (a.bounds?.x || 0) - (b.bounds?.x || 0);
+        });
+
+        return Array.from(this.selectedIndices).map(idx => sorted[idx]).filter(Boolean);
+    }
+
+    /**
+     * Select all elements
+     */
+    selectAll() {
+        const sorted = [...this.filteredElements];
+        sorted.forEach((_, idx) => this.selectedIndices.add(idx));
+        this.render();
+    }
+
+    /**
+     * Clear selection
+     */
+    clearSelection() {
+        this.selectedIndices.clear();
+        this.render();
     }
 }
 
 // Export for module use
 export default ElementTree;
 
-// Export for global access (dual export pattern)
+// Export for global access
 window.ElementTree = ElementTree;
