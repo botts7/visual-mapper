@@ -76,6 +76,12 @@ jobs:
           # Update config.yaml version
           sed -i "s/^version: .*/version: ${{ steps.info.outputs.version }}/" "$TARGET_DIR/config.yaml"
 
+          # For beta builds, update name and slug to avoid conflicts with stable
+          if [ "${{ steps.info.outputs.target }}" = "beta" ]; then
+            sed -i "s/^name: Visual Mapper$/name: Visual Mapper Beta/" "$TARGET_DIR/config.yaml"
+            sed -i "s/^slug: visual_mapper$/slug: visual_mapper_beta/" "$TARGET_DIR/config.yaml"
+          fi
+
           # Update CACHE_BUST in Dockerfile
           CACHE_BUST=$(date +%Y%m%d%H%M%S)
           sed -i "s/CACHE_BUST=.*/CACHE_BUST=$CACHE_BUST/" "$TARGET_DIR/Dockerfile"
