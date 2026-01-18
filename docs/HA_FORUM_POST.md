@@ -1,4 +1,4 @@
-# Visual Mapper v0.3.1 - Transform Android Devices into HA Sensors & Automation
+# Visual Mapper v0.4.0 - Transform Android Devices into HA Sensors & Automation
 
 Hey everyone! I've been working on an open-source project that I think could be useful for the community, and I'm looking for testers and contributors to help improve it.
 
@@ -20,7 +20,7 @@ Visual Mapper lets you **create Home Assistant sensors from any Android app's UI
 4. Schedule flows to run periodically (e.g., every 5 minutes)
 5. Sensors auto-publish to HA via MQTT with auto-discovery
 
-## Current Features (v0.3.1)
+## Current Features (v0.4.0)
 
 | Feature | Status |
 |---------|--------|
@@ -38,6 +38,8 @@ Visual Mapper lets you **create Home Assistant sensors from any Android app's UI
 | ML Training Server (optional) | ✅ Working |
 | Android Companion App | ✅ Working |
 | Dark mode UI | ✅ Working |
+| Full-width responsive UI | ✅ New |
+| Mobile/tablet support | ✅ New |
 
 ## Screenshots
 
@@ -213,13 +215,19 @@ This is **beta software** - it works, but there are rough edges:
 | Android Companion App | https://github.com/botts7/visual-mapper-android |
 | **Download Android APK** | https://github.com/botts7/visual-mapper-android/releases |
 | Issues / Bug Reports | https://github.com/botts7/visual-mapper/issues |
-| ML Training Docs | https://github.com/botts7/visual-mapper/blob/master/docs/ML_TRAINING.md |
+| ML Training Docs | https://github.com/botts7/visual-mapper/blob/main/docs/ML_TRAINING.md |
 
 ---
 
 ## Changelog
 
-### v0.3.1 (Latest)
+### v0.4.0 (Latest)
+- **Full-Width Layout**: All pages now use full viewport width with 24px edge padding - no more wasted screen space
+- **Mobile Responsive Design**: Flows and Navigation Learn pages now work properly on mobile/tablet devices
+- **Elements Tab Redesign**: Card-based layout matching Smart tab style with type icons, alternative names dropdown, current value display, and collapsible grouped tree structure
+- **UI Consistency**: All container widths now consistent across dashboard, flows, performance, and flow wizard pages
+
+### v0.3.1
 - **Dynamic Cache Busting**: All pages now use session-based cache busting - no more stale CSS/JS
 - **Dark Mode Everywhere**: Dark mode support added to all pages with instant theme switching (no flash)
 - **Dev Tools Improvements**: Version info now fetched dynamically from API
