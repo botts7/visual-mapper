@@ -341,12 +341,12 @@ class DeviceSecurityUI {
 
         // Validate
         if (!selectedStrategy) {
-            alert('Please select a lock strategy');
+            window.showToast?.('Please select a lock strategy', 'warning') || console.warn('Please select a lock strategy');
             return;
         }
 
         if (selectedStrategy === 'auto_unlock' && !passcode && !this.currentConfig?.has_passcode) {
-            alert('Please enter a passcode for automatic unlock strategy');
+            window.showToast?.('Please enter a passcode for automatic unlock strategy', 'warning') || console.warn('Please enter a passcode');
             return;
         }
 
@@ -367,7 +367,7 @@ class DeviceSecurityUI {
             const response = await this.apiClient.post(`/device/${this.currentDeviceId}/security`, payload);
 
             if (response.success) {
-                alert('Security configuration saved successfully!');
+                window.showToast?.('Security configuration saved successfully!', 'success');
                 await this.loadConfig();
                 this.render();
                 this.attachEventListeners();
@@ -377,11 +377,11 @@ class DeviceSecurityUI {
                     this.onSaveCallback();
                 }
             } else {
-                alert('Failed to save configuration');
+                window.showToast?.('Failed to save configuration', 'error');
             }
         } catch (error) {
             console.error('[DeviceSecurity] Failed to save configuration:', error);
-            alert('Error saving configuration: ' + error.message);
+            window.showToast?.('Error saving configuration: ' + error.message, 'error');
         }
     }
 

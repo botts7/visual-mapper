@@ -1480,3 +1480,45 @@ body.dark-mode ::-webkit-scrollbar-thumb {
 body.dark-mode ::-webkit-scrollbar-thumb:hover {
     background: #666666;
 }
+
+/* ========== Error Hint Styles ========== */
+.error-hint {
+    background: rgba(255, 193, 7, 0.1);
+    border-left: 3px solid #ffc107;
+    padding: 8px 12px;
+    margin-top: 8px;
+    font-size: 13px;
+    border-radius: 4px;
+    color: var(--text-color);
+}
+
+body.dark-mode .error-hint {
+    background: rgba(255, 193, 7, 0.15);
+    border-left-color: #ffb300;
+}
+
+/* Retry Button Styling */
+.btn-retry {
+    background: var(--warning-color, #ff9800) !important;
+    margin-right: 10px;
+}
+
+.btn-retry:hover {
+    background: #f57c00 !important;
+    transform: translateY(-1px);
+}
+
+/* ========== Invalid Input Styles ========== */
+input.invalid,
+input.invalid:focus {
+    border-color: #f44336 !important;
+    background: rgba(244, 67, 54, 0.05);
+}
+
+input.invalid:focus {
+    box-shadow: 0 0 0 3px rgba(244, 67, 54, 0.1);
+}
+
+body.dark-mode input.invalid {
+    background: rgba(244, 67, 54, 0.1);
+}

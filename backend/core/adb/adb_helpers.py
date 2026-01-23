@@ -145,7 +145,7 @@ class PersistentADBShell:
                 self.process.stdin.write(b"exit\n")
                 await self.process.stdin.drain()
                 await asyncio.wait_for(self.process.wait(), timeout=2.0)
-            except:
+            except (asyncio.TimeoutError, ProcessLookupError, OSError, BrokenPipeError):
                 self.process.kill()
 
             avg_latency = self._total_latency_ms / max(1, self._command_count)
@@ -478,7 +478,7 @@ class ADBMaintenance:
             try:
                 limit = int(result.strip()) if result.strip() != "null" else -1
                 return {"success": True, "limit": limit}
-            except:
+            except (ValueError, AttributeError):
                 return {"success": True, "limit": -1, "raw": result}
         return {"success": False, "error": result}
 
@@ -615,7 +615,55 @@ class ADBHelpers:
         self.default_timeout = 10  # seconds
         self.poll_interval = 0.5  # seconds
 
+        # Cache for screen dimensions per device
+        self._screen_dimensions_cache: Dict[str, Tuple[int, int]] = {}
+
         logger.info("[ADBHelpers] Initialized")
+
+    async def get_screen_dimensions(
+        self, device_id: str, use_cache: bool = True
+    ) -> Tuple[int, int]:
+        """
+        Get device screen dimensions
+
+        Args:
+            device_id: Device ID
+            use_cache: Use cached dimensions if available (default True)
+
+        Returns:
+            Tuple of (width, height)
+        """
+        # Return cached if available
+        if use_cache and device_id in self._screen_dimensions_cache:
+            return self._screen_dimensions_cache[device_id]
+
+        # Default dimensions
+        default_width, default_height = 1080, 2400
+
+        try:
+            # Use adb shell wm size to get actual dimensions
+            import re
+            result = await self.adb_bridge._run_adb_command(device_id, ["shell", "wm", "size"])
+            if result:
+                match = re.search(r"(\d+)x(\d+)", result)
+                if match:
+                    width, height = int(match.group(1)), int(match.group(2))
+                    # Cache the result
+                    self._screen_dimensions_cache[device_id] = (width, height)
+                    logger.debug(f"[ADBHelpers] Screen dimensions for {device_id}: {width}x{height}")
+                    return (width, height)
+        except Exception as e:
+            logger.debug(f"[ADBHelpers] Could not get screen dimensions for {device_id}: {e}")
+
+        # Return defaults if we couldn't get actual dimensions
+        return (default_width, default_height)
+
+    def clear_screen_dimensions_cache(self, device_id: str = None):
+        """Clear cached screen dimensions"""
+        if device_id:
+            self._screen_dimensions_cache.pop(device_id, None)
+        else:
+            self._screen_dimensions_cache.clear()
 
     async def find_element(
         self,
@@ -971,10 +1019,8 @@ class ADBHelpers:
                 logger.debug(f"[ADBHelpers] Found element after {i} scrolls")
                 return element
 
-            # Perform scroll
-            # TODO: Get actual screen dimensions instead of hardcoding
-            screen_width = 1080
-            screen_height = 2400
+            # Perform scroll - get actual screen dimensions
+            screen_width, screen_height = await self.get_screen_dimensions(device_id)
 
             if direction == "down":
                 start_y = int(screen_height * 0.75)

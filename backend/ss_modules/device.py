@@ -67,8 +67,8 @@ class DeviceController:
                 )
                 try:
                     return int(result.stdout.strip())
-                except:
-                    return 0  # Default to 3-button
+                except (ValueError, AttributeError):
+                    return 0  # Default to 3-button nav
 
             # Check if app is fullscreen
             def _check_fullscreen():

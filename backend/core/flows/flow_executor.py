@@ -23,6 +23,7 @@ from .flow_models import (
 )
 from utils.element_finder import SmartElementFinder, ElementMatch
 from utils.device_security import DeviceSecurityManager, LockStrategy
+from utils.error_handler import classify_error, get_error_with_hint
 from .flow_execution_history import FlowExecutionHistory, FlowExecutionLog, FlowStepLog
 from core.navigation_manager import NavigationManager
 from ml_components.navigation_models import compute_screen_id, extract_ui_landmarks
@@ -124,6 +125,23 @@ class FlowExecutor:
         self._sensors_skipped_by_interval: Dict[str, float] = {}
 
         logger.info("[FlowExecutor] Initialized")
+
+    def _set_error_with_hint(
+        self, result: FlowExecutionResult, error_message: str
+    ) -> None:
+        """
+        Set error message on result with automatic hint classification.
+
+        Args:
+            result: The FlowExecutionResult to update
+            error_message: The error message
+        """
+        result.error_message = error_message
+        # Classify error and get hint
+        error_type = classify_error(error_message)
+        if error_type:
+            hint_info = get_error_with_hint(error_type, error_message)
+            result.error_hint = hint_info.get("hint", "")
 
     def _analyze_skippable_steps(self, flow: SensorCollectionFlow) -> set[int]:
         """
@@ -419,6 +437,7 @@ class FlowExecutor:
         strict_mode: bool = False,
         repair_mode: bool = False,
         force_execute: bool = False,
+        triggered_by: str = "scheduler",
     ) -> FlowExecutionResult:
         """
         Execute complete flow with configurable execution modes.
@@ -434,6 +453,7 @@ class FlowExecutor:
                         Fixes "Element moved Xpx" issues automatically.
             force_execute: If True, execute ALL steps regardless of sensor update intervals.
                           Useful for manual testing - bypasses "sensors not due" skip logic.
+            triggered_by: Source that triggered the execution (scheduler, manual, api, test).
 
         Returns:
             FlowExecutionResult with success/failure details
@@ -484,7 +504,7 @@ class FlowExecutor:
             flow_id=flow.flow_id,
             device_id=flow.device_id,
             started_at=datetime.now().isoformat(),
-            triggered_by="scheduler",  # TODO: Pass this as parameter when called from API/manual
+            triggered_by=triggered_by,
             total_steps=len(flow.steps),
             steps=[],
         )
@@ -526,8 +546,8 @@ class FlowExecutor:
                 )
                 if not wake_success:
                     if flow.verify_screen_on:
-                        result.error_message = (
-                            "Failed to wake screen for headless execution"
+                        self._set_error_with_hint(
+                            result, "Failed to wake screen for headless execution"
                         )
                         logger.error(f"  [Headless] {result.error_message}")
                         result.execution_time_ms = int(
@@ -644,7 +664,9 @@ class FlowExecutor:
                 # Timeout check
                 elapsed = time.time() - start_time
                 if elapsed > flow.flow_timeout:
-                    result.error_message = f"Flow timeout after {elapsed:.1f}s (limit: {flow.flow_timeout}s)"
+                    self._set_error_with_hint(
+                        result, f"Flow timeout after {elapsed:.1f}s (limit: {flow.flow_timeout}s)"
+                    )
                     result.failed_step = i
                     logger.warning(f"  {result.error_message}")
                     break
@@ -736,8 +758,8 @@ class FlowExecutor:
                         step_result.error_message = f"Step failed: {step.step_type}"
                         result.failed_step = i
                         if not result.error_message:
-                            result.error_message = (
-                                f"Step {i+1} failed: {step.step_type}"
+                            self._set_error_with_hint(
+                                result, f"Step {i+1} failed: {step.step_type}"
                             )
                         logger.warning(f"  Step {i+1} failed: {step.step_type}")
 
@@ -903,7 +925,7 @@ class FlowExecutor:
 
         except Exception as e:
             result.success = False
-            result.error_message = f"Flow execution error: {str(e)}"
+            self._set_error_with_hint(result, f"Flow execution error: {str(e)}")
             logger.error(
                 f"[FlowExecutor] Flow {flow.flow_id} error: {e}", exc_info=True
             )
@@ -4002,7 +4024,7 @@ class FlowExecutor:
     # ============================================================================
 
     async def execute_flow_on_demand(
-        self, flow_id: str, device_id: str
+        self, flow_id: str, device_id: str, triggered_by: str = "manual"
     ) -> FlowExecutionResult:
         """
         Execute a flow on-demand (outside scheduler)
@@ -4010,6 +4032,7 @@ class FlowExecutor:
         Args:
             flow_id: Flow ID to execute
             device_id: Device ID
+            triggered_by: Source that triggered the execution (manual, api, test)
 
         Returns:
             FlowExecutionResult
@@ -4019,7 +4042,7 @@ class FlowExecutor:
             raise ValueError(f"Flow {flow_id} not found")
 
         # Execute without scheduler lock (caller must ensure no conflicts)
-        return await self.execute_flow(flow)
+        return await self.execute_flow(flow, triggered_by=triggered_by)
 
     def _get_sensor_name(self, device_id: str, sensor_id: str) -> str:
         """Get friendly name for a sensor ID"""

@@ -1,6 +1,8 @@
 /**
  * Visual Mapper - Sensor Creator Module
- * Version: 0.0.14 (Phase 4 - MQTT + Dynamic Hierarchical Dropdowns)
+ * Version: 0.0.16 (Phase 4 - MQTT + Dynamic Hierarchical Dropdowns)
+ * v0.0.16: Integrated centralized debug logger
+ * v0.0.15: Added duplicate name validation and real-time regex pattern validation
  * v0.0.14: Added debounce/guard to prevent double-submission
  * v0.0.13: Added targetApp to sensor data for app association
  * v0.0.12: Added pre-fill options support (name, device_class, unit, icon) for suggestions integration
@@ -10,6 +12,10 @@
  * Handles sensor creation dialog and configuration.
  * Creates Home Assistant sensors from selected UI elements.
  */
+
+import LoggerFactory from './debug-logger.js';
+
+const logger = LoggerFactory.getLogger('SensorCreator');
 
 class SensorCreator {
     constructor(apiClient) {
@@ -24,7 +30,7 @@ class SensorCreator {
         this.deviceClasses = null; // Will be loaded from API
         this.onSensorCreated = null; // Callback when sensor is created (response, sensorData)
 
-        console.log('[SensorCreator] Initialized');
+        logger.debug('Initialized');
 
         // Load device classes from API
         this._loadDeviceClasses();
@@ -39,9 +45,9 @@ class SensorCreator {
             // Use apiClient for consistent API base detection
             const response = await this.apiClient.get('/device-classes');
             this.deviceClasses = response;
-            console.log('[SensorCreator] Loaded device classes:', this.deviceClasses);
+            logger.debug(' Loaded device classes:', this.deviceClasses);
         } catch (error) {
-            console.error('[SensorCreator] Error loading device classes:', error);
+            logger.error(' Error loading device classes:', error);
         }
     }
 
@@ -53,7 +59,7 @@ class SensorCreator {
         const select = document.getElementById('sensorType');
 
         if (!select) {
-            console.warn('[SensorCreator] Sensor type select not found');
+            logger.warn(' Sensor type select not found');
             return;
         }
 
@@ -151,7 +157,7 @@ class SensorCreator {
         // Show dialog
         this.dialog.style.display = 'block';
 
-        console.log('[SensorCreator] Dialog shown for element:', element, 'options:', options);
+        logger.debug(' Dialog shown for element:', element, 'options:', options);
     }
 
     /**
@@ -179,12 +185,12 @@ class SensorCreator {
 
         // Ensure device classes are loaded before populating datalists
         if (!this.deviceClasses) {
-            console.log('[SensorCreator] Waiting for device classes to load before populating datalists...');
+            logger.debug(' Waiting for device classes to load before populating datalists...');
             // Wait for device classes, then populate
             const waitForClasses = setInterval(() => {
                 if (this.deviceClasses) {
                     clearInterval(waitForClasses);
-                    console.log('[SensorCreator] Device classes loaded, populating datalists');
+                    logger.debug(' Device classes loaded, populating datalists');
                     this._onDeviceClassChange();
                 }
             }, 100);
@@ -200,7 +206,7 @@ class SensorCreator {
         // Show dialog
         this.dialog.style.display = 'block';
 
-        console.log('[SensorCreator] Edit dialog shown for sensor:', sensor);
+        logger.debug(' Edit dialog shown for sensor:', sensor);
     }
 
     /**
@@ -523,7 +529,7 @@ class SensorCreator {
     _populateForm(element, elementIndex) {
         // Handle null/undefined element
         if (!element) {
-            console.warn('[SensorCreator] No element provided to _populateForm');
+            logger.warn(' No element provided to _populateForm');
             element = { class: 'Unknown', text: '' };
         }
 
@@ -734,9 +740,36 @@ class SensorCreator {
         paramsDiv.innerHTML = '';
 
         if (method === 'regex') {
-            paramsDiv.innerHTML = '<input type="text" class="form-input" placeholder="e.g., (\\d+)% for percentage" style="margin-top: 5px;">';
-            paramsDiv.querySelector('input').addEventListener('input', (e) => {
-                this.pipelineSteps[stepIndex].params.regex_pattern = e.target.value;
+            paramsDiv.innerHTML = `
+                <input type="text" class="form-input regex-pattern-input" placeholder="e.g., (\\d+)% for percentage" style="margin-top: 5px;">
+                <small class="regex-validation-message" style="display: none; color: #f44336; font-size: 12px; margin-top: 4px;"></small>
+            `;
+            const regexInput = paramsDiv.querySelector('.regex-pattern-input');
+            const validationMsg = paramsDiv.querySelector('.regex-validation-message');
+
+            regexInput.addEventListener('input', (e) => {
+                const pattern = e.target.value;
+                this.pipelineSteps[stepIndex].params.regex_pattern = pattern;
+
+                // Real-time regex validation
+                if (pattern) {
+                    try {
+                        new RegExp(pattern);
+                        regexInput.classList.remove('invalid');
+                        regexInput.setCustomValidity('');
+                        validationMsg.style.display = 'none';
+                    } catch (err) {
+                        regexInput.classList.add('invalid');
+                        regexInput.setCustomValidity(`Invalid regex: ${err.message}`);
+                        validationMsg.textContent = `⚠️ Invalid regex: ${err.message}`;
+                        validationMsg.style.display = 'block';
+                    }
+                } else {
+                    regexInput.classList.remove('invalid');
+                    regexInput.setCustomValidity('');
+                    validationMsg.style.display = 'none';
+                }
+
                 this._updatePreview();
             });
         } else if (method === 'after') {
@@ -865,7 +898,7 @@ class SensorCreator {
             previewValue.style.color = 'var(--text-color)';
 
         } catch (error) {
-            console.error('[SensorCreator] Preview failed:', error);
+            logger.error(' Preview failed:', error);
             previewValue.innerHTML = `<span style="color: var(--error-color);">❌ Preview failed: ${error.message}</span>`;
             previewSteps.textContent = '';
         } finally {
@@ -882,7 +915,7 @@ class SensorCreator {
 
         // Prevent double-submission
         if (this._submitting) {
-            console.log('[SensorCreator] Submission already in progress, ignoring duplicate');
+            logger.debug(' Submission already in progress, ignoring duplicate');
             return;
         }
         this._submitting = true;
@@ -890,7 +923,7 @@ class SensorCreator {
         // Safety net: auto-reset flag after 30 seconds
         const submitTimeout = setTimeout(() => {
             if (this._submitting) {
-                console.warn('[SensorCreator] Submit timeout after 30s - resetting flag');
+                logger.warn(' Submit timeout after 30s - resetting flag');
                 this._submitting = false;
                 this._enableSubmitButton();
             }
@@ -956,6 +989,41 @@ class SensorCreator {
             return;
         }
 
+        // Validate regex patterns before submitting
+        for (let i = 0; i < this.pipelineSteps.length; i++) {
+            const step = this.pipelineSteps[i];
+            if (step.method === 'regex' && step.params.regex_pattern) {
+                try {
+                    new RegExp(step.params.regex_pattern);
+                } catch (err) {
+                    alert(`Step ${i + 1} has an invalid regex pattern: ${err.message}\n\nPlease fix the pattern before saving.`);
+                    return;
+                }
+            }
+        }
+
+        const friendlyName = document.getElementById('sensorName').value.trim();
+
+        // Check for duplicate name before submitting (only for new sensors)
+        if (!this.editMode) {
+            try {
+                const deviceIdForCheck = this.currentDeviceStableId || this.currentDeviceId;
+                const existingResponse = await this.apiClient.get(`/sensors/${deviceIdForCheck}`);
+                if (existingResponse && existingResponse.sensors) {
+                    const duplicate = existingResponse.sensors.find(s =>
+                        s.friendly_name.toLowerCase().trim() === friendlyName.toLowerCase()
+                    );
+                    if (duplicate) {
+                        alert(`A sensor named "${friendlyName}" already exists on this device. Please choose a different name.`);
+                        return;
+                    }
+                }
+            } catch (error) {
+                // If we can't check, let the backend handle validation
+                logger.warn(' Could not check for duplicate names:', error);
+            }
+        }
+
         const sensorData = {
             sensor_id: this.editMode ? this.editingSensor.sensor_id : "", // Use existing ID in edit mode
             device_id: this.currentDeviceStableId || this.currentDeviceId, // Use stable ID for storage
@@ -985,14 +1053,14 @@ class SensorCreator {
         };
 
         // Log sensor data for debugging
-        console.log('[SensorCreator] Submitting sensor data:', JSON.stringify(sensorData, null, 2));
+        logger.debug(' Submitting sensor data:', JSON.stringify(sensorData, null, 2));
 
         try {
             let response;
             if (this.editMode) {
                 // Update existing sensor
                 response = await this.apiClient.put('/sensors', sensorData);
-                console.log('[SensorCreator] Sensor updated:', response);
+                logger.debug(' Sensor updated:', response);
                 alert(`Sensor "${sensorData.friendly_name}" updated successfully!`);
             } else {
                 // Check for similar sensors before creating (deduplication)
@@ -1001,7 +1069,7 @@ class SensorCreator {
                     const useExisting = await this._showDuplicateWarning(dupCheck);
                     if (useExisting) {
                         // User chose to use existing sensor
-                        console.log('[SensorCreator] Using existing sensor:', dupCheck.bestMatch.entity_id);
+                        logger.debug(' Using existing sensor:', dupCheck.bestMatch.entity_id);
                         response = { sensor_id: dupCheck.bestMatch.entity_id, ...dupCheck.bestMatch.details };
                         alert(`Using existing sensor "${dupCheck.bestMatch.entity_name}" instead of creating duplicate.`);
 
@@ -1017,7 +1085,7 @@ class SensorCreator {
 
                 // Create new sensor (backend may auto-reuse if ≥90% match found)
                 response = await this.apiClient.post('/sensors', sensorData);
-                console.log('[SensorCreator] Sensor response:', response);
+                logger.debug(' Sensor response:', response);
 
                 // Handle auto-reuse response from backend
                 if (response.reused) {
@@ -1046,7 +1114,7 @@ class SensorCreator {
                 try {
                     this.onSensorCreated(response, sensorData);
                 } catch (e) {
-                    console.warn('[SensorCreator] onSensorCreated callback error:', e);
+                    logger.warn(' onSensorCreated callback error:', e);
                 }
             }
 
@@ -1115,7 +1183,7 @@ class SensorCreator {
                 recommendation: response.recommendation
             };
         } catch (error) {
-            console.warn('[SensorCreator] Duplicate check failed, proceeding with creation:', error);
+            logger.warn(' Duplicate check failed, proceeding with creation:', error);
             return { hasSimilar: false, matches: [] };
         }
     }

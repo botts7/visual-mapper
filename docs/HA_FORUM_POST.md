@@ -22,24 +22,22 @@ Visual Mapper lets you **create Home Assistant sensors from any Android app's UI
 
 ## Current Features (v0.4.0)
 
-| Feature | Status |
-|---------|--------|
-| WiFi ADB connection (Android 11+) | ✅ Working |
-| USB ADB connection | ✅ Working |
-| Screenshot capture & element detection | ✅ Working |
-| Visual Flow Wizard (record & replay) | ✅ Working |
-| Sensor creation from UI elements | ✅ Working |
-| MQTT auto-discovery to Home Assistant | ✅ Working |
-| Scheduled flow execution | ✅ Working |
-| Multi-device support | ✅ Working |
-| Live screen streaming (MJPEG v2) | ✅ Working |
-| Auto-unlock (PIN/passcode) | ✅ Working |
-| Smart screen sleep prevention | ✅ Working |
-| ML Training Server (optional) | ✅ Working |
-| Android Companion App | ✅ Working |
-| Dark mode UI | ✅ Working |
-| Full-width responsive UI | ✅ New |
-| Mobile/tablet support | ✅ New |
+- ✅ WiFi ADB connection (Android 11+)
+- ✅ USB ADB connection
+- ✅ Screenshot capture & element detection
+- ✅ Visual Flow Wizard (record & replay)
+- ✅ Sensor creation from UI elements
+- ✅ MQTT auto-discovery to Home Assistant
+- ✅ Scheduled flow execution
+- ✅ Multi-device support
+- ✅ Live screen streaming (MJPEG v2)
+- ✅ Auto-unlock (PIN/passcode)
+- ✅ Smart screen sleep prevention
+- ✅ ML Training Server (optional)
+- ✅ Android Companion App
+- ✅ Dark mode UI
+- ✅ **NEW** Full-width responsive UI
+- ✅ **NEW** Mobile/tablet support
 
 ## Screenshots
 
@@ -66,37 +64,40 @@ The optional Android companion app provides enhanced automation via Accessibilit
 
 ### Features
 
-| Feature | Status |
-|---------|--------|
-| **Screen Streaming** | |
-| MediaProjection low-latency capture (50-150ms) | ✅ New |
-| Adaptive FPS based on battery state | ✅ New |
-| WebSocket MJPEG binary protocol | ✅ New |
-| Orientation change handling | ✅ New |
-| **Accessibility Service** | |
-| UI element capture & interaction | ✅ Working |
-| Gesture dispatch (tap, swipe, scroll) | ✅ Working |
-| Pull-to-refresh automation | ✅ Working |
-| Text input automation | ✅ Working |
-| Screen wake/sleep control | ✅ Working |
-| Key event simulation | ✅ Working |
-| **Flow Execution** | |
-| All step types (TAP, SWIPE, TEXT_INPUT, WAIT, etc.) | ✅ Working |
-| Conditional logic (if element exists, if text matches) | ✅ Working |
-| Screen wake/sleep steps | ✅ Working |
-| **ML & Navigation** | |
-| TensorFlow Lite with NNAPI/GPU acceleration | ✅ Working |
-| Q-Learning exploration with Room persistence | ✅ Working |
-| Dijkstra path planning with reliability weighting | ✅ Working |
-| On-device model inference | ✅ Working |
-| **Server Integration** | |
-| MQTT sensor publishing to Home Assistant | ✅ Working |
-| Bidirectional flow sync with server | ✅ Working |
-| Real-time status updates | ✅ Working |
-| **Security** | |
-| Encrypted storage | ✅ Working |
-| Audit logging | ✅ Working |
-| Privacy controls & app exclusions | ✅ Working |
+**Screen Streaming (NEW)**
+- ✅ MediaProjection low-latency capture (50-150ms)
+- ✅ Adaptive FPS based on battery state
+- ✅ WebSocket MJPEG binary protocol
+- ✅ Orientation change handling
+
+**Accessibility Service**
+- ✅ UI element capture & interaction
+- ✅ Gesture dispatch (tap, swipe, scroll)
+- ✅ Pull-to-refresh automation
+- ✅ Text input automation
+- ✅ Screen wake/sleep control
+- ✅ Key event simulation
+
+**Flow Execution**
+- ✅ All step types (TAP, SWIPE, TEXT_INPUT, WAIT, etc.)
+- ✅ Conditional logic (if element exists, if text matches)
+- ✅ Screen wake/sleep steps
+
+**ML & Navigation**
+- ✅ TensorFlow Lite with NNAPI/GPU acceleration
+- ✅ Q-Learning exploration with Room persistence
+- ✅ Dijkstra path planning with reliability weighting
+- ✅ On-device model inference
+
+**Server Integration**
+- ✅ MQTT sensor publishing to Home Assistant
+- ✅ Bidirectional flow sync with server
+- ✅ Real-time status updates
+
+**Security**
+- ✅ Encrypted storage
+- ✅ Audit logging
+- ✅ Privacy controls & app exclusions
 
 ### When to Use the Companion App
 
@@ -111,21 +112,15 @@ The optional Android companion app provides enhanced automation via Accessibilit
 The ML Training Server enables real-time Q-learning from Android exploration data. The Android app explores your apps and learns optimal navigation paths over time.
 
 **Deployment Options:**
-
-| Option | Description |
-|--------|-------------|
-| **Local (in add-on)** | Enable in add-on config - ML runs alongside Visual Mapper |
-| **Remote** | Run on a separate machine with GPU/NPU for better training |
-| **Dev machine** | Use included scripts to run ML training with full hardware acceleration |
+- **Local (in add-on)** - Enable in add-on config, ML runs alongside Visual Mapper
+- **Remote** - Run on a separate machine with GPU/NPU for better training
+- **Dev machine** - Use included scripts to run ML training with full hardware acceleration
 
 **Hardware Acceleration:**
-
-| Accelerator | Platform | Use Case |
-|-------------|----------|----------|
-| Coral Edge TPU | USB/M.2/PCIe | Raspberry Pi, Linux servers |
-| DirectML (NPU) | Windows ARM/x64 | Windows laptops with NPU |
-| CUDA (GPU) | NVIDIA GPUs | High-performance servers |
-| CPU | All platforms | Fallback, always available |
+- **Coral Edge TPU** - USB/M.2/PCIe - Raspberry Pi, Linux servers
+- **DirectML (NPU)** - Windows ARM/x64 - Windows laptops with NPU
+- **CUDA (GPU)** - NVIDIA GPUs - High-performance servers
+- **CPU** - All platforms - Fallback, always available
 
 ```yaml
 # Add-on config to enable local ML training
@@ -213,14 +208,14 @@ This is **beta software** - it works, but there are rough edges:
 
 ## Links
 
-| Resource | Link |
-|----------|------|
-| Main Repository | https://github.com/botts7/visual-mapper |
-| HA Add-on Repository | https://github.com/botts7/visual-mapper-addon |
-| Android Companion App | https://github.com/botts7/visual-mapper-android |
-| **Download Android APK** | https://github.com/botts7/visual-mapper-android/releases |
-| Issues / Bug Reports | https://github.com/botts7/visual-mapper/issues |
-| ML Training Docs | https://github.com/botts7/visual-mapper/blob/main/docs/ML_TRAINING.md |
+- **Main Repository:** https://github.com/botts7/visual-mapper
+- **v0.4.0 Release:** https://github.com/botts7/visual-mapper/releases/tag/v0.4.0
+- **HA Add-on Repository:** https://github.com/botts7/visual-mapper-addon
+- **Add-on v0.4.0 Release:** https://github.com/botts7/visual-mapper-addon/releases/tag/v0.4.0
+- **Android Companion App:** https://github.com/botts7/visual-mapper-android
+- **Download Android APK v0.3.3:** https://github.com/botts7/visual-mapper-android/releases/tag/v0.3.3
+- **Issues / Bug Reports:** https://github.com/botts7/visual-mapper/issues
+- **ML Training Docs:** https://github.com/botts7/visual-mapper/blob/main/docs/ML_TRAINING.md
 
 ---
 

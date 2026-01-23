@@ -54,13 +54,20 @@ class FlowWizard {
         this.selectedApp = null;
         this.recordMode = 'execute';
         this.freshStart = true; // Force-stop app before launch by default
-        const savedStartMode = localStorage.getItem('flowWizard.startFromCurrentScreen');
+
+        // Use safe storage utilities (with fallback if not loaded yet)
+        const storage = window.StorageUtils || {
+            getItem: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+            getJSON: (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
+        };
+
+        const savedStartMode = storage.getItem('flowWizard.startFromCurrentScreen');
         this.startFromCurrentScreen = savedStartMode === 'true';
         this.recorder = null;
         this.flowSteps = [];
         this.schedulerWasPaused = false;  // Track if we paused the scheduler
         // Load overlay filters from localStorage (persistent user preferences)
-        const savedFilters = localStorage.getItem('visualMapper.overlayFilters');
+        const savedFilters = storage.getItem('visualMapper.overlayFilters');
         const defaultFilters = {
             displayMode: 'all',       // 'all', 'hoverOnly', 'topLayer'
             showClickable: true,
@@ -611,20 +618,251 @@ class FlowWizard {
             console.log(`[FlowWizard] Edit action request: ${actionId} (step ${stepIndex})`);
 
             try {
-                // Fetch action data from API
-                const response = await wizard.apiClient.get(`/actions/${actionId}`);
-                if (response && response.action) {
-                    // Open action editor dialog (use simple dialog for now)
-                    window.showToast?.('Action editing coming soon', 'info', 3000);
-                    // TODO: Implement action edit dialog
+                // Use action manager's edit dialog if available
+                if (window.actionManagerInstance && typeof window.actionManagerInstance.editAction === 'function') {
+                    window.actionManagerInstance.editAction(actionId);
                 } else {
-                    window.showToast?.('Action not found', 'error', 3000);
+                    // Fallback: Create inline edit dialog
+                    await this._showActionEditDialog(actionId, stepIndex);
                 }
             } catch (error) {
                 console.error('[FlowWizard] Failed to load action for editing:', error);
                 window.showToast?.('Failed to load action', 'error', 3000);
             }
         });
+    }
+
+    /**
+     * Show inline action edit dialog (fallback when action manager not available)
+     * @private
+     */
+    async _showActionEditDialog(actionId, stepIndex) {
+        try {
+            // Fetch action data
+            const response = await this.apiClient.get(`/actions/${actionId}`);
+            if (!response || !response.action) {
+                window.showToast?.('Action not found', 'error', 3000);
+                return;
+            }
+
+            const actionDef = response;
+            const action = actionDef.action;
+
+            // Create modal
+            let modal = document.getElementById('wizardActionEditModal');
+            if (modal) modal.remove();
+
+            modal = document.createElement('div');
+            modal.id = 'wizardActionEditModal';
+            modal.className = 'modal-overlay';
+            modal.style.cssText = 'display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--modal-overlay); z-index: 2000; align-items: center; justify-content: center;';
+
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 500px; background: var(--modal-background); border-radius: 8px; padding: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0; color: var(--text-color);">Edit Action</h3>
+                        <button id="closeActionEditModal" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-secondary);">&times;</button>
+                    </div>
+                    <form id="wizardActionEditForm">
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label class="form-label">Action Name</label>
+                            <input type="text" id="wizardEditActionName" class="form-input" value="${this._escapeHtml(action.name || '')}" required>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label class="form-label">Description</label>
+                            <textarea id="wizardEditActionDesc" class="form-input" rows="2" style="resize: vertical;">${this._escapeHtml(action.description || '')}</textarea>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label class="form-label">Action Type</label>
+                            <input type="text" class="form-input" value="${this._escapeHtml(action.action_type || 'unknown')}" disabled style="background: var(--bg-tertiary);">
+                        </div>
+                        ${this._renderActionTypeFields(action)}
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label class="form-label">Tags (comma-separated)</label>
+                            <input type="text" id="wizardEditActionTags" class="form-input" value="${this._escapeHtml((actionDef.tags || []).join(', '))}">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="wizardEditActionEnabled" ${actionDef.enabled !== false ? 'checked' : ''}>
+                                <span>Enabled</span>
+                            </label>
+                        </div>
+                        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                            <button type="button" id="cancelActionEdit" class="btn" style="background: var(--text-secondary);">Cancel</button>
+                            <button type="submit" class="btn btn-primary">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // Event handlers
+            document.getElementById('closeActionEditModal').onclick = () => modal.remove();
+            document.getElementById('cancelActionEdit').onclick = () => modal.remove();
+            modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+            // Form submit
+            document.getElementById('wizardActionEditForm').onsubmit = async (e) => {
+                e.preventDefault();
+                await this._saveActionFromWizard(actionId, actionDef, modal);
+            };
+
+        } catch (error) {
+            console.error('[FlowWizard] Error showing action edit dialog:', error);
+            window.showToast?.('Failed to load action', 'error', 3000);
+        }
+    }
+
+    /**
+     * Render action type-specific fields for editing
+     * @private
+     */
+    _renderActionTypeFields(action) {
+        const type = action.action_type;
+        let html = '';
+
+        switch (type) {
+            case 'tap':
+                html = `
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label">Tap Coordinates</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="wizardEditTapX" class="form-input" value="${action.x || 0}" placeholder="X" style="flex: 1;">
+                            <input type="number" id="wizardEditTapY" class="form-input" value="${action.y || 0}" placeholder="Y" style="flex: 1;">
+                        </div>
+                    </div>`;
+                break;
+            case 'swipe':
+                html = `
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label">Start Position</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="wizardEditSwipeX1" class="form-input" value="${action.x1 ?? action.start_x ?? 0}" placeholder="X1" style="flex: 1;">
+                            <input type="number" id="wizardEditSwipeY1" class="form-input" value="${action.y1 ?? action.start_y ?? 0}" placeholder="Y1" style="flex: 1;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label">End Position</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="wizardEditSwipeX2" class="form-input" value="${action.x2 ?? action.end_x ?? 0}" placeholder="X2" style="flex: 1;">
+                            <input type="number" id="wizardEditSwipeY2" class="form-input" value="${action.y2 ?? action.end_y ?? 0}" placeholder="Y2" style="flex: 1;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label">Duration (ms)</label>
+                        <input type="number" id="wizardEditSwipeDuration" class="form-input" value="${action.duration || 300}" min="100" max="5000">
+                    </div>`;
+                break;
+            case 'text':
+                html = `
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label">Text to Input</label>
+                        <input type="text" id="wizardEditText" class="form-input" value="${this._escapeHtml(action.text || '')}">
+                    </div>`;
+                break;
+            case 'keyevent':
+                html = `
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label">Keycode</label>
+                        <input type="text" id="wizardEditKeycode" class="form-input" value="${this._escapeHtml(action.keycode || '')}">
+                    </div>`;
+                break;
+            case 'launch_app':
+                html = `
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label">Package Name</label>
+                        <input type="text" id="wizardEditPackage" class="form-input" value="${this._escapeHtml(action.package || action.package_name || '')}">
+                    </div>`;
+                break;
+            case 'delay':
+            case 'wait':
+                html = `
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label">Delay (ms)</label>
+                        <input type="number" id="wizardEditDelay" class="form-input" value="${action.duration || action.delay || 1000}" min="0">
+                    </div>`;
+                break;
+        }
+
+        return html;
+    }
+
+    /**
+     * Save action edits from wizard dialog
+     * @private
+     */
+    async _saveActionFromWizard(actionId, actionDef, modal) {
+        try {
+            const action = actionDef.action;
+
+            // Update basic fields
+            action.name = document.getElementById('wizardEditActionName').value.trim();
+            action.description = document.getElementById('wizardEditActionDesc').value.trim();
+
+            // Update type-specific fields
+            const type = action.action_type;
+            switch (type) {
+                case 'tap':
+                    action.x = parseInt(document.getElementById('wizardEditTapX')?.value) || 0;
+                    action.y = parseInt(document.getElementById('wizardEditTapY')?.value) || 0;
+                    break;
+                case 'swipe':
+                    action.x1 = action.start_x = parseInt(document.getElementById('wizardEditSwipeX1')?.value) || 0;
+                    action.y1 = action.start_y = parseInt(document.getElementById('wizardEditSwipeY1')?.value) || 0;
+                    action.x2 = action.end_x = parseInt(document.getElementById('wizardEditSwipeX2')?.value) || 0;
+                    action.y2 = action.end_y = parseInt(document.getElementById('wizardEditSwipeY2')?.value) || 0;
+                    action.duration = parseInt(document.getElementById('wizardEditSwipeDuration')?.value) || 300;
+                    break;
+                case 'text':
+                    action.text = document.getElementById('wizardEditText')?.value || '';
+                    break;
+                case 'keyevent':
+                    action.keycode = document.getElementById('wizardEditKeycode')?.value || '';
+                    break;
+                case 'launch_app':
+                    action.package = action.package_name = document.getElementById('wizardEditPackage')?.value || '';
+                    break;
+                case 'delay':
+                case 'wait':
+                    action.duration = action.delay = parseInt(document.getElementById('wizardEditDelay')?.value) || 1000;
+                    break;
+            }
+
+            // Update metadata
+            const tagsInput = document.getElementById('wizardEditActionTags')?.value || '';
+            actionDef.tags = tagsInput.split(',').map(t => t.trim()).filter(t => t);
+            actionDef.enabled = document.getElementById('wizardEditActionEnabled')?.checked !== false;
+            actionDef.updated_at = new Date().toISOString();
+
+            // Save to API
+            const response = await this.apiClient.put(`/actions/${actionId}`, actionDef);
+            if (response && response.success) {
+                window.showToast?.('Action updated successfully', 'success', 3000);
+                modal.remove();
+
+                // Refresh flow if needed
+                if (this.flowStepManager) {
+                    await this.flowStepManager.loadExistingSteps?.();
+                }
+            } else {
+                throw new Error(response?.error || 'Failed to save action');
+            }
+        } catch (error) {
+            console.error('[FlowWizard] Error saving action:', error);
+            window.showToast?.(`Failed to save: ${error.message}`, 'error', 3000);
+        }
+    }
+
+    /**
+     * HTML escape helper
+     * @private
+     */
+    _escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     /**

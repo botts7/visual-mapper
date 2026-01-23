@@ -266,6 +266,11 @@ class SensorCollectionFlow(BaseModel):
     # Metadata
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+    target_app: Optional[str] = Field(None, description="Target app package name")
+    auto_generated: bool = Field(False, description="True if flow was auto-generated")
+    optimization_source: Optional[List[str]] = Field(
+        None, description="IDs of source flows if this was created by optimization"
+    )
 
     # Runtime State
     last_executed: Optional[datetime] = None
@@ -352,6 +357,7 @@ class FlowExecutionResult(BaseModel):
     executed_steps: int
     failed_step: Optional[int] = None
     error_message: Optional[str] = None
+    error_hint: Optional[str] = None  # User-friendly troubleshooting hint
     captured_sensors: Dict[str, Any] = {}  # sensor_id -> value
     captured_screenshots: List[Dict[str, Any]] = []  # Screenshots captured during flow
     step_results: List[StepResult] = []  # Per-step results with values

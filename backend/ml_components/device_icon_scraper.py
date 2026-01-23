@@ -46,6 +46,32 @@ class DeviceIconScraper:
 
         logger.info(f"[DeviceIconScraper] Initialized (cache: {cache_dir})")
 
+        # Cache for screen dimensions
+        self._screen_dimensions_cache: Dict[str, Tuple[int, int]] = {}
+
+    async def _get_screen_dimensions(self, device_id: str) -> Tuple[int, int]:
+        """Get device screen dimensions with caching"""
+        import re
+
+        if device_id in self._screen_dimensions_cache:
+            return self._screen_dimensions_cache[device_id]
+
+        # Default dimensions
+        default_width, default_height = 1080, 2400
+
+        try:
+            result = await self.adb_bridge._run_adb_command(device_id, ["shell", "wm", "size"])
+            if result:
+                match = re.search(r"(\d+)x(\d+)", result)
+                if match:
+                    width, height = int(match.group(1)), int(match.group(2))
+                    self._screen_dimensions_cache[device_id] = (width, height)
+                    return (width, height)
+        except Exception as e:
+            logger.debug(f"[DeviceIconScraper] Could not get screen dimensions: {e}")
+
+        return (default_width, default_height)
+
     def _sanitize_device_id(self, device_id: str) -> str:
         """Sanitize device ID for use in file paths (Windows doesn't allow colons)"""
         return device_id.replace(":", "_")
@@ -190,24 +216,31 @@ class DeviceIconScraper:
     async def _open_app_drawer(self, device_id: str):
         """Open device app drawer (try multiple launcher methods)"""
         try:
+            # Get screen dimensions for relative swipe coordinates
+            width, height = await self._get_screen_dimensions(device_id)
+            center_x = width // 2
+            start_y = int(height * 0.85)  # Near bottom
+            end_y = int(height * 0.25)    # Near top
+
             # Method 1: Swipe up from bottom (works on most modern launchers)
-            await self.adb_bridge.swipe(device_id, 540, 1800, 540, 500, 300)
+            await self.adb_bridge.swipe(device_id, center_x, start_y, center_x, end_y, 300)
             logger.debug("[DeviceIconScraper] Opened app drawer (swipe method)")
-        except:
+        except Exception as e:
+            logger.debug(f"[DeviceIconScraper] Swipe method failed: {e}")
             try:
                 # Method 2: KEYCODE_APP_SWITCH (Samsung, some launchers)
                 await self.adb_bridge.keyevent(device_id, "KEYCODE_APP_SWITCH")
                 logger.debug("[DeviceIconScraper] Opened app drawer (keycode method)")
-            except:
-                logger.warning("[DeviceIconScraper] Failed to open app drawer")
+            except Exception as e2:
+                logger.warning(f"[DeviceIconScraper] Failed to open app drawer: {e2}")
 
     async def _return_home(self, device_id: str):
         """Return device to home screen"""
         try:
             await self.adb_bridge.keyevent(device_id, "KEYCODE_HOME")
             logger.debug("[DeviceIconScraper] Returned to home screen")
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"[DeviceIconScraper] Return home failed: {e}")
 
     def _parse_app_drawer_hierarchy(
         self, hierarchy_xml: str, apps: List[dict]
@@ -303,8 +336,8 @@ class DeviceIconScraper:
             coords = [int(x) for x in bounds_str.split(",")]
             if len(coords) == 4:
                 return tuple(coords)
-        except:
-            pass
+        except (ValueError, AttributeError):
+            pass  # Invalid bounds format
         return None
 
     def get_cache_stats(self, device_id: str = None) -> dict:
