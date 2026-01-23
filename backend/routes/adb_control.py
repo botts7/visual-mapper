@@ -7,14 +7,19 @@ Provides endpoints for controlling Android devices remotely:
 - Hardware key events (back, home, custom keycodes)
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import logging
 from routes import get_deps
+from routes.auth import verify_companion_auth
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/adb", tags=["adb_control"])
+router = APIRouter(
+    prefix="/api/adb",
+    tags=["adb_control"],
+    dependencies=[Depends(verify_companion_auth)],
+)
 
 
 # Request models

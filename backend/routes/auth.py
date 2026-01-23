@@ -25,6 +25,8 @@ import os
 import logging
 from typing import Optional
 from fastapi import Depends, HTTPException, Request, status
+from starlette.websockets import WebSocket, WebSocketException
+from starlette import status as ws_status
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,15 @@ HA_TRUSTED_SUBNETS = [
     "172.30.",  # HA Add-on network (common)
     "172.31.",  # HA Add-on network (alternate)
 ]
+
+
+def _get_client_ip(headers: dict, client_host: Optional[str]) -> str:
+    """Extract client IP from headers or direct client host."""
+    # Check X-Forwarded-For first (common with reverse proxies)
+    x_forwarded_for = headers.get("X-Forwarded-For", "")
+    if x_forwarded_for:
+        return x_forwarded_for.split(",")[0].strip()
+    return client_host or ""
 
 
 def _is_trusted_source(request: Request) -> bool:
@@ -63,14 +74,9 @@ def _is_trusted_source(request: Request) -> bool:
         logger.debug("[Auth] Request trusted: X-Ingress-Path header present")
         return True
 
-    # Get client IP address
-    # Check X-Forwarded-For first (common with reverse proxies)
-    client_ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-
-    # Fall back to direct client address
-    if not client_ip and request.client:
-        client_ip = request.client.host
-
+    client_ip = _get_client_ip(
+        request.headers, request.client.host if request.client else None
+    )
     if not client_ip:
         logger.warning("[Auth] Could not determine client IP")
         return False
@@ -89,6 +95,22 @@ def _is_trusted_source(request: Request) -> bool:
     return False
 
 
+def _verify_api_key_value(provided_key: str) -> bool:
+    """Verify provided key matches COMPANION_API_KEY (or allow if unset)."""
+    if not COMPANION_API_KEY:
+        # No API key configured - allow all (development mode warning)
+        logger.warning(
+            "[Auth] COMPANION_API_KEY not configured - companion auth disabled!"
+        )
+        return True
+
+    if provided_key == COMPANION_API_KEY:
+        logger.debug("[Auth] Valid X-Companion-Key provided")
+        return True
+
+    return False
+
+
 def _verify_api_key(request: Request) -> bool:
     """
     Verify the X-Companion-Key header matches COMPANION_API_KEY.
@@ -99,20 +121,55 @@ def _verify_api_key(request: Request) -> bool:
     Returns:
         True if API key is valid
     """
-    if not COMPANION_API_KEY:
-        # No API key configured - allow all (development mode warning)
-        logger.warning(
-            "[Auth] COMPANION_API_KEY not configured - companion auth disabled!"
-        )
-        return True
-
     provided_key = request.headers.get("X-Companion-Key", "")
+    return _verify_api_key_value(provided_key)
 
-    if provided_key == COMPANION_API_KEY:
-        logger.debug("[Auth] Valid X-Companion-Key provided")
+
+def _is_trusted_websocket(websocket: WebSocket) -> bool:
+    """Check if WebSocket originates from a trusted source."""
+    # Check for HA Ingress header (standard in Home Assistant)
+    if websocket.headers.get("X-Ingress-Path"):
+        logger.debug("[Auth] WebSocket trusted: X-Ingress-Path header present")
         return True
+
+    client_ip = _get_client_ip(
+        websocket.headers, websocket.client.host if websocket.client else None
+    )
+    if not client_ip:
+        logger.warning("[Auth] Could not determine WebSocket client IP")
+        return False
+
+    if client_ip in ("127.0.0.1", "::1", "localhost"):
+        logger.debug(f"[Auth] WebSocket trusted: localhost ({client_ip})")
+        return True
+
+    for subnet in HA_TRUSTED_SUBNETS:
+        if client_ip.startswith(subnet):
+            logger.debug(f"[Auth] WebSocket trusted: Docker subnet ({client_ip})")
+            return True
 
     return False
+
+
+async def verify_companion_ws(websocket: WebSocket) -> bool:
+    """
+    Verify companion authentication for WebSocket connections.
+
+    Mirrors verify_companion_auth logic for HTTP requests.
+    Raises WebSocketException on failure.
+    """
+    if _is_trusted_websocket(websocket):
+        return True
+
+    provided_key = websocket.headers.get("X-Companion-Key", "")
+    if _verify_api_key_value(provided_key):
+        return True
+
+    client_ip = websocket.client.host if websocket.client else "unknown"
+    logger.warning(
+        f"[Auth] Unauthorized WebSocket from {client_ip} to {websocket.url.path}"
+    )
+    raise WebSocketException(code=ws_status.WS_1008_POLICY_VIOLATION)
 
 
 async def verify_companion_auth(request: Request) -> bool:
@@ -177,5 +234,6 @@ async def optional_companion_auth(request: Request) -> Optional[bool]:
 __all__ = [
     "verify_companion_auth",
     "optional_companion_auth",
+    "verify_companion_ws",
     "COMPANION_API_KEY",
 ]

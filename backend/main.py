@@ -201,11 +201,27 @@ app = FastAPI(
 # Track devices with active wizard sessions (prevents auto-sleep during flow editing)
 wizard_active_devices: set = set()
 
+# CORS configuration (explicit origins preferred for security)
+cors_origins_env = os.getenv("CORS_ALLOW_ORIGINS", "")
+cors_origins = [
+    origin.strip()
+    for origin in cors_origins_env.split(",")
+    if origin.strip()
+]
+if not cors_origins:
+    cors_origins = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ]
+cors_allow_credentials = (
+    os.getenv("CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
+)
+
 # Configure CORS to expose custom headers
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (localhost development)
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-Icon-Source"],  # Expose custom header to frontend

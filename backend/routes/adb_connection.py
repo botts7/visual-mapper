@@ -5,16 +5,21 @@ Provides endpoints for connecting, pairing, and disconnecting Android devices
 via TCP/IP and wireless debugging (Android 11+).
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 import logging
 from routes import get_deps
 from services.device_identity import get_device_identity_resolver
+from routes.auth import verify_companion_auth
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/adb", tags=["adb_connection"])
+router = APIRouter(
+    prefix="/api/adb",
+    tags=["adb_connection"],
+    dependencies=[Depends(verify_companion_auth)],
+)
 
 
 # Request models

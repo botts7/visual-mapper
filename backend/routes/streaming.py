@@ -9,7 +9,7 @@ Provides endpoints for live device streaming:
 Supports quality presets: high, medium, low, fast
 """
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends
 import logging
 import time
 import asyncio
@@ -19,6 +19,8 @@ import io
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 from routes import get_deps
+from routes.auth import verify_companion_auth, verify_companion_ws
+from starlette.websockets import WebSocketException
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +124,16 @@ async def wait_for_next_tick(next_tick: float, frame_delay: float) -> float:
     if now - next_tick > frame_delay:
         return now + frame_delay
     return next_tick + frame_delay
+
+
+async def _require_ws_auth(websocket: WebSocket) -> bool:
+    """Enforce companion auth for WebSocket endpoints."""
+    try:
+        await verify_companion_ws(websocket)
+        return True
+    except WebSocketException as exc:
+        await websocket.close(code=exc.code)
+        return False
 
 
 # =============================================================================
@@ -356,7 +368,9 @@ shared_capture_manager = SharedCaptureManager()
 
 
 @router.get("/stream/stats")
-async def get_stream_isolation_stats():
+async def get_stream_isolation_stats(
+    _auth: bool = Depends(verify_companion_auth),
+):
     """Get streaming isolation statistics (separate from screenshots)"""
     deps = get_deps()
     if not deps.adb_bridge:
@@ -366,7 +380,9 @@ async def get_stream_isolation_stats():
 
 # IMPORTANT: Companion routes must come BEFORE {device_id} routes to avoid path conflicts
 @router.get("/stream/companion/stats")
-async def get_companion_stream_stats():
+async def get_companion_stream_stats(
+    _auth: bool = Depends(verify_companion_auth),
+):
     """Get statistics about companion app streaming."""
     return {
         "success": True,
@@ -377,7 +393,9 @@ async def get_companion_stream_stats():
 
 
 @router.get("/stream/companion/{device_id}/status")
-async def get_companion_device_status(device_id: str):
+async def get_companion_device_status(
+    device_id: str, _auth: bool = Depends(verify_companion_auth)
+):
     """Get companion streaming status for a specific device."""
     is_streaming = companion_stream_manager.is_streaming(device_id)
     stats = companion_stream_manager.get_stats(device_id)
@@ -391,7 +409,9 @@ async def get_companion_device_status(device_id: str):
 
 
 @router.get("/stream/{device_id}/stats")
-async def get_device_stream_stats(device_id: str):
+async def get_device_stream_stats(
+    device_id: str, _auth: bool = Depends(verify_companion_auth)
+):
     """Get streaming stats for a specific device"""
     deps = get_deps()
     if not deps.adb_bridge:
@@ -423,6 +443,8 @@ async def stream_device(websocket: WebSocket, device_id: str):
     }
     """
     deps = get_deps()
+    if not await _require_ws_auth(websocket):
+        return
     await websocket.accept()
     if deps.adb_bridge and hasattr(deps.adb_bridge, "start_stream"):
         deps.adb_bridge.start_stream(device_id)
@@ -570,6 +592,8 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
 
     deps = get_deps()
 
+    if not await _require_ws_auth(websocket):
+        return
     await websocket.accept()
     if deps.adb_bridge and hasattr(deps.adb_bridge, "start_stream"):
         deps.adb_bridge.start_stream(device_id)
@@ -714,6 +738,8 @@ async def stream_device_mjpeg_v2(websocket: WebSocket, device_id: str):
     Query params:
     - quality: 'high', 'medium', 'low', 'fast', 'ultrafast' (default: fast)
     """
+    if not await _require_ws_auth(websocket):
+        return
     await websocket.accept()
 
     # Parse quality from query string
@@ -783,7 +809,9 @@ async def stream_device_mjpeg_v2(websocket: WebSocket, device_id: str):
 
 
 @router.get("/stream/shared/stats")
-async def get_shared_capture_stats():
+async def get_shared_capture_stats(
+    _auth: bool = Depends(verify_companion_auth),
+):
     """Get statistics about the shared capture pipeline."""
     return {"success": True, "shared_capture": shared_capture_manager.get_stats()}
 
@@ -816,6 +844,8 @@ async def companion_stream(websocket: WebSocket, device_id: str):
     - {"type": "pause"}
     - {"type": "resume"}
     """
+    if not await _require_ws_auth(websocket):
+        return
     await websocket.accept()
 
     # Register device with companion receiver

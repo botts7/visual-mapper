@@ -6,16 +6,21 @@ Uses a connection pool to maintain long-lived shell sessions, avoiding the
 overhead of spawning new ADB processes for each command.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import logging
 import time
 import asyncio
 from routes import get_deps
+from routes.auth import verify_companion_auth
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/shell", tags=["shell"])
+router = APIRouter(
+    prefix="/api/shell",
+    tags=["shell"],
+    dependencies=[Depends(verify_companion_auth)],
+)
 
 
 # Request models
