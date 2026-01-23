@@ -202,8 +202,12 @@ class Tutorial {
      * Save storage data
      */
     saveStorageData(data) {
-        const current = this.getStorageData();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...data }));
+        try {
+            const current = this.getStorageData();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...data }));
+        } catch (error) {
+            console.warn('[Tutorial] Failed to save storage data:', error.message);
+        }
     }
 
     /**
@@ -722,9 +726,13 @@ class Tutorial {
      * Reset tutorial state (for testing or restart)
      */
     reset() {
-        localStorage.removeItem(STORAGE_KEY);
-        sessionStorage.removeItem(SESSION_KEY);
-        console.log('[Tutorial] Reset');
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+            sessionStorage.removeItem(SESSION_KEY);
+            console.log('[Tutorial] Reset');
+        } catch (error) {
+            console.warn('[Tutorial] Failed to reset storage:', error.message);
+        }
     }
 
     /**

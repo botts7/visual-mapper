@@ -223,6 +223,9 @@ async def execute_flow_on_demand(
     force_execute: bool = Query(
         default=False, description="Execute ALL steps regardless of sensor update intervals"
     ),
+    triggered_by: str = Query(
+        default="manual", description="Source that triggered execution (manual, api, test)"
+    ),
     service: FlowService = Depends(get_flow_service),
 ):
     """
@@ -262,6 +265,7 @@ async def execute_flow_on_demand(
             strict_mode=strict_mode,
             repair_mode=repair_mode,
             force_execute=force_execute,
+            triggered_by=triggered_by,
         )
     except HTTPException:
         raise
@@ -1140,8 +1144,8 @@ async def generate_smart_flow(request: dict):
             from routes.device_registration import registered_devices
 
             companion_connected = len(registered_devices) > 0
-        except:
-            pass
+        except ImportError:
+            pass  # device_registration module not available
 
         if not companion_connected:
             warnings.append(

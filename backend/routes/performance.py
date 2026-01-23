@@ -218,8 +218,8 @@ async def get_adb_diagnostics(device_id: str, samples: int = 5):
             results["connection_type"] = "wifi"
         else:
             results["connection_type"] = "usb"
-    except:
-        pass
+    except (TypeError, AttributeError):
+        pass  # device_id format check failed
 
     # Get device info
     try:

@@ -571,6 +571,7 @@ class FlowService:
         strict_mode: bool = False,
         repair_mode: bool = False,
         force_execute: bool = False,
+        triggered_by: str = "api",
     ) -> Dict[str, Any]:
         """
         Phase 2: Execute a flow with proper execution routing.
@@ -594,6 +595,7 @@ class FlowService:
             strict_mode: Fail on navigation errors instead of continuing
             repair_mode: Auto-fix element bounds when drift detected
             force_execute: Run ALL steps, ignoring sensor intervals
+            triggered_by: Source that triggered the execution (scheduler, manual, api, test)
         """
         if not self.flow_executor:
             raise HTTPException(status_code=503, detail="Flow executor not initialized")
@@ -661,6 +663,7 @@ class FlowService:
                 strict_mode=strict_mode,
                 repair_mode=repair_mode,
                 force_execute=force_execute,
+                triggered_by=triggered_by,
             )
 
         # Convert to dict

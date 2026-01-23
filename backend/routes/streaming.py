@@ -253,8 +253,8 @@ class SharedCaptureManager:
                                 try:
                                     q.get_nowait()
                                     q.put_nowait(frame_data)
-                                except:
-                                    pass
+                                except (asyncio.QueueEmpty, asyncio.QueueFull):
+                                    pass  # Queue state changed between operations
 
                     # Log periodically
                     if frame_number <= 3 or frame_number % 60 == 0:
@@ -314,8 +314,8 @@ class SharedCaptureManager:
                     try:
                         q.get_nowait()
                         q.put_nowait(frame_data)
-                    except:
-                        pass
+                    except (asyncio.QueueEmpty, asyncio.QueueFull):
+                        pass  # Queue state changed between operations
 
             # Log periodically
             if frame_number == 1 or frame_number % 60 == 0:
@@ -767,8 +767,8 @@ async def stream_device_mjpeg_v2(websocket: WebSocket, device_id: str):
                 # No frame in 5s - send keepalive or check connection
                 try:
                     await websocket.send_json({"type": "keepalive", "timestamp": time.time()})
-                except:
-                    break
+                except (WebSocketDisconnect, RuntimeError, ConnectionError):
+                    break  # WebSocket closed or connection lost
 
     except WebSocketDisconnect:
         logger.info(f"[WS-MJPEG-v2] Client disconnected: {device_id}")
@@ -850,8 +850,8 @@ async def companion_stream(websocket: WebSocket, device_id: str):
                     try:
                         q.get_nowait()
                         q.put_nowait(frame_data)
-                    except:
-                        pass
+                    except (asyncio.QueueEmpty, asyncio.QueueFull):
+                        pass  # Queue state changed between operations
 
     companion_stream_manager.set_frame_callback(device_id, on_companion_frame)
 

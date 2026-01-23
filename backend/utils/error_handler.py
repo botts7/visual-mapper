@@ -14,6 +14,153 @@ from fastapi.responses import JSONResponse
 logger = logging.getLogger("visual_mapper")
 
 
+# =============================================================================
+# ERROR HINTS - User-friendly troubleshooting suggestions
+# =============================================================================
+
+ERROR_HINTS = {
+    "device_locked": {
+        "message": "Device is locked",
+        "hint": "Enable AUTO_UNLOCK in device settings with your PIN/password, or manually unlock the device.",
+        "docs": "/docs/auto-unlock"
+    },
+    "device_offline": {
+        "message": "Device not connected",
+        "hint": "Check that the device is on the same network and has WiFi debugging enabled. Try reconnecting from the Devices page.",
+        "docs": "/docs/connection"
+    },
+    "adb_connection": {
+        "message": "ADB connection failed",
+        "hint": "Restart ADB on the device: Settings > Developer Options > Revoke USB debugging authorizations, then re-enable Wireless debugging.",
+        "docs": "/docs/adb-troubleshooting"
+    },
+    "element_not_found": {
+        "message": "Element not found on screen",
+        "hint": "The app UI may have changed. Re-record this step in the Flow Wizard, or add a longer wait before this step.",
+        "docs": "/docs/flow-recording"
+    },
+    "navigation_failed": {
+        "message": "Failed to navigate to expected screen",
+        "hint": "The app may have updated or shown an unexpected dialog. Check if there's a popup blocking navigation.",
+        "docs": "/docs/navigation"
+    },
+    "timeout": {
+        "message": "Flow execution timed out",
+        "hint": "Increase the flow timeout in flow settings, or optimize steps to run faster.",
+        "docs": "/docs/flow-settings"
+    },
+    "sensor_extraction": {
+        "message": "Failed to extract sensor value",
+        "hint": "The element text format may have changed. Edit the sensor and update the extraction rule.",
+        "docs": "/docs/sensors"
+    },
+    "regex_invalid": {
+        "message": "Invalid regex pattern",
+        "hint": "Check your regex syntax. Common issues: unescaped special characters (use \\. for literal dot), unmatched parentheses.",
+        "docs": "/docs/extraction-rules"
+    },
+    "app_not_found": {
+        "message": "App not installed or package name incorrect",
+        "hint": "Verify the app is installed on the device. Check the package name in the flow settings matches the installed app.",
+        "docs": "/docs/app-setup"
+    },
+    "screenshot_failed": {
+        "message": "Failed to capture screenshot",
+        "hint": "The device may be busy or the screen may be off. Try waking the device first or adding a short wait before this step.",
+        "docs": "/docs/screenshots"
+    },
+    "mqtt_publish_failed": {
+        "message": "Failed to publish sensor value to MQTT",
+        "hint": "Check your MQTT broker connection settings. Ensure the broker is running and accessible.",
+        "docs": "/docs/mqtt-setup"
+    },
+    "permission_denied": {
+        "message": "Permission denied on device",
+        "hint": "The app may need additional permissions. Check the device and grant any requested permissions.",
+        "docs": "/docs/permissions"
+    },
+}
+
+
+def get_error_with_hint(error_type: str, original_message: str = "") -> dict:
+    """
+    Get error message with troubleshooting hint.
+
+    Args:
+        error_type: Key from ERROR_HINTS dictionary
+        original_message: Original error message to include
+
+    Returns:
+        Dict with error, hint, and optional docs link
+    """
+    hint_info = ERROR_HINTS.get(error_type, {})
+    return {
+        "error": original_message or hint_info.get("message", "Unknown error"),
+        "hint": hint_info.get("hint", ""),
+        "docs": hint_info.get("docs", "")
+    }
+
+
+def classify_error(error_message: str) -> str:
+    """
+    Classify an error message to determine the appropriate hint type.
+
+    Args:
+        error_message: The error message to classify
+
+    Returns:
+        Error type key for ERROR_HINTS lookup
+    """
+    msg = error_message.lower()
+
+    # Device connection errors
+    if "locked" in msg or "lock screen" in msg:
+        return "device_locked"
+    if "device" in msg and ("not found" in msg or "offline" in msg or "disconnected" in msg):
+        return "device_offline"
+    if "adb" in msg or "connection refused" in msg or "connection reset" in msg:
+        return "adb_connection"
+
+    # Element finding errors
+    if "element" in msg and ("not found" in msg or "could not find" in msg or "no match" in msg):
+        return "element_not_found"
+
+    # Navigation errors
+    if "navigation" in msg or "navigate" in msg or "wrong screen" in msg:
+        return "navigation_failed"
+
+    # Timeout errors
+    if "timeout" in msg or "timed out" in msg:
+        return "timeout"
+
+    # Extraction errors
+    if "extract" in msg or "extraction" in msg:
+        return "sensor_extraction"
+
+    # Regex errors
+    if "regex" in msg or "pattern" in msg or "invalid regex" in msg:
+        return "regex_invalid"
+
+    # App errors
+    if "app" in msg and ("not found" in msg or "not installed" in msg):
+        return "app_not_found"
+
+    # Screenshot errors
+    if "screenshot" in msg:
+        return "screenshot_failed"
+
+    # MQTT errors
+    if "mqtt" in msg or "publish" in msg:
+        return "mqtt_publish_failed"
+
+    # Permission errors
+    if "permission" in msg or "denied" in msg:
+        return "permission_denied"
+
+    # Default - no specific hint
+    return ""
+
+
 class VisualMapperError(Exception):
     """Base exception for all Visual Mapper errors"""
 

@@ -776,5 +776,6 @@ class OverlapDetector:
             similarity = 1.0 - (np.sum(diff) / max_diff)
 
             return float(similarity)
-        except:
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.debug(f"Image similarity comparison failed: {e}")
             return 0.0

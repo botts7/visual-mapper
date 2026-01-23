@@ -8,6 +8,10 @@
  * similar actions that already exist.
  */
 
+import LoggerFactory from './debug-logger.js';
+
+const logger = LoggerFactory.getLogger('ActionManager');
+
 export default class ActionManager {
     constructor(apiClient) {
         this.apiClient = apiClient;
@@ -32,6 +36,19 @@ export default class ActionManager {
     }
 
     /**
+     * Show toast notification (replaces alert() for better UX)
+     * @private
+     */
+    _showToast(message, type = 'info', duration = 3000) {
+        if (window.showToast) {
+            window.showToast(message, type, duration);
+        } else {
+            // Fallback to console if toast not available
+            logger.debug(` ${type.toUpperCase()}: ${message}`);
+        }
+    }
+
+    /**
      * Set current device ID for all action operations
      */
     setDevice(deviceId) {
@@ -52,7 +69,7 @@ export default class ActionManager {
             this.actions = response.actions || [];
             return this.actions;
         } catch (error) {
-            console.error('[ActionManager] Load actions failed:', error);
+            logger.error(' Load actions failed:', error);
             throw error;
         }
     }
@@ -115,7 +132,7 @@ export default class ActionManager {
                 throw new Error(response.error?.message || 'Failed to create action');
             }
         } catch (error) {
-            console.error('[ActionManager] Create action failed:', error);
+            logger.error(' Create action failed:', error);
             throw error;
         }
     }
@@ -252,7 +269,7 @@ export default class ActionManager {
                 throw new Error(response.error?.message || 'Failed to update action');
             }
         } catch (error) {
-            console.error('[ActionManager] Update action failed:', error);
+            logger.error(' Update action failed:', error);
             throw error;
         }
     }
@@ -278,7 +295,7 @@ export default class ActionManager {
                 throw new Error(response.error?.message || 'Failed to delete action');
             }
         } catch (error) {
-            console.error('[ActionManager] Delete action failed:', error);
+            logger.error(' Delete action failed:', error);
             throw error;
         }
     }
@@ -303,7 +320,7 @@ export default class ActionManager {
 
             return response;
         } catch (error) {
-            console.error('[ActionManager] Execute action failed:', error);
+            logger.error(' Execute action failed:', error);
             throw error;
         }
     }
@@ -320,7 +337,7 @@ export default class ActionManager {
             const response = await this.apiClient.get(`/actions/export/${this.currentDeviceId}`);
             return response.actions_json;
         } catch (error) {
-            console.error('[ActionManager] Export actions failed:', error);
+            logger.error(' Export actions failed:', error);
             throw error;
         }
     }
@@ -347,7 +364,7 @@ export default class ActionManager {
                 throw new Error(response.error?.message || 'Failed to import actions');
             }
         } catch (error) {
-            console.error('[ActionManager] Import actions failed:', error);
+            logger.error(' Import actions failed:', error);
             throw error;
         }
     }
@@ -437,15 +454,15 @@ export default class ActionManager {
             const result = await this.executeAction(actionId);
 
             if (result.success) {
-                alert(`✅ Action executed successfully in ${result.execution_time.toFixed(1)}ms`);
+                this._showToast(`Action executed successfully in ${result.execution_time.toFixed(1)}ms`, 'success');
                 // Reload to show updated execution count
                 await this.loadActions();
                 this.renderActionsList();
             } else {
-                alert(`❌ Action failed: ${result.message}`);
+                this._showToast(`Action failed: ${result.message}`, 'error');
             }
         } catch (error) {
-            alert(`❌ Execution error: ${error.message}`);
+            this._showToast(`Execution error: ${error.message}`, 'error');
         }
     }
 
@@ -462,10 +479,10 @@ export default class ActionManager {
             await this.updateAction(actionId, {
                 enabled: newEnabledState
             });
-            alert(`✅ Action ${newEnabledState ? 'enabled' : 'disabled'}`);
+            this._showToast(`Action ${newEnabledState ? 'enabled' : 'disabled'}`, 'success');
             this.renderActionsList();
         } catch (error) {
-            alert(`❌ Failed to toggle action: ${error.message}`);
+            this._showToast(`Failed to toggle action: ${error.message}`, 'error');
         }
     }
 
@@ -745,10 +762,10 @@ export default class ActionManager {
         try {
             await this.updateAction(actionId, { action, tags, enabled });
             document.getElementById('actionEditModal').style.display = 'none';
-            alert('✅ Action updated successfully');
+            this._showToast('Action updated successfully', 'success');
             this.renderActionsList();
         } catch (error) {
-            alert(`❌ Failed to update action: ${error.message}`);
+            this._showToast(`Failed to update action: ${error.message}`, 'error');
         }
     }
 
@@ -762,10 +779,10 @@ export default class ActionManager {
         if (confirm(`Delete action "${action.action.name}"?`)) {
             try {
                 await this.deleteAction(actionId);
-                alert('✅ Action deleted');
+                this._showToast('Action deleted', 'success');
                 this.renderActionsList();
             } catch (error) {
-                alert(`❌ Failed to delete action: ${error.message}`);
+                this._showToast(`Failed to delete action: ${error.message}`, 'error');
             }
         }
     }

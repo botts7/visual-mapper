@@ -610,8 +610,8 @@ class SensorSuggester:
                 try:
                     val_float = float(extracted_value)
                     in_range = value_range[0] <= val_float <= value_range[1]
-                except:
-                    in_range = False
+                except (ValueError, TypeError):
+                    in_range = False  # Value couldn't be converted to float
 
             # Calculate confidence - RELAXED matching logic
             if keyword_match and indicator_match and in_range:

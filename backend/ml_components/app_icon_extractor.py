@@ -133,8 +133,8 @@ class AppIconExtractor:
                 # Clean up temp file
                 try:
                     os.unlink(tmp_apk_path)
-                except:
-                    pass
+                except (OSError, FileNotFoundError):
+                    pass  # Temp file already removed or inaccessible
 
         except Exception as e:
             logger.error(

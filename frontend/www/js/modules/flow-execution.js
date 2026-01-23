@@ -1,10 +1,16 @@
 /**
  * Flow Execution Module
- * Visual Mapper v0.0.12
+ * Visual Mapper v0.0.14
  *
  * Handles flow execution, testing, and results display.
+ * v0.0.14: Integrated centralized debug logger
+ * v0.0.13: Added retry button for failed flows and error hint display
  * v0.0.12: Added step_results with sensor values display
  */
+
+import LoggerFactory from './debug-logger.js';
+
+const logger = LoggerFactory.getLogger('FlowExecution');
 
 class FlowExecution {
     constructor(options = {}) {
@@ -16,12 +22,18 @@ class FlowExecution {
         this.flows = options.flows || [];
         this.loadFlows = options.loadFlows || (() => {});
         this.fetchFlowExecutionStatus = options.fetchFlowExecutionStatus || (() => {});
+
+        // Store last execution info for retry
+        this._lastExecutionInfo = null;
     }
 
     /**
      * Execute a flow
      */
     async execute(deviceId, flowId) {
+        // Store execution info for retry functionality
+        this._lastExecutionInfo = { deviceId, flowId };
+
         const flowKey = `${deviceId}:${flowId}`;
         const safeFlowId = flowId.replace(/[^a-zA-Z0-9]/g, '_');
         const executeBtn = document.getElementById(`execute-btn-${safeFlowId}`);
@@ -54,7 +66,7 @@ class FlowExecution {
             }
 
             const result = await response.json();
-            console.log('[FlowExecution] Flow execution result:', result);
+            logger.debug('Flow execution result:', result);
 
             // Show execution results
             this.showResults(result);
@@ -100,7 +112,7 @@ class FlowExecution {
         const content = document.getElementById('executionResultsContent') || document.getElementById('executionResultsBody');
 
         if (!modal || !content) {
-            console.warn('[FlowExecution] Results modal not found');
+            logger.warn('Results modal not found');
             return;
         }
 
@@ -149,11 +161,31 @@ class FlowExecution {
                     <div class="execution-summary">
                         <p><strong>Failed at Step:</strong> ${failedStepNum}</p>
                         <p><strong>Error:</strong> ${this.escapeHtml(result.error_message || 'Unknown error')}</p>
+                        ${result.error_hint ? `
+                            <div class="error-hint">
+                                <strong>💡 Tip:</strong> ${this.escapeHtml(result.error_hint)}
+                            </div>
+                        ` : ''}
                         <p><strong>Executed Steps:</strong> ${executedSteps} / ${totalSteps}</p>
                     </div>
                     ${stepsHtml}
+                    <div class="retry-button-container" style="margin-top: 16px; text-align: center;">
+                        <button id="retryFlowBtn" class="btn btn-retry" style="background: var(--warning-color, #ff9800); color: white; padding: 10px 24px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                            🔄 Retry Flow
+                        </button>
+                    </div>
                 </div>
             `;
+
+            // Bind retry button handler
+            const retryBtn = document.getElementById('retryFlowBtn');
+            if (retryBtn && this._lastExecutionInfo) {
+                retryBtn.addEventListener('click', async () => {
+                    modal.classList.remove('active');
+                    const { deviceId, flowId } = this._lastExecutionInfo;
+                    await this.execute(deviceId, flowId);
+                });
+            }
         }
 
         // Show modal
@@ -216,6 +248,12 @@ class FlowExecution {
             if (result.failed_step !== null && result.failed_step !== undefined && index === result.failed_step && result.error_message) {
                 stepDetails += '<div style="margin-top: 8px; padding: 8px; background: #fef2f2; border-radius: 4px; font-size: 0.9em; color: #dc2626;">' +
                     '<strong>Error:</strong> ' + self.escapeHtml(result.error_message) + '</div>';
+
+                // Add error hint if available
+                if (result.error_hint) {
+                    stepDetails += '<div class="error-hint" style="margin-top: 8px; padding: 8px 12px; background: rgba(255, 193, 7, 0.1); border-left: 3px solid #ffc107; border-radius: 4px; font-size: 0.9em;">' +
+                        '<strong>💡 Tip:</strong> ' + self.escapeHtml(result.error_hint) + '</div>';
+                }
             }
 
             const stepDesc = self.escapeHtml(step.description || step.step_type + ' step');
@@ -259,7 +297,7 @@ class FlowExecution {
             }
 
             const result = await response.json();
-            console.log('[FlowExecution] Flow test result:', result);
+            logger.debug('Flow test result:', result);
 
             this.showResults(result);
 
@@ -270,7 +308,7 @@ class FlowExecution {
             }
 
         } catch (error) {
-            console.error('[FlowExecution] Flow test error:', error);
+            logger.error('Flow test error:', error);
             this.showToast(`Test error: ${error.message}`, 'error');
         }
     }

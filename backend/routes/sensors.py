@@ -14,6 +14,7 @@ as defined by Home Assistant's sensor platform.
 from fastapi import APIRouter, HTTPException
 from typing import Optional
 import logging
+import re
 from routes import get_deps
 from core.sensors.sensor_models import SensorDefinition, TextExtractionRule
 from core.sensors.text_extractor import TextExtractor
@@ -34,15 +35,53 @@ router = APIRouter(prefix="/api", tags=["sensors"])
 # =============================================================================
 
 
-def validate_sensor_config(sensor: SensorDefinition) -> Optional[str]:
+def validate_regex_pattern(pattern: str) -> tuple[bool, str]:
+    """
+    Validate regex pattern syntax.
+
+    Args:
+        pattern: The regex pattern to validate
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not pattern:
+        return True, ""
+    try:
+        re.compile(pattern)
+        return True, ""
+    except re.error as e:
+        pos_info = f" at position {e.pos}" if e.pos is not None else ""
+        return False, f"Invalid regex pattern: {e.msg}{pos_info}"
+
+
+def validate_sensor_config(
+    sensor: SensorDefinition,
+    existing_sensors: list = None,
+    exclude_sensor_id: str = None
+) -> Optional[str]:
     """
     Validate sensor configuration for Home Assistant compatibility.
     Uses ha_device_classes.py for comprehensive validation.
     Returns error message if invalid, None if valid.
+
+    Args:
+        sensor: The sensor configuration to validate
+        existing_sensors: List of existing sensors on the device (for duplicate check)
+        exclude_sensor_id: Sensor ID to exclude from duplicate check (for edit mode)
     """
     # Rule 1: Friendly name should not be empty
     if not sensor.friendly_name or sensor.friendly_name.strip() == "":
         return "Friendly name cannot be empty"
+
+    # Rule 1.5: Check for duplicate friendly_name on same device
+    if existing_sensors:
+        for existing in existing_sensors:
+            # Skip self when editing
+            if exclude_sensor_id and existing.sensor_id == exclude_sensor_id:
+                continue
+            if existing.friendly_name.lower().strip() == sensor.friendly_name.lower().strip():
+                return f"A sensor named '{sensor.friendly_name}' already exists on this device. Please choose a different name."
 
     # Rule 2: Binary sensors should NOT have state_class
     if sensor.sensor_type == "binary_sensor":
@@ -80,6 +119,22 @@ def validate_sensor_config(sensor: SensorDefinition) -> Optional[str]:
                     else "no unit"
                 )
                 return f"Device class '{sensor.device_class}' expects units: {expected_units}. Got: '{sensor.unit_of_measurement}'"
+
+    # Rule 6: Validate regex pattern syntax if extraction uses regex
+    if sensor.extraction_rule:
+        # Check main method regex pattern
+        if sensor.extraction_rule.method == "regex" and sensor.extraction_rule.regex_pattern:
+            valid, error = validate_regex_pattern(sensor.extraction_rule.regex_pattern)
+            if not valid:
+                return error
+
+        # Check pipeline steps for regex patterns
+        if sensor.extraction_rule.pipeline:
+            for i, step in enumerate(sensor.extraction_rule.pipeline):
+                if step.get("method") == "regex" and step.get("regex_pattern"):
+                    valid, error = validate_regex_pattern(step.get("regex_pattern"))
+                    if not valid:
+                        return f"Pipeline step {i + 1}: {error}"
 
     return None  # Valid
 
@@ -125,6 +180,13 @@ async def create_sensor(sensor: SensorDefinition, auto_reuse: bool = True):
         logger.info(
             f"[API] Creating sensor for device {sensor.device_id} (auto_reuse={auto_reuse})"
         )
+
+        # Validate sensor configuration including duplicate name check
+        device_id = sensor.stable_device_id or sensor.device_id
+        existing_sensors = deps.sensor_manager.get_all_sensors(device_id)
+        validation_error = validate_sensor_config(sensor, existing_sensors)
+        if validation_error:
+            raise HTTPException(status_code=400, detail=validation_error)
 
         # Get stable device ID if not already set (survives IP/port changes)
         if not sensor.stable_device_id:
@@ -294,8 +356,12 @@ async def update_sensor(sensor: SensorDefinition):
     try:
         logger.info(f"[API] Updating sensor {sensor.sensor_id}")
 
-        # Validate sensor configuration
-        validation_error = validate_sensor_config(sensor)
+        # Validate sensor configuration including duplicate name check (exclude self)
+        device_id = sensor.stable_device_id or sensor.device_id
+        existing_sensors = deps.sensor_manager.get_all_sensors(device_id)
+        validation_error = validate_sensor_config(
+            sensor, existing_sensors, exclude_sensor_id=sensor.sensor_id
+        )
         if validation_error:
             raise HTTPException(status_code=400, detail=validation_error)
 
