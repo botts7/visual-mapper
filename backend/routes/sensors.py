@@ -12,7 +12,9 @@ as defined by Home Assistant's sensor platform.
 """
 
 from fastapi import APIRouter, HTTPException
-from typing import Optional
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
+from datetime import datetime
 import logging
 import re
 from routes import get_deps
@@ -764,4 +766,164 @@ async def resume_sensor_updates(device_id: str):
         raise
     except Exception as e:
         logger.error(f"[API] Failed to resume sensor updates for {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# BULK SENSOR IMPORT/EXPORT
+# =============================================================================
+
+
+@router.get("/sensors/{device_id}/export")
+async def export_sensors(device_id: str):
+    """
+    Export all sensors for a device as JSON.
+    Returns a downloadable format with all sensor configurations.
+    """
+    deps = get_deps()
+    try:
+        if not deps.sensor_manager:
+            raise HTTPException(status_code=503, detail="SensorManager not initialized")
+
+        sensors = deps.sensor_manager.get_sensors(device_id)
+        if not sensors:
+            return {
+                "device_id": device_id,
+                "export_version": "1.0",
+                "exported_at": datetime.now().isoformat(),
+                "sensors": [],
+                "count": 0,
+            }
+
+        # Convert sensors to export format
+        export_data = []
+        for sensor in sensors:
+            sensor_dict = sensor.model_dump() if hasattr(sensor, "model_dump") else sensor.dict()
+            # Remove runtime-specific fields that shouldn't be exported
+            sensor_dict.pop("last_updated", None)
+            sensor_dict.pop("last_value", None)
+            export_data.append(sensor_dict)
+
+        return {
+            "device_id": device_id,
+            "export_version": "1.0",
+            "exported_at": datetime.now().isoformat(),
+            "sensors": export_data,
+            "count": len(export_data),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to export sensors for {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BulkSensorImport(BaseModel):
+    """Model for bulk sensor import"""
+    sensors: List[Dict[str, Any]]
+    overwrite_existing: bool = False  # If true, overwrite sensors with same name
+    skip_duplicates: bool = True  # If true, skip sensors with duplicate names
+
+
+@router.post("/sensors/{device_id}/import")
+async def import_sensors(device_id: str, import_data: BulkSensorImport):
+    """
+    Import multiple sensors for a device.
+
+    Options:
+    - overwrite_existing: If true, update existing sensors with same friendly_name
+    - skip_duplicates: If true, skip sensors with duplicate names (default)
+    """
+    deps = get_deps()
+    try:
+        if not deps.sensor_manager:
+            raise HTTPException(status_code=503, detail="SensorManager not initialized")
+
+        results = {
+            "imported": 0,
+            "skipped": 0,
+            "updated": 0,
+            "errors": [],
+            "details": [],
+        }
+
+        existing_sensors = deps.sensor_manager.get_sensors(device_id)
+        existing_names = {s.friendly_name.lower().strip() for s in existing_sensors}
+        existing_by_name = {s.friendly_name.lower().strip(): s for s in existing_sensors}
+
+        for sensor_data in import_data.sensors:
+            try:
+                friendly_name = sensor_data.get("friendly_name", "").strip()
+                if not friendly_name:
+                    results["errors"].append({"sensor": sensor_data, "error": "Missing friendly_name"})
+                    continue
+
+                name_lower = friendly_name.lower()
+
+                # Check for duplicate
+                if name_lower in existing_names:
+                    if import_data.overwrite_existing:
+                        # Update existing sensor
+                        existing = existing_by_name[name_lower]
+                        sensor_data["sensor_id"] = existing.sensor_id
+                        sensor_data["device_id"] = device_id
+
+                        updated = deps.sensor_manager.update_sensor(device_id, existing.sensor_id, sensor_data)
+                        if updated:
+                            results["updated"] += 1
+                            results["details"].append({"name": friendly_name, "action": "updated"})
+                        else:
+                            results["errors"].append({"sensor": friendly_name, "error": "Failed to update"})
+                    elif import_data.skip_duplicates:
+                        results["skipped"] += 1
+                        results["details"].append({"name": friendly_name, "action": "skipped (duplicate)"})
+                    else:
+                        results["errors"].append({"sensor": friendly_name, "error": "Duplicate name exists"})
+                else:
+                    # Create new sensor
+                    sensor_data["device_id"] = device_id
+
+                    # Generate new sensor_id if not provided
+                    if not sensor_data.get("sensor_id"):
+                        import uuid
+                        sensor_data["sensor_id"] = str(uuid.uuid4())[:8]
+
+                    # Validate regex if present
+                    extraction_rule = sensor_data.get("extraction_rule")
+                    if extraction_rule and extraction_rule.get("method") == "regex":
+                        pattern = extraction_rule.get("pattern", "")
+                        valid, error = validate_regex_pattern(pattern)
+                        if not valid:
+                            results["errors"].append({"sensor": friendly_name, "error": error})
+                            continue
+
+                    created = deps.sensor_manager.create_sensor(device_id, sensor_data)
+                    if created:
+                        results["imported"] += 1
+                        results["details"].append({"name": friendly_name, "action": "imported"})
+                        existing_names.add(name_lower)
+                    else:
+                        results["errors"].append({"sensor": friendly_name, "error": "Failed to create"})
+
+            except Exception as e:
+                results["errors"].append({
+                    "sensor": sensor_data.get("friendly_name", "unknown"),
+                    "error": str(e)
+                })
+
+        logger.info(
+            f"[API] Bulk import for {device_id}: "
+            f"{results['imported']} imported, {results['updated']} updated, "
+            f"{results['skipped']} skipped, {len(results['errors'])} errors"
+        )
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            **results,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Failed to import sensors for {device_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
