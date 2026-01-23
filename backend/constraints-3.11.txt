@@ -1,0 +1,24 @@
+# Pinned versions for the Python 3.11 baseline.
+# Use with: pip install -r backend/requirements.txt -c backend/constraints-3.11.txt
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+adb-shell[async]==0.4.4
+aiofiles==23.2.1
+async-timeout==5.0.1
+websockets==12.0
+pydantic==2.5.0
+python-multipart==0.0.6
+pyyaml==6.0.1
+aiomqtt==2.0.1
+opencv-python-headless==4.8.1.78
+numpy==1.24.3
+psutil==5.9.7
+adbutils>=2.12.0
+av>=11.0.0
+google-play-scraper>=1.2.4
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+cryptography
+pytest-playwright>=0.7.0
+playwright>=1.57.0

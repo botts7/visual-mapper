@@ -52,7 +52,7 @@ Visual Mapper uses a **hybrid architecture** with three components:
 ## Quick Start
 
 ### Prerequisites
-- Python 3.11+
+- Python 3.11 (3.12 planned)
 - Android device with Developer Options enabled
 - Both devices on the same network
 
@@ -61,7 +61,13 @@ Visual Mapper uses a **hybrid architecture** with three components:
 ```bash
 git clone https://github.com/botts7/visual-mapper.git
 cd visual-mapper/backend
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints-3.11.txt
+```
+
+Optional ML features:
+
+```bash
+pip install -r requirements-ml.txt
 ```
 
 ### 2. Start the Server
@@ -169,6 +175,13 @@ Contributions welcome! Please:
 1. Fork the repository
 2. Create a feature branch
 3. Submit a pull request
+
+---
+
+## Forward Development
+
+See `docs/FORWARD_DEV_PLAN.md` for the supported runtime baseline, dependency
+strategy, and release gates.
 
 ---
 
