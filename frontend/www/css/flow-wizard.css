@@ -18,54 +18,59 @@
     box-sizing: border-box;
 }
 
-/* Progress Indicator */
+/* Progress Indicator - Compact horizontal bar */
 .wizard-progress {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
+    align-items: center;
     flex-shrink: 0;
-    margin-bottom: 20px;
-    padding: 0 20px;
+    margin-bottom: 8px;
+    padding: 0 10px;
     position: relative;
+    gap: 4px;
 }
 
 .wizard-progress::before {
-    content: '';
-    position: absolute;
-    top: 30px;
-    left: 10%;
-    right: 10%;
-    height: 2px;
-    background: var(--border-color);
-    z-index: 0;
+    display: none; /* Hide connecting line - using inline layout now */
 }
 
 .wizard-progress .step {
-    flex: 1;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    gap: 4px;
     position: relative;
     z-index: 1;
 }
 
 .wizard-progress .step-number {
-    width: 60px;
-    height: 60px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     background: var(--card-background);
-    border: 3px solid var(--border-color);
+    border: 2px solid var(--border-color);
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 10px;
-    font-size: 24px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--text-secondary);
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
 }
 
 .wizard-progress .step-label {
-    font-size: 14px;
+    font-size: 11px;
     font-weight: 500;
     color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* Step connector */
+.wizard-progress .step:not(:last-child)::after {
+    content: '›';
+    margin-left: 8px;
+    color: var(--border-color);
+    font-size: 16px;
 }
 
 .wizard-progress .step.active .step-number {
@@ -111,6 +116,94 @@
 /* Step 3 (Recording) needs special handling - no overflow, child handles it */
 #step3.wizard-step.active {
     overflow: hidden;
+}
+
+/* ==========================================
+   Full Screen Mode for Step 3
+   Maximizes stream view by hiding chrome
+   ========================================== */
+body.wizard-fullscreen {
+    overflow: hidden;
+}
+
+body.wizard-fullscreen nav {
+    display: none !important;
+}
+
+body.wizard-fullscreen .wizard-container {
+    height: 100vh;
+    padding: 0;
+    max-width: none;
+}
+
+body.wizard-fullscreen .wizard-progress {
+    display: none;
+}
+
+body.wizard-fullscreen .wizard-nav {
+    display: none;
+}
+
+body.wizard-fullscreen .recording-layout {
+    grid-template-columns: 1fr;
+    height: 100vh;
+}
+
+body.wizard-fullscreen .right-panel {
+    display: none;
+}
+
+body.wizard-fullscreen .quick-actions-bar {
+    border-radius: 0;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    opacity: 0.9;
+}
+
+body.wizard-fullscreen .quick-actions-bar:hover {
+    opacity: 1;
+}
+
+body.wizard-fullscreen .canvas-area {
+    margin-top: 36px; /* Height of toolbar */
+    height: calc(100vh - 36px);
+}
+
+/* Fullscreen toggle button */
+.fullscreen-toggle {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 1001;
+    transition: transform 0.2s, background 0.2s;
+}
+
+.fullscreen-toggle:hover {
+    transform: scale(1.1);
+    background: var(--primary-hover);
+}
+
+body.wizard-fullscreen .fullscreen-toggle {
+    background: #ef4444;
+}
+
+body.wizard-fullscreen .fullscreen-toggle:hover {
+    background: #dc2626;
 }
 
 @keyframes fadeIn {
@@ -403,10 +496,10 @@ img.app-icon {
 .quick-actions-bar {
     display: flex;
     align-items: center;
-    gap: 5px;
-    padding: 8px 12px;
+    gap: 3px;
+    padding: 4px 8px;
     background: linear-gradient(135deg, #2196f3, #1976d2);
-    border-radius: 12px 12px 0 0;
+    border-radius: 8px 8px 0 0;
     flex-shrink: 0;
     flex-wrap: wrap;
     overflow-x: auto;
@@ -415,8 +508,8 @@ img.app-icon {
 .toolbar-app-info {
     display: flex;
     align-items: center;
-    gap: 8px;
-    max-width: 200px;
+    gap: 4px;
+    max-width: 150px;
 }
 
 /* Screen Info (Phase 1 - Activity Tracking) */
@@ -448,15 +541,15 @@ img.app-icon {
 }
 
 .toolbar-app-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
     border: 1px solid rgba(255,255,255,0.3);
 }
 
 .toolbar-app-name {
     color: white;
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
@@ -467,31 +560,31 @@ img.app-icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 28px;
+    height: 28px;
     border: none;
-    border-radius: 6px;
+    border-radius: 4px;
     background: rgba(255, 255, 255, 0.15);
     color: white;
     cursor: pointer;
-    font-size: 16px;
+    font-size: 14px;
     transition: all 0.15s ease;
     flex-shrink: 0;
 }
 
 .quick-btn.with-label {
     width: auto;
-    padding: 0 10px;
-    gap: 4px;
-    font-size: 12px;
+    padding: 0 6px;
+    gap: 3px;
+    font-size: 11px;
 }
 
 .quick-btn .btn-icon {
-    font-size: 16px;
+    font-size: 13px;
 }
 
 .quick-btn .btn-label {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
 }
 
@@ -551,21 +644,22 @@ img.app-icon {
 
 .quick-divider {
     width: 1px;
-    height: 28px;
+    height: 20px;
     background: rgba(255, 255, 255, 0.25);
-    margin: 0 6px;
+    margin: 0 3px;
     flex-shrink: 0;
 }
 
 .quick-select {
-    padding: 6px 10px;
+    padding: 4px 6px;
     border: none;
-    border-radius: 6px;
+    border-radius: 4px;
     background: rgba(255, 255, 255, 0.2);
     color: white;
-    font-size: 11px;
+    font-size: 10px;
     cursor: pointer;
     transition: background 0.15s;
+    height: 24px;
 }
 
 .quick-select:hover:not(:disabled) {
@@ -585,16 +679,16 @@ img.app-icon {
 
 .zoom-display {
     color: white;
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 500;
-    min-width: 45px;
+    min-width: 35px;
     text-align: center;
 }
 
 .connection-status {
-    padding: 4px 10px;
-    border-radius: 12px;
-    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 8px;
+    font-size: 9px;
     font-weight: 600;
     text-transform: uppercase;
 }

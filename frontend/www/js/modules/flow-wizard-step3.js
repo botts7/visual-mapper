@@ -92,6 +92,30 @@ function getApiBase() {
 }
 
 /**
+ * Toggle fullscreen mode for step 3
+ * Hides progress bar, nav, and right panel to maximize stream view
+ * @param {Object} wizard - The wizard object
+ */
+function toggleFullscreen(wizard) {
+    const isFullscreen = document.body.classList.toggle('wizard-fullscreen');
+    const btn = document.getElementById('fullscreenToggle');
+
+    if (btn) {
+        btn.textContent = isFullscreen ? '✕' : '⛶';
+        btn.title = isFullscreen ? 'Exit fullscreen (Escape)' : 'Toggle fullscreen (F11)';
+    }
+
+    // Re-apply zoom after layout change
+    if (wizard.canvasRenderer) {
+        setTimeout(() => {
+            wizard.canvasRenderer.applyZoom();
+        }, 100);
+    }
+
+    console.log(`[FlowWizard] Fullscreen mode: ${isFullscreen ? 'ON' : 'OFF'}`);
+}
+
+/**
  * Check if companion app is available for a device
  * Caches result on wizard to avoid repeated API calls
  * @param {Object} wizard - The wizard object
@@ -1245,6 +1269,21 @@ export function setupToolbarHandlers(wizard) {
     document.getElementById('qabZoomIn')?.addEventListener('click', () => wizard.zoomIn());
     document.getElementById('qabFit')?.addEventListener('click', () => wizard.fitToScreen());
     document.getElementById('qabScale')?.addEventListener('click', () => wizard.toggleScale());
+
+    // Fullscreen toggle
+    const fullscreenBtn = document.getElementById('fullscreenToggle');
+    if (fullscreenBtn) {
+        fullscreenBtn.addEventListener('click', () => toggleFullscreen(wizard));
+        // Keyboard shortcut: F11 or Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'F11') {
+                e.preventDefault();
+                toggleFullscreen(wizard);
+            } else if (e.key === 'Escape' && document.body.classList.contains('wizard-fullscreen')) {
+                toggleFullscreen(wizard);
+            }
+        });
+    }
 
     // Recording toggle - pause/resume action recording
     document.getElementById('qabRecordToggle')?.addEventListener('click', () => wizard.toggleRecording());
