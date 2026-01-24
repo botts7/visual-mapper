@@ -20,7 +20,6 @@ from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 from routes import get_deps
 from routes.auth import verify_companion_auth, verify_companion_ws
-from starlette.websockets import WebSocketException
 
 logger = logging.getLogger(__name__)
 
@@ -44,19 +43,19 @@ QUALITY_PRESETS = {
     },
     "low": {
         "max_height": 480,
-        "jpeg_quality": 65,
+        "jpeg_quality": 60,  # Reduced for faster encoding
         "target_fps": 18,
         "frame_delay": 0.05,
     },
     "fast": {
         "max_height": 360,
-        "jpeg_quality": 55,
+        "jpeg_quality": 45,  # Reduced 55→45 for faster encoding
         "target_fps": 25,
         "frame_delay": 0.04,
     },
     "ultrafast": {
         "max_height": 240,
-        "jpeg_quality": 45,
+        "jpeg_quality": 40,  # Reduced 45→40 for fastest encoding
         "target_fps": 30,
         "frame_delay": 0.03,
     },
@@ -65,7 +64,7 @@ QUALITY_PRESETS = {
 # Frame capture timeout - skip slow frames quickly to maintain responsiveness
 FRAME_CAPTURE_TIMEOUT = 3.0  # 3s max per frame for WiFi ADB
 FRAME_SKIP_DELAY = 0.1  # Wait time after skipping a frame (was 0.5s)
-IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=2)
+IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=4)  # Increased for better multi-client performance
 atexit.register(IMAGE_EXECUTOR.shutdown, wait=False)
 
 
@@ -128,12 +127,10 @@ async def wait_for_next_tick(next_tick: float, frame_delay: float) -> float:
 
 async def _require_ws_auth(websocket: WebSocket) -> bool:
     """Enforce companion auth for WebSocket endpoints."""
-    try:
-        await verify_companion_ws(websocket)
+    if await verify_companion_ws(websocket):
         return True
-    except WebSocketException as exc:
-        await websocket.close(code=exc.code)
-        return False
+    await websocket.close(code=1008)
+    return False
 
 
 # =============================================================================
@@ -405,6 +402,25 @@ async def get_companion_device_status(
         "device_id": device_id,
         "companion_streaming": is_streaming,
         "stats": stats
+    }
+
+
+@router.get("/stream/companion/{device_id}/codec")
+async def get_companion_codec_info(
+    device_id: str, _auth: bool = Depends(verify_companion_auth)
+):
+    """
+    Get codec information for companion streaming.
+
+    Returns the current codec (JPEG or H.264) and initialization data
+    needed by clients to set up their decoder. For H.264, this includes
+    the SPS/PPS NAL units in hex format.
+    """
+    codec_info = companion_stream_manager.get_codec_info(device_id)
+    return {
+        "success": True,
+        "device_id": device_id,
+        **codec_info
     }
 
 

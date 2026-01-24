@@ -1,0 +1,55 @@
+version: '3.8'
+
+# Development docker-compose for local testing
+# Usage: docker-compose -f docker-compose.dev.yml up --build
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:8080"  # Map to 3000 for local dev (matches Android companion default)
+    environment:
+      - MQTT_BROKER=mqtt-broker
+      - MQTT_PORT=1883
+      - MQTT_USE_SSL=false
+      - DATA_DIR=/app/data
+      - LOG_LEVEL=DEBUG
+      # Companion streaming settings
+      - COMPANION_AUTH_ENABLED=false  # Disable auth for local testing
+    volumes:
+      # Mount data for persistence
+      - ./data:/app/data
+      # Mount backend code for live reload (optional)
+      # - ./backend:/app:ro
+    depends_on:
+      - mqtt-broker
+    networks:
+      - visualmapper-net
+
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+      - "9001:9001"  # WebSocket port
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+    networks:
+      - visualmapper-net
+    command: mosquitto -c /mosquitto/config/mosquitto.conf
+
+  # Optional: Frontend dev server (if you have one)
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #   ports:
+  #     - "5173:5173"
+  #   volumes:
+  #     - ./frontend:/app
+  #   networks:
+  #     - visualmapper-net
+
+networks:
+  visualmapper-net:
+    driver: bridge
