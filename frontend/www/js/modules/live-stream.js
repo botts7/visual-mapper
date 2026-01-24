@@ -15,9 +15,9 @@
  * - ultrafast: 240p (~30 FPS) - Optimized for WiFi
  *
  * Fluency settings (adaptive element refresh):
- * - responsive: Quick refresh (300ms), reacts fast to screen changes
- * - balanced: Medium refresh (500ms), good for most use cases
- * - smooth: Slow refresh (1000ms), less CPU usage, smoother overlays
+ * - responsive (Fluent): Quick refresh (300ms), reacts fast to screen changes
+ * - balanced (Balanced): Medium refresh (500ms), good for most use cases
+ * - smooth (Clear): Slow refresh (1000ms), less CPU usage, clearer overlays
  *
  * Features:
  * - Auto-reconnect with exponential backoff
