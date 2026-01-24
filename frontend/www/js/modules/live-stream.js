@@ -1,6 +1,6 @@
 /**
  * Visual Mapper - Live Stream Module
- * Version: 0.0.37 (onDimensionsChange callback for orientation handling)
+ * Version: 0.0.38 (Adaptive smart refresh for high FPS streaming)
  *
  * WebSocket-based live screenshot streaming with UI element overlays.
  * Supports two modes:
@@ -14,6 +14,11 @@
  * - fast: 360p (~25 FPS)
  * - ultrafast: 240p (~30 FPS) - Optimized for WiFi
  *
+ * Fluency settings (adaptive element refresh):
+ * - responsive: Quick refresh (300ms), reacts fast to screen changes
+ * - balanced: Medium refresh (500ms), good for most use cases
+ * - smooth: Slow refresh (1000ms), less CPU usage, smoother overlays
+ *
  * Features:
  * - Auto-reconnect with exponential backoff
  * - Connection state tracking
@@ -21,6 +26,7 @@
  * - Backend benchmark support via stream_manager
  * - Enhanced quality indicators
  * - FPS performance hints (Phase 3)
+ * - Adaptive smart refresh based on FPS
  */
 
 class LiveStream {
@@ -105,6 +111,13 @@ class LiveStream {
         this._stableFrameCount = 0;      // Count of consecutive same frames (confirms stabilization)
         this._lastScreenChangeCallback = 0;  // Rate limiting for screen change callback
         this._elementsStale = false;     // True when elements should be hidden (screen changed)
+
+        // Adaptive smart refresh settings (configurable via setFluency)
+        // These control how responsive element refresh is to screen changes
+        this.smartRefreshRateMs = 500;           // Min ms between refresh callbacks (default: balanced)
+        this.stableFrameThreshold = 2;           // Frames needed to confirm stabilization (adaptive)
+        this.changeFrameThreshold = 2;           // Frames needed to detect change (filters noise)
+        this.fluencyMode = 'balanced';           // 'responsive', 'balanced', or 'smooth'
 
         // OPTIMIZATION: Cache filtered elements to avoid re-filtering every frame
         this._filteredElements = [];
@@ -1207,6 +1220,7 @@ class LiveStream {
     /**
      * Detect if screen content has changed significantly
      * When screen changes and then stabilizes, fires onScreenChange callback
+     * Uses adaptive thresholds based on fluency mode and current FPS
      * @param {Image} img - New frame image
      */
     _detectScreenChange(img) {
@@ -1221,17 +1235,23 @@ class LiveStream {
             const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
             const newHash = this._computeFrameHash(imageData);
 
+            // Adaptive threshold based on FPS - higher FPS = fewer frames needed
+            // At 20+ FPS, use minimum thresholds for responsiveness
+            const currentFps = this.metrics.fps || 10;
+            const adaptiveStableThreshold = currentFps >= 15 ?
+                Math.max(1, this.stableFrameThreshold) :
+                Math.max(2, this.stableFrameThreshold);
+
             // Compare with previous frame
             if (this._lastFrameHash !== 0 && newHash !== this._lastFrameHash) {
                 // Frame is different - could be real change or compression noise
                 this._differentFrameCount = (this._differentFrameCount || 0) + 1;
                 this._stableFrameCount = 0;
 
-                // Only mark as "screen changing" after multiple consecutive different frames
+                // Only mark as "screen changing" after threshold consecutive different frames
                 // This filters out compression noise (single-frame differences)
-                // CHANGED: Require 2 consecutive different frames before marking elements stale
-                if (this._differentFrameCount >= 2 && !this._screenChanged) {
-                    console.log('[LiveStream] Smart: significant change detected, marking elements stale');
+                if (this._differentFrameCount >= this.changeFrameThreshold && !this._screenChanged) {
+                    console.log(`[LiveStream] Smart: change detected (${this._differentFrameCount} frames, FPS: ${currentFps})`);
                     this._screenChanged = true;
                     this._elementsStale = true;
                     this._elementsStaleTime = Date.now();
@@ -1242,20 +1262,23 @@ class LiveStream {
                 this._stableFrameCount++;
 
                 // Screen stabilized after a change - fire callback
-                // Wait for 3 consecutive stable frames to confirm stabilization
-                if (this._screenChanged && this._stableFrameCount >= 3) {
+                // Use adaptive threshold based on FPS
+                if (this._screenChanged && this._stableFrameCount >= adaptiveStableThreshold) {
                     this._screenChanged = false;
 
-                    // Rate limit: don't fire more than once per second
+                    // Rate limit using configurable smartRefreshRateMs
                     const now = Date.now();
-                    if (!this._lastScreenChangeCallback || now - this._lastScreenChangeCallback > 1000) {
+                    if (!this._lastScreenChangeCallback || now - this._lastScreenChangeCallback > this.smartRefreshRateMs) {
                         this._lastScreenChangeCallback = now;
-                        console.log('[LiveStream] Smart: screen stabilized, triggering refresh');
+                        console.log(`[LiveStream] Smart: stabilized (${adaptiveStableThreshold} frames), refresh [${this.fluencyMode}]`);
                         if (this.onScreenChange) {
                             this.onScreenChange();
                         }
                     } else {
-                        console.log('[LiveStream] Smart: screen stabilized but rate limited');
+                        // Rate limited - but log less verbosely
+                        if (window.VM_DEBUG) {
+                            console.log(`[LiveStream] Smart: rate limited (${this.smartRefreshRateMs}ms)`);
+                        }
                     }
                 }
             }
@@ -1276,6 +1299,51 @@ class LiveStream {
         this._framesSinceElements = 0;
         this._stableFrameCount = 0;
         // Don't log - this is called frequently and creates noise
+    }
+
+    /**
+     * Set fluency mode for adaptive element refresh
+     * Controls how responsive element refresh is to screen changes
+     *
+     * @param {string} mode - 'responsive', 'balanced', or 'smooth'
+     *   - responsive: Quick refresh (300ms), best for active interaction
+     *   - balanced: Medium refresh (500ms), good for most use cases
+     *   - smooth: Slow refresh (1000ms), less CPU, smoother overlays
+     */
+    setFluency(mode) {
+        const settings = {
+            responsive: {
+                smartRefreshRateMs: 300,
+                stableFrameThreshold: 1,
+                changeFrameThreshold: 1
+            },
+            balanced: {
+                smartRefreshRateMs: 500,
+                stableFrameThreshold: 2,
+                changeFrameThreshold: 2
+            },
+            smooth: {
+                smartRefreshRateMs: 1000,
+                stableFrameThreshold: 3,
+                changeFrameThreshold: 2
+            }
+        };
+
+        const config = settings[mode] || settings.balanced;
+        this.fluencyMode = mode || 'balanced';
+        this.smartRefreshRateMs = config.smartRefreshRateMs;
+        this.stableFrameThreshold = config.stableFrameThreshold;
+        this.changeFrameThreshold = config.changeFrameThreshold;
+
+        console.log(`[LiveStream] Fluency set to '${this.fluencyMode}': refresh=${this.smartRefreshRateMs}ms, stable=${this.stableFrameThreshold}, change=${this.changeFrameThreshold}`);
+    }
+
+    /**
+     * Get current fluency mode
+     * @returns {string} Current fluency mode
+     */
+    getFluency() {
+        return this.fluencyMode;
     }
 
     /**

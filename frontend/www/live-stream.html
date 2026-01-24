@@ -119,6 +119,13 @@
                             <option value="ultrafast">240p ~30fps</option>
                         </select>
                     </label>
+                    <label title="How quickly element overlays update when screen changes">Fluency:
+                        <select id="streamFluency">
+                            <option value="responsive">Responsive</option>
+                            <option value="balanced" selected>Balanced</option>
+                            <option value="smooth">Smooth</option>
+                        </select>
+                    </label>
                 </div>
                 <div class="compact-row">
                     <label><input type="checkbox" id="showOverlays" checked> Show Overlays</label>
@@ -483,6 +490,7 @@
         const deviceSelect = document.getElementById('deviceSelect');
         const streamModeSelect = document.getElementById('streamMode');
         const streamQualitySelect = document.getElementById('streamQuality');
+        const streamFluencySelect = document.getElementById('streamFluency');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const refreshDevicesBtn = document.getElementById('refreshDevicesBtn');
@@ -555,6 +563,23 @@
 
         // Initialize LiveStream
         const liveStream = new LiveStream(canvas);
+
+        // Apply saved fluency setting or default
+        const savedFluency = localStorage.getItem('liveStream.fluency') || 'balanced';
+        if (streamFluencySelect) {
+            streamFluencySelect.value = savedFluency;
+        }
+        liveStream.setFluency(savedFluency);
+
+        // Handle fluency change
+        if (streamFluencySelect) {
+            streamFluencySelect.addEventListener('change', (e) => {
+                const fluency = e.target.value;
+                localStorage.setItem('liveStream.fluency', fluency);
+                liveStream.setFluency(fluency);
+                console.log(`[LiveStream] Fluency changed to: ${fluency}`);
+            });
+        }
 
         // Callbacks
         liveStream.onConnect = () => {

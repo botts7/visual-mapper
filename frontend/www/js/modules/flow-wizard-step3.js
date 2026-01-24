@@ -1595,6 +1595,29 @@ export function setupCaptureMode(wizard) {
         });
     }
 
+    // Handle fluency change (element refresh speed)
+    const fluencySelect = document.getElementById('streamFluency');
+    const savedFluency = localStorage.getItem('flowWizard.streamFluency') || 'balanced';
+    if (fluencySelect) {
+        fluencySelect.value = savedFluency;
+        wizard.streamFluency = savedFluency;
+
+        // Apply fluency immediately if liveStream exists
+        if (wizard.liveStream) {
+            wizard.liveStream.setFluency(savedFluency);
+        }
+
+        fluencySelect.addEventListener('change', (e) => {
+            wizard.streamFluency = e.target.value;
+            localStorage.setItem('flowWizard.streamFluency', e.target.value);
+            // Apply fluency change immediately (no restart needed)
+            if (wizard.liveStream) {
+                wizard.liveStream.setFluency(e.target.value);
+            }
+            console.log(`[FlowWizard] Fluency changed to: ${e.target.value}`);
+        });
+    }
+
     console.log('[FlowWizard] Capture mode controls initialized');
 }
 
@@ -1907,6 +1930,11 @@ export async function startStreaming(wizard) {
     }
     wizard.liveStream = new LiveStream(wizard.canvas);
     console.log('[FlowWizard] Created new LiveStream for canvas:', wizard.canvas);
+
+    // Apply fluency setting from wizard state or localStorage
+    const fluency = wizard.streamFluency || localStorage.getItem('flowWizard.streamFluency') || 'balanced';
+    wizard.liveStream.setFluency(fluency);
+    console.log(`[FlowWizard] Applied fluency: ${fluency}`);
 
     // Handle each frame - hide loading overlay and apply zoom (once per stream)
     wizard.liveStream.onFrame = (data) => {
