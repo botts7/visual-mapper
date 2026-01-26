@@ -67,8 +67,8 @@ import { showToast } from './toast.js?v=0.4.0-beta.4';
 import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.4';
 import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.4';
 import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.4';
-import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.4';
-import LiveStream from './live-stream.js?v=0.4.0-beta.4';
+import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.11';
+import LiveStream from './live-stream.js?v=0.4.0-beta.9';
 import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.4';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
@@ -79,12 +79,22 @@ import {
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.4';
+import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.10';
 import {
     drawElementOverlays,
     drawElementOverlaysScaled,
     drawTextLabel
-} from './canvas-overlay-renderer.js?v=0.4.0-beta.4';
+} from './canvas-overlay-renderer.js?v=0.4.0-beta.10';
+
+// Prerequisite checking - detects missing accessibility/streaming services
+import { PrerequisiteChecker, quickCheckPrerequisites } from './prerequisite-checker.js?v=0.4.0-beta';
+import { showPrerequisiteDialog, showPrerequisiteGuidance, hidePrerequisiteGuidance } from './prerequisite-dialog.js?v=0.4.0-beta';
+
+// Phase 3 Refactor: Extracted modules for maintainability
+// These modules contain pure functions extracted from this file
+import * as ElementRefresh from './step3/element-refresh.js';
+import * as ScreenIdentification from './step3/screen-identification.js';
+import * as Suggestions from './step3/suggestions.js';
 
 // Helper to get API base (from global set by init.js)
 function getApiBase() {
@@ -150,54 +160,92 @@ async function checkCompanionAppStatus(wizard, deviceId) {
 }
 
 /**
+ * Check if companion app streaming is available for this device
+ * This is separate from the accessibility service - checks MediaProjection streaming
+ * If companion streaming is active, prefer mjpeg-v2 mode for better performance
+ *
+ * @param {Object} wizard - The wizard object
+ * @param {string} deviceId - The device ID to check
+ * @returns {Promise<{active: boolean, mode: string}>} - Streaming info
+ */
+async function checkCompanionStreamingStatus(wizard, deviceId) {
+    const maxRetries = 3;
+    const retryDelay = 300; // 300ms between retries
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            // Check companion streaming stats
+            const response = await fetch(`${getApiBase()}/stream/companion/stats`);
+            if (!response.ok) {
+                // If server error, retry
+                if (attempt < maxRetries - 1) {
+                    console.log(`[FlowWizard] Companion stats request failed, retry ${attempt + 1}/${maxRetries}...`);
+                    await new Promise(r => setTimeout(r, retryDelay));
+                    continue;
+                }
+                return { active: false, mode: wizard.streamMode || 'mjpeg' };
+            }
+
+            const data = await response.json();
+            const activeDevices = data.active_devices || [];
+
+            // Check if any active companion matches this device
+            // The backend's find_companion_for_device handles IP mismatches
+            // so we also check the device-specific status endpoint
+            if (activeDevices.length > 0) {
+                // Check device-specific status for match confirmation
+                const statusResponse = await fetch(
+                    `${getApiBase()}/stream/companion/${encodeURIComponent(deviceId)}/status`
+                );
+                if (statusResponse.ok) {
+                    const statusData = await statusResponse.json();
+                    if (statusData.companion_streaming) {
+                        console.log(
+                            `[FlowWizard] Companion detected on attempt ${attempt + 1}: ${deviceId} ` +
+                            `(companion_id: ${statusData.debug?.found_companion_id || 'matched'})`
+                        );
+                        wizard._companionStreamingActive = true;
+                        return { active: true, mode: 'mjpeg-v2' };
+                    }
+                }
+            }
+
+            // Not found yet - retry if not last attempt
+            // This handles timing issues where companion registers after frontend check starts
+            if (attempt < maxRetries - 1) {
+                console.log(`[FlowWizard] Companion not detected, retry ${attempt + 1}/${maxRetries}...`);
+                await new Promise(r => setTimeout(r, retryDelay));
+                continue;
+            }
+
+            // Final attempt failed - no companion found
+            console.log(`[FlowWizard] No companion streaming for ${deviceId} after ${maxRetries} attempts - using ${wizard.streamMode || 'mjpeg'}`);
+            wizard._companionStreamingActive = false;
+            return { active: false, mode: wizard.streamMode || 'mjpeg' };
+
+        } catch (error) {
+            if (attempt === maxRetries - 1) {
+                console.warn('[FlowWizard] Error checking companion streaming:', error);
+                wizard._companionStreamingActive = false;
+                return { active: false, mode: wizard.streamMode || 'mjpeg' };
+            }
+            // Retry on error
+            console.log(`[FlowWizard] Companion check error, retry ${attempt + 1}/${maxRetries}:`, error.message);
+            await new Promise(r => setTimeout(r, retryDelay));
+        }
+    }
+
+    // Should not reach here, but safety fallback
+    wizard._companionStreamingActive = false;
+    return { active: false, mode: wizard.streamMode || 'mjpeg' };
+}
+
+/**
  * Flatten nested companion app elements into a flat array
- * Companion app returns hierarchical elements with children,
- * but the UI expects a flat array with bounds
- * @param {Array} elements - Nested elements from companion app
- * @returns {Array} - Flat array of elements
+ * @delegate ElementRefresh.flattenCompanionElements
  */
 function flattenCompanionElements(elements) {
-    const flat = [];
-
-    function processElement(el, index) {
-        // Convert companion bounds format {left, top, right, bottom} to what UI expects
-        const bounds = el.bounds || {};
-        const flatEl = {
-            index: flat.length,
-            resource_id: el.resource_id || '',
-            class_name: el.class_name || el.class || '',
-            text: el.text || '',
-            content_desc: el.content_desc || '',
-            bounds: bounds,
-            // Calculate width/height for convenience
-            x: bounds.left || 0,
-            y: bounds.top || 0,
-            width: (bounds.right || 0) - (bounds.left || 0),
-            height: (bounds.bottom || 0) - (bounds.top || 0),
-            clickable: el.clickable || false,
-            scrollable: el.scrollable || false,
-            focusable: el.focusable || false,
-            selected: el.selected || false
-        };
-
-        // Only add elements that have valid bounds
-        if (flatEl.width > 0 && flatEl.height > 0) {
-            flat.push(flatEl);
-        }
-
-        // Process children recursively
-        if (el.children && el.children.length > 0) {
-            for (const child of el.children) {
-                processElement(child);
-            }
-        }
-    }
-
-    for (const el of elements) {
-        processElement(el);
-    }
-
-    return flat;
+    return ElementRefresh.flattenCompanionElements(elements);
 }
 
 function updateSetupMode(wizard) {
@@ -387,6 +435,61 @@ export async function loadStep3(wizard) {
     }
     updateSetupStep('unlock', 'done')
 
+    // =========================================================================
+    // PREREQUISITE CHECK - Verify accessibility and streaming are available
+    // =========================================================================
+    // Only check prerequisites on fresh start (not when returning or editing)
+    const isReturningEarly = wizard.flowSteps && wizard.flowSteps.length > 0;
+    if (!isReturningEarly && wizard.selectedDevice) {
+        try {
+            console.log('[FlowWizard] Checking prerequisites...');
+            const prereqChecker = new PrerequisiteChecker(wizard.selectedDevice);
+            const { allMet, missing } = await prereqChecker.checkRequired(['streaming']);
+
+            if (!allMet) {
+                console.log(`[FlowWizard] Missing prerequisites: ${missing.join(', ')}`);
+
+                // Try auto-run flows first
+                const autoRunResults = await prereqChecker.runAutoFlows(missing);
+                console.log('[FlowWizard] Auto-run results:', autoRunResults);
+
+                // Re-check after auto-run
+                const recheck = await prereqChecker.checkRequired(['streaming']);
+
+                if (!recheck.allMet) {
+                    // Hide setup overlay to show dialog
+                    hideSetupOverlay(wizard);
+
+                    // Show prerequisite dialog
+                    const dialogResult = await showPrerequisiteDialog(wizard, recheck.missing, prereqChecker.status);
+                    console.log('[FlowWizard] Prerequisite dialog result:', dialogResult);
+
+                    // Handle dialog result
+                    if (dialogResult.action === 'create') {
+                        // Enter prerequisite recording mode
+                        wizard.recordMode = 'prerequisite';
+                        wizard.prereqType = dialogResult.prereqType;
+                        showSetupOverlay(wizard);
+                        // Continue with setup - guidance panel will show during recording
+                    } else if (dialogResult.action === 'completed') {
+                        // Prerequisites now met, continue normally
+                        showSetupOverlay(wizard);
+                    }
+                    // For 'skip' action, continue anyway
+
+                    // Re-show setup overlay if hidden
+                    if (dialogResult.action !== 'create') {
+                        showSetupOverlay(wizard);
+                    }
+                }
+            } else {
+                console.log('[FlowWizard] All prerequisites met');
+            }
+        } catch (error) {
+            console.warn('[FlowWizard] Prerequisite check failed, continuing anyway:', error);
+        }
+    }
+
     // Populate app info header
     populateAppInfo(wizard);
 
@@ -395,6 +498,9 @@ export async function loadStep3(wizard) {
 
     // Phase 1 Screen Awareness: Update screen info initially
     updateScreenInfo(wizard);
+
+    // Fetch initial command routing method (non-blocking)
+    fetchCommandRoutingMethod(wizard);
 
     // Get canvas and context for rendering
     wizard.canvas = document.getElementById('screenshotCanvas');
@@ -479,6 +585,13 @@ export async function loadStep3(wizard) {
 
     if (shouldStartFresh) {
         console.log('[FlowWizard] Starting fresh recording session');
+
+        // Set streaming mode on recorder BEFORE starting to avoid ADB contention
+        // When streaming is active, recorder skips screenshot captures (stream provides visuals)
+        // Default to 'polling' to match the capture mode control default
+        const savedCaptureMode = localStorage.getItem('flowWizard.captureMode') || 'polling';
+        wizard.recorder.streamingMode = savedCaptureMode === 'streaming';
+        console.log(`[FlowWizard] Recorder streaming mode: ${wizard.recorder.streamingMode} (captureMode: ${savedCaptureMode})`);
 
         // Launch app step
         updateSetupStep('launch', 'active');
@@ -792,187 +905,52 @@ function getCurrentScreenElements(wizard, elementsOverride = null) {
     return wizard.recorder?.screenshotMetadata?.elements || [];
 }
 
+/**
+ * Extract UI landmarks from elements for screen hashing
+ * @delegate ScreenIdentification.extractUiLandmarks
+ */
 function extractUiLandmarks(elements) {
-    const landmarks = [];
-
-    for (const el of elements || []) {
-        const resourceId = el.resource_id || el['resource-id'] || '';
-        const className = el.class || '';
-        const text = el.text || '';
-        const contentDesc = el.content_desc || el['content-desc'] || '';
-
-        if (!text && !contentDesc) {
-            continue;
-        }
-
-        const resourceLower = resourceId.toLowerCase();
-        const classLower = className.toLowerCase();
-
-        if (resourceLower.includes('toolbar') || resourceLower.includes('action_bar')) {
-            landmarks.push({
-                type: 'toolbar',
-                text: text,
-                resource_id: resourceId,
-                content_desc: contentDesc
-            });
-            continue;
-        }
-
-        if (resourceLower.includes('tab') || classLower.includes('tablayout')) {
-            landmarks.push({
-                type: 'tab',
-                text: text,
-                resource_id: resourceId,
-                content_desc: contentDesc
-            });
-            continue;
-        }
-
-        if (className.includes('TextView') && text) {
-            if (text.length < 50 && !text.includes('\n')) {
-                if (['title', 'header', 'name', 'label'].some((kw) => resourceLower.includes(kw))) {
-                    landmarks.push({
-                        type: 'title',
-                        text: text,
-                        resource_id: resourceId,
-                        content_desc: contentDesc
-                    });
-                }
-            }
-        }
-    }
-
-    const seen = new Set();
-    const unique = [];
-    for (const lm of landmarks) {
-        const key = `${lm.text || ''}|${lm.resource_id || ''}|${lm.content_desc || ''}`;
-        if (!seen.has(key)) {
-            seen.add(key);
-            unique.push(lm);
-        }
-    }
-
-    return unique;
+    return ScreenIdentification.extractUiLandmarks(elements);
 }
 
+/**
+ * Compute a unique screen ID based on activity and UI landmarks
+ * @delegate ScreenIdentification.computeScreenId
+ */
 async function computeScreenId(activity, elements) {
-    if (!activity || !elements || elements.length === 0) {
-        return null;
-    }
-
-    if (!window.crypto || !window.crypto.subtle || !window.TextEncoder) {
-        return null;
-    }
-
-    const landmarkStrs = [];
-    const landmarks = extractUiLandmarks(elements);
-
-    for (const landmark of landmarks) {
-        const text = landmark.text || '';
-        const resourceId = landmark.resource_id || '';
-        const contentDesc = landmark.content_desc || '';
-
-        if (text) {
-            landmarkStrs.push(`text:${text}`);
-        } else if (resourceId) {
-            landmarkStrs.push(`id:${resourceId}`);
-        } else if (contentDesc) {
-            landmarkStrs.push(`desc:${contentDesc}`);
-        }
-    }
-
-    landmarkStrs.sort();
-    const hashInput = `${activity}|${landmarkStrs.join(',')}`;
-
-    try {
-        const encoder = new TextEncoder();
-        const hashBuffer = await window.crypto.subtle.digest('SHA-256', encoder.encode(hashInput));
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-        return hex.slice(0, 16);
-    } catch (e) {
-        console.warn('[FlowWizard] Failed to compute screen id:', e);
-        return null;
-    }
+    return ScreenIdentification.computeScreenId(activity, elements);
 }
 
+/**
+ * Resolve a human-readable screen label
+ * @delegate ScreenIdentification.resolveScreenLabel
+ */
 function resolveScreenLabel(wizard, screenSignature, activityName) {
-    if (screenSignature && wizard.navigationGraph?.screens?.[screenSignature]) {
-        const screen = wizard.navigationGraph.screens[screenSignature];
-        return screen.display_name || screen.activity?.split('.').pop() || screenSignature;
-    }
-    if (activityName) {
-        const shortName = activityName.split('.').pop();
-        return screenSignature ? `${shortName} (${screenSignature.slice(0, 6)})` : shortName;
-    }
-    return screenSignature ? screenSignature.slice(0, 6) : 'Unknown';
+    return ScreenIdentification.resolveScreenLabel(wizard, screenSignature, activityName);
 }
 
+/**
+ * Normalize a screen label by removing hash suffix
+ * @delegate ScreenIdentification.normalizeScreenLabel
+ */
 function normalizeScreenLabel(label) {
-    if (!label) return null;
-    return label.replace(/\s*\([0-9a-fA-F]{4,}\)\s*$/, '').trim();
+    return ScreenIdentification.normalizeScreenLabel(label);
 }
 
+/**
+ * Get short activity name from full qualified name
+ * @delegate ScreenIdentification.getActivityShortName
+ */
 function getActivityShortName(wizard, screenSignature, activityName) {
-    if (activityName) {
-        return activityName.split('.').pop();
-    }
-    if (screenSignature && wizard.navigationGraph?.screens?.[screenSignature]?.activity) {
-        return wizard.navigationGraph.screens[screenSignature].activity.split('.').pop();
-    }
-    return null;
+    return ScreenIdentification.getActivityShortName(wizard, screenSignature, activityName);
 }
 
+/**
+ * Auto-learn a new screen if enabled
+ * @delegate ScreenIdentification.maybeLearnScreen
+ */
 async function maybeLearnScreen(wizard, activityInfo, elements) {
-    if (!wizard.autoLearnScreens) return;
-    if (!activityInfo?.activity || !activityInfo?.package) return;
-    if (!elements || elements.length === 0) return;
-
-    const signature = await computeScreenId(activityInfo.activity, elements);
-    if (!signature) return;
-
-    const now = Date.now();
-    const lastSignature = wizard._lastLearnedSignature;
-    const lastTime = wizard._lastLearnedAt || 0;
-
-    if (signature === lastSignature && (now - lastTime) < 5000) {
-        return;
-    }
-
-    wizard._lastLearnedSignature = signature;
-    wizard._lastLearnedAt = now;
-
-    const packageName = activityInfo.package || wizard.selectedApp?.package || wizard.selectedApp;
-    if (!packageName) return;
-
-    try {
-        const response = await fetch(
-            `${getApiBase()}/navigation/${encodeURIComponent(packageName)}/screens`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    activity: activityInfo.activity,
-                    ui_elements: elements,
-                    display_name: activityInfo.activity.split('.').pop()
-                })
-            }
-        );
-
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            console.warn('[FlowWizard] Screen learn failed:', error.detail || response.statusText);
-            return;
-        }
-
-        const data = await response.json();
-        if (data?.screen?.screen_id) {
-            wizard.lastLearnedScreenId = data.screen.screen_id;
-        }
-        console.log('[FlowWizard] Learned screen:', activityInfo.activity);
-    } catch (error) {
-        console.warn('[FlowWizard] Screen learn error:', error);
-    }
+    return ScreenIdentification.maybeLearnScreen(wizard, activityInfo, elements);
 }
 
 export async function updateNavigationContext(wizard, activityInfo, elementsOverride = null) {
@@ -1420,6 +1398,11 @@ export function setupToolbarHandlers(wizard) {
         reconnectStream(wizard);
     });
 
+    // Restart companion streaming button (via MQTT)
+    document.getElementById('qabRestartCompanion')?.addEventListener('click', async () => {
+        await restartCompanionStreaming(wizard);
+    });
+
     // Panel toggle button (desktop)
     document.getElementById('qabPanel')?.addEventListener('click', () => {
         toggleRightPanel(wizard);
@@ -1591,11 +1574,31 @@ export function setupCaptureMode(wizard) {
     const savedStreamMode = localStorage.getItem('flowWizard.streamMode') || 'mjpeg';
     const savedQuality = localStorage.getItem('flowWizard.streamQuality') || 'fast';
 
+    // Check if streaming is currently active - don't interrupt it during navigation
+    const isStreamingActive = wizard.liveStream?.isStreaming ||
+                              wizard.captureMode === 'streaming';
+
+    if (isStreamingActive) {
+        console.log('[FlowWizard] Preserving active stream during navigation');
+        // Update UI to reflect current streaming state without triggering mode change
+        if (captureModeSelect) {
+            captureModeSelect.value = 'streaming';
+        }
+        // Save streaming as the mode since it's actively running
+        localStorage.setItem('flowWizard.captureMode', 'streaming');
+        wizard.captureMode = 'streaming';
+        // Skip the setCaptureMode call that would stop streaming
+        // Just setup the event listeners below
+    }
+
     // Handle capture mode change (select dropdown)
     if (captureModeSelect) {
-        captureModeSelect.value = savedMode;
-        // Don't await here - initialization continues, mode will be set
-        setCaptureMode(wizard, savedMode);
+        // Only apply saved mode if not already streaming
+        if (!isStreamingActive) {
+            captureModeSelect.value = savedMode;
+            // Don't await here - initialization continues, mode will be set
+            setCaptureMode(wizard, savedMode);
+        }
 
         captureModeSelect.addEventListener('change', async (e) => {
             const mode = e.target.value;
@@ -1718,6 +1721,15 @@ export async function setCaptureMode(wizard, mode) {
         }
 
         await stopStreaming(wizard);
+
+        // Capture initial screenshot after switching to polling mode
+        try {
+            await wizard.recorder.refresh();
+            await wizard.updateScreenshotDisplay();
+            await refreshElements(wizard);
+        } catch (e) {
+            console.warn('[FlowWizard] Initial polling capture failed:', e);
+        }
     }
 
     console.log(`[FlowWizard] Capture mode: ${mode}`);
@@ -1892,6 +1904,9 @@ export async function startStreaming(wizard) {
     // This enables fast element fetching when companion app is installed
     checkCompanionAppStatus(wizard, wizard.selectedDevice);
 
+    // Start polling for command routing method (shows WS/MQTT/ADB badge)
+    startRoutingMethodPolling(wizard);
+
     // Reset stream session flags
     wizard._streamLoadingHidden = false;
     wizard._streamConnectedOnce = false;
@@ -1934,6 +1949,7 @@ export async function startStreaming(wizard) {
         if (wizard._preloadedElements && wizard._preloadedElements.length > 0) {
             if (wizard.liveStream) {
                 wizard.liveStream.elements = wizard._preloadedElements;
+                wizard.liveStream.markElementsFresh(); // Ensure elements aren't considered stale
             }
             wizard.recorder.screenshotMetadata = { elements: wizard._preloadedElements };
             drawElementOverlays(wizard);
@@ -1943,17 +1959,8 @@ export async function startStreaming(wizard) {
         wizard._preloadedImage = null;
         wizard._preloadedElements = null;
     } else {
-        wizard.showLoadingOverlay('Connecting...');
-
-        // Set timeout to hide loading overlay if no frames arrive within 10s
-        wizard._streamLoadingTimeout = setTimeout(() => {
-            if (!wizard._streamLoadingHidden) {
-                wizard.hideLoadingOverlay();
-                wizard._streamLoadingHidden = true;
-                showToast('No frames received - check device connection', 'warning', 5000);
-                console.warn('[FlowWizard] Stream timeout - no frames received after 10s');
-            }
-        }, 10000);
+        wizard.showLoadingOverlay('Connecting to device...');
+        // NOTE: Timeout will be set after companion check with adaptive duration
     }
 
     // NOTE: Removed duplicate refreshElements call here - onConnect already calls it
@@ -2012,6 +2019,11 @@ export async function startStreaming(wizard) {
             showToast('Streaming started', 'success', 2000);
         }
 
+        // Show prerequisite guidance panel if in prerequisite recording mode
+        if (wizard.recordMode === 'prerequisite' && wizard.prereqType) {
+            showPrerequisiteGuidance(wizard, wizard.prereqType);
+        }
+
         // Fetch elements and start auto-refresh
         refreshElements(wizard);
         startElementAutoRefresh(wizard);
@@ -2038,18 +2050,60 @@ export async function startStreaming(wizard) {
         showToast('Device disconnected', 'warning', 3000);
     };
 
+    // Handle streaming source changes (companion <-> ADB fallback)
+    wizard.liveStream.onSourceChange = (source, message, reason) => {
+        if (source === 'adb') {
+            // Switched from companion to ADB (companion disconnected)
+            updateStreamStatus(wizard, 'connected', 'Live (ADB)');
+
+            // Hide loading overlay since ADB frames will start arriving
+            // Also clear the timeout to avoid duplicate hide
+            if (!wizard._streamLoadingHidden) {
+                wizard.hideLoadingOverlay();
+                wizard._streamLoadingHidden = true;
+            }
+            if (wizard._streamLoadingTimeout) {
+                clearTimeout(wizard._streamLoadingTimeout);
+                wizard._streamLoadingTimeout = null;
+            }
+
+            // Show informative message based on reason
+            const toastMessage = reason === 'app_launch'
+                ? 'Streaming via ADB (companion stopped for app launch)'
+                : (message || 'Switched to ADB streaming');
+            showToast(toastMessage, 'info', 5000);
+
+            // Refresh elements to match the new screen (may have changed during source switch)
+            refreshElements(wizard);
+        } else if (source === 'companion') {
+            // Switched from ADB to companion (companion reconnected)
+            updateStreamStatus(wizard, 'connected', 'Live (Fast)');
+            showToast(message || 'Fast streaming restored', 'success', 3000);
+
+            // Refresh elements for the current screen
+            refreshElements(wizard);
+        }
+    };
+
     wizard.liveStream.onConnectionStateChange = (state, attempts) => {
         switch (state) {
             case 'connecting':
+                wizard.showLoadingOverlay('Connecting to device...');
                 updateStreamStatus(wizard, 'connecting', 'Connecting...');
                 break;
             case 'reconnecting':
+                wizard.showLoadingOverlay(`Reconnecting (${attempts})...`);
                 updateStreamStatus(wizard, 'reconnecting', `Retry ${attempts}...`);
                 if (attempts === 1) {
                     showToast('Connection lost, reconnecting...', 'warning', 3000);
                 }
                 break;
             case 'connected':
+                // WebSocket connected - only show overlay if not already hidden
+                // This prevents re-showing overlay after first frame already hid it
+                if (!wizard._streamLoadingHidden) {
+                    wizard.showLoadingOverlay('Connected - loading stream...');
+                }
                 updateStreamStatus(wizard, 'connected', 'Live');
                 break;
             case 'disconnected':
@@ -2070,11 +2124,20 @@ export async function startStreaming(wizard) {
     // Show FPS and capture time in status
     wizard.liveStream.onMetricsUpdate = (metrics) => {
         if (wizard.captureMode === 'streaming' && wizard.liveStream?.connectionState === 'connected') {
-            const captureTime = metrics.captureTime || 0;
+            // BACKUP: Ensure loading overlay is hidden when receiving metrics
+            // This catches cases where onFrame callback didn't fire properly
+            if (!wizard._streamLoadingHidden) {
+                console.log('[FlowWizard] Hiding overlay via onMetricsUpdate backup');
+                wizard.hideLoadingOverlay();
+                wizard._streamLoadingHidden = true;
+            }
+
+            const captureTime = Math.round(metrics.captureTime || 0);
             let quality = 'connected';
             let statusText = `${metrics.fps} FPS`;
 
             if (captureTime > 0) {
+                // Format capture time as integer to prevent UI jumping
                 statusText = `${metrics.fps} FPS (${captureTime}ms)`;
                 if (captureTime > 1000) {
                     quality = 'slow';
@@ -2121,8 +2184,43 @@ export async function startStreaming(wizard) {
     wizard.liveStream.setHideSmall(wizard.overlayFilters.hideSmall);
     wizard.liveStream.setHideDividers(wizard.overlayFilters.hideDividers);
 
-    // Start streaming with MJPEG or WebSocket mode
-    wizard.liveStream.start(wizard.selectedDevice, wizard.streamMode, wizard.streamQuality);
+    // Check if companion streaming is available - prefer it for better performance
+    // This detects if the companion app's MediaProjection stream is active
+    let streamMode = wizard.streamMode;
+    let companionActive = false;
+    try {
+        const companionStatus = await checkCompanionStreamingStatus(wizard, wizard.selectedDevice);
+        if (companionStatus.active) {
+            streamMode = companionStatus.mode;  // 'mjpeg-v2' for companion
+            companionActive = true;
+            console.log(`[FlowWizard] Using companion streaming (mjpeg-v2) for faster performance`);
+            showToast('Companion streaming detected - using fast mode', 'success', 3000);
+        }
+    } catch (e) {
+        // Non-fatal - continue with default mode
+        console.warn('[FlowWizard] Companion streaming check failed:', e);
+    }
+
+    // Update overlay message now that we know the mode
+    wizard.showLoadingOverlay(companionActive ? 'Connected - loading stream...' : 'Connecting...');
+
+    // Set adaptive timeout - faster for companion (should get frame instantly from cache)
+    // 5s for companion (typically < 1s), 10s for ADB (typically 3-5s)
+    const frameTimeout = companionActive ? 5000 : 10000;
+    wizard._streamLoadingTimeout = setTimeout(() => {
+        if (!wizard._streamLoadingHidden) {
+            wizard.hideLoadingOverlay();
+            wizard._streamLoadingHidden = true;
+            const message = companionActive
+                ? 'Companion stream slow - restart streaming on tablet'
+                : 'Stream loading slowly - check device connection';
+            showToast(message, 'warning', 5000);
+            console.warn(`[FlowWizard] Stream timeout after ${frameTimeout}ms (companion: ${companionActive})`);
+        }
+    }, frameTimeout);
+
+    // Start streaming with determined mode
+    wizard.liveStream.start(wizard.selectedDevice, streamMode, wizard.streamQuality);
     updateStreamStatus(wizard, 'connecting', 'Connecting...');
 }
 
@@ -2136,6 +2234,9 @@ export async function stopStreaming(wizard) {
 
     // Stop keep-awake
     stopKeepAwake(wizard);
+
+    // Stop routing method polling
+    stopRoutingMethodPolling(wizard);
 
     // Clear loading timeout
     if (wizard._streamLoadingTimeout) {
@@ -2174,6 +2275,210 @@ export async function reconnectStream(wizard) {
 
     // Start the new stream
     await startStreaming(wizard);
+}
+
+/**
+ * Refresh device ID by checking current ADB connections
+ * WiFi ADB ports can change when device reconnects - this finds the current port
+ * @param {Object} wizard - Flow wizard instance
+ * @returns {Promise<string|null>} Updated device ID or null if not found
+ */
+async function refreshDeviceId(wizard) {
+    const currentId = wizard.selectedDevice;
+    if (!currentId) return null;
+
+    // Extract IP from device ID (e.g., "192.168.86.2" from "192.168.86.2:42519")
+    const ipMatch = currentId.match(/^(\d+\.\d+\.\d+\.\d+)/);
+    if (!ipMatch) {
+        console.log('[FlowWizard] Device ID is not IP-based, keeping as-is:', currentId);
+        return currentId;
+    }
+    const deviceIp = ipMatch[1];
+
+    try {
+        // Query current devices from backend
+        const response = await fetch(`${getApiBase()}/adb/devices`);
+        if (!response.ok) {
+            console.warn('[FlowWizard] Failed to fetch devices, using current ID');
+            return currentId;
+        }
+
+        const data = await response.json();
+        const devices = data.devices || [];
+
+        // Find device with matching IP
+        const matchingDevice = devices.find(d => d.device_id?.startsWith(deviceIp + ':'));
+
+        if (matchingDevice && matchingDevice.device_id !== currentId) {
+            console.log(`[FlowWizard] Device ID changed: ${currentId} -> ${matchingDevice.device_id}`);
+            wizard.selectedDevice = matchingDevice.device_id;
+            return matchingDevice.device_id;
+        }
+
+        return currentId;
+    } catch (error) {
+        console.warn('[FlowWizard] Error refreshing device ID:', error);
+        return currentId;
+    }
+}
+
+/**
+ * Restart companion streaming via MQTT
+ * Sends restart_streaming and click_media_projection_dialog commands to the companion app
+ */
+export async function restartCompanionStreaming(wizard) {
+    // Refresh device ID first - WiFi ADB ports can change
+    const deviceId = await refreshDeviceId(wizard);
+    if (!deviceId) {
+        showToast('No device selected - please select a device first', 'error', 2000);
+        return;
+    }
+
+    showToast('Restarting companion streaming...', 'info', 3000);
+    console.log('[FlowWizard] Restarting companion streaming for', deviceId);
+
+    try {
+        const response = await fetch(`${getApiBase()}/stream/companion/${encodeURIComponent(deviceId)}/restart`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const result = await response.json();
+        console.log('[FlowWizard] Restart companion streaming result:', result);
+
+        if (result.success) {
+            // Check if accessibility service was not available (used ADB fallback or manual approval)
+            const accessibilityNotRunning =
+                result.restart_result?.error?.includes('Accessibility') ||
+                result.click_result?.error?.includes('Accessibility') ||
+                result.message?.includes('manual approval');
+
+            if (accessibilityNotRunning) {
+                // Show accessibility service prompt
+                showAccessibilityServicePrompt();
+            }
+
+            showToast(result.message || 'Companion streaming restarted', 'success', 3000);
+
+            // Wait for streaming to establish, then reconnect our WebSocket
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            await reconnectStream(wizard);
+        } else {
+            // Check if the error is about accessibility
+            if (result.error?.includes('Accessibility')) {
+                showAccessibilityServicePrompt();
+            }
+            showToast(result.error || 'Failed to restart companion streaming', 'error', 3000);
+        }
+    } catch (error) {
+        console.error('[FlowWizard] Failed to restart companion streaming:', error);
+        showToast(`Error: ${error.message}`, 'error', 3000);
+    }
+}
+
+/**
+ * Show a dialog prompting user to enable accessibility service on the companion app
+ */
+function showAccessibilityServicePrompt() {
+    // Remove existing prompt if any
+    const existing = document.getElementById('accessibilityPromptDialog');
+    if (existing) existing.remove();
+
+    const dialog = document.createElement('div');
+    dialog.id = 'accessibilityPromptDialog';
+    dialog.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+    `;
+
+    dialog.innerHTML = `
+        <div style="
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 420px;
+            margin: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        ">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                <span style="font-size: 32px;">⚙️</span>
+                <h3 style="margin: 0; color: #1a1a2e;">Enable Accessibility Service</h3>
+            </div>
+
+            <p style="color: #666; line-height: 1.5; margin-bottom: 16px;">
+                For <strong>automatic streaming restart</strong> without manual approval, enable the
+                Accessibility Service in the companion app on your device.
+            </p>
+
+            <div style="background: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+                <p style="margin: 0; color: #0369a1; font-size: 14px;">
+                    <strong>How to enable:</strong><br>
+                    1. Open <strong>Visual Mapper Companion</strong> app<br>
+                    2. Go to <strong>Settings</strong> tab<br>
+                    3. Tap <strong>Enable Accessibility Service</strong><br>
+                    4. Find "Visual Mapper Companion" and enable it
+                </p>
+            </div>
+
+            <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                <button id="btnAccessibilityDismiss" style="
+                    padding: 10px 20px;
+                    border: 1px solid #ddd;
+                    border-radius: 6px;
+                    background: white;
+                    cursor: pointer;
+                    font-size: 14px;
+                ">Dismiss</button>
+                <button id="btnAccessibilityOpenApp" style="
+                    padding: 10px 20px;
+                    border: none;
+                    border-radius: 6px;
+                    background: #3b82f6;
+                    color: white;
+                    cursor: pointer;
+                    font-size: 14px;
+                ">Open Companion App</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(dialog);
+
+    // Event handlers
+    document.getElementById('btnAccessibilityDismiss').onclick = () => dialog.remove();
+    document.getElementById('btnAccessibilityOpenApp').onclick = async () => {
+        dialog.remove();
+        // Try to open the companion app settings via ADB
+        try {
+            const deviceId = window.flowWizard?.selectedDevice;
+            if (deviceId) {
+                await fetch(`${getApiBase()}/adb/shell`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device_id: deviceId,
+                        command: 'am start -n com.visualmapper.companion/.ui.fragments.MainContainerActivity'
+                    })
+                });
+                showToast('Opening companion app...', 'info', 2000);
+            }
+        } catch (e) {
+            console.warn('[FlowWizard] Could not open companion app:', e);
+        }
+    };
+
+    // Close on backdrop click
+    dialog.onclick = (e) => {
+        if (e.target === dialog) dialog.remove();
+    };
 }
 
 /**
@@ -2224,13 +2529,15 @@ export function startElementAutoRefresh(wizard) {
     // Runs less frequently since smart refresh handles screen changes
     wizard.elementRefreshIntervalTimer = setInterval(() => {
         if (wizard.captureMode === 'streaming' && wizard.liveStream?.connectionState === 'connected') {
-            // Skip if a frame arrived recently (streaming active)
-            const timeSinceFrame = performance.now() - (wizard._lastFrameTime || 0);
-            if (timeSinceFrame < 200) {
-                return; // Skip silently - frame just arrived, elements are fresh
+            // Skip if smart refresh triggered recently
+            const timeSinceRefresh = performance.now() - (wizard._lastElementRefreshTime || 0);
+            if (timeSinceRefresh < intervalMs * 0.9) {
+                return; // Skip - smart refresh already handled this interval
             }
-            // Fallback refresh for static screens (no smart refresh triggered recently)
+            // Fallback refresh for static screens or when smart refresh isn't triggering
+            console.log('[FlowWizard] Fallback interval refresh triggered');
             refreshElements(wizard);
+            wizard._lastElementRefreshTime = performance.now();
         }
     }, intervalMs);
 
@@ -2294,6 +2601,93 @@ export function updateStreamStatus(wizard, className, text) {
     if (statusEl) {
         statusEl.className = `connection-status ${className}`;
         statusEl.textContent = text;
+    }
+}
+
+/**
+ * Update command method badge to show current routing method
+ * @param {string} method - 'websocket', 'mqtt', or 'adb'
+ */
+export function updateCommandMethodBadge(method) {
+    const badge = document.getElementById('commandMethodBadge');
+    const label = document.getElementById('commandMethodLabel');
+
+    if (!badge || !label) return;
+
+    // Remove all method classes
+    badge.classList.remove('method-websocket', 'method-mqtt', 'method-adb', 'method-unknown');
+
+    // Set method-specific styling and text
+    const methodLower = (method || '').toLowerCase();
+    switch (methodLower) {
+        case 'websocket':
+            badge.classList.add('method-websocket');
+            label.textContent = 'WS';
+            badge.title = 'Commands via WebSocket (fastest - companion streaming)';
+            break;
+        case 'mqtt':
+            badge.classList.add('method-mqtt');
+            label.textContent = 'MQTT';
+            badge.title = 'Commands via MQTT (companion connected)';
+            break;
+        case 'adb':
+            badge.classList.add('method-adb');
+            label.textContent = 'ADB';
+            badge.title = 'Commands via ADB (fallback - may interrupt stream)';
+            break;
+        default:
+            badge.classList.add('method-unknown');
+            label.textContent = '--';
+            badge.title = 'Command routing method unknown';
+    }
+}
+
+/**
+ * Fetch current command routing method from backend
+ */
+export async function fetchCommandRoutingMethod(wizard) {
+    if (!wizard.selectedDevice) return;
+
+    try {
+        const response = await fetch(
+            `${getApiBase()}/adb/routing/${encodeURIComponent(wizard.selectedDevice)}`
+        );
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.preferred_method) {
+                updateCommandMethodBadge(data.preferred_method);
+            }
+        }
+    } catch (error) {
+        console.warn('[FlowWizard] Failed to fetch routing method:', error);
+    }
+}
+
+/**
+ * Start periodic polling for command routing method
+ */
+export function startRoutingMethodPolling(wizard) {
+    // Clear any existing interval
+    if (wizard._routingMethodInterval) {
+        clearInterval(wizard._routingMethodInterval);
+    }
+
+    // Initial fetch
+    fetchCommandRoutingMethod(wizard);
+
+    // Poll every 5 seconds to detect changes
+    wizard._routingMethodInterval = setInterval(() => {
+        fetchCommandRoutingMethod(wizard);
+    }, 5000);
+}
+
+/**
+ * Stop routing method polling
+ */
+export function stopRoutingMethodPolling(wizard) {
+    if (wizard._routingMethodInterval) {
+        clearInterval(wizard._routingMethodInterval);
+        wizard._routingMethodInterval = null;
     }
 }
 
@@ -2395,8 +2789,12 @@ export async function refreshElements(wizard) {
             }
 
             // Fallback: ADB uiautomator (1-3 seconds)
+            // Use streaming_safe mode when stream is active to avoid blocking ADB capture
             if (!data) {
-                const response = await fetch(`${getApiBase()}/adb/elements/${encodeURIComponent(wizard.selectedDevice)}`);
+                const isStreaming = wizard.liveStream?.isStreaming;
+                const streamingSafe = isStreaming ? 'true' : 'false';
+                const url = `${getApiBase()}/adb/elements/${encodeURIComponent(wizard.selectedDevice)}?streaming_safe=${streamingSafe}`;
+                const response = await fetch(url);
                 if (!response.ok) return;
 
                 data = await response.json();
@@ -2893,6 +3291,7 @@ export function hideHoverTooltip(wizard, hoverTooltip) {
 /**
  * Highlight hovered element using CSS overlay (no canvas re-render)
  * Handles both polling mode (screenshot) and streaming mode (live stream)
+ * Accounts for letterboxing when device and frame aspect ratios differ
  */
 export function highlightHoveredElement(wizard, element) {
     const container = document.getElementById('screenshotContainer');
@@ -2917,32 +3316,52 @@ export function highlightHoveredElement(wizard, element) {
     // CRITICAL: For scroll containers, the highlight must be positioned relative to scroll position
     // canvasRect is viewport position (affected by scroll), but absolute positioning is relative to container
     // So we need the canvas offset WITHIN the scrollable content, not the viewport offset
-    const offsetX = canvasRect.left - containerRect.left + container.scrollLeft;
-    const offsetY = canvasRect.top - containerRect.top + container.scrollTop;
+    const canvasOffsetX = canvasRect.left - containerRect.left + container.scrollLeft;
+    const canvasOffsetY = canvasRect.top - containerRect.top + container.scrollTop;
 
     // Get CSS scale (canvas bitmap size to display size)
     const cssScaleX = canvasRect.width / wizard.canvas.width;
     const cssScaleY = canvasRect.height / wizard.canvas.height;
 
     // In streaming mode, element bounds are in device coords, canvas may be at lower res
-    // We need to scale: device coords → canvas coords → CSS display coords
-    // IMPORTANT: Use separate X and Y scales to handle aspect ratio differences
-    let deviceToCanvasScaleX = 1;
-    let deviceToCanvasScaleY = 1;
+    // We need to scale: device coords → canvas coords (with letterbox) → CSS display coords
+    let letterboxOffsetX = 0, letterboxOffsetY = 0, letterboxScale = 1;
     if (wizard.captureMode === 'streaming' && wizard.liveStream) {
-        // Scale from device resolution to canvas resolution (separate X/Y for aspect ratio)
-        deviceToCanvasScaleX = wizard.canvas.width / wizard.liveStream.deviceWidth;
-        deviceToCanvasScaleY = wizard.canvas.height / wizard.liveStream.deviceHeight;
+        const deviceWidth = wizard.liveStream.deviceWidth;
+        const deviceHeight = wizard.liveStream.deviceHeight;
+
+        if (deviceWidth > 0 && deviceHeight > 0) {
+            const frameAspect = wizard.canvas.width / wizard.canvas.height;
+            const deviceAspect = deviceWidth / deviceHeight;
+
+            if (Math.abs(frameAspect - deviceAspect) < 0.01) {
+                // Aspects match - simple scaling
+                letterboxScale = wizard.canvas.width / deviceWidth;
+            } else if (frameAspect > deviceAspect) {
+                // Frame wider than device (pillarbox - black bars on sides)
+                letterboxScale = wizard.canvas.height / deviceHeight;
+                const contentWidth = deviceWidth * letterboxScale;
+                letterboxOffsetX = (wizard.canvas.width - contentWidth) / 2;
+            } else {
+                // Frame taller than device (letterbox - black bars top/bottom)
+                letterboxScale = wizard.canvas.width / deviceWidth;
+                const contentHeight = deviceHeight * letterboxScale;
+                letterboxOffsetY = (wizard.canvas.height - contentHeight) / 2;
+            }
+        }
     }
 
     const b = element.bounds;
-    // First scale from device to canvas, then from canvas to CSS display
-    const totalScaleX = deviceToCanvasScaleX * cssScaleX;
-    const totalScaleY = deviceToCanvasScaleY * cssScaleY;
-    const x = b.x * totalScaleX + offsetX;
-    const y = b.y * totalScaleY + offsetY;
-    const w = b.width * totalScaleX;
-    const h = b.height * totalScaleY;
+    // Transform: device → canvas (with letterbox offset) → CSS display
+    const canvasX = b.x * letterboxScale + letterboxOffsetX;
+    const canvasY = b.y * letterboxScale + letterboxOffsetY;
+    const canvasW = b.width * letterboxScale;
+    const canvasH = b.height * letterboxScale;
+
+    const x = canvasX * cssScaleX + canvasOffsetX;
+    const y = canvasY * cssScaleY + canvasOffsetY;
+    const w = canvasW * cssScaleX;
+    const h = canvasH * cssScaleY;
 
     highlight.style.cssText = `
         position: absolute;
@@ -2961,34 +3380,19 @@ export function highlightHoveredElement(wizard, element) {
 
 /**
  * Clear hover highlight overlay
+ * @delegate ElementRefresh.clearHoverHighlight
  */
 export function clearHoverHighlight(wizard) {
-    const highlight = document.getElementById('hoverHighlight');
-    if (highlight) {
-        highlight.remove();
-    }
+    return ElementRefresh.clearHoverHighlight(wizard);
 }
 
 /**
  * Clear all elements and hover state across all modes
  * Call this when an action is performed that changes the screen
+ * @delegate ElementRefresh.clearAllElementsAndHover
  */
 export function clearAllElementsAndHover(wizard) {
-    // Clear hover state
-    clearHoverHighlight(wizard);
-    wizard.hoveredElement = null;
-
-    // Clear recorder metadata (used in polling mode)
-    if (wizard.recorder?.screenshotMetadata) {
-        wizard.recorder.screenshotMetadata.elements = [];
-    }
-
-    // Clear liveStream elements (used in streaming mode)
-    if (wizard.liveStream) {
-        wizard.liveStream.elements = [];
-    }
-
-    console.log('[FlowWizard] Cleared all elements and hover state');
+    return ElementRefresh.clearAllElementsAndHover(wizard);
 }
 
 // ==========================================
@@ -3146,6 +3550,12 @@ export async function executeSwipeGesture(wizard, startCanvasX, startCanvasY, en
 
         if (!response.ok) {
             throw new Error('Failed to execute swipe');
+        }
+
+        // Update command method badge from response
+        const result = await response.json();
+        if (result?.method) {
+            updateCommandMethodBadge(result.method);
         }
 
         // Build swipe step
@@ -4764,7 +5174,11 @@ export async function executeTap(wizard, x, y, element = null) {
 
     // Execute tap if in execute mode
     if (wizard.recordMode === 'execute') {
-        await wizard.recorder.executeTap(x, y);
+        const result = await wizard.recorder.executeTap(x, y);
+        // Update command method badge from response
+        if (result?.method) {
+            updateCommandMethodBadge(result.method);
+        }
     }
 
     // Build step description
