@@ -16,6 +16,7 @@ import asyncio
 import atexit
 import base64
 import io
+import struct
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 from routes import get_deps
@@ -133,6 +134,26 @@ async def _require_ws_auth(websocket: WebSocket) -> bool:
     return False
 
 
+def create_mjpeg_frame(frame_number: int, capture_time: int, jpeg_bytes: bytes) -> bytes:
+    """Create MJPEG frame with 8-byte header.
+
+    Frame format: [frame_number:4][capture_time:4][jpeg_data]
+    - frame_number: uint32 big-endian, monotonic frame counter
+    - capture_time: uint32 big-endian, capture duration in milliseconds
+    - jpeg_data: JPEG image bytes
+
+    Args:
+        frame_number: Monotonic frame counter
+        capture_time: Capture/encode duration in milliseconds
+        jpeg_bytes: JPEG image data
+
+    Returns:
+        Complete frame bytes with header
+    """
+    header = struct.pack(">II", frame_number, capture_time)
+    return header + jpeg_bytes
+
+
 # =============================================================================
 # SHARED CAPTURE PIPELINE (MJPEG v2)
 # Single producer per device, broadcasts to all subscribers
@@ -170,6 +191,33 @@ class SharedCaptureManager:
     def get_latest_frame(self, device_id: str) -> bytes | None:
         """Get the most recent frame for instant display on connect."""
         return self._latest_frames.get(device_id)
+
+    def _broadcast_to_queues(self, queues: list, frame_data: bytes) -> int:
+        """Broadcast frame to all subscriber queues.
+
+        Uses non-blocking put with drop-oldest-if-full strategy.
+
+        Args:
+            queues: List of asyncio.Queue instances
+            frame_data: Binary frame data to broadcast
+
+        Returns:
+            Number of queues successfully updated
+        """
+        queued_count = 0
+        for q in queues:
+            try:
+                q.put_nowait(frame_data)
+                queued_count += 1
+            except asyncio.QueueFull:
+                # Drop oldest frame, add new one
+                try:
+                    q.get_nowait()
+                    q.put_nowait(frame_data)
+                    queued_count += 1
+                except (asyncio.QueueEmpty, asyncio.QueueFull):
+                    pass  # Queue state changed between operations
+        return queued_count
 
     async def subscribe(self, device_id: str, quality: str = "fast") -> asyncio.Queue:
         """Subscribe to frames from a device. Starts producer if needed."""
@@ -317,27 +365,15 @@ class SharedCaptureManager:
                     capture_time = int((time.monotonic() - capture_start) * 1000)
 
                     # Create frame data (same format as MJPEG v1)
-                    import struct
-                    header = struct.pack(">II", frame_number, capture_time)
-                    frame_data = header + jpeg_bytes
+                    frame_data = create_mjpeg_frame(frame_number, capture_time, jpeg_bytes)
 
                     # Cache frame for instant display on new connections
                     self._latest_frames[device_id] = frame_data
 
-                    # Broadcast to all subscribers
+                    # Broadcast to all subscribers using consolidated helper
                     async with self._lock:
                         queues = self._subscribers.get(device_id, [])
-                        for q in queues:
-                            try:
-                                # Non-blocking put - drop frame if queue full
-                                q.put_nowait(frame_data)
-                            except asyncio.QueueFull:
-                                # Drop oldest frame, add new one
-                                try:
-                                    q.get_nowait()
-                                    q.put_nowait(frame_data)
-                                except (asyncio.QueueEmpty, asyncio.QueueFull):
-                                    pass  # Queue state changed between operations
+                        self._broadcast_to_queues(queues, frame_data)
 
                     # Log periodically
                     if frame_number <= 3 or frame_number % 60 == 0:
@@ -422,20 +458,9 @@ class SharedCaptureManager:
             self._frame_counts[device_id] = self._frame_counts.get(device_id, 0) + 1
             frame_number = self._frame_counts[device_id]
 
-            # Broadcast to all subscribers
+            # Broadcast to all subscribers using consolidated helper
             queues = self._subscribers[device_id]
-            queued_count = 0
-            for q in queues:
-                try:
-                    q.put_nowait(frame_data)
-                    queued_count += 1
-                except asyncio.QueueFull:
-                    try:
-                        q.get_nowait()
-                        q.put_nowait(frame_data)
-                        queued_count += 1
-                    except (asyncio.QueueEmpty, asyncio.QueueFull):
-                        pass  # Queue state changed between operations
+            queued_count = self._broadcast_to_queues(queues, frame_data)
 
             # Log first 10 frames and then periodically
             if frame_number <= 10 or frame_number % 60 == 0:
@@ -1230,10 +1255,8 @@ async def stream_device_mjpeg(websocket: WebSocket, device_id: str):
                     await asyncio.sleep(FRAME_SKIP_DELAY)
                     continue
 
-                # Create binary frame with header
-                # Header: 4 bytes frame_number + 4 bytes capture_time
-                header = struct.pack(">II", frame_number, capture_time)
-                frame_data = header + jpeg_bytes
+                # Create binary frame with header using consolidated helper
+                frame_data = create_mjpeg_frame(frame_number, capture_time, jpeg_bytes)
 
                 # Send binary frame
                 await websocket.send_bytes(frame_data)
