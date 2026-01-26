@@ -187,8 +187,18 @@ export default {
 
 **Progress:** ~2,310 lines extracted (41% of extractable code)
 
+- Wired up module delegates in main file
+  - flattenCompanionElements -> ElementRefresh
+  - clearHoverHighlight, clearAllElementsAndHover -> ElementRefresh
+  - extractUiLandmarks, computeScreenId -> ScreenIdentification
+  - resolveScreenLabel, normalizeScreenLabel -> ScreenIdentification
+  - getActivityShortName, maybeLearnScreen -> ScreenIdentification
+  - refreshElements, refreshAfterAction -> ElementRefresh (with callbacks)
+
+**Main file reduction:** 6,653 -> 6,145 lines (508 lines removed, ~7.6%)
+
 **Next Steps:**
-1. Wire up modules in main file with wrapper functions
-2. Extract navigation-context.js (~430 lines)
-3. Extract hover-tooltip.js (~350 lines)
+1. Extract navigation-context.js (~430 lines)
+2. Extract hover-tooltip.js (~350 lines)
+3. Wire up suggestions module with callbacks
 4. Integration testing
