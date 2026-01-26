@@ -1,6 +1,6 @@
-# Plan: Security Audit - API Endpoint Authentication
+# Plan: Security Audit - API Authentication, CORS & Token Handling
 
-## Status: Completed (Phase 1)
+## Status: Completed (Phase 1 + Phase 2)
 
 ## Problem Statement
 Multiple API endpoints were missing authentication, allowing unauthorized access to:
@@ -87,9 +87,43 @@ router = APIRouter(
 - [ ] Manual test: Verify localhost bypass works
 - [ ] Integration test: Auth coverage regression tests
 
+## Phase 2: CORS & Token Handling (Completed)
+
+### CORS Configuration
+**Fixed:**
+- Changed `allow_methods=["*"]` to explicit list: `["GET", "POST", "PUT", "DELETE", "OPTIONS"]`
+- Changed `allow_headers=["*"]` to explicit list of needed headers
+- Added `max_age=3600` for preflight response caching
+
+**Defaults (Good):**
+- Origins default to localhost only (secure)
+- Credentials disabled by default (secure)
+
+### Token Handling
+**Current Model:**
+- Static `COMPANION_API_KEY` header-based auth
+- Localhost/Ingress bypass for trusted sources
+- Development mode allows all if key not set
+
+**Added:**
+- Startup warning if `COMPANION_API_KEY` not configured
+- Visible security status in server logs
+
+**Future Work (Not Blocking):**
+- No token expiration (static key)
+- No token rotation mechanism
+- Single key grants all access
+- Consider JWT for production deployments
+
 ## Progress Log
 ### 2026-01-26
 - Completed comprehensive audit of 33 route files, 180+ endpoints
 - Identified 5 critical unprotected route files
 - Added router-level auth to all 5 critical files
+
+### 2026-01-27
+- Audited CORS configuration and token handling
+- Fixed CORS: explicit methods/headers instead of wildcards
+- Added startup security warning for missing API key
+- Documented remaining token improvements for future
 - Updated security score from 52/100 to 78/100

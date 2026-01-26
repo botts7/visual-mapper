@@ -225,14 +225,25 @@ cors_allow_credentials = (
     os.getenv("CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
 )
 
-# Configure CORS to expose custom headers
+# Configure CORS with explicit method and header lists for security
+# - Methods: Only allow HTTP verbs actually used by the application
+# - Headers: Only allow headers needed for auth and content negotiation
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=cors_allow_credentials,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicit list, no PATCH/TRACE
+    allow_headers=[
+        "Content-Type",
+        "Accept",
+        "X-Companion-Key",  # Companion auth header
+        "X-Ingress-Path",   # Home Assistant Ingress
+        "X-Forwarded-For",  # Proxy support
+        "X-Forwarded-Proto",
+        "X-Request-ID",
+    ],
     expose_headers=["X-Icon-Source"],  # Expose custom header to frontend
+    max_age=3600,  # Cache preflight responses for 1 hour
 )
 
 
@@ -440,6 +451,17 @@ async def lifespan(app: FastAPI):
     logger.info(f"[Server] MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
     if MQTT_USE_SSL:
         logger.info(f"[Server] MQTT SSL Enabled (Insecure: {MQTT_TLS_INSECURE})")
+
+    # Security check: warn if COMPANION_API_KEY is not configured
+    companion_api_key = os.getenv("COMPANION_API_KEY", "")
+    if not companion_api_key:
+        logger.warning("=" * 60)
+        logger.warning("[SECURITY] COMPANION_API_KEY is not configured!")
+        logger.warning("[SECURITY] All API endpoints are accessible without authentication.")
+        logger.warning("[SECURITY] Set COMPANION_API_KEY in .env for production use.")
+        logger.warning("=" * 60)
+    else:
+        logger.info("[Server] ✅ API authentication enabled (COMPANION_API_KEY set)")
 
     # Prepare TLS config
     mqtt_tls_config = None
