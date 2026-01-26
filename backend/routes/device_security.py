@@ -16,13 +16,15 @@ IMPORTANT: All configs are stored by stable_id (serial number), NOT by dynamic
 device_id (IP:port). This ensures configs survive device reconnections on different ports.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 import logging
 import asyncio
 from routes import get_deps
+from routes.auth import verify_companion_auth
 from utils.device_security import LockStrategy
+from core.command_router import command_router
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +67,13 @@ async def _resolve_stable_id(device_id: str, auto_migrate: bool = True) -> str:
         logger.warning(f"[Security] Could not resolve stable_id for {device_id}: {e}")
     return device_id
 
-router = APIRouter(prefix="/api/device", tags=["device_security"])
+# All device security endpoints require companion auth (X-Companion-Key header or localhost/Ingress)
+# This protects passcode configuration and device unlock operations
+router = APIRouter(
+    prefix="/api/device",
+    tags=["device_security"],
+    dependencies=[Depends(verify_companion_auth)]
+)
 
 
 # =============================================================================
@@ -243,15 +251,22 @@ async def auto_unlock_device(device_id: str):
     This endpoint is used by the flow wizard to automatically unlock
     devices when configured with auto_unlock strategy.
 
+    STREAMING-AWARE: When companion is streaming, uses WebSocket commands instead
+    of ADB to avoid interrupting the stream. If device is already unlocked and
+    streaming is active, returns early without any unlock attempt.
+
     Returns:
         {
             "success": bool,
             "message": str,
-            "unlock_status": dict (failure_count, in_cooldown, etc.)
+            "unlock_status": dict (failure_count, in_cooldown, etc.),
+            "method": str (websocket, mqtt, or adb)
         }
     """
     deps = get_deps()
     try:
+        command_router.set_deps(deps)
+
         # Check if device is connected
         devices = await deps.adb_bridge.get_devices()
         device_ids = [d.get("id") for d in devices]
@@ -274,6 +289,31 @@ async def auto_unlock_device(device_id: str):
                 "unlock_status": unlock_status,
             }
 
+        # STREAMING-AWARE: Check if companion is streaming
+        # If streaming, try to check lock status via WebSocket (no ADB interference)
+        is_streaming = False
+        try:
+            from core.streaming.companion_receiver import companion_stream_manager
+            is_streaming = companion_stream_manager.is_streaming(device_id)
+        except (ImportError, AttributeError):
+            pass
+
+        if is_streaming:
+            logger.info(f"[API] Auto-unlock: companion streaming, using WebSocket commands")
+
+            # Check if already unlocked via WebSocket (no ADB)
+            lock_result = await command_router.execute(device_id, "is_locked", {})
+            if lock_result.success and lock_result.data:
+                is_locked = lock_result.data.get("isLocked", True)
+                if not is_locked:
+                    logger.info(f"[API] Device {device_id} already unlocked (via {lock_result.method.value})")
+                    return {
+                        "success": True,
+                        "message": "Device already unlocked",
+                        "method": lock_result.method.value,
+                        "unlock_status": unlock_status,
+                    }
+
         # Resolve to stable_id for config lookup
         stable_id = await _resolve_stable_id(device_id)
         logger.info(f"[API] Auto-unlock: device_id={device_id} -> stable_id={stable_id}")
@@ -285,12 +325,35 @@ async def auto_unlock_device(device_id: str):
         )
 
         success = False
+        method_used = "adb"
 
+        # If streaming, prefer CommandRouter for unlock (uses WebSocket -> MQTT -> ADB)
+        if is_streaming:
+            # Use CommandRouter which prefers WebSocket when streaming
+            unlock_result = await command_router.execute(
+                device_id, "unlock", {"pin": passcode or ""}
+            )
+            method_used = unlock_result.method.value
+            success = unlock_result.success
+
+            if success:
+                logger.info(f"[API] Device {device_id} unlocked via {method_used}")
+                return {
+                    "success": True,
+                    "message": f"Device unlocked via {method_used}",
+                    "method": method_used,
+                    "unlock_status": unlock_status,
+                }
+            else:
+                logger.warning(f"[API] Unlock via {method_used} failed, trying ADB fallback")
+
+        # ADB fallback (or primary if not streaming)
         # If passcode configured with auto_unlock, try PIN first (faster for PIN-locked devices)
         if passcode and config.get("strategy") == "auto_unlock":
             logger.info(f"[API] Attempting PIN unlock for {device_id}")
             try:
                 success = await deps.adb_bridge.unlock_device(device_id, passcode)
+                method_used = "adb"
                 if success:
                     logger.info(f"[API] Device {device_id} unlocked with PIN")
             except Exception as e:
@@ -299,6 +362,7 @@ async def auto_unlock_device(device_id: str):
             # No passcode configured - try swipe unlock
             try:
                 await deps.adb_bridge.unlock_screen(device_id)
+                method_used = "adb"
                 await asyncio.sleep(0.3)
 
                 # Check if swipe was enough
@@ -308,6 +372,7 @@ async def auto_unlock_device(device_id: str):
                     return {
                         "success": True,
                         "message": "Device unlocked via swipe",
+                        "method": "adb",
                         "unlock_status": unlock_status,
                     }
             except Exception as e:
@@ -321,6 +386,7 @@ async def auto_unlock_device(device_id: str):
             return {
                 "success": True,
                 "message": "Device unlocked successfully",
+                "method": method_used,
                 "unlock_status": unlock_status,
             }
         else:
@@ -338,6 +404,7 @@ async def auto_unlock_device(device_id: str):
             return {
                 "success": False,
                 "message": message,
+                "method": method_used,
                 "unlock_status": unlock_status,
             }
 

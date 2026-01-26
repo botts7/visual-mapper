@@ -11,14 +11,16 @@ Sensors support comprehensive device classes, state classes, and units of measur
 as defined by Home Assistant's sensor platform.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import logging
 import re
 from routes import get_deps
+from routes.auth import verify_companion_auth
 from core.sensors.sensor_models import SensorDefinition, TextExtractionRule
+from services.auto_sensors import get_auto_sensor_manager
 from core.sensors.text_extractor import TextExtractor
 from core.mqtt.ha_device_classes import (
     validate_unit_for_device_class,
@@ -29,7 +31,13 @@ from core.mqtt.ha_device_classes import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["sensors"])
+# All sensor endpoints require companion auth (X-Companion-Key header or localhost/Ingress)
+# This protects sensor configuration and data collection settings
+router = APIRouter(
+    prefix="/api",
+    tags=["sensors"],
+    dependencies=[Depends(verify_companion_auth)]
+)
 
 
 # =============================================================================
@@ -141,6 +149,87 @@ def validate_sensor_config(
     return None  # Valid
 
 
+def _get_auto_sensor_definitions(device_id: str = None) -> List[Dict[str, Any]]:
+    """
+    Generate virtual sensor definitions for auto sensors (app screen, screen frozen, etc.)
+
+    These sensors are tracked by AutoSensorManager but not stored in the sensor database.
+    We create minimal sensor-like dictionaries for the frontend to display them properly.
+    Includes current_value from the manager's live state.
+
+    Args:
+        device_id: Optional device ID to filter by. If None, returns all auto sensors.
+
+    Returns:
+        List of sensor dictionaries with required fields for frontend display.
+    """
+    auto_sensors = []
+
+    auto_sensor_manager = get_auto_sensor_manager()
+    if not auto_sensor_manager:
+        return auto_sensors
+
+    for auto_device_id in auto_sensor_manager.get_tracked_devices():
+        if device_id and device_id != auto_device_id:
+            continue
+
+        device_name = auto_device_id.replace(":", "_").replace(".", "_")
+
+        # Get current states from manager
+        app_state = auto_sensor_manager.get_app_state(auto_device_id)
+        screen_state = auto_sensor_manager.get_screen_state(auto_device_id)
+
+        # App Screen sensor - include current value
+        auto_sensors.append({
+            "sensor_id": f"{device_name}_app_screen",
+            "friendly_name": "App Screen",
+            "sensor_type": "auto",
+            "device_id": auto_device_id,
+            "stable_device_id": None,
+            "target_app": "__system__",
+            "icon": "mdi:application",
+            "device_class": None,
+            "unit_of_measurement": None,
+            "enabled": True,
+            "current_value": app_state.display_state if app_state else "Initializing...",
+            "last_updated": app_state.timestamp if app_state else None,
+        })
+
+        # Screen Frozen sensor
+        auto_sensors.append({
+            "sensor_id": f"{device_name}_screen_frozen",
+            "friendly_name": "Screen Frozen",
+            "sensor_type": "auto",
+            "device_id": auto_device_id,
+            "stable_device_id": None,
+            "target_app": "__system__",
+            "icon": "mdi:snowflake-alert",
+            "device_class": "problem",
+            "unit_of_measurement": None,
+            "enabled": True,
+            "current_value": "ON" if (screen_state and screen_state.is_frozen) else "OFF",
+            "last_updated": screen_state.last_change_time if screen_state else None,
+        })
+
+        # Screen Changed sensor
+        auto_sensors.append({
+            "sensor_id": f"{device_name}_screen_changed",
+            "friendly_name": "Screen Changed",
+            "sensor_type": "auto",
+            "device_id": auto_device_id,
+            "stable_device_id": None,
+            "target_app": "__system__",
+            "icon": "mdi:monitor-eye",
+            "device_class": None,
+            "unit_of_measurement": None,
+            "enabled": True,
+            "current_value": "OFF",  # Momentary sensor, default OFF
+            "last_updated": screen_state.last_change_time if screen_state else None,
+        })
+
+    return auto_sensors
+
+
 # =============================================================================
 # SENSOR CRUD ENDPOINTS
 # =============================================================================
@@ -153,7 +242,15 @@ async def get_all_sensors():
     try:
         logger.info("[API] Getting all sensors")
         all_sensors = deps.sensor_manager.get_all_sensors()
-        return [s.model_dump(mode="json") for s in all_sensors]
+
+        # Convert to dicts and add auto sensors
+        result = [s.model_dump(mode="json") for s in all_sensors]
+
+        # Add auto sensors for tracked devices
+        auto_sensor_defs = _get_auto_sensor_definitions()
+        result.extend(auto_sensor_defs)
+
+        return result
     except Exception as e:
         logger.error(f"[API] Get all sensors failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -323,11 +420,19 @@ async def get_sensors(device_id: str):
     try:
         logger.info(f"[API] Getting sensors for device {device_id}")
         sensors = deps.sensor_manager.get_all_sensors(device_id)
+
+        # Convert to dicts and add auto sensors for this device
+        result = [s.model_dump(mode="json") for s in sensors]
+
+        # Add auto sensors for this device
+        auto_sensor_defs = _get_auto_sensor_definitions(device_id)
+        result.extend(auto_sensor_defs)
+
         return {
             "success": True,
             "device_id": device_id,
-            "sensors": [s.model_dump(mode="json") for s in sensors],
-            "count": len(sensors),
+            "sensors": result,
+            "count": len(result),
         }
     except Exception as e:
         logger.error(f"[API] Get sensors failed: {e}")
@@ -711,7 +816,15 @@ async def pause_sensor_updates(device_id: str):
     deps = get_deps()
     try:
         if not deps.sensor_updater:
-            raise HTTPException(status_code=503, detail="SensorUpdater not initialized")
+            # SensorUpdater not initialized (MQTT not connected) - return success
+            # since there's nothing to pause anyway
+            logger.debug(f"[API] SensorUpdater not initialized, nothing to pause for {device_id}")
+            return {
+                "success": True,
+                "device_id": device_id,
+                "paused": False,
+                "message": "SensorUpdater not active (MQTT disconnected)",
+            }
 
         success = deps.sensor_updater.pause_device_updates(device_id)
         if success:
@@ -745,7 +858,15 @@ async def resume_sensor_updates(device_id: str):
     deps = get_deps()
     try:
         if not deps.sensor_updater:
-            raise HTTPException(status_code=503, detail="SensorUpdater not initialized")
+            # SensorUpdater not initialized (MQTT not connected) - return success
+            # since there's nothing to resume anyway
+            logger.debug(f"[API] SensorUpdater not initialized, nothing to resume for {device_id}")
+            return {
+                "success": True,
+                "device_id": device_id,
+                "paused": False,
+                "message": "SensorUpdater not active (MQTT disconnected)",
+            }
 
         success = deps.sensor_updater.resume_device_updates(device_id)
         if success:

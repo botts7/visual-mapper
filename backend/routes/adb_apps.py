@@ -6,9 +6,12 @@ Provides endpoints for managing apps on Android devices:
 - Get app icons (with multi-tier caching)
 - Launch apps
 - Stop/force-close apps
+
+Launch app routes through companion (WebSocket/MQTT) when available
+to preserve MediaProjection streaming.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 import logging
@@ -16,13 +19,20 @@ import time
 import os
 from pathlib import Path
 from routes import get_deps
+from routes.auth import verify_companion_auth
+from core.command_router import command_router
 
 # Get DATA_DIR from environment (matches main.py)
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/adb", tags=["adb_apps"])
+# All endpoints require companion auth (X-Companion-Key header or localhost/Ingress)
+router = APIRouter(
+    prefix="/api/adb",
+    tags=["adb_apps"],
+    dependencies=[Depends(verify_companion_auth)]
+)
 
 
 # Request models
@@ -159,39 +169,49 @@ async def get_app_icon(
 @router.post("/launch")
 async def launch_app(request: LaunchAppRequest):
     """
-    Launch an app by package name
+    Launch an app by package name.
+
+    Routes through companion (WebSocket/MQTT) when available to prevent
+    stream interruption. Companion uses Intent API which preserves MediaProjection.
 
     Args:
         device_id: ADB device ID
         package: App package name
-        force_restart: If True, force-stop the app first for a fresh start
+        force_restart: If True, clear task for fresh start
     """
     deps = get_deps()
     try:
-        # Force-stop first if requested (ensures fresh app start)
-        if request.force_restart:
-            logger.info(
-                f"[API] Force-stopping {request.package} before launch (fresh start)"
-            )
-            try:
-                await deps.adb_bridge.stop_app(request.device_id, request.package)
-                # Brief pause to let the app fully stop
-                import asyncio
+        command_router.set_deps(deps)
 
-                await asyncio.sleep(0.5)
-            except Exception as e:
-                logger.warning(f"[API] Force-stop failed (continuing with launch): {e}")
+        logger.info(
+            f"[API] Launching {request.package} on {request.device_id} "
+            f"(force_restart={request.force_restart})"
+        )
 
-        logger.info(f"[API] Launching {request.package} on {request.device_id}")
-        success = await deps.adb_bridge.launch_app(request.device_id, request.package)
+        result = await command_router.execute(
+            request.device_id,
+            "launch_app",
+            {
+                "package_name": request.package,
+                "force_restart": request.force_restart,
+            }
+        )
+
+        if not result.success:
+            raise HTTPException(status_code=500, detail=result.error or "Launch failed")
 
         return {
-            "success": success,
+            "success": True,
             "device_id": request.device_id,
             "package": request.package,
             "force_restart": request.force_restart,
+            "method": result.method.value,
+            "latency_ms": round(result.latency_ms, 1),
+            "data": result.data,
             "timestamp": time.time(),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[API] Launch app failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

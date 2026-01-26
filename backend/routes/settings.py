@@ -5,14 +5,24 @@ Handles user preferences and saved device persistence
 
 import json
 import os
+import logging
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 from routes import get_deps
+from routes.auth import verify_companion_auth
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+logger = logging.getLogger(__name__)
+
+# All settings endpoints require companion auth (X-Companion-Key header or localhost/Ingress)
+# This protects configuration changes including MQTT credentials
+router = APIRouter(
+    prefix="/api/settings",
+    tags=["settings"],
+    dependencies=[Depends(verify_companion_auth)]
+)
 
 
 def _get_data_dir() -> Path:
@@ -366,3 +376,180 @@ async def get_all_backend_preferences():
         "available_capture_backends": ["auto", "companion", "adbutils", "subprocess"],
         "available_shell_methods": ["auto", "persistent", "regular"]
     }
+
+
+# === MQTT Configuration ===
+
+
+class MqttSettings(BaseModel):
+    broker: str
+    port: int = 1883
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+
+def _is_home_assistant_addon() -> bool:
+    """Check if running as Home Assistant add-on"""
+    return os.path.exists("/data/options.json") or os.environ.get("SUPERVISOR_TOKEN") is not None
+
+
+def _get_ha_mqtt_settings() -> Optional[dict]:
+    """Get MQTT settings from Home Assistant Supervisor API"""
+    supervisor_token = os.environ.get("SUPERVISOR_TOKEN")
+    if not supervisor_token:
+        return None
+
+    try:
+        import urllib.request
+        import ssl
+
+        # Create unverified context for local supervisor
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        req = urllib.request.Request(
+            "http://supervisor/services/mqtt",
+            headers={"Authorization": f"Bearer {supervisor_token}"}
+        )
+
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as response:
+            data = json.loads(response.read().decode())
+            if data.get("result") == "ok" and data.get("data"):
+                mqtt_data = data["data"]
+                return {
+                    "broker": mqtt_data.get("host", "core-mosquitto"),
+                    "port": mqtt_data.get("port", 1883),
+                    "username": mqtt_data.get("username"),
+                    "password": mqtt_data.get("password"),
+                    "source": "homeassistant"
+                }
+    except Exception as e:
+        logger.warning(f"[Settings] Failed to get HA MQTT settings: {e}")
+
+    return None
+
+
+@router.get("/mqtt")
+async def get_mqtt_settings():
+    """
+    Get current MQTT settings.
+
+    Returns settings from (in order of priority):
+    1. Home Assistant Supervisor API (if running as add-on)
+    2. Saved settings in settings.json
+    3. Environment variables (MQTT_BROKER, MQTT_PORT, etc.)
+    """
+    # Try Home Assistant first
+    if _is_home_assistant_addon():
+        ha_settings = _get_ha_mqtt_settings()
+        if ha_settings:
+            return ha_settings
+
+    # Try saved settings
+    settings = load_settings()
+    mqtt_settings = settings.get("mqtt", {})
+
+    # Fall back to environment variables
+    return {
+        "broker": mqtt_settings.get("broker") or os.environ.get("MQTT_BROKER", ""),
+        "port": mqtt_settings.get("port") or int(os.environ.get("MQTT_PORT", "1883")),
+        "username": mqtt_settings.get("username") or os.environ.get("MQTT_USERNAME", ""),
+        "password": mqtt_settings.get("password") or os.environ.get("MQTT_PASSWORD", ""),
+        "source": "saved" if mqtt_settings.get("broker") else "environment"
+    }
+
+
+@router.post("/mqtt")
+async def save_mqtt_settings(mqtt: MqttSettings):
+    """
+    Save MQTT settings and reconnect.
+
+    Saves to settings.json and triggers MQTT reconnection with new credentials.
+    """
+    deps = get_deps()
+
+    # Save settings
+    settings = load_settings()
+    settings["mqtt"] = {
+        "broker": mqtt.broker,
+        "port": mqtt.port,
+        "username": mqtt.username,
+        "password": mqtt.password,
+    }
+    save_settings(settings)
+
+    logger.info(f"[Settings] MQTT settings saved: {mqtt.broker}:{mqtt.port}")
+
+    # Try to reconnect with new settings
+    connected = False
+    error_msg = None
+
+    if deps.mqtt_manager:
+        try:
+            # Disconnect first if connected
+            if deps.mqtt_manager.is_connected:
+                await deps.mqtt_manager.disconnect()
+
+            # Update settings
+            deps.mqtt_manager.update_settings(
+                broker=mqtt.broker,
+                port=mqtt.port,
+                username=mqtt.username,
+                password=mqtt.password,
+            )
+
+            # Reconnect with new settings
+            await deps.mqtt_manager.connect()
+            connected = deps.mqtt_manager.is_connected
+            if connected:
+                logger.info(f"[Settings] MQTT connected to {mqtt.broker}:{mqtt.port}")
+            else:
+                error_msg = "Connection attempt completed but not connected"
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"[Settings] MQTT reconnect failed: {e}")
+
+    return {
+        "success": True,
+        "connected": connected,
+        "broker": mqtt.broker,
+        "port": mqtt.port,
+        "error": error_msg
+    }
+
+
+@router.post("/mqtt/test")
+async def test_mqtt_connection(mqtt: MqttSettings):
+    """
+    Test MQTT connection without saving settings.
+
+    Useful to verify credentials before committing them.
+    """
+    try:
+        import paho.mqtt.client as paho_mqtt
+
+        # Create a temporary client to test connection
+        try:
+            client = paho_mqtt.Client(paho_mqtt.CallbackAPIVersion.VERSION2)
+        except AttributeError:
+            client = paho_mqtt.Client()
+
+        if mqtt.username:
+            client.username_pw_set(mqtt.username, mqtt.password or "")
+
+        # Try to connect with a short timeout
+        client.connect(mqtt.broker, mqtt.port, keepalive=5)
+        client.disconnect()
+
+        return {
+            "success": True,
+            "message": f"Successfully connected to {mqtt.broker}:{mqtt.port}"
+        }
+
+    except Exception as e:
+        logger.warning(f"[Settings] MQTT test connection failed: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }

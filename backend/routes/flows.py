@@ -9,11 +9,18 @@ from typing import Optional, List, Dict
 from dataclasses import asdict
 import logging
 from routes import get_deps
+from routes.auth import verify_companion_auth
 from services.flow_service import FlowService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["flows"])
+# All flow endpoints require companion auth (X-Companion-Key header or localhost/Ingress)
+# This protects flow creation, modification, and execution
+router = APIRouter(
+    prefix="/api",
+    tags=["flows"],
+    dependencies=[Depends(verify_companion_auth)]
+)
 
 # NOTE: wizard_active_devices is stored in server.py and shared with flow_scheduler/executor
 # We import server lazily inside functions to avoid circular imports
