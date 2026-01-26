@@ -156,6 +156,9 @@ class SharedCaptureManager:
         self._adb_capture_active: dict[str, bool] = {}
         # Cache latest frame per device for instant display on connect
         self._latest_frames: dict[str, bytes] = {}
+        # Track producer lifecycle to prevent race conditions during cleanup
+        # When a producer is stopping (in finally block), we must wait before creating new one
+        self._producer_stopping: dict[str, asyncio.Event] = {}
 
     def is_adb_streaming(self, device_id: str) -> bool:
         """Check if ADB capture is actively running for device.
@@ -171,6 +174,18 @@ class SharedCaptureManager:
     async def subscribe(self, device_id: str, quality: str = "fast") -> asyncio.Queue:
         """Subscribe to frames from a device. Starts producer if needed."""
         logger.info(f"[SharedCapture] subscribe() called for {device_id}, acquiring lock...")
+
+        # Wait for any stopping producer to fully complete before proceeding
+        # This prevents race condition where .done() returns True but finally block is still running
+        if device_id in self._producer_stopping:
+            stopping_event = self._producer_stopping[device_id]
+            logger.info(f"[SharedCapture] Waiting for producer {device_id} to finish stopping...")
+            try:
+                await asyncio.wait_for(stopping_event.wait(), timeout=3.0)
+                logger.info(f"[SharedCapture] Producer {device_id} finished stopping")
+            except asyncio.TimeoutError:
+                logger.warning(f"[SharedCapture] Timeout waiting for producer {device_id} to stop, proceeding anyway")
+
         try:
             async with asyncio.timeout(5.0):
                 async with self._lock:
@@ -187,13 +202,23 @@ class SharedCaptureManager:
                     # Start producer if not running
                     producer_exists = device_id in self._producers
                     producer_done = self._producers[device_id].done() if producer_exists else True
-                    logger.info(f"[SharedCapture] subscribe({device_id}): producer_exists={producer_exists}, producer_done={producer_done}")
+                    # Also check if producer is in stopping state (finally block executing)
+                    producer_stopping = device_id in self._producer_stopping
+                    logger.info(
+                        f"[SharedCapture] subscribe({device_id}): producer_exists={producer_exists}, "
+                        f"producer_done={producer_done}, producer_stopping={producer_stopping}"
+                    )
 
-                    if not producer_exists or producer_done:
+                    if (not producer_exists or producer_done) and not producer_stopping:
+                        # Clear any stale stopping event
+                        if device_id in self._producer_stopping:
+                            del self._producer_stopping[device_id]
                         self._producers[device_id] = asyncio.create_task(
                             self._producer_loop(device_id, quality)
                         )
                         logger.info(f"[SharedCapture] Started NEW producer for {device_id}")
+                    elif producer_stopping:
+                        logger.warning(f"[SharedCapture] Producer {device_id} still stopping, new producer will start later")
                     else:
                         logger.info(f"[SharedCapture] Producer already running for {device_id}")
 
@@ -330,10 +355,34 @@ class SharedCaptureManager:
         except asyncio.CancelledError:
             logger.info(f"[SharedCapture] Producer cancelled for {device_id}")
         finally:
-            # Clear ADB capture flag
-            self._adb_capture_active[device_id] = False
-            if deps.adb_bridge and hasattr(deps.adb_bridge, "stop_stream"):
-                deps.adb_bridge.stop_stream(device_id)
+            # Signal that producer is stopping (finally block executing)
+            # This prevents race condition where subscribe() creates new producer
+            # while this one's cleanup is still in progress
+            self._producer_stopping[device_id] = asyncio.Event()
+            logger.info(f"[SharedCapture] Producer {device_id} entering cleanup (stopping=True)")
+
+            try:
+                # Clear ADB capture flag
+                self._adb_capture_active[device_id] = False
+                if deps.adb_bridge and hasattr(deps.adb_bridge, "stop_stream"):
+                    deps.adb_bridge.stop_stream(device_id)
+                logger.info(f"[SharedCapture] Producer {device_id} cleanup complete")
+            finally:
+                # Signal that producer cleanup is fully complete
+                if device_id in self._producer_stopping:
+                    self._producer_stopping[device_id].set()
+                    # Don't delete the event here - subscribe() will clear it when starting new producer
+                    logger.info(f"[SharedCapture] Producer {device_id} signaled cleanup done")
+
+    def get_subscriber_device_ids(self) -> list[str]:
+        """Get a safe copy of subscribed device IDs.
+
+        This method returns a snapshot of current subscriber device IDs.
+        Safe to call from synchronous callbacks that will later use inject_frame().
+        The inject_frame method handles the case where a device_id no longer exists.
+        """
+        # Copy keys to a list - dict.keys() is a view that could change during iteration
+        return list(self._subscribers.keys())
 
     def get_stats(self) -> dict:
         """Get stats about active producers and subscribers."""
@@ -1484,8 +1533,9 @@ async def companion_stream(websocket: WebSocket, device_id: str):
 
         # Schedule async injection with proper locking
         try:
-            # Get subscriber list (snapshot to avoid iteration issues)
-            subscribers = list(shared_capture_manager._subscribers.keys())
+            # Get safe snapshot of subscriber device IDs
+            # Using method instead of direct access to avoid race conditions
+            subscribers = shared_capture_manager.get_subscriber_device_ids()
 
             # Count how many queues we're injecting to
             injections = 0
