@@ -44,8 +44,14 @@
   - All tests passing
   - Commit: `97e20d5`
 
+- [ ] Priority 4.1: Split flow-wizard-step3.js into modules
+  - Analyzed file: 6,653 lines, 12 functional areas identified
+  - Created plan: `docs/plans/PLAN-split-flow-wizard-step3.md`
+  - Created `step3/streaming-control.js` (~700 lines extracted)
+  - Remaining: Integration testing, additional module extractions
+
 ### In Progress
-- None (Priority 3 complete)
+- [ ] Priority 4: Code Quality (started)
 
 ### Blocked
 - None
