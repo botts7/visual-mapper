@@ -1,9 +1,13 @@
 /**
  * Visual Mapper - Live Stream Module
- * Version: 0.0.38 (Adaptive smart refresh for high FPS streaming)
+ * Version: 0.0.41 (Fix reconnection loop race condition - guard checks in _connect and _scheduleReconnect)
  *
  * WebSocket-based live screenshot streaming with UI element overlays.
- * Supports two modes:
+ * Supports multiple codecs:
+ * - JPEG: Universal compatibility, software decoding
+ * - H.264: Hardware-accelerated via WebCodecs (3-5x faster when available)
+ *
+ * Legacy modes:
  * - websocket: Base64 JSON frames (original)
  * - mjpeg: Binary JPEG frames (~30% less bandwidth)
  *
@@ -126,6 +130,20 @@ class LiveStream {
 
         // Memory management: track current blob URL to prevent leaks
         this._currentBlobUrl = null;
+
+        // H.264 WebCodecs decoder
+        this._h264Decoder = null;
+        this._h264DecoderConfigured = false;
+        this._h264SpsData = null;
+        this._h264PpsData = null;
+        this._webCodecsSupported = typeof VideoDecoder !== 'undefined';
+        // FIX: Use Map to track pending decodes by timestamp to avoid race condition
+        // Previous bug: _h264ResolveFrame got overwritten before decoder output fired
+        this._h264PendingDecodes = new Map();
+        // P-frame queue: store frames until first keyframe arrives
+        this._h264FrameQueue = [];
+        this._h264HasKeyframe = false;
+        console.log(`[LiveStream] WebCodecs H.264 support: ${this._webCodecsSupported}`);
 
         // Frame dropping: skip stale frames when rendering can't keep up
         this._isProcessingFrame = false;
@@ -251,6 +269,20 @@ class LiveStream {
      * Internal connect method (used for initial connect and reconnect)
      */
     _connect() {
+        // Guard against zombie reconnections - check if stop() was called during backoff delay
+        if (this._manualStop) {
+            console.log('[LiveStream] _connect() aborted - stream was manually stopped');
+            this._setConnectionState('disconnected');
+            return;
+        }
+
+        // Validate deviceId is still set (could be cleared by stop())
+        if (!this.deviceId) {
+            console.log('[LiveStream] _connect() aborted - no device ID');
+            this._setConnectionState('disconnected');
+            return;
+        }
+
         const wsUrl = this._getWebSocketUrl(this.deviceId, this.streamMode, this.streamQuality);
 
         this._setConnectionState(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
@@ -306,6 +338,16 @@ class LiveStream {
                             this.deviceHeight = data.height;
                             console.log(`[LiveStream] Device dimensions: ${data.width}x${data.height}`);
                         }
+                    } else if (data.type === 'source_change') {
+                        // Handle streaming source change (companion <-> ADB)
+                        console.log(`[LiveStream] Source changed to: ${data.source}`, data.message);
+                        this._streamSource = data.source;
+                        // Notify listeners
+                        if (this.onSourceChange) {
+                            this.onSourceChange(data.source, data.message, data.reason);
+                        }
+                    } else if (data.type === 'keepalive') {
+                        // Ignore keepalive messages (just prevent timeout)
                     } else {
                         this._handleFrame(data);
                     }
@@ -366,6 +408,12 @@ class LiveStream {
         this._setConnectionState('reconnecting');
 
         this._reconnectTimer = setTimeout(() => {
+            // Double-check state before reconnecting (stop() may have been called during delay)
+            if (this._manualStop || !this.deviceId) {
+                console.log('[LiveStream] Reconnect timer cancelled - stream was stopped during backoff');
+                this._setConnectionState('disconnected');
+                return;
+            }
             this.reconnectAttempts++;
             this._connect();
         }, delay);
@@ -439,23 +487,135 @@ class LiveStream {
     }
 
     /**
-     * Process a single MJPEG frame
+     * Process a single frame (JPEG or H.264)
+     * Detects codec from 16-byte header format
      * @param {ArrayBuffer} buffer - Binary frame data
      */
     async _processFrame(buffer) {
         this._isProcessingFrame = true;
 
         const now = performance.now();
-
-        // Parse header (8 bytes: 4 frame_number + 4 capture_time)
         const view = new DataView(buffer);
-        const frameNumber = view.getUint32(0, false); // big-endian
-        const captureTime = view.getUint32(4, false); // big-endian
 
-        // Extract JPEG data (after 8-byte header)
-        const jpegData = buffer.slice(8);
+        // Parse header - detect format by checking if it's a 16-byte H.264 format
+        let frameNumber = 0, captureTime = 0, width = 0, height = 0;
+        let isKeyframe = false, codec = 0, headerSize = 8;  // Default to 8-byte JPEG
+        let frameData;
 
-        // Calculate FPS
+        // Try 16-byte H.264 format first
+        if (buffer.byteLength >= 16) {
+            frameNumber = view.getUint32(0, false);  // big-endian
+            captureTime = view.getUint32(4, false);
+            width = view.getUint16(8, false);
+            height = view.getUint16(10, false);
+            const flags = view.getUint8(12);
+            const codecByte = view.getUint8(13);
+
+            // Validate: codec should be 0 or 1, dimensions should be reasonable
+            if ((codecByte === 0 || codecByte === 1) && width >= 100 && width <= 4096 && height >= 100 && height <= 4096) {
+                codec = codecByte;  // 0 = JPEG, 1 = H.264
+                isKeyframe = (flags & 0x01) !== 0;
+                const hasSpsPs = (flags & 0x02) !== 0;
+                headerSize = 16;
+
+                // Extract SPS/PPS if present (H.264 keyframes)
+                if (hasSpsPs && codec === 1) {
+                    let offset = 16;
+                    if (buffer.byteLength > offset + 2) {
+                        const spsLen = view.getUint16(offset, false);
+                        offset += 2;
+                        if (buffer.byteLength > offset + spsLen) {
+                            this._h264SpsData = new Uint8Array(buffer.slice(offset, offset + spsLen));
+                            offset += spsLen;
+                            if (buffer.byteLength > offset + 2) {
+                                const ppsLen = view.getUint16(offset, false);
+                                offset += 2;
+                                if (buffer.byteLength > offset + ppsLen) {
+                                    this._h264PpsData = new Uint8Array(buffer.slice(offset, offset + ppsLen));
+                                    offset += ppsLen;
+                                    headerSize = offset;
+                                    console.log(`[LiveStream] H.264 SPS/PPS received: SPS=${spsLen}bytes, PPS=${ppsLen}bytes`);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Not 16-byte format, try legacy formats
+                codec = 0;  // JPEG
+                isKeyframe = false;
+                // Try 12-byte format (with dimensions)
+                if (buffer.byteLength >= 12) {
+                    const w = view.getUint16(8, false);
+                    const h = view.getUint16(10, false);
+                    if (w >= 100 && w <= 4096 && h >= 100 && h <= 4096) {
+                        width = w;
+                        height = h;
+                        headerSize = 12;
+                    } else {
+                        headerSize = 8;
+                    }
+                } else {
+                    headerSize = 8;
+                }
+            }
+        } else {
+            // Legacy 8-byte JPEG format
+            frameNumber = view.getUint32(0, false);
+            captureTime = view.getUint32(4, false);
+            codec = 0;
+            isKeyframe = false;
+            headerSize = 8;
+        }
+
+        frameData = buffer.slice(headerSize);
+
+        // Validate JPEG magic bytes and auto-correct header size if needed
+        let frameBytes = new Uint8Array(frameData.slice(0, 4));
+        let isValidJpeg = frameBytes[0] === 0xFF && frameBytes[1] === 0xD8;
+
+        // Auto-correct: If JPEG magic not found, try other common header sizes
+        if (!isValidJpeg && codec === 0 && buffer.byteLength > 12) {
+            // Try 12-byte header (companion JPEG format)
+            const at12 = new Uint8Array(buffer.slice(12, 14));
+            if (at12[0] === 0xFF && at12[1] === 0xD8) {
+                console.log(`[LiveStream] Auto-correcting headerSize: ${headerSize} -> 12 (found JPEG at offset 12)`);
+                headerSize = 12;
+                frameData = buffer.slice(12);
+                frameBytes = new Uint8Array(frameData.slice(0, 4));
+                isValidJpeg = true;
+            } else if (buffer.byteLength > 8) {
+                // Try 8-byte header (ADB format)
+                const at8 = new Uint8Array(buffer.slice(8, 10));
+                if (at8[0] === 0xFF && at8[1] === 0xD8) {
+                    console.log(`[LiveStream] Auto-correcting headerSize: ${headerSize} -> 8 (found JPEG at offset 8)`);
+                    headerSize = 8;
+                    frameData = buffer.slice(8);
+                    frameBytes = new Uint8Array(frameData.slice(0, 4));
+                    isValidJpeg = true;
+                }
+            }
+        }
+
+        const isH264StartCode = frameBytes[0] === 0x00 && (frameBytes[1] === 0x00 || frameBytes[2] === 0x00);
+
+        // Log when JPEG validation fails or data looks like H.264
+        if (this.metrics.frameCount < 5 || (!isValidJpeg && codec === 0)) {
+            const rawBytes = new Uint8Array(buffer.slice(0, 20));
+            const detectedWidth = buffer.byteLength >= 10 ? view.getUint16(8, false) : 0;
+            const detectedHeight = buffer.byteLength >= 12 ? view.getUint16(10, false) : 0;
+            const detectedFlags = buffer.byteLength >= 13 ? view.getUint8(12) : 0;
+            const detectedCodec = buffer.byteLength >= 14 ? view.getUint8(13) : 0;
+
+            console.log(`[LiveStream] Frame parse: headerSize=${headerSize}, codec=${codec}, ` +
+                `w=${width}, h=${height}, ` +
+                `detection(w=${detectedWidth}, h=${detectedHeight}, flags=0x${detectedFlags.toString(16)}, codec=${detectedCodec}), ` +
+                `payload[0:4]=0x${frameBytes[0]?.toString(16)} 0x${frameBytes[1]?.toString(16)} 0x${frameBytes[2]?.toString(16)} 0x${frameBytes[3]?.toString(16)}` +
+                (isH264StartCode ? ' [LOOKS LIKE H.264]' : '') +
+                `, raw[0:20]=${Array.from(rawBytes).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' ')}`);
+        }
+
+        // Update FPS metrics
         const frameDelta = now - this.metrics.lastFrameTime;
         this.metrics.lastFrameTime = now;
 
@@ -469,53 +629,371 @@ class LiveStream {
 
         this.metrics.captureTime = captureTime;
         this.metrics.frameCount = frameNumber;
-        // Note: latency can't be calculated for binary frames without timestamp
 
-        // Create blob URL and load image
         try {
-            // Clean up previous blob URL to prevent memory leak
-            if (this._currentBlobUrl) {
-                URL.revokeObjectURL(this._currentBlobUrl);
-                this._currentBlobUrl = null;
+            let img;
+
+            if (codec === 1) {
+                // H.264 frame
+                if (this._webCodecsSupported) {
+                    img = await this._decodeH264Frame(frameData, isKeyframe, width, height, frameNumber);
+                } else {
+                    // H.264 without WebCodecs - can't decode, skip frame
+                    this._h264SkippedCount = (this._h264SkippedCount || 0) + 1;
+                    if (this._h264SkippedCount <= 3 || this._h264SkippedCount % 60 === 0) {
+                        console.warn(`[LiveStream] H.264 frame skipped - WebCodecs not supported (count: ${this._h264SkippedCount})`);
+                    }
+                    return; // Skip this frame entirely
+                }
+            } else {
+                // JPEG frame - decode with Image element
+                img = await this._decodeJpegFrame(frameData);
             }
 
-            const blob = new Blob([jpegData], { type: 'image/jpeg' });
-            const blobUrl = URL.createObjectURL(blob);
-            this._currentBlobUrl = blobUrl; // Track for cleanup
+            if (img) {
+                this.currentImage = img;
+                this._renderFrame(img, this.elements);
 
-            const img = new Image();
-            await new Promise((resolve, reject) => {
-                img.onload = () => {
-                    // Don't revoke here - let next frame or stop() handle it
-                    // This prevents race conditions if streaming stops mid-load
-                    resolve();
-                };
-                img.onerror = () => {
-                    reject(new Error('Failed to load JPEG image'));
-                };
-                img.src = blobUrl;
-            });
+                if (this.onFrame) {
+                    this.onFrame({ frame_number: frameNumber, capture_ms: captureTime });
+                }
 
-            this.currentImage = img;
-
-            // Render frame (no elements from MJPEG stream - fetched on-demand)
-            this._renderFrame(img, this.elements);
-
-            // Callback
-            if (this.onFrame) {
-                this.onFrame({ frame_number: frameNumber, capture_ms: captureTime });
-            }
-
-            // Update metrics callback
-            if (this.onMetricsUpdate) {
-                this.onMetricsUpdate(this.metrics);
+                if (this.onMetricsUpdate) {
+                    this.onMetricsUpdate(this.metrics);
+                }
             }
 
         } catch (error) {
-            console.error('[LiveStream] Failed to render MJPEG frame:', error);
+            console.error('[LiveStream] Failed to render frame:', error);
         } finally {
             this._isProcessingFrame = false;
         }
+    }
+
+    /**
+     * Decode JPEG frame using Image element
+     * @param {ArrayBuffer} jpegData - JPEG image data
+     * @returns {Promise<HTMLImageElement>} Decoded image or null on error
+     */
+    async _decodeJpegFrame(jpegData) {
+        // Validate JPEG magic bytes (0xFF 0xD8)
+        if (jpegData.byteLength < 2) {
+            console.warn('[LiveStream] JPEG data too small:', jpegData.byteLength);
+            return null;
+        }
+
+        const header = new Uint8Array(jpegData.slice(0, 2));
+        if (header[0] !== 0xFF || header[1] !== 0xD8) {
+            // Throttle warnings to avoid console spam
+            this._invalidJpegCount = (this._invalidJpegCount || 0) + 1;
+            if (this._invalidJpegCount <= 3 || this._invalidJpegCount % 30 === 0) {
+                console.warn(`[LiveStream] Invalid JPEG magic bytes: 0x${header[0].toString(16)} 0x${header[1].toString(16)} (expected 0xFF 0xD8) - count: ${this._invalidJpegCount}`);
+            }
+            return null;
+        }
+        // Reset counter on valid frame
+        this._invalidJpegCount = 0;
+
+        // Store previous blob URL to revoke AFTER new image loads
+        // This prevents race condition where rapid frames cause "Failed to load JPEG image"
+        const previousBlobUrl = this._currentBlobUrl;
+
+        const blob = new Blob([jpegData], { type: 'image/jpeg' });
+        const blobUrl = URL.createObjectURL(blob);
+        this._currentBlobUrl = blobUrl;
+
+        const img = new Image();
+        try {
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = () => reject(new Error('Failed to load JPEG image'));
+                img.src = blobUrl;
+            });
+
+            // Now safe to revoke previous blob URL (new image is loaded)
+            if (previousBlobUrl) {
+                URL.revokeObjectURL(previousBlobUrl);
+            }
+
+            return img;
+        } catch (error) {
+            // Clean up blob URL on error
+            URL.revokeObjectURL(blobUrl);
+            this._currentBlobUrl = previousBlobUrl; // Restore previous
+            throw error;
+        }
+    }
+
+    /**
+     * Decode H.264 frame using WebCodecs VideoDecoder
+     * Uses Map to track pending decodes by timestamp to avoid race condition
+     * Queues P-frames until first keyframe arrives
+     *
+     * @param {ArrayBuffer} nalData - H.264 NAL unit data
+     * @param {boolean} isKeyframe - Whether this is a keyframe
+     * @param {number} width - Frame width
+     * @param {number} height - Frame height
+     * @param {number} frameNumber - Frame number for timestamp
+     * @returns {Promise<HTMLImageElement|null>} Decoded image or null
+     */
+    async _decodeH264Frame(nalData, isKeyframe, width, height, frameNumber) {
+        // Queue P-frames until first keyframe arrives with SPS/PPS
+        if (!this._h264HasKeyframe && !isKeyframe) {
+            // Queue P-frame for later
+            this._h264FrameQueue.push({ nalData, isKeyframe, width, height, frameNumber });
+            if (this._h264FrameQueue.length <= 3) {
+                console.log(`[LiveStream] H.264: Queued P-frame ${frameNumber} (waiting for keyframe)`);
+            }
+            // Limit queue size to prevent memory buildup
+            if (this._h264FrameQueue.length > 30) {
+                this._h264FrameQueue.shift();
+            }
+            return null;
+        }
+
+        // Process keyframe - configure decoder and decode queued frames
+        if (isKeyframe) {
+            this._h264HasKeyframe = true;
+
+            // Initialize decoder if needed
+            if (!this._h264Decoder || this._h264Decoder.state === 'closed') {
+                await this._initH264Decoder(width, height);
+            }
+
+            // Configure with SPS/PPS
+            if (this._h264SpsData && this._h264PpsData) {
+                await this._configureH264Decoder(width, height);
+            }
+
+            // Process queued P-frames that came before this keyframe
+            // Note: These will likely be invalid since they reference this keyframe
+            // but we clear the queue anyway to avoid stale data
+            if (this._h264FrameQueue.length > 0) {
+                console.log(`[LiveStream] H.264: Clearing ${this._h264FrameQueue.length} queued frames after keyframe`);
+                this._h264FrameQueue = [];
+            }
+        }
+
+        // Decoder still not ready
+        if (!this._h264Decoder || this._h264Decoder.state !== 'configured') {
+            return null;
+        }
+
+        // Actually decode the frame
+        return this._actuallyDecodeH264Frame(nalData, isKeyframe, width, height, frameNumber);
+    }
+
+    /**
+     * Internal: Actually decode an H.264 frame (after keyframe/queue handling)
+     * @private
+     */
+    async _actuallyDecodeH264Frame(nalData, isKeyframe, width, height, frameNumber) {
+        const timestamp = frameNumber * 33333;  // ~30fps timing
+
+        return new Promise((resolve) => {
+            // FIX: Use Map keyed by timestamp to track pending decodes
+            // This prevents race condition where frame N+1 arrives before frame N completes
+            this._h264PendingDecodes.set(timestamp, resolve);
+
+            // Create EncodedVideoChunk
+            const chunk = new EncodedVideoChunk({
+                type: isKeyframe ? 'key' : 'delta',
+                timestamp: timestamp,
+                data: nalData
+            });
+
+            try {
+                this._h264Decoder.decode(chunk);
+            } catch (e) {
+                console.error('[LiveStream] H.264 decode error:', e);
+                this._h264PendingDecodes.delete(timestamp);
+                resolve(null);
+            }
+        });
+    }
+
+    /**
+     * Initialize H.264 VideoDecoder
+     * @param {number} width - Frame width
+     * @param {number} height - Frame height
+     */
+    async _initH264Decoder(width, height) {
+        if (!this._webCodecsSupported) {
+            console.warn('[LiveStream] WebCodecs not supported in this browser');
+            return;
+        }
+
+        console.log(`[LiveStream] Initializing H.264 decoder for ${width}x${height}`);
+
+        this._h264Decoder = new VideoDecoder({
+            output: (frame) => {
+                // FIX: Use Map to find the correct resolve callback by timestamp
+                // This fixes race condition where frame N+1's resolve overwrote frame N's
+                const timestamp = frame.timestamp;
+                const resolve = this._h264PendingDecodes.get(timestamp);
+
+                // Convert VideoFrame to Image via canvas
+                this._videoFrameToImage(frame).then(img => {
+                    frame.close();
+                    if (resolve) {
+                        this._h264PendingDecodes.delete(timestamp);
+                        resolve(img);
+                    } else {
+                        // No pending decode for this timestamp - frame may have been dropped
+                        console.warn(`[LiveStream] H.264: No pending decode for timestamp ${timestamp}`);
+                    }
+                });
+            },
+            error: (e) => {
+                console.error('[LiveStream] H.264 decoder error:', e);
+                // Resolve all pending decodes with null on error
+                for (const [timestamp, resolve] of this._h264PendingDecodes) {
+                    resolve(null);
+                }
+                this._h264PendingDecodes.clear();
+            }
+        });
+
+        this._h264DecoderConfigured = false;
+    }
+
+    /**
+     * Configure H.264 decoder with SPS/PPS
+     * @param {number} width - Frame width
+     * @param {number} height - Frame height
+     */
+    async _configureH264Decoder(width, height) {
+        if (!this._h264Decoder || !this._h264SpsData || !this._h264PpsData) {
+            return;
+        }
+
+        // Build avcC box from SPS/PPS for decoder configuration
+        const avcC = this._buildAvcC(this._h264SpsData, this._h264PpsData);
+
+        const config = {
+            codec: 'avc1.42E01E',  // Baseline profile, level 3.0
+            codedWidth: width,
+            codedHeight: height,
+            description: avcC
+        };
+
+        try {
+            const support = await VideoDecoder.isConfigSupported(config);
+            if (support.supported) {
+                this._h264Decoder.configure(config);
+                this._h264DecoderConfigured = true;
+                console.log(`[LiveStream] H.264 decoder configured: ${width}x${height}`);
+            } else {
+                console.warn('[LiveStream] H.264 config not supported');
+            }
+        } catch (e) {
+            console.error('[LiveStream] H.264 config error:', e);
+        }
+    }
+
+    /**
+     * Build avcC configuration box from SPS and PPS NAL units
+     * @param {Uint8Array} sps - SPS NAL unit (without start code)
+     * @param {Uint8Array} pps - PPS NAL unit (without start code)
+     * @returns {Uint8Array} avcC box
+     */
+    _buildAvcC(sps, pps) {
+        // avcC structure:
+        // 1 byte: configurationVersion (1)
+        // 1 byte: AVCProfileIndication (from SPS)
+        // 1 byte: profile_compatibility (from SPS)
+        // 1 byte: AVCLevelIndication (from SPS)
+        // 1 byte: 0xFC | (lengthSizeMinusOne) = 0xFF for 4-byte lengths
+        // 1 byte: 0xE0 | numOfSequenceParameterSets = 0xE1 (1 SPS)
+        // 2 bytes: sequenceParameterSetLength
+        // N bytes: sequenceParameterSetNALUnit (SPS)
+        // 1 byte: numOfPictureParameterSets = 1
+        // 2 bytes: pictureParameterSetLength
+        // N bytes: pictureParameterSetNALUnit (PPS)
+
+        const avcC = new Uint8Array(11 + sps.length + pps.length);
+        let offset = 0;
+
+        avcC[offset++] = 1;  // configurationVersion
+        avcC[offset++] = sps[1];  // AVCProfileIndication
+        avcC[offset++] = sps[2];  // profile_compatibility
+        avcC[offset++] = sps[3];  // AVCLevelIndication
+        avcC[offset++] = 0xFF;  // lengthSizeMinusOne = 3 (4-byte NAL length prefix)
+        avcC[offset++] = 0xE1;  // numOfSequenceParameterSets = 1
+
+        // SPS length (big-endian)
+        avcC[offset++] = (sps.length >> 8) & 0xFF;
+        avcC[offset++] = sps.length & 0xFF;
+
+        // SPS data
+        avcC.set(sps, offset);
+        offset += sps.length;
+
+        avcC[offset++] = 1;  // numOfPictureParameterSets
+
+        // PPS length (big-endian)
+        avcC[offset++] = (pps.length >> 8) & 0xFF;
+        avcC[offset++] = pps.length & 0xFF;
+
+        // PPS data
+        avcC.set(pps, offset);
+
+        return avcC;
+    }
+
+    /**
+     * Convert VideoFrame to HTMLImageElement via canvas
+     * @param {VideoFrame} frame - Decoded video frame
+     * @returns {Promise<HTMLImageElement>} Image element
+     */
+    async _videoFrameToImage(frame) {
+        // Create offscreen canvas to draw the frame
+        const canvas = document.createElement('canvas');
+        canvas.width = frame.displayWidth;
+        canvas.height = frame.displayHeight;
+        const ctx = canvas.getContext('2d');
+
+        // Draw VideoFrame to canvas
+        ctx.drawImage(frame, 0, 0);
+
+        // Convert to Image
+        const img = new Image();
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = canvas.toDataURL('image/jpeg', 0.95);
+        });
+
+        return img;
+    }
+
+    /**
+     * Clean up H.264 decoder
+     */
+    _cleanupH264Decoder() {
+        if (this._h264Decoder) {
+            try {
+                if (this._h264Decoder.state !== 'closed') {
+                    this._h264Decoder.close();
+                }
+            } catch (e) {
+                // Ignore close errors
+            }
+            this._h264Decoder = null;
+        }
+        this._h264DecoderConfigured = false;
+        this._h264SpsData = null;
+        this._h264PpsData = null;
+        // Clean up pending decodes and frame queue
+        if (this._h264PendingDecodes) {
+            // Resolve pending promises with null to prevent memory leaks
+            for (const [timestamp, resolve] of this._h264PendingDecodes) {
+                resolve(null);
+            }
+            this._h264PendingDecodes.clear();
+        }
+        this._h264FrameQueue = [];
+        this._h264HasKeyframe = false;
     }
 
     /**
@@ -543,6 +1021,9 @@ class LiveStream {
             URL.revokeObjectURL(this._currentBlobUrl);
             this._currentBlobUrl = null;
         }
+
+        // Clean up H.264 decoder
+        this._cleanupH264Decoder();
 
         // Clean up frame dropping state
         this._isProcessingFrame = false;
@@ -811,19 +1292,26 @@ class LiveStream {
             this.canvas.width = img.width;
             this.canvas.height = img.height;
 
-            // FIX: Update deviceWidth/deviceHeight from actual frame dimensions
-            // The config message may have sent default 1080x1920, but actual device
-            // could be in landscape mode (1920x1080) or different resolution
-            // Use frame dimensions as device dimensions for correct overlay scaling
+            // CRITICAL FIX: Refresh context after canvas resize
+            // Canvas resize can invalidate context state in some browsers
+            this.ctx = this.canvas.getContext('2d');
+
+            // NOTE: Do NOT update deviceWidth/deviceHeight from frame dimensions!
+            // Frame dimensions = stream resolution (e.g., 360p = 640x1422)
+            // Device dimensions = native screen resolution (e.g., 1080x2400)
+            // Element bounds are in device coordinates, so we need device dimensions
+            // for correct overlay scaling. Device dimensions come from elements API.
+            //
+            // For landscape detection, check if aspect ratio changed significantly
             const imgAspect = img.width / img.height;
             const deviceAspect = this.deviceWidth / this.deviceHeight;
             const aspectMismatch = Math.abs(imgAspect - deviceAspect) > 0.1;
 
-            if (aspectMismatch || (this.deviceWidth === 1080 && this.deviceHeight === 1920)) {
-                // Aspect ratio mismatch or still using defaults - update from frame
-                this.deviceWidth = img.width;
-                this.deviceHeight = img.height;
-                console.log(`[LiveStream] Updated device dimensions from frame: ${img.width}x${img.height}`);
+            if (aspectMismatch) {
+                // Aspect ratio changed (likely rotation) - clear stale elements
+                // and wait for elements API to provide new device dimensions
+                console.log(`[LiveStream] Aspect ratio changed (frame: ${imgAspect.toFixed(2)}, device: ${deviceAspect.toFixed(2)}) - clearing elements`);
+                this.elements = [];
             }
 
             // Fire callback when dimensions change (for orientation handling)
@@ -850,10 +1338,12 @@ class LiveStream {
         // DEBUG: Log display mode periodically (every 100 frames)
         this._frameCount = (this._frameCount || 0) + 1;
         if (this._frameCount % 100 === 0) {
-            console.log(`[LiveStream] Frame ${this._frameCount}: displayMode=${this.displayMode}, elements=${elements.length}, showOverlays=${this.showOverlays}`);
+            console.log(`[LiveStream] Frame ${this._frameCount}: displayMode=${this.displayMode}, elements=${elements.length}, showOverlays=${this.showOverlays}, stale=${this.areElementsStale()}`);
         }
 
-        if (this.showOverlays && elements.length > 0) {
+        // Skip drawing elements if they're stale (screen has changed but new elements haven't arrived)
+        // This prevents showing old element positions on a new screen
+        if (this.showOverlays && elements.length > 0 && !this.areElementsStale()) {
             switch (this.displayMode) {
                 case 'hoverOnly':
                     // Only draw the currently hovered element - draw directly without filtering
@@ -879,21 +1369,60 @@ class LiveStream {
     }
 
     /**
+     * Calculate letterbox offset and scale for when device content is centered in frame
+     * Returns {offsetX, offsetY, scale} for transforming device coords to canvas coords
+     */
+    _getLetterboxTransform() {
+        if (this.deviceWidth <= 0 || this.deviceHeight <= 0) {
+            return { offsetX: 0, offsetY: 0, scale: 1 };
+        }
+
+        const frameAspect = this.canvas.width / this.canvas.height;
+        const deviceAspect = this.deviceWidth / this.deviceHeight;
+
+        let scale, offsetX = 0, offsetY = 0;
+
+        if (Math.abs(frameAspect - deviceAspect) < 0.01) {
+            // Aspects match - simple scaling, no letterbox
+            scale = this.canvas.width / this.deviceWidth;
+        } else if (frameAspect > deviceAspect) {
+            // Frame is wider than device (pillarbox - black bars on sides)
+            // Device content is scaled to fit height, centered horizontally
+            scale = this.canvas.height / this.deviceHeight;
+            const contentWidth = this.deviceWidth * scale;
+            offsetX = (this.canvas.width - contentWidth) / 2;
+        } else {
+            // Frame is taller than device (letterbox - black bars on top/bottom)
+            // Device content is scaled to fit width, centered vertically
+            scale = this.canvas.width / this.deviceWidth;
+            const contentHeight = this.deviceHeight * scale;
+            offsetY = (this.canvas.height - contentHeight) / 2;
+        }
+
+        // Debug log periodically
+        this._letterboxLogCount = (this._letterboxLogCount || 0) + 1;
+        if (this._letterboxLogCount % 100 === 1) {
+            console.log(`[LiveStream] Letterbox: canvas=${this.canvas.width}x${this.canvas.height}, device=${this.deviceWidth}x${this.deviceHeight}, offset=(${offsetX.toFixed(1)},${offsetY.toFixed(1)}), scale=${scale.toFixed(4)}`);
+        }
+
+        return { offsetX, offsetY, scale };
+    }
+
+    /**
      * Draw a single element overlay (bypasses filtering for hover-only mode)
      * @param {Object} el - Element to draw
      */
     _drawSingleElement(el) {
         if (!el.bounds) return;
 
-        // Calculate scale factor
-        const scaleX = this.canvas.width / this.deviceWidth;
-        const scaleY = this.canvas.height / this.deviceHeight;
+        // Get letterbox-aware transform
+        const { offsetX, offsetY, scale } = this._getLetterboxTransform();
 
-        // Scale coordinates from device to canvas resolution
-        const x = Math.floor(el.bounds.x * scaleX);
-        const y = Math.floor(el.bounds.y * scaleY);
-        const width = Math.floor(el.bounds.width * scaleX);
-        const height = Math.floor(el.bounds.height * scaleY);
+        // Scale and offset coordinates from device to canvas resolution
+        const x = Math.floor(el.bounds.x * scale + offsetX);
+        const y = Math.floor(el.bounds.y * scale + offsetY);
+        const width = Math.floor(el.bounds.width * scale);
+        const height = Math.floor(el.bounds.height * scale);
 
         // Draw bounding box
         this.ctx.strokeStyle = el.clickable ? '#00ff00' : '#ffff00';
@@ -1047,23 +1576,23 @@ class LiveStream {
     /**
      * Draw UI element overlays
      * Scales element coordinates from device resolution to canvas resolution
+     * Handles letterboxing when device and frame aspect ratios differ
      * @param {Array} elements - UI elements
      */
     _drawElements(elements) {
         // OPTIMIZATION: Use cached filtered elements
         const filteredElements = this._getFilteredElements(elements);
 
-        // Calculate scale factor: stream may be at lower resolution than device
-        const scaleX = this.canvas.width / this.deviceWidth;
-        const scaleY = this.canvas.height / this.deviceHeight;
+        // Get letterbox-aware transform (handles pillarbox/letterbox centering)
+        const { offsetX, offsetY, scale } = this._getLetterboxTransform();
 
         // Draw all filtered elements (no per-element filtering needed)
         for (const el of filteredElements) {
-            // Scale coordinates from device to canvas resolution
-            const x = Math.floor(el.bounds.x * scaleX);
-            const y = Math.floor(el.bounds.y * scaleY);
-            const width = Math.floor(el.bounds.width * scaleX);
-            const height = Math.floor(el.bounds.height * scaleY);
+            // Scale and offset coordinates from device to canvas resolution
+            const x = Math.floor(el.bounds.x * scale + offsetX);
+            const y = Math.floor(el.bounds.y * scale + offsetY);
+            const width = Math.floor(el.bounds.width * scale);
+            const height = Math.floor(el.bounds.height * scale);
 
             // Draw bounding box
             this.ctx.strokeStyle = el.clickable ? '#00ff00' : '#ffff00';
@@ -1401,33 +1930,30 @@ class LiveStream {
 
     /**
      * Convert canvas coordinates to device coordinates
-     * Accounts for stream quality scaling (canvas may be at lower resolution than device)
-     * Uses cached scale factors for performance
+     * Accounts for letterboxing when device and frame aspect ratios differ
      * @param {number} canvasX - Canvas X
      * @param {number} canvasY - Canvas Y
-     * @returns {Object} Device coordinates {x, y}
+     * @returns {Object} Device coordinates {x, y} or null if no image loaded
      */
     canvasToDevice(canvasX, canvasY) {
         if (!this.currentImage) {
             // Return null instead of throwing - caller should check
             return null;
         }
-        // Update cache if dimensions changed
-        if (this._cachedScaleCanvasWidth !== this.canvas.width ||
-            this._cachedScaleCanvasHeight !== this.canvas.height ||
-            this._cachedScaleDeviceWidth !== this.deviceWidth ||
-            this._cachedScaleDeviceHeight !== this.deviceHeight) {
-            this._updateScaleFactors();
-        }
+
+        // Get letterbox-aware transform
+        const { offsetX, offsetY, scale } = this._getLetterboxTransform();
+
+        // Reverse the transform: device = (canvas - offset) / scale
         return {
-            x: Math.round(canvasX * this._cachedScaleX),
-            y: Math.round(canvasY * this._cachedScaleY)
+            x: Math.round((canvasX - offsetX) / scale),
+            y: Math.round((canvasY - offsetY) / scale)
         };
     }
 
     /**
      * Convert device coordinates to canvas coordinates
-     * Inverse of canvasToDevice - used for drawing overlays at device positions
+     * Accounts for letterboxing when device and frame aspect ratios differ
      * @param {number} deviceX - Device X
      * @param {number} deviceY - Device Y
      * @returns {Object} Canvas coordinates {x, y}
@@ -1436,17 +1962,14 @@ class LiveStream {
         if (!this.currentImage) {
             return { x: deviceX, y: deviceY };
         }
-        // Update cache if dimensions changed
-        if (this._cachedScaleCanvasWidth !== this.canvas.width ||
-            this._cachedScaleCanvasHeight !== this.canvas.height ||
-            this._cachedScaleDeviceWidth !== this.deviceWidth ||
-            this._cachedScaleDeviceHeight !== this.deviceHeight) {
-            this._updateScaleFactors();
-        }
-        // Inverse scale: canvas = device / scale
+
+        // Get letterbox-aware transform
+        const { offsetX, offsetY, scale } = this._getLetterboxTransform();
+
+        // Apply transform: canvas = device * scale + offset
         return {
-            x: Math.round(deviceX / this._cachedScaleX),
-            y: Math.round(deviceY / this._cachedScaleY)
+            x: Math.round(deviceX * scale + offsetX),
+            y: Math.round(deviceY * scale + offsetY)
         };
     }
 
