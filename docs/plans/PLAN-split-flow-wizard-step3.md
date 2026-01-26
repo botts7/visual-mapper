@@ -167,8 +167,15 @@ export default {
     updateCommandMethodBadge, fetchCommandRoutingMethod, startRoutingMethodPolling,
     stopRoutingMethodPolling
 
+- Created `step3/screen-identification.js` (~230 lines)
+  - extractUiLandmarks, computeScreenId, resolveScreenLabel
+  - normalizeScreenLabel, getActivityShortName, maybeLearnScreen
+  - getScreenContext (new helper combining context functions)
+
+**Progress:** ~930 lines extracted (17% of extractable code)
+
 **Next Steps:**
-1. Create wrapper functions in main file to use new module
-2. Test streaming functionality thoroughly
-3. Extract screen-identification.js
-4. Extract suggestions.js
+1. Extract suggestions.js (~960 lines)
+2. Extract element-refresh.js (~400 lines)
+3. Create wrapper functions in main file to use modules
+4. Integration testing
