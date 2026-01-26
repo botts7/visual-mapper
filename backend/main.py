@@ -43,7 +43,13 @@ from utils.action_models import (
     ActionExecutionRequest,
     ActionListResponse,
 )
-from utils.error_handler import handle_api_error
+from utils.error_handler import (
+    handle_api_error,
+    VisualMapperError,
+    create_error_response,
+    classify_error,
+    get_error_with_hint
+)
 from utils.device_migrator import DeviceMigrator
 from services.connection_monitor import ConnectionMonitor
 from services.auto_sensors import AutoSensorManager, init_auto_sensor_manager
@@ -271,6 +277,72 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=422,
         content={"success": False, "detail": exc.errors(), "body": exc.body},
     )
+
+
+@app.exception_handler(VisualMapperError)
+async def visual_mapper_exception_handler(request: Request, exc: VisualMapperError):
+    """
+    Handle VisualMapperError exceptions with standardized responses.
+    Uses the centralized error handler for consistent format.
+    """
+    return handle_api_error(exc)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """
+    Handle HTTPException with standardized response format.
+    Adds error hints for common errors.
+    """
+    # Classify the error to get hints
+    error_type = classify_error(str(exc.detail))
+    hint_info = get_error_with_hint(error_type, str(exc.detail)) if error_type else {}
+
+    response = {
+        "success": False,
+        "error": {
+            "message": str(exc.detail),
+            "type": "HTTPException",
+            "code": f"HTTP_{exc.status_code}"
+        }
+    }
+
+    # Add hint if available
+    if hint_info.get("hint"):
+        response["error"]["hint"] = hint_info["hint"]
+    if hint_info.get("docs"):
+        response["error"]["docs"] = hint_info["docs"]
+
+    return JSONResponse(status_code=exc.status_code, content=response)
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    """
+    Catch-all handler for unhandled exceptions.
+    Logs the error and returns a standardized error response.
+    """
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+
+    # Classify the error to potentially get hints
+    error_type = classify_error(str(exc))
+    hint_info = get_error_with_hint(error_type, str(exc)) if error_type else {}
+
+    response = {
+        "success": False,
+        "error": {
+            "message": str(exc),
+            "type": exc.__class__.__name__,
+            "code": "INTERNAL_ERROR"
+        }
+    }
+
+    if hint_info.get("hint"):
+        response["error"]["hint"] = hint_info["hint"]
+    if hint_info.get("docs"):
+        response["error"]["docs"] = hint_info["docs"]
+
+    return JSONResponse(status_code=500, content=response)
 
 
 # Data Directory Configuration (HA Add-on Compatibility)
