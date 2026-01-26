@@ -205,11 +205,65 @@ ws_log_handler.setFormatter(
 # Add to root logger to capture all logs
 logging.getLogger().addHandler(ws_log_handler)
 
+# API Tags for documentation grouping
+tags_metadata = [
+    {
+        "name": "devices",
+        "description": "Android device discovery and management via ADB",
+    },
+    {
+        "name": "sensors",
+        "description": "Create and manage sensors that extract data from Android UI elements",
+    },
+    {
+        "name": "flows",
+        "description": "Automation flows that execute sequences of actions on devices",
+    },
+    {
+        "name": "streaming",
+        "description": "Live screen streaming via WebSocket (MJPEG or JSON)",
+    },
+    {
+        "name": "companion",
+        "description": "Companion app integration for fast UI tree and streaming",
+    },
+    {
+        "name": "settings",
+        "description": "Application configuration and device settings",
+    },
+    {
+        "name": "auth",
+        "description": "API authentication endpoints",
+    },
+]
+
 # Create FastAPI app
 app = FastAPI(
     title="Visual Mapper API",
     version=APP_VERSION,
-    description="Android Device Monitoring & Automation for Home Assistant",
+    description="""
+## Visual Mapper - Android Device Monitoring for Home Assistant
+
+Visual Mapper provides a REST API for:
+- **Device Management**: Discover and control Android devices via ADB
+- **Sensor Creation**: Extract text/values from UI elements as Home Assistant sensors
+- **Flow Automation**: Record and replay UI interactions
+- **Live Streaming**: Real-time screen capture via WebSocket
+
+### Authentication
+Most endpoints require the `X-Companion-Key` header with a valid API key.
+Set the key via the `COMPANION_API_KEY` environment variable.
+
+### Quick Start
+1. Connect an Android device with USB/WiFi debugging enabled
+2. Browse to `/devices` to discover connected devices
+3. Use the Flow Wizard to record automation flows
+4. Create sensors to monitor app states
+""",
+    openapi_tags=tags_metadata,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
 # Track devices with active wizard sessions (prevents auto-sleep during flow editing)
