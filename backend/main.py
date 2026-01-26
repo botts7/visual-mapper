@@ -46,6 +46,9 @@ from utils.action_models import (
 from utils.error_handler import handle_api_error
 from utils.device_migrator import DeviceMigrator
 from services.connection_monitor import ConnectionMonitor
+from services.auto_sensors import AutoSensorManager, init_auto_sensor_manager
+from core.element_watcher import ElementWatcherManager, init_element_watcher_manager
+from core.region_capture import RegionCaptureManager, init_region_capture_manager
 from utils.device_security import DeviceSecurityManager
 
 # Phase 8: Flow System
@@ -58,6 +61,7 @@ from ml_components.device_icon_scraper import DeviceIconScraper
 from ml_components.icon_background_fetcher import IconBackgroundFetcher
 from ml_components.app_name_background_fetcher import AppNameBackgroundFetcher
 from core.stream_manager import StreamManager, get_stream_manager
+from core.streaming import companion_stream_manager
 from core.adb.adb_helpers import ADBMaintenance, PersistentShellPool, PersistentADBShell
 from core.navigation_manager import NavigationManager
 from core.navigation_mqtt_handler import NavigationMqttHandler
@@ -92,6 +96,10 @@ from routes import (
     deduplication,
     settings,
     ml,
+    auto_sensors,
+    element_watchers,
+    region_capture,
+    prerequisites,
 )
 
 # Configure logging
@@ -301,15 +309,39 @@ stream_manager: Optional["StreamManager"] = None
 adb_maintenance: Optional["ADBMaintenance"] = None
 shell_pool: Optional["PersistentShellPool"] = None
 connection_monitor: Optional["ConnectionMonitor"] = None
+auto_sensor_manager: Optional["AutoSensorManager"] = None
+element_watcher_manager: Optional["ElementWatcherManager"] = None
+region_capture_manager: Optional["RegionCaptureManager"] = None
 
 # Track background tasks for graceful shutdown
 _background_tasks: list = []
 
-# MQTT Configuration (loaded from environment or config)
-MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
-MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
+# MQTT Configuration (loaded from saved settings, then environment, then defaults)
+def _load_mqtt_config():
+    """Load MQTT config from saved settings or environment"""
+    from routes.settings import load_settings
+    try:
+        settings = load_settings()
+        mqtt_settings = settings.get("mqtt", {})
+        return {
+            "broker": mqtt_settings.get("broker") or os.getenv("MQTT_BROKER", "localhost"),
+            "port": mqtt_settings.get("port") or int(os.getenv("MQTT_PORT", "1883")),
+            "username": mqtt_settings.get("username") or os.getenv("MQTT_USERNAME", ""),
+            "password": mqtt_settings.get("password") or os.getenv("MQTT_PASSWORD", ""),
+        }
+    except Exception:
+        return {
+            "broker": os.getenv("MQTT_BROKER", "localhost"),
+            "port": int(os.getenv("MQTT_PORT", "1883")),
+            "username": os.getenv("MQTT_USERNAME", ""),
+            "password": os.getenv("MQTT_PASSWORD", ""),
+        }
+
+_mqtt_config = _load_mqtt_config()
+MQTT_BROKER = _mqtt_config["broker"]
+MQTT_PORT = _mqtt_config["port"]
+MQTT_USERNAME = _mqtt_config["username"]
+MQTT_PASSWORD = _mqtt_config["password"]
 MQTT_DISCOVERY_PREFIX = os.getenv("MQTT_DISCOVERY_PREFIX", "homeassistant")
 AUTO_START_UPDATES = os.getenv("AUTO_START_UPDATES", "true").lower() == "true"
 MQTT_USE_SSL = os.getenv("MQTT_USE_SSL", "false").lower() == "true"
@@ -533,6 +565,21 @@ async def lifespan(app: FastAPI):
         # (FlowScheduler handles sensor updates for those devices)
         sensor_updater = SensorUpdater(adb_bridge, sensor_manager, mqtt_manager, flow_manager)
 
+        # Initialize Auto Sensor Manager (zero-config sensors)
+        global auto_sensor_manager
+        auto_sensor_manager = init_auto_sensor_manager(adb_bridge, mqtt_manager)
+        logger.info("[Server] ✅ Auto Sensor Manager initialized")
+
+        # Initialize Element Watcher Manager (one-click element watching)
+        global element_watcher_manager
+        element_watcher_manager = init_element_watcher_manager(adb_bridge, mqtt_manager)
+        logger.info("[Server] ✅ Element Watcher Manager initialized")
+
+        # Initialize Region Capture Manager (screen region screenshots)
+        global region_capture_manager
+        region_capture_manager = init_region_capture_manager(adb_bridge, mqtt_manager)
+        logger.info("[Server] ✅ Region Capture Manager initialized")
+
         # Initialize Navigation MQTT Handler for passive navigation learning
         navigation_mqtt_handler = NavigationMqttHandler(navigation_manager)
         mqtt_manager.set_navigation_learn_callback(
@@ -585,6 +632,17 @@ async def lifespan(app: FastAPI):
                     )
                     logger.info(
                         f"[Server] Cached device info from {source}: {model_with_source} (app: {app_name}) for {device_id_for_cache}"
+                    )
+
+                # Register companion serial mapping for cross-subnet streaming
+                # This enables frame matching when ADB and companion have different IPs
+                if device_serial and ip and adb_port:
+                    from core.streaming.companion_receiver import companion_stream_manager
+                    # Companion device ID format used in WebSocket streaming
+                    companion_device_id = f"{ip.replace('.', '_')}_companion"
+                    companion_stream_manager.set_companion_serial(companion_device_id, device_serial)
+                    logger.info(
+                        f"[Server] Registered serial mapping: {companion_device_id} -> {device_serial}"
                     )
 
                 # Auto-connect if already paired
@@ -767,6 +825,43 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     logger.warning(
                         f"[Server] Failed to publish availability for {device_id}: {e}"
+                    )
+
+                # Start auto-sensors (zero-config sensors for this device)
+                try:
+                    if auto_sensor_manager:
+                        stable_device_id = await adb_bridge.get_device_serial(device_id)
+                        await auto_sensor_manager.start_device(device_id, stable_device_id)
+                        logger.info(
+                            f"[Server] ✅ Auto-sensors started for {device_id}"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"[Server] Failed to start auto-sensors for {device_id}: {e}"
+                    )
+
+                # Start element watchers (one-click element monitoring)
+                try:
+                    if element_watcher_manager:
+                        await element_watcher_manager.start_device(device_id)
+                        logger.info(
+                            f"[Server] ✅ Element watchers started for {device_id}"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"[Server] Failed to start element watchers for {device_id}: {e}"
+                    )
+
+                # Start region capture (screen region screenshots)
+                try:
+                    if region_capture_manager:
+                        await region_capture_manager.start_device(device_id)
+                        logger.info(
+                            f"[Server] ✅ Region capture started for {device_id}"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"[Server] Failed to start region capture for {device_id}: {e}"
                     )
 
             except Exception as e:
@@ -1114,6 +1209,7 @@ def _init_route_dependencies():
         ws_log_handler=ws_log_handler,
         feature_manager=feature_manager,
         data_dir=str(DATA_DIR),
+        companion_receiver=companion_stream_manager,
     )
     set_dependencies(deps)
 
@@ -1218,6 +1314,22 @@ logger.info(
 app.include_router(ml.router)
 logger.info(
     "[Server] Registered route module: ml (6 endpoints: status + stats + export + reset + import)"
+)
+app.include_router(auto_sensors.router)
+logger.info(
+    "[Server] Registered route module: auto_sensors (4 endpoints: list + get + start + stop)"
+)
+app.include_router(element_watchers.router)
+logger.info(
+    "[Server] Registered route module: element_watchers (8 endpoints: list + create + get + delete + toggle + start/stop)"
+)
+app.include_router(region_capture.router)
+logger.info(
+    "[Server] Registered route module: region_capture (9 endpoints: list + create + get + delete + image + capture + link/unlink)"
+)
+app.include_router(prerequisites.router)
+logger.info(
+    "[Server] Registered route module: prerequisites (9 endpoints: status + types + link/unlink + auto-run + guidance)"
 )
 
 # ============================================================================
