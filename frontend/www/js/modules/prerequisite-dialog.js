@@ -315,10 +315,12 @@ export function showPrerequisiteGuidance(wizard, prereqType) {
         </div>
     `;
 
-    // Find the canvas area to append to
-    const canvasArea = document.querySelector('.canvas-area');
-    if (canvasArea) {
-        canvasArea.appendChild(overlay);
+    // Append to the screenshot container for proper positioning inside the canvas view
+    const screenshotContainer = document.getElementById('screenshotContainer')
+        || document.querySelector('.screenshot-display')
+        || document.querySelector('.screenshot-panel');
+    if (screenshotContainer) {
+        screenshotContainer.appendChild(overlay);
     } else {
         document.body.appendChild(overlay);
     }
