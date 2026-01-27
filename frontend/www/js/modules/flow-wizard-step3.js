@@ -587,56 +587,97 @@ export async function loadStep3(wizard) {
     const isPrerequisiteMode = wizard.recordMode === 'prerequisite' && wizard.prereqType;
 
     if (isPrerequisiteMode) {
-        // Prerequisite mode: Start from HOME screen as a consistent base
-        // User will navigate from home to enable the service (Settings > Accessibility, etc.)
-        console.log(`[FlowWizard] Prerequisite mode (${wizard.prereqType}) - going to home screen first`);
+        // Prerequisite mode: Go DIRECTLY to the target screen
+        // - For streaming: Launch companion app directly
+        // - For accessibility: Open accessibility settings via intent (universal for all Android)
+        console.log(`[FlowWizard] Prerequisite mode (${wizard.prereqType}) - launching target directly`);
 
         // Set streaming mode on recorder
         const savedCaptureMode = localStorage.getItem('flowWizard.captureMode') || 'polling';
         wizard.recorder.streamingMode = savedCaptureMode === 'streaming';
 
-        // Mark initial steps done
         updateSetupStep('register', 'done');
         updateSetupStep('wake', 'done');
         updateSetupStep('unlock', 'done');
         updateSetupStep('launch', 'active');
-        setSetupStatus(wizard, 'Going to home screen...');
 
         try {
-            // Go to home screen first - this ensures a consistent starting point
-            await fetch(`${getApiBase()}/adb/key`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ device_id: wizard.selectedDevice, key: 'KEYCODE_HOME' })
-            });
+            let firstStep = null;
 
-            // Wait for home screen to appear
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            if (wizard.prereqType === 'streaming') {
+                // Launch companion app directly by package name
+                setSetupStatus(wizard, 'Launching Companion app...');
+                await fetch(`${getApiBase()}/adb/launch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device_id: wizard.selectedDevice,
+                        package: 'com.visualmapper.companion'
+                    })
+                });
+                firstStep = {
+                    step_type: 'launch_app',
+                    package: 'com.visualmapper.companion',
+                    description: 'Open Visual Mapper Companion'
+                };
 
-            // Add go_home as the first step in the flow
-            wizard.flowSteps = [{
-                step_type: 'go_home',
-                description: 'Start from home screen'
-            }];
+            } else if (wizard.prereqType === 'accessibility') {
+                // Open accessibility settings directly via intent - works on ALL Android devices
+                setSetupStatus(wizard, 'Opening Accessibility Settings...');
+                await fetch(`${getApiBase()}/adb/shell`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device_id: wizard.selectedDevice,
+                        command: 'am start -a android.settings.ACCESSIBILITY_SETTINGS'
+                    })
+                });
+                firstStep = {
+                    step_type: 'open_settings',
+                    settings_action: 'android.settings.ACCESSIBILITY_SETTINGS',
+                    description: 'Open Accessibility Settings'
+                };
+
+            } else if (wizard.prereqType === 'overlay_permission') {
+                // Open overlay permission settings directly
+                setSetupStatus(wizard, 'Opening Overlay Settings...');
+                await fetch(`${getApiBase()}/adb/shell`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device_id: wizard.selectedDevice,
+                        command: 'am start -a android.settings.action.MANAGE_OVERLAY_PERMISSION'
+                    })
+                });
+                firstStep = {
+                    step_type: 'open_settings',
+                    settings_action: 'android.settings.action.MANAGE_OVERLAY_PERMISSION',
+                    description: 'Open Overlay Permission Settings'
+                };
+            }
+
+            // Wait for the app/settings to open
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            // Initialize flow with the first step
+            wizard.flowSteps = firstStep ? [firstStep] : [];
             wizard.recorder.steps = [...wizard.flowSteps];
 
             updateSetupStep('launch', 'done');
             updateSetupStep('wait', 'active');
-            setSetupStatus(wizard, 'Capturing home screen...');
+            setSetupStatus(wizard, 'Capturing screen...');
 
-            // Capture the home screen
+            // Capture the current screen
             await wizard.recorder.captureScreenshot();
             await wizard.updateScreenshotDisplay();
-
-            // Update the step list UI with the initial go_home step
             wizard.stepManager.render(wizard.flowSteps);
 
             updateSetupStep('wait', 'done');
             updateSetupStep('stream', 'done');
             hideSetupOverlay(wizard);
-            setSetupStatusReady(wizard, 'Ready - Follow the steps to enable the service');
+            setSetupStatusReady(wizard, 'Complete the setup steps shown below');
 
-            // Show the prerequisite guidance panel
+            // Show the prerequisite guidance (as a non-intrusive banner)
             showPrerequisiteGuidance(wizard, wizard.prereqType);
 
         } catch (e) {

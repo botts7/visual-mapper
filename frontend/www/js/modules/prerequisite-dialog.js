@@ -284,45 +284,86 @@ export function showPrerequisiteGuidance(wizard, prereqType) {
     }
 
     const guidance = PREREQUISITE_GUIDANCE[prereqType] || {
-        title: 'Create Setup Flow',
-        subtitle: 'Recording steps',
-        steps: ['Record the steps to enable this feature']
+        title: 'Setup Flow',
+        subtitle: 'Recording',
+        steps: ['Complete the setup']
     };
 
+    // Create a compact bottom banner that shows steps one at a time
     const overlay = document.createElement('div');
     overlay.id = 'prereqGuidanceOverlay';
-    overlay.className = 'guidance-overlay';
+    overlay.className = 'guidance-banner';
+
+    // Store steps data for navigation
+    overlay.dataset.currentStep = '0';
+    overlay.dataset.totalSteps = guidance.steps.length;
 
     overlay.innerHTML = `
-        <div class="guidance-panel">
-            <h3>${guidance.title}</h3>
-            ${guidance.subtitle ? `<p class="guidance-subtitle">${guidance.subtitle}</p>` : ''}
-            <ol class="guidance-steps">
-                ${guidance.steps.map((step, i) => `
-                    <li class="guidance-step" data-step="${i}">
-                        ${step}
-                    </li>
-                `).join('')}
-            </ol>
-            <p class="guidance-hint">
-                Tap on elements to record each step. Your actions will be saved
-                and replayed automatically when this service needs to be enabled.
-            </p>
-            <div class="guidance-actions">
+        <div class="guidance-banner-content">
+            <div class="guidance-banner-header">
+                <span class="guidance-banner-title">${guidance.title}</span>
+                <span class="guidance-banner-progress">Step <span id="guidanceCurrentStep">1</span> of ${guidance.steps.length}</span>
+            </div>
+            <div class="guidance-banner-step">
+                <span class="guidance-step-icon">👆</span>
+                <span id="guidanceStepText">${guidance.steps[0]}</span>
+            </div>
+            <div class="guidance-banner-actions">
                 <button id="btnCancelGuidance" class="btn-small btn-secondary">Cancel</button>
-                <button id="btnFinishGuidance" class="btn-small btn-primary">Save Setup Flow</button>
+                <button id="btnPrevStep" class="btn-small btn-secondary" disabled>← Prev</button>
+                <button id="btnNextStep" class="btn-small btn-secondary">Next →</button>
+                <button id="btnFinishGuidance" class="btn-small btn-primary">Save Flow</button>
             </div>
         </div>
     `;
 
-    // Append to the screenshot container for proper positioning inside the canvas view
-    const screenshotContainer = document.getElementById('screenshotContainer')
-        || document.querySelector('.screenshot-display')
-        || document.querySelector('.screenshot-panel');
-    if (screenshotContainer) {
-        screenshotContainer.appendChild(overlay);
+    // Store steps for navigation
+    overlay._steps = guidance.steps;
+
+    // Append to screenshot panel (bottom of screen)
+    const screenshotPanel = document.querySelector('.screenshot-panel');
+    if (screenshotPanel) {
+        screenshotPanel.appendChild(overlay);
     } else {
         document.body.appendChild(overlay);
+    }
+
+    // Navigation functions
+    const updateStepDisplay = () => {
+        const currentStep = parseInt(overlay.dataset.currentStep);
+        const totalSteps = parseInt(overlay.dataset.totalSteps);
+
+        document.getElementById('guidanceCurrentStep').textContent = currentStep + 1;
+        document.getElementById('guidanceStepText').textContent = overlay._steps[currentStep];
+
+        // Update button states
+        document.getElementById('btnPrevStep').disabled = currentStep === 0;
+        document.getElementById('btnNextStep').disabled = currentStep >= totalSteps - 1;
+    };
+
+    // Prev button
+    const prevBtn = overlay.querySelector('#btnPrevStep');
+    if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+            const currentStep = parseInt(overlay.dataset.currentStep);
+            if (currentStep > 0) {
+                overlay.dataset.currentStep = currentStep - 1;
+                updateStepDisplay();
+            }
+        });
+    }
+
+    // Next button
+    const nextBtn = overlay.querySelector('#btnNextStep');
+    if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+            const currentStep = parseInt(overlay.dataset.currentStep);
+            const totalSteps = parseInt(overlay.dataset.totalSteps);
+            if (currentStep < totalSteps - 1) {
+                overlay.dataset.currentStep = currentStep + 1;
+                updateStepDisplay();
+            }
+        });
     }
 
     // Wire up events
@@ -424,39 +465,30 @@ async function saveAsPrerequisiteFlow(wizard, prereqType) {
 
 /**
  * Guidance text for each prerequisite type
- * Note: First step (go_home) is added automatically by the wizard
+ * Steps are simplified since we now launch directly to the target app/settings
  */
 const PREREQUISITE_GUIDANCE = {
     'accessibility': {
-        title: 'Enable Accessibility Service',
-        subtitle: 'Starting from Home Screen',
+        title: 'Enable Accessibility',
         steps: [
-            'Tap the Settings app icon',
-            'Find and tap "Accessibility"',
-            'Scroll to find "Visual Mapper"',
+            'Find "Visual Mapper" in the list',
+            'Tap on it to open settings',
             'Toggle the service ON',
-            'Confirm the permission dialog if shown'
+            'Tap "Allow" on the permission dialog'
         ]
     },
     'streaming': {
-        title: 'Start Screen Streaming',
-        subtitle: 'Starting from Home Screen',
+        title: 'Start Streaming',
         steps: [
-            'Open Visual Mapper Companion app',
-            'Tap the "Streaming" tab',
             'Tap "Start Streaming" button',
-            'Approve the screen capture permission'
+            'Tap "Start now" on the permission dialog'
         ]
     },
     'overlay_permission': {
-        title: 'Grant Overlay Permission',
-        subtitle: 'Starting from Home Screen',
+        title: 'Enable Overlay',
         steps: [
-            'Tap the Settings app icon',
-            'Navigate to Apps > Special app access',
-            'Find "Display over other apps"',
-            'Select Visual Mapper Companion',
-            'Enable the permission'
+            'Find "Visual Mapper Companion"',
+            'Toggle the permission ON'
         ]
     }
 };
