@@ -540,6 +540,49 @@ img.app-icon {
     text-overflow: ellipsis;
 }
 
+/* Command Method Badge - shows WebSocket/MQTT/ADB routing */
+.command-method-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.15);
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.command-method-badge .method-icon {
+    font-size: 12px;
+}
+
+.command-method-badge .method-label {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Method-specific colors */
+.command-method-badge.method-websocket {
+    background: rgba(76, 175, 80, 0.3);
+    color: #81c784;
+}
+
+.command-method-badge.method-mqtt {
+    background: rgba(33, 150, 243, 0.3);
+    color: #64b5f6;
+}
+
+.command-method-badge.method-adb {
+    background: rgba(255, 152, 0, 0.3);
+    color: #ffb74d;
+}
+
+.command-method-badge.method-unknown {
+    background: rgba(158, 158, 158, 0.3);
+    color: #bdbdbd;
+}
+
 .toolbar-app-icon {
     width: 22px;
     height: 22px;
@@ -691,6 +734,8 @@ img.app-icon {
     font-size: 9px;
     font-weight: 600;
     text-transform: uppercase;
+    min-width: 100px;
+    text-align: center;
 }
 
 .connection-status.connected {
@@ -3958,4 +4003,383 @@ body.dark-mode .nav-stat {
         background: #2a2a2a;
         color: #e0e0e0;
     }
+}
+
+/* =============================================================================
+   PREREQUISITE DIALOG STYLES
+   Dialog shown when required services (accessibility, streaming) are missing
+   ============================================================================= */
+
+/* Prerequisite Dialog Overlay */
+.prerequisite-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    animation: fadeIn 0.2s ease;
+}
+
+/* Prerequisite Dialog Container */
+.prerequisite-dialog {
+    background: var(--card-background, #1e1e1e);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 500px;
+    width: 90%;
+    position: relative;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.prerequisite-dialog h2 {
+    margin: 0 0 8px 0;
+    font-size: 1.25rem;
+    color: var(--text-color, #f0f0f0);
+}
+
+.prereq-intro {
+    color: var(--text-secondary, #aaaaaa);
+    margin: 0 0 20px 0;
+    font-size: 0.9rem;
+}
+
+.prereq-close-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary, #aaaaaa);
+    font-size: 24px;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background 0.2s, color 0.2s;
+}
+
+.prereq-close-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-color, #f0f0f0);
+}
+
+/* Prerequisite List */
+.prerequisite-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+/* Prerequisite Item */
+.prerequisite-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color, #333);
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.prerequisite-item.status-missing {
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.prerequisite-item.status-ok {
+    background: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.3);
+}
+
+/* Prerequisite Icon */
+.prereq-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-missing .prereq-icon {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+.status-ok .prereq-icon {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+}
+
+/* Prerequisite Info */
+.prereq-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.prereq-info strong {
+    display: block;
+    color: var(--text-color, #f0f0f0);
+    font-size: 0.95rem;
+    margin-bottom: 2px;
+}
+
+.prereq-status {
+    display: block;
+    color: var(--text-secondary, #888);
+    font-size: 0.8rem;
+}
+
+/* Prerequisite Item Actions */
+.prereq-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+/* Small Buttons */
+.btn-small {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    white-space: nowrap;
+}
+
+.btn-small:hover {
+    transform: translateY(-1px);
+}
+
+.btn-small:active {
+    transform: translateY(0);
+}
+
+.btn-small.btn-primary {
+    background: var(--primary-color, #3b82f6);
+    color: white;
+}
+
+.btn-small.btn-primary:hover {
+    background: var(--primary-hover, #2563eb);
+}
+
+.btn-small.btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-color, #f0f0f0);
+}
+
+.btn-small.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.btn-small.btn-success {
+    background: #22c55e;
+    color: white;
+}
+
+.btn-small:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Auto-run Toggle */
+.auto-run-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: var(--text-secondary, #888);
+    cursor: pointer;
+    user-select: none;
+}
+
+.auto-run-toggle input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+.auto-run-toggle input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* Prerequisite Actions (bottom buttons) */
+.prerequisite-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color, #333);
+}
+
+/* =============================================================================
+   PREREQUISITE GUIDANCE PANEL
+   Shown during prerequisite flow recording
+   ============================================================================= */
+
+.guidance-overlay {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 300px;
+    max-height: calc(100% - 20px);
+    background: rgba(30, 41, 59, 0.95);
+    border: 1px solid rgba(59, 130, 246, 0.5);
+    border-radius: 12px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    animation: slideInLeft 0.3s ease;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+}
+
+@keyframes slideInLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.guidance-panel {
+    padding: 16px;
+    color: var(--text-color, #f0f0f0);
+    display: flex;
+    flex-direction: column;
+    max-height: 100%;
+    overflow-y: auto;
+}
+
+.guidance-panel h3 {
+    margin: 0 0 4px 0;
+    font-size: 1rem;
+    color: var(--primary-color, #3b82f6);
+}
+
+.guidance-subtitle {
+    margin: 0 0 12px 0;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.6);
+    font-style: italic;
+}
+
+/* Guidance Steps */
+.guidance-steps {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 20px 0;
+    flex: 1;
+}
+
+.guidance-step {
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary, #aaaaaa);
+    font-size: 0.9rem;
+    position: relative;
+    padding-left: 28px;
+    counter-increment: step-counter;
+}
+
+.guidance-step::before {
+    content: counter(step-counter);
+    position: absolute;
+    left: 0;
+    top: 12px;
+    width: 20px;
+    height: 20px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.guidance-steps {
+    counter-reset: step-counter;
+}
+
+.guidance-step.active {
+    color: var(--primary-color, #3b82f6);
+    font-weight: 500;
+}
+
+.guidance-step.active::before {
+    background: var(--primary-color, #3b82f6);
+    color: white;
+}
+
+.guidance-step.completed {
+    color: #22c55e;
+}
+
+.guidance-step.completed::before {
+    background: #22c55e;
+    color: white;
+    content: '\2713';
+}
+
+.guidance-hint {
+    color: var(--text-secondary, #888);
+    font-size: 0.8rem;
+    margin: 0 0 16px 0;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+}
+
+.guidance-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: auto;
+}
+
+.guidance-actions .btn-small {
+    flex: 1;
 }

@@ -587,39 +587,63 @@ export async function loadStep3(wizard) {
     const isPrerequisiteMode = wizard.recordMode === 'prerequisite' && wizard.prereqType;
 
     if (isPrerequisiteMode) {
-        // Prerequisite mode: DON'T launch the selected app
-        // User will navigate from current screen (e.g., home screen) to enable the service
-        console.log(`[FlowWizard] Prerequisite mode (${wizard.prereqType}) - skipping app launch, using current screen`);
+        // Prerequisite mode: Start from HOME screen as a consistent base
+        // User will navigate from home to enable the service (Settings > Accessibility, etc.)
+        console.log(`[FlowWizard] Prerequisite mode (${wizard.prereqType}) - going to home screen first`);
 
         // Set streaming mode on recorder
         const savedCaptureMode = localStorage.getItem('flowWizard.captureMode') || 'polling';
         wizard.recorder.streamingMode = savedCaptureMode === 'streaming';
 
-        // Mark launch step as skipped (not applicable for prerequisite flows)
+        // Mark initial steps done
         updateSetupStep('register', 'done');
         updateSetupStep('wake', 'done');
         updateSetupStep('unlock', 'done');
-        updateSetupStep('launch', 'done');
-        updateSetupStep('wait', 'active');
-        setSetupStatus(wizard, 'Preparing screen capture...');
+        updateSetupStep('launch', 'active');
+        setSetupStatus(wizard, 'Going to home screen...');
 
         try {
-            // Just capture current screen without launching any app
+            // Go to home screen first - this ensures a consistent starting point
+            await fetch(`${getApiBase()}/adb/key`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device_id: wizard.selectedDevice, key: 'KEYCODE_HOME' })
+            });
+
+            // Wait for home screen to appear
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // Add go_home as the first step in the flow
+            wizard.flowSteps = [{
+                step_type: 'go_home',
+                description: 'Start from home screen'
+            }];
+            wizard.recorder.steps = [...wizard.flowSteps];
+
+            updateSetupStep('launch', 'done');
+            updateSetupStep('wait', 'active');
+            setSetupStatus(wizard, 'Capturing home screen...');
+
+            // Capture the home screen
             await wizard.recorder.captureScreenshot();
             await wizard.updateScreenshotDisplay();
+
+            // Update the step list UI with the initial go_home step
+            wizard.stepManager.render(wizard.flowSteps);
+
             updateSetupStep('wait', 'done');
             updateSetupStep('stream', 'done');
             hideSetupOverlay(wizard);
-            setSetupStatusReady(wizard, 'Ready - Navigate to enable the service');
+            setSetupStatusReady(wizard, 'Ready - Follow the steps to enable the service');
 
             // Show the prerequisite guidance panel
             showPrerequisiteGuidance(wizard, wizard.prereqType);
 
         } catch (e) {
-            console.warn('[FlowWizard] Failed to capture screenshot:', e);
+            console.warn('[FlowWizard] Failed to setup prerequisite mode:', e);
             updateSetupStep('wait', 'error');
             hideSetupOverlay(wizard);
-            setSetupStatus(wizard, 'Failed to capture screen', 'error');
+            setSetupStatus(wizard, 'Failed to setup - try again', 'error');
         }
 
     } else if (shouldStartFresh) {
