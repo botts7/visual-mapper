@@ -605,34 +605,21 @@ export async function loadStep3(wizard) {
             let firstStep = null;
 
             if (wizard.prereqType === 'streaming') {
-                // Force-stop companion app first to ensure clean state
-                setSetupStatus(wizard, 'Restarting Companion app...');
+                // Launch MediaProjectionRequestActivity directly via ADB
+                // This opens the streaming permission dialog immediately
+                setSetupStatus(wizard, 'Opening streaming permission...');
                 await fetch(`${getApiBase()}/adb/shell`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         device_id: wizard.selectedDevice,
-                        command: 'am force-stop com.visualmapper.companion'
-                    })
-                });
-
-                // Brief delay for clean shutdown
-                await new Promise(r => setTimeout(r, 500));
-
-                // Launch companion app fresh
-                setSetupStatus(wizard, 'Launching Companion app...');
-                await fetch(`${getApiBase()}/adb/launch`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        device_id: wizard.selectedDevice,
-                        package: 'com.visualmapper.companion'
+                        command: 'am start -n com.visualmapper.companion/.streaming.MediaProjectionRequestActivity'
                     })
                 });
                 firstStep = {
-                    step_type: 'launch_app',
-                    package: 'com.visualmapper.companion',
-                    description: 'Open Visual Mapper Companion'
+                    step_type: 'shell_command',
+                    command: 'am start -n com.visualmapper.companion/.streaming.MediaProjectionRequestActivity',
+                    description: 'Open streaming permission dialog'
                 };
 
             } else if (wizard.prereqType === 'accessibility') {
