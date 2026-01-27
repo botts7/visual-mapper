@@ -583,7 +583,46 @@ export async function loadStep3(wizard) {
     // Starting re-launches app and adds duplicate launch_app step
     const shouldStartFresh = !isReturning && !wizard.isEditMode();
 
-    if (shouldStartFresh) {
+    // Check if we're in prerequisite recording mode - skip app launch
+    const isPrerequisiteMode = wizard.recordMode === 'prerequisite' && wizard.prereqType;
+
+    if (isPrerequisiteMode) {
+        // Prerequisite mode: DON'T launch the selected app
+        // User will navigate from current screen (e.g., home screen) to enable the service
+        console.log(`[FlowWizard] Prerequisite mode (${wizard.prereqType}) - skipping app launch, using current screen`);
+
+        // Set streaming mode on recorder
+        const savedCaptureMode = localStorage.getItem('flowWizard.captureMode') || 'polling';
+        wizard.recorder.streamingMode = savedCaptureMode === 'streaming';
+
+        // Mark launch step as skipped (not applicable for prerequisite flows)
+        updateSetupStep('register', 'done');
+        updateSetupStep('wake', 'done');
+        updateSetupStep('unlock', 'done');
+        updateSetupStep('launch', 'done');
+        updateSetupStep('wait', 'active');
+        setSetupStatus(wizard, 'Preparing screen capture...');
+
+        try {
+            // Just capture current screen without launching any app
+            await wizard.recorder.captureScreenshot();
+            await wizard.updateScreenshotDisplay();
+            updateSetupStep('wait', 'done');
+            updateSetupStep('stream', 'done');
+            hideSetupOverlay(wizard);
+            setSetupStatusReady(wizard, 'Ready - Navigate to enable the service');
+
+            // Show the prerequisite guidance panel
+            showPrerequisiteGuidance(wizard, wizard.prereqType);
+
+        } catch (e) {
+            console.warn('[FlowWizard] Failed to capture screenshot:', e);
+            updateSetupStep('wait', 'error');
+            hideSetupOverlay(wizard);
+            setSetupStatus(wizard, 'Failed to capture screen', 'error');
+        }
+
+    } else if (shouldStartFresh) {
         console.log('[FlowWizard] Starting fresh recording session');
 
         // Set streaming mode on recorder BEFORE starting to avoid ADB contention

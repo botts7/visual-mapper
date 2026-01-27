@@ -1,6 +1,7 @@
 /**
  * Flow Wizard Step 5 - Settings & Save
- * Visual Mapper v0.0.12
+ * Visual Mapper v0.0.13
+ * v0.0.13: Handle prerequisite mode - save flows as prerequisite flows with proper linking
  * v0.0.12: Resume scheduler IMMEDIATELY after save (before dialog), with finally block safety
  * v0.0.11: Added timeout safety net for _savingFlow flag (60s auto-reset)
  * v0.0.10: Release wizard lock and resume scheduler BEFORE redirect to ensure flows run
@@ -11,6 +12,8 @@
  */
 
 import { showToast } from './toast.js?v=0.4.0-beta.4';
+import { PREREQ_NAMES } from './prerequisite-checker.js?v=0.4.0-beta';
+import { hidePrerequisiteGuidance } from './prerequisite-dialog.js?v=0.4.0-beta';
 
 function getApiBase() {
     return window.API_BASE || '/api';
@@ -22,12 +25,28 @@ function getApiBase() {
 export async function loadStep(wizard) {
     console.log('[Step5] Loading Settings');
 
+    // Check if we're in prerequisite mode
+    const isPrerequisiteMode = wizard.recordMode === 'prerequisite' && wizard.prereqType;
+
     // Auto-generate flow name
-    const appPackage = wizard.selectedApp?.package || wizard.selectedApp || '';
-    const appName = appPackage ? appPackage.split('.').pop() : 'flow';
     const flowNameInput = document.getElementById('flowName');
     if (flowNameInput && !flowNameInput.value) {
-        flowNameInput.value = `${appName}_flow`;
+        if (isPrerequisiteMode) {
+            // For prerequisite flows, use a descriptive name
+            const prereqName = PREREQ_NAMES[wizard.prereqType] || wizard.prereqType;
+            flowNameInput.value = `Setup: ${prereqName}`;
+        } else {
+            // For normal flows, use app name
+            const appPackage = wizard.selectedApp?.package || wizard.selectedApp || '';
+            const appName = appPackage ? appPackage.split('.').pop() : 'flow';
+            flowNameInput.value = `${appName}_flow`;
+        }
+    }
+
+    // If prerequisite mode, show a banner explaining what's being saved
+    if (isPrerequisiteMode) {
+        const prereqName = PREREQ_NAMES[wizard.prereqType] || wizard.prereqType;
+        showPrerequisiteBanner(prereqName);
     }
 
     const startFromCurrent = document.getElementById('startFromCurrentScreen');
@@ -53,6 +72,43 @@ export async function loadStep(wizard) {
     const btnSave = document.getElementById('btnSaveFlow');
     if (btnSave) {
         btnSave.onclick = () => saveFlow(wizard);
+        // Update button text for prerequisite mode
+        if (isPrerequisiteMode) {
+            btnSave.textContent = 'Save Setup Flow';
+        }
+    }
+}
+
+/**
+ * Show a banner explaining that this is a prerequisite setup flow
+ */
+function showPrerequisiteBanner(prereqName) {
+    // Remove existing banner if any
+    const existing = document.getElementById('prereqBanner');
+    if (existing) existing.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'prereqBanner';
+    banner.style.cssText = `
+        background: linear-gradient(135deg, #3b82f6, #6366f1);
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+    `;
+    banner.innerHTML = `
+        <strong>Creating Setup Flow: ${prereqName}</strong>
+        <p style="margin: 8px 0 0 0; font-size: 0.9em; opacity: 0.9;">
+            This flow will automatically run when ${prereqName.toLowerCase()} is needed but not active.
+            The flow will NOT be scheduled - it only runs on demand.
+        </p>
+    `;
+
+    // Insert at top of the settings form
+    const settingsForm = document.querySelector('.step-content') || document.querySelector('.flow-settings');
+    if (settingsForm) {
+        settingsForm.insertBefore(banner, settingsForm.firstChild);
     }
 }
 
@@ -122,6 +178,9 @@ export async function saveFlow(wizard) {
         const autoSleepAfter = document.getElementById('autoSleepAfter')?.checked ?? true;
         const verifyScreenOn = document.getElementById('verifyScreenOn')?.checked ?? true;
 
+        // Check if we're in prerequisite recording mode
+        const isPrerequisiteMode = wizard.recordMode === 'prerequisite' && wizard.prereqType;
+
         const flowPayload = {
             flow_id: flowId,
             device_id: deviceId,
@@ -130,7 +189,8 @@ export async function saveFlow(wizard) {
             description: flowDescription || '',
             steps: wizard.flowSteps,
             update_interval_seconds: updateIntervalSeconds,
-            enabled: true,
+            // Prerequisite flows should NOT run on schedule
+            enabled: isPrerequisiteMode ? false : true,
             stop_on_error: false,
             max_flow_retries: 3,
             flow_timeout: 60,
@@ -141,6 +201,13 @@ export async function saveFlow(wizard) {
             verify_screen_on: verifyScreenOn,
             wake_timeout_ms: 3000
         };
+
+        // Add prerequisite metadata if in prerequisite mode
+        if (isPrerequisiteMode) {
+            flowPayload.is_prerequisite = true;
+            flowPayload.prereq_type = wizard.prereqType;
+            console.log(`[Step5] Saving as prerequisite flow for: ${wizard.prereqType}`);
+        }
 
         console.log(`[Step5] ${isEditing ? 'Updating' : 'Creating'} flow:`, flowPayload);
 
@@ -166,7 +233,57 @@ export async function saveFlow(wizard) {
         }
 
         const savedFlow = await response.json();
+        const savedFlowId = savedFlow.flow_id || savedFlow.id || flowId;
         console.log(`[Step5] Flow ${isEditing ? 'updated' : 'saved'}:`, savedFlow);
+
+        // If this is a prerequisite flow, link it to the prerequisite type
+        if (isPrerequisiteMode) {
+            console.log(`[Step5] Linking flow ${savedFlowId} to prerequisite: ${wizard.prereqType}`);
+            try {
+                const linkResponse = await fetch(
+                    `${getApiBase()}/prerequisites/${encodeURIComponent(deviceId)}/${wizard.prereqType}/link-flow`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ flow_id: savedFlowId })
+                    }
+                );
+                if (linkResponse.ok) {
+                    console.log(`[Step5] Successfully linked flow to ${wizard.prereqType}`);
+                } else {
+                    console.warn(`[Step5] Failed to link flow: ${linkResponse.status}`);
+                }
+            } catch (linkError) {
+                console.warn('[Step5] Failed to link prerequisite flow:', linkError);
+            }
+
+            // Hide the guidance panel
+            hidePrerequisiteGuidance();
+
+            // Reset prerequisite state
+            const prereqName = PREREQ_NAMES[wizard.prereqType] || wizard.prereqType;
+            wizard.recordMode = 'normal';
+            wizard.prereqType = null;
+
+            showToast(`${prereqName} setup flow saved!`, 'success', 3000);
+
+            // CRITICAL: Release wizard lock and resume scheduler
+            await releaseWizardAndResumeScheduler(wizard);
+
+            // Show simple dialog for prerequisite flows
+            const result = await showPrerequisiteSavedDialog(savedFlow, prereqName);
+
+            if (result === 'view') {
+                window.location.href = `flows.html?refresh=${Date.now()}`;
+            } else if (result === 'continue') {
+                // Go back to step 3 to continue with normal flow recording
+                wizard.goToStep(3);
+            } else if (result === 'test') {
+                // Test run the prerequisite flow
+                await testPrerequisiteFlow(wizard, savedFlowId, prereqName);
+            }
+            return;
+        }
 
         showToast(`Flow ${isEditing ? 'updated' : 'saved'} successfully!`, 'success', 3000);
 
@@ -318,6 +435,102 @@ export function getStepData(wizard) {
         intervalValue: parseInt(document.getElementById('intervalValue')?.value || '60'),
         intervalUnit: parseInt(document.getElementById('intervalUnit')?.value || '60')
     };
+}
+
+/**
+ * Show prerequisite flow saved dialog
+ */
+async function showPrerequisiteSavedDialog(flow, prereqName) {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        `;
+
+        overlay.innerHTML = `
+            <div style="background: white; border-radius: 8px; padding: 30px; max-width: 500px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                <h2 style="margin: 0 0 15px 0; color: #22c55e;">Setup Flow Saved!</h2>
+                <p style="margin: 0 0 20px 0; color: #64748b;">
+                    <strong>${prereqName}</strong> setup flow has been saved.
+                    It will run automatically when this service is needed but not running.
+                </p>
+                <div style="margin: 0 0 20px 0; padding: 15px; background: #f1f5f9; border-radius: 4px;">
+                    <div style="margin-bottom: 8px;"><strong>Name:</strong> ${flow.name}</div>
+                    <div style="margin-bottom: 8px;"><strong>Steps:</strong> ${flow.steps?.length || 0}</div>
+                    <div><strong>Auto-run:</strong> When ${prereqName.toLowerCase()} is required</div>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
+                    <button id="btnTestPrereq" class="btn btn-secondary">Test Flow</button>
+                    <button id="btnViewPrereqFlows" class="btn btn-secondary">View All Flows</button>
+                    <button id="btnContinueWizard" class="btn btn-primary">Continue Recording</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        document.getElementById('btnTestPrereq').onclick = () => {
+            document.body.removeChild(overlay);
+            resolve('test');
+        };
+
+        document.getElementById('btnViewPrereqFlows').onclick = () => {
+            document.body.removeChild(overlay);
+            resolve('view');
+        };
+
+        document.getElementById('btnContinueWizard').onclick = () => {
+            document.body.removeChild(overlay);
+            resolve('continue');
+        };
+
+        overlay.onclick = (e) => {
+            if (e.target === overlay) {
+                document.body.removeChild(overlay);
+                resolve('continue');
+            }
+        };
+    });
+}
+
+/**
+ * Test run a prerequisite flow
+ */
+async function testPrerequisiteFlow(wizard, flowId, prereqName) {
+    showToast(`Running ${prereqName} setup flow...`, 'info');
+
+    try {
+        const response = await fetch(
+            `${getApiBase()}/flows/${encodeURIComponent(wizard.selectedDevice)}/${encodeURIComponent(flowId)}/execute`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sync: true, timeout: 60 })
+            }
+        );
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(`${prereqName} setup completed successfully!`, 'success', 3000);
+        } else {
+            showToast(`${prereqName} setup failed: ${result.error || 'Unknown error'}`, 'error', 5000);
+        }
+
+        // Go back to step 3 to continue
+        wizard.goToStep(3);
+
+    } catch (error) {
+        console.error('[Step5] Test flow failed:', error);
+        showToast(`Test failed: ${error.message}`, 'error', 5000);
+        wizard.goToStep(3);
+    }
 }
 
 export default { loadStep, validateStep, getStepData, saveFlow };
