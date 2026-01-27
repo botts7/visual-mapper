@@ -72,30 +72,41 @@ function renderPrerequisiteItem(prereq, config) {
     const statusClass = isEnabled ? 'status-ok' : 'status-missing';
     const name = PREREQ_NAMES[prereq] || prereq;
 
+    // Get setup instructions for this prereq type
+    const instructions = SETUP_INSTRUCTIONS[prereq] || 'Complete setup on your device';
+
     return `
         <div class="prerequisite-item ${statusClass}" data-prereq="${prereq}">
             <span class="prereq-icon">${icon}</span>
             <div class="prereq-info">
                 <strong>${name}</strong>
                 <span class="prereq-status">
-                    ${isEnabled ? 'Enabled' : (hasFlow ? 'Setup flow available' : 'Not configured')}
+                    ${isEnabled ? 'Enabled' : instructions}
                 </span>
             </div>
             <div class="prereq-item-actions">
-                ${hasFlow
-                    ? `<button class="btn-small btn-primary btn-run" data-prereq="${prereq}" data-flow-id="${config.flow_id}">Run Setup</button>`
-                    : `<button class="btn-small btn-secondary btn-create" data-prereq="${prereq}">Create Flow</button>`
+                ${isEnabled
+                    ? `<span class="prereq-done">Done</span>`
+                    : `<button class="btn-small btn-primary btn-setup-now" data-prereq="${prereq}">Set Up Now</button>`
                 }
-                <label class="auto-run-toggle" title="Auto-run this flow when entering features that need it">
-                    <input type="checkbox" ${config.auto_run ? 'checked' : ''}
-                           data-prereq="${prereq}" class="auto-run-checkbox"
-                           ${!hasFlow ? 'disabled' : ''}>
-                    Auto
-                </label>
             </div>
         </div>
     `;
 }
+
+// Setup instructions shown in the dialog
+const SETUP_INSTRUCTIONS = {
+    'streaming': 'Tap "Start now" on device when prompted',
+    'accessibility': 'Find "Visual Mapper" in settings and enable it',
+    'overlay_permission': 'Enable overlay permission for Visual Mapper'
+};
+
+// Shell commands to launch setup screens
+const SETUP_COMMANDS = {
+    'streaming': 'am start -n com.visualmapper.companion/.streaming.MediaProjectionRequestActivity',
+    'accessibility': 'am start -a android.settings.ACCESSIBILITY_SETTINGS',
+    'overlay_permission': 'am start -a android.settings.action.MANAGE_OVERLAY_PERMISSION'
+};
 
 /**
  * Wire up dialog event handlers
@@ -120,95 +131,108 @@ function wireupDialogEvents(dialog, wizard, missing, status, resolve) {
         });
     }
 
-    // Run flow buttons
-    dialog.querySelectorAll('.btn-run').forEach(btn => {
+    // "Set Up Now" buttons - execute shell command directly
+    dialog.querySelectorAll('.btn-setup-now').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             const prereq = e.target.dataset.prereq;
-            const flowId = e.target.dataset.flowId;
+            const command = SETUP_COMMANDS[prereq];
+
+            if (!command) {
+                showToast(`No setup command for ${prereq}`, 'error');
+                return;
+            }
 
             // Show loading state
             btn.disabled = true;
-            btn.textContent = 'Running...';
+            btn.textContent = 'Opening...';
 
             try {
-                await runPrerequisiteFlow(wizard, prereq, flowId);
-                showToast(`${PREREQ_NAMES[prereq]} setup completed`, 'success');
-
-                // Re-check status
+                // Execute shell command to open setup screen
                 const response = await fetch(
-                    `${getApiBase()}/prerequisites/${encodeURIComponent(wizard.selectedDevice)}/status`
-                );
-                const newStatus = await response.json();
-
-                // Update the item's appearance
-                const item = dialog.querySelector(`.prerequisite-item[data-prereq="${prereq}"]`);
-                if (item) {
-                    const prereqStatus = newStatus.prerequisites?.[prereq];
-                    const isNowEnabled = prereq === 'streaming' ? prereqStatus?.active : prereqStatus?.enabled;
-                    if (isNowEnabled) {
-                        item.classList.remove('status-missing');
-                        item.classList.add('status-ok');
-                        item.querySelector('.prereq-icon').textContent = '\u2713';
-                        item.querySelector('.prereq-status').textContent = 'Enabled';
-                        btn.textContent = '\u2713 Done';
-                        btn.classList.remove('btn-primary');
-                        btn.classList.add('btn-success');
-                    } else {
-                        btn.textContent = 'Retry';
-                        btn.disabled = false;
-                    }
-                }
-
-                // Check if all now met
-                const stillMissing = missing.filter(p => {
-                    const ps = newStatus.prerequisites?.[p];
-                    return !(p === 'streaming' ? ps?.active : ps?.enabled);
-                });
-
-                if (stillMissing.length === 0) {
-                    setTimeout(() => {
-                        dialog.remove();
-                        resolve({ action: 'completed' });
-                    }, 500);
-                }
-
-            } catch (error) {
-                console.error('[PrerequisiteDialog] Run failed:', error);
-                showToast(`Failed to run setup: ${error.message}`, 'error');
-                btn.disabled = false;
-                btn.textContent = 'Retry';
-            }
-        });
-    });
-
-    // Create flow buttons
-    dialog.querySelectorAll('.btn-create').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const prereq = e.target.dataset.prereq;
-            dialog.remove();
-            resolve({ action: 'create', prereqType: prereq });
-        });
-    });
-
-    // Auto-run checkboxes
-    dialog.querySelectorAll('.auto-run-checkbox').forEach(checkbox => {
-        checkbox.addEventListener('change', async (e) => {
-            const prereq = e.target.dataset.prereq;
-            const enabled = e.target.checked;
-
-            try {
-                await fetch(
-                    `${getApiBase()}/prerequisites/${encodeURIComponent(wizard.selectedDevice)}/${prereq}/set-auto-run`,
+                    `${getApiBase()}/shell/${encodeURIComponent(wizard.selectedDevice)}/execute`,
                     {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ enabled })
+                        body: JSON.stringify({ command })
                     }
                 );
-                showToast(`Auto-run ${enabled ? 'enabled' : 'disabled'} for ${PREREQ_NAMES[prereq]}`, 'info');
+
+                if (!response.ok) {
+                    throw new Error('Failed to execute setup command');
+                }
+
+                // Update button to show waiting state
+                btn.textContent = 'Complete on device...';
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-waiting');
+
+                // Show instruction toast
+                const instruction = SETUP_INSTRUCTIONS[prereq];
+                showToast(instruction, 'info', 5000);
+
+                // Start polling for completion (check every 2 seconds for 60 seconds)
+                let attempts = 0;
+                const maxAttempts = 30;
+                const checkInterval = setInterval(async () => {
+                    attempts++;
+
+                    try {
+                        const statusResponse = await fetch(
+                            `${getApiBase()}/prerequisites/${encodeURIComponent(wizard.selectedDevice)}/status`
+                        );
+                        const newStatus = await statusResponse.json();
+                        const prereqStatus = newStatus.prerequisites?.[prereq];
+                        const isNowEnabled = prereq === 'streaming' ? prereqStatus?.active : prereqStatus?.enabled;
+
+                        if (isNowEnabled) {
+                            clearInterval(checkInterval);
+
+                            // Update UI
+                            const item = dialog.querySelector(`.prerequisite-item[data-prereq="${prereq}"]`);
+                            if (item) {
+                                item.classList.remove('status-missing');
+                                item.classList.add('status-ok');
+                                item.querySelector('.prereq-icon').textContent = '\u2713';
+                                item.querySelector('.prereq-status').textContent = 'Enabled';
+                                btn.textContent = '\u2713 Done';
+                                btn.classList.remove('btn-waiting');
+                                btn.classList.add('btn-success');
+                            }
+
+                            showToast(`${PREREQ_NAMES[prereq]} enabled!`, 'success');
+
+                            // Check if all prerequisites now met
+                            const stillMissing = missing.filter(p => {
+                                const ps = newStatus.prerequisites?.[p];
+                                return !(p === 'streaming' ? ps?.active : ps?.enabled);
+                            });
+
+                            if (stillMissing.length === 0) {
+                                setTimeout(() => {
+                                    dialog.remove();
+                                    resolve({ action: 'completed' });
+                                }, 1000);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn('[PrerequisiteDialog] Status check failed:', err);
+                    }
+
+                    // Timeout - let user manually confirm
+                    if (attempts >= maxAttempts) {
+                        clearInterval(checkInterval);
+                        btn.textContent = 'Check Again';
+                        btn.classList.remove('btn-waiting');
+                        btn.classList.add('btn-secondary');
+                        btn.disabled = false;
+                    }
+                }, 2000);
+
             } catch (error) {
-                console.warn('[PrerequisiteDialog] Failed to set auto-run:', error);
-                e.target.checked = !enabled; // Revert
+                console.error('[PrerequisiteDialog] Setup failed:', error);
+                showToast(`Failed to open setup: ${error.message}`, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Retry';
             }
         });
     });
