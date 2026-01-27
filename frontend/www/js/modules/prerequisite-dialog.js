@@ -284,86 +284,37 @@ export function showPrerequisiteGuidance(wizard, prereqType) {
     }
 
     const guidance = PREREQUISITE_GUIDANCE[prereqType] || {
-        title: 'Setup Flow',
-        subtitle: 'Recording',
+        title: 'Setup',
         steps: ['Complete the setup']
     };
 
-    // Create a compact bottom banner that shows steps one at a time
+    // Create a simple, minimal banner
     const overlay = document.createElement('div');
     overlay.id = 'prereqGuidanceOverlay';
     overlay.className = 'guidance-banner';
 
-    // Store steps data for navigation
-    overlay.dataset.currentStep = '0';
-    overlay.dataset.totalSteps = guidance.steps.length;
+    // Simple single instruction - no complex navigation
+    const allSteps = guidance.steps.join(' → ');
 
     overlay.innerHTML = `
-        <div class="guidance-banner-content">
-            <div class="guidance-banner-header">
-                <span class="guidance-banner-title">${guidance.title}</span>
-                <span class="guidance-banner-progress">Step <span id="guidanceCurrentStep">1</span> of ${guidance.steps.length}</span>
+        <div class="guidance-banner-simple">
+            <div class="guidance-banner-icon">📋</div>
+            <div class="guidance-banner-text">
+                <strong>${guidance.title}:</strong> ${allSteps}
             </div>
-            <div class="guidance-banner-step">
-                <span class="guidance-step-icon">👆</span>
-                <span id="guidanceStepText">${guidance.steps[0]}</span>
-            </div>
-            <div class="guidance-banner-actions">
+            <div class="guidance-banner-buttons">
                 <button id="btnCancelGuidance" class="btn-small btn-secondary">Cancel</button>
-                <button id="btnPrevStep" class="btn-small btn-secondary" disabled>← Prev</button>
-                <button id="btnNextStep" class="btn-small btn-secondary">Next →</button>
-                <button id="btnFinishGuidance" class="btn-small btn-primary">Save Flow</button>
+                <button id="btnFinishGuidance" class="btn-small btn-primary">Done</button>
             </div>
         </div>
     `;
 
-    // Store steps for navigation
-    overlay._steps = guidance.steps;
-
-    // Append to screenshot panel (bottom of screen)
+    // Append to screenshot panel
     const screenshotPanel = document.querySelector('.screenshot-panel');
     if (screenshotPanel) {
         screenshotPanel.appendChild(overlay);
     } else {
         document.body.appendChild(overlay);
-    }
-
-    // Navigation functions
-    const updateStepDisplay = () => {
-        const currentStep = parseInt(overlay.dataset.currentStep);
-        const totalSteps = parseInt(overlay.dataset.totalSteps);
-
-        document.getElementById('guidanceCurrentStep').textContent = currentStep + 1;
-        document.getElementById('guidanceStepText').textContent = overlay._steps[currentStep];
-
-        // Update button states
-        document.getElementById('btnPrevStep').disabled = currentStep === 0;
-        document.getElementById('btnNextStep').disabled = currentStep >= totalSteps - 1;
-    };
-
-    // Prev button
-    const prevBtn = overlay.querySelector('#btnPrevStep');
-    if (prevBtn) {
-        prevBtn.addEventListener('click', () => {
-            const currentStep = parseInt(overlay.dataset.currentStep);
-            if (currentStep > 0) {
-                overlay.dataset.currentStep = currentStep - 1;
-                updateStepDisplay();
-            }
-        });
-    }
-
-    // Next button
-    const nextBtn = overlay.querySelector('#btnNextStep');
-    if (nextBtn) {
-        nextBtn.addEventListener('click', () => {
-            const currentStep = parseInt(overlay.dataset.currentStep);
-            const totalSteps = parseInt(overlay.dataset.totalSteps);
-            if (currentStep < totalSteps - 1) {
-                overlay.dataset.currentStep = currentStep + 1;
-                updateStepDisplay();
-            }
-        });
     }
 
     // Wire up events
@@ -465,30 +416,27 @@ async function saveAsPrerequisiteFlow(wizard, prereqType) {
 
 /**
  * Guidance text for each prerequisite type
- * Steps are simplified since we now launch directly to the target app/settings
+ * Keep it simple - just one clear instruction
  */
 const PREREQUISITE_GUIDANCE = {
     'accessibility': {
         title: 'Enable Accessibility',
         steps: [
-            'Find "Visual Mapper" in the list',
-            'Tap on it to open settings',
-            'Toggle the service ON',
-            'Tap "Allow" on the permission dialog'
+            'Scroll to find "Visual Mapper" and tap it',
+            'Toggle the switch ON',
+            'Tap "Allow" to confirm'
         ]
     },
     'streaming': {
-        title: 'Start Streaming',
+        title: 'Allow Screen Capture',
         steps: [
-            'Tap "Start Streaming" button',
-            'Tap "Start now" on the permission dialog'
+            'Tap "Start now" to allow screen capture'
         ]
     },
     'overlay_permission': {
         title: 'Enable Overlay',
         steps: [
-            'Find "Visual Mapper Companion"',
-            'Toggle the permission ON'
+            'Find "Visual Mapper Companion" and enable it'
         ]
     }
 };

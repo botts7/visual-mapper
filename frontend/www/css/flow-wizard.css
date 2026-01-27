@@ -4246,84 +4246,52 @@ body.dark-mode .nav-stat {
    Shown during prerequisite flow recording
    ============================================================================= */
 
-/* Guidance Banner - compact bottom bar for step-by-step guidance */
+/* Guidance Banner - simple bottom bar */
 .guidance-banner {
     position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
-    background: linear-gradient(135deg, rgba(30, 58, 138, 0.95), rgba(59, 130, 246, 0.9));
-    border-top: 2px solid rgba(147, 197, 253, 0.5);
+    background: linear-gradient(135deg, #1e40af, #3b82f6);
+    border-top: 2px solid #60a5fa;
     z-index: 100;
-    animation: slideUp 0.3s ease;
+    animation: slideUp 0.2s ease;
 }
 
 @keyframes slideUp {
-    from {
-        opacity: 0;
-        transform: translateY(20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
-.guidance-banner-content {
+.guidance-banner-simple {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     padding: 12px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
 }
 
-.guidance-banner-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+.guidance-banner-icon {
+    font-size: 1.3rem;
 }
 
-.guidance-banner-title {
-    font-weight: 600;
-    color: white;
-    font-size: 0.9rem;
-}
-
-.guidance-banner-progress {
-    font-size: 0.8rem;
-    color: rgba(255, 255, 255, 0.8);
-    background: rgba(255, 255, 255, 0.15);
-    padding: 2px 8px;
-    border-radius: 10px;
-}
-
-.guidance-banner-step {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: rgba(255, 255, 255, 0.1);
-    padding: 10px 14px;
-    border-radius: 8px;
-}
-
-.guidance-step-icon {
-    font-size: 1.2rem;
-}
-
-#guidanceStepText {
+.guidance-banner-text {
+    flex: 1;
     color: white;
     font-size: 0.95rem;
-    flex: 1;
 }
 
-.guidance-banner-actions {
+.guidance-banner-text strong {
+    color: #93c5fd;
+}
+
+.guidance-banner-buttons {
     display: flex;
     gap: 8px;
-    justify-content: flex-end;
 }
 
-.guidance-banner-actions .btn-small {
-    padding: 6px 12px;
-    font-size: 0.8rem;
+.guidance-banner-buttons .btn-small {
+    padding: 8px 16px;
+    font-size: 0.85rem;
 }
 
 /* Legacy overlay styles (kept for backwards compatibility) */
