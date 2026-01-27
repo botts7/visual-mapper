@@ -586,6 +586,14 @@ export async function loadStep3(wizard) {
     // Check if we're in prerequisite recording mode - skip app launch
     const isPrerequisiteMode = wizard.recordMode === 'prerequisite' && wizard.prereqType;
 
+    console.log('[FlowWizard] Mode check:', {
+        recordMode: wizard.recordMode,
+        prereqType: wizard.prereqType,
+        isPrerequisiteMode,
+        shouldStartFresh,
+        flowStepsLength: wizard.flowSteps?.length
+    });
+
     if (isPrerequisiteMode) {
         // Prerequisite mode: Go DIRECTLY to the target screen
         // - For streaming: Launch companion app directly
@@ -608,11 +616,10 @@ export async function loadStep3(wizard) {
                 // Launch MediaProjectionRequestActivity directly via ADB
                 // This opens the streaming permission dialog immediately
                 setSetupStatus(wizard, 'Opening streaming permission...');
-                await fetch(`${getApiBase()}/adb/shell`, {
+                await fetch(`${getApiBase()}/shell/${encodeURIComponent(wizard.selectedDevice)}/execute`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        device_id: wizard.selectedDevice,
                         command: 'am start -n com.visualmapper.companion/.streaming.MediaProjectionRequestActivity'
                     })
                 });
@@ -625,11 +632,10 @@ export async function loadStep3(wizard) {
             } else if (wizard.prereqType === 'accessibility') {
                 // Open accessibility settings directly via intent - works on ALL Android devices
                 setSetupStatus(wizard, 'Opening Accessibility Settings...');
-                await fetch(`${getApiBase()}/adb/shell`, {
+                await fetch(`${getApiBase()}/shell/${encodeURIComponent(wizard.selectedDevice)}/execute`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        device_id: wizard.selectedDevice,
                         command: 'am start -a android.settings.ACCESSIBILITY_SETTINGS'
                     })
                 });
@@ -642,11 +648,10 @@ export async function loadStep3(wizard) {
             } else if (wizard.prereqType === 'overlay_permission') {
                 // Open overlay permission settings directly
                 setSetupStatus(wizard, 'Opening Overlay Settings...');
-                await fetch(`${getApiBase()}/adb/shell`, {
+                await fetch(`${getApiBase()}/shell/${encodeURIComponent(wizard.selectedDevice)}/execute`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        device_id: wizard.selectedDevice,
                         command: 'am start -a android.settings.action.MANAGE_OVERLAY_PERMISSION'
                     })
                 });

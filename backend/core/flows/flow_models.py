@@ -37,6 +37,7 @@ class FlowStepType(str):
     INCREMENT = "increment"  # Increment a numeric variable
     BREAK_LOOP = "break_loop"  # Exit current loop early
     CONTINUE_LOOP = "continue_loop"  # Skip to next iteration
+    SHELL = "shell"  # Execute arbitrary shell command
 
 
 class FlowStep(BaseModel):
@@ -71,6 +72,9 @@ class FlowStep(BaseModel):
 
     # Keyevent
     keycode: Optional[str] = Field(None, description="Android keycode")
+
+    # Shell command
+    command: Optional[str] = Field(None, description="Shell command for shell step")
 
     # Action execution
     action_id: Optional[str] = Field(None, description="Action ID to execute")

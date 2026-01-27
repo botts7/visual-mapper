@@ -112,6 +112,8 @@ class FlowExecutor:
             FlowStepType.CONTINUE_LOOP: self._execute_continue_loop,
             # Action execution
             FlowStepType.EXECUTE_ACTION: self._execute_action,
+            # Shell command
+            FlowStepType.SHELL: self._execute_shell,
         }
 
         # Variable context for flow execution (Phase 9)
@@ -1976,6 +1978,38 @@ class FlowExecutor:
                 "action_id": step.action_id,
                 "success": False,
                 "error": str(e),
+            }
+            return False
+
+    async def _execute_shell(
+        self, device_id: str, step: FlowStep, result: FlowExecutionResult
+    ) -> bool:
+        """Execute an arbitrary shell command on the device"""
+        if not step.command:
+            logger.error("  shell step missing command")
+            return False
+
+        logger.debug(f"  Executing shell command: {step.command}")
+
+        try:
+            # Execute shell command via ADB
+            output = await self.adb_bridge.shell(device_id, step.command)
+
+            result.details["shell_command"] = {
+                "command": step.command,
+                "output": output[:500] if output else "",  # Truncate long output
+                "success": True,
+            }
+
+            logger.debug(f"  Shell command executed successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"  Shell command error: {e}")
+            result.details["shell_command"] = {
+                "command": step.command,
+                "error": str(e),
+                "success": False,
             }
             return False
 

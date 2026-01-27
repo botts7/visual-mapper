@@ -330,12 +330,10 @@ export function showPrerequisiteGuidance(wizard, prereqType) {
     const finishBtn = overlay.querySelector('#btnFinishGuidance');
     if (finishBtn) {
         finishBtn.addEventListener('click', async () => {
-            // This will trigger saving the flow as a prerequisite
-            if (wizard.recorder && wizard.flowSteps && wizard.flowSteps.length > 0) {
-                await saveAsPrerequisiteFlow(wizard, prereqType);
-            } else {
-                showToast('No steps recorded yet', 'warning');
-            }
+            // Save the prerequisite flow
+            // For streaming: just the launch step (auto-click handles the rest)
+            // For accessibility: the recorded steps from wizard
+            await saveAsPrerequisiteFlow(wizard, prereqType);
         });
     }
 
@@ -361,18 +359,49 @@ async function saveAsPrerequisiteFlow(wizard, prereqType) {
     try {
         const name = PREREQ_NAMES[prereqType] || prereqType;
 
+        // Generate a unique flow ID
+        const flowId = `prereq_${prereqType}_${Date.now().toString(36)}`;
+
+        // Build steps based on prereqType
+        let steps = [];
+
+        if (prereqType === 'streaming') {
+            // Streaming: single step to launch permission dialog (auto-click handles the rest)
+            steps = [{
+                step_type: 'shell',
+                command: 'am start -n com.visualmapper.companion/.streaming.MediaProjectionRequestActivity'
+            }];
+        } else if (prereqType === 'accessibility') {
+            // Accessibility: use recorded steps, or default to opening settings
+            steps = wizard.flowSteps?.length > 0 ? wizard.flowSteps : [{
+                step_type: 'shell',
+                command: 'am start -a android.settings.ACCESSIBILITY_SETTINGS'
+            }];
+        } else if (prereqType === 'overlay_permission') {
+            // Overlay: use recorded steps, or default to opening settings
+            steps = wizard.flowSteps?.length > 0 ? wizard.flowSteps : [{
+                step_type: 'shell',
+                command: 'am start -a android.settings.action.MANAGE_OVERLAY_PERMISSION'
+            }];
+        } else {
+            // Other: use whatever was recorded
+            steps = wizard.flowSteps || [];
+        }
+
         // Create the flow
         const flowData = {
+            flow_id: flowId,
+            device_id: wizard.selectedDevice,
             name: `Setup: ${name}`,
             description: `Prerequisite flow to enable ${name}`,
-            steps: wizard.flowSteps,
-            is_prerequisite: true,
-            prereq_type: prereqType,
+            steps: steps,
             enabled: false // Don't auto-run as a regular flow
         };
 
+        console.log('[PrerequisiteDialog] Saving flow:', JSON.stringify(flowData, null, 2));
+
         const response = await fetch(
-            `${getApiBase()}/flows/${encodeURIComponent(wizard.selectedDevice)}`,
+            `${getApiBase()}/flows`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -381,11 +410,13 @@ async function saveAsPrerequisiteFlow(wizard, prereqType) {
         );
 
         if (!response.ok) {
-            throw new Error('Failed to save flow');
+            const errorData = await response.json().catch(() => ({}));
+            console.error('[PrerequisiteDialog] Server error:', errorData);
+            throw new Error(errorData.detail || 'Failed to save flow');
         }
 
         const savedFlow = await response.json();
-        const flowId = savedFlow.flow_id || savedFlow.id;
+        const savedFlowId = savedFlow.flow_id || savedFlow.id || flowId;
 
         // Link as prerequisite
         await fetch(
@@ -393,7 +424,7 @@ async function saveAsPrerequisiteFlow(wizard, prereqType) {
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ flow_id: flowId })
+                body: JSON.stringify({ flow_id: savedFlowId })
             }
         );
 
@@ -430,7 +461,7 @@ const PREREQUISITE_GUIDANCE = {
     'streaming': {
         title: 'Allow Screen Capture',
         steps: [
-            'Tap "Start now" to allow screen recording'
+            'Tap "Start now" on your device (auto-clicks when accessibility enabled)'
         ]
     },
     'overlay_permission': {
