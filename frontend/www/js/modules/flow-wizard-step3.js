@@ -605,7 +605,21 @@ export async function loadStep3(wizard) {
             let firstStep = null;
 
             if (wizard.prereqType === 'streaming') {
-                // Launch companion app directly by package name
+                // Force-stop companion app first to ensure clean state
+                setSetupStatus(wizard, 'Restarting Companion app...');
+                await fetch(`${getApiBase()}/adb/shell`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device_id: wizard.selectedDevice,
+                        command: 'am force-stop com.visualmapper.companion'
+                    })
+                });
+
+                // Brief delay for clean shutdown
+                await new Promise(r => setTimeout(r, 500));
+
+                // Launch companion app fresh
                 setSetupStatus(wizard, 'Launching Companion app...');
                 await fetch(`${getApiBase()}/adb/launch`, {
                     method: 'POST',

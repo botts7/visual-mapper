@@ -428,9 +428,11 @@ const PREREQUISITE_GUIDANCE = {
         ]
     },
     'streaming': {
-        title: 'Allow Screen Capture',
+        title: 'Start Streaming',
         steps: [
-            'Tap "Start now" to allow screen capture'
+            'Go to Settings tab',
+            'Tap "Start Streaming"',
+            'Tap "Start now" to allow'
         ]
     },
     'overlay_permission': {
