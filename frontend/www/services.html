@@ -346,6 +346,44 @@
             <p>Monitor and control Visual Mapper backend services</p>
         </div>
 
+        <!-- MQTT Configuration -->
+        <div class="card" id="mqtt-config-card" style="margin-bottom: 20px;">
+            <h2 style="margin-bottom: 15px;">MQTT Configuration</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 15px;">
+                Configure connection to your MQTT broker (e.g., Mosquitto, Home Assistant MQTT add-on)
+            </p>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px;">
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">Broker Host</label>
+                    <input type="text" id="mqtt-broker" placeholder="192.168.1.100 or localhost"
+                           style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-background); color: var(--text-color);">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">Port</label>
+                    <input type="number" id="mqtt-port" placeholder="1883" value="1883"
+                           style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-background); color: var(--text-color);">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">Username (optional)</label>
+                    <input type="text" id="mqtt-username" placeholder="Leave blank if none"
+                           style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-background); color: var(--text-color);">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">Password (optional)</label>
+                    <input type="password" id="mqtt-password" placeholder="Leave blank if none"
+                           style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-background); color: var(--text-color);">
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button class="btn-start" onclick="testMqttConnection()" id="mqtt-test-btn">Test Connection</button>
+                <button class="btn-restart" onclick="saveMqttSettings()" id="mqtt-save-btn">Save & Reconnect</button>
+            </div>
+
+            <div id="mqtt-config-status" style="margin-top: 15px; padding: 10px; border-radius: 4px; display: none;"></div>
+        </div>
+
         <div class="docker-info">
             <h3>Docker Deployment</h3>
             <p>Run all services with a single command:</p>
@@ -547,8 +585,11 @@
                 // Update buttons based on mode
                 const actionsEl = document.getElementById('ml-actions');
                 if (mode === 'disabled') {
-                    // Show hint to enable in config
-                    actionsEl.innerHTML = `<span style="color: var(--text-secondary); font-size: 0.9em;">Configure in Add-on settings</span>`;
+                    // Show Start button to enable ML server
+                    actionsEl.innerHTML = `
+                        <button class="btn-start" id="ml-start" onclick="startMl()">Start</button>
+                        <span style="color: var(--text-secondary); font-size: 0.9em; margin-left: 10px;">Click Start to enable ML training</span>
+                    `;
                 } else if (mode === 'remote') {
                     // Remote mode - no start/stop controls
                     actionsEl.innerHTML = `<span style="color: var(--text-secondary); font-size: 0.9em;">Managed by remote server</span>`;
@@ -774,9 +815,136 @@
             }
         }
 
+        // ========== MQTT Configuration Functions ==========
+
+        async function loadMqttSettings() {
+            try {
+                const response = await fetch(`${API_BASE}/api/settings/mqtt`);
+                const data = await response.json();
+
+                document.getElementById('mqtt-broker').value = data.broker || '';
+                document.getElementById('mqtt-port').value = data.port || 1883;
+                document.getElementById('mqtt-username').value = data.username || '';
+                document.getElementById('mqtt-password').value = data.password || '';
+
+                // Show if using HA auto-config
+                if (data.source === 'homeassistant') {
+                    showMqttStatus('info', 'Using Home Assistant MQTT settings (auto-detected)');
+                }
+            } catch (error) {
+                console.error('Failed to load MQTT settings:', error);
+            }
+        }
+
+        async function testMqttConnection() {
+            const btn = document.getElementById('mqtt-test-btn');
+            const broker = document.getElementById('mqtt-broker').value.trim();
+            const port = parseInt(document.getElementById('mqtt-port').value) || 1883;
+            const username = document.getElementById('mqtt-username').value.trim();
+            const password = document.getElementById('mqtt-password').value;
+
+            if (!broker) {
+                showMqttStatus('error', 'Please enter a broker hostname or IP');
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                btn.textContent = 'Testing...';
+                showMqttStatus('info', 'Testing connection...');
+
+                const response = await fetch(`${API_BASE}/api/settings/mqtt/test`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ broker, port, username, password })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMqttStatus('success', `Connected successfully to ${broker}:${port}`);
+                } else {
+                    showMqttStatus('error', `Connection failed: ${result.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                showMqttStatus('error', `Test failed: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Test Connection';
+            }
+        }
+
+        async function saveMqttSettings() {
+            const btn = document.getElementById('mqtt-save-btn');
+            const broker = document.getElementById('mqtt-broker').value.trim();
+            const port = parseInt(document.getElementById('mqtt-port').value) || 1883;
+            const username = document.getElementById('mqtt-username').value.trim();
+            const password = document.getElementById('mqtt-password').value;
+
+            if (!broker) {
+                showMqttStatus('error', 'Please enter a broker hostname or IP');
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                btn.textContent = 'Saving...';
+                showMqttStatus('info', 'Saving settings and reconnecting...');
+
+                const response = await fetch(`${API_BASE}/api/settings/mqtt`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ broker, port, username, password })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    if (result.connected) {
+                        showMqttStatus('success', `Settings saved and connected to ${broker}:${port}`);
+                    } else {
+                        showMqttStatus('warning', `Settings saved but connection failed: ${result.error || 'Check credentials'}`);
+                    }
+                    // Refresh service status to update MQTT card
+                    await refreshStatus();
+                } else {
+                    showMqttStatus('error', `Failed to save: ${result.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                showMqttStatus('error', `Save failed: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Save & Reconnect';
+            }
+        }
+
+        function showMqttStatus(type, message) {
+            const statusEl = document.getElementById('mqtt-config-status');
+            statusEl.style.display = 'block';
+
+            const colors = {
+                success: { bg: 'rgba(76, 175, 80, 0.2)', border: '#4CAF50', text: '#4CAF50' },
+                error: { bg: 'rgba(244, 67, 54, 0.2)', border: '#f44336', text: '#f44336' },
+                warning: { bg: 'rgba(255, 152, 0, 0.2)', border: '#ff9800', text: '#ff9800' },
+                info: { bg: 'rgba(33, 150, 243, 0.2)', border: '#2196F3', text: '#2196F3' }
+            };
+
+            const style = colors[type] || colors.info;
+            statusEl.style.background = style.bg;
+            statusEl.style.border = `1px solid ${style.border}`;
+            statusEl.style.color = style.text;
+            statusEl.textContent = message;
+
+            // Auto-hide after 10 seconds for success
+            if (type === 'success') {
+                setTimeout(() => { statusEl.style.display = 'none'; }, 10000);
+            }
+        }
+
         // Initial load
         refreshStatus();
         loadMlStats();
+        loadMqttSettings();
 
         // Auto-refresh every 10 seconds
         setInterval(refreshStatus, 10000);

@@ -14,14 +14,14 @@
  */
 
 import { showToast } from '../toast.js?v=0.4.0-beta.4';
-import LiveStream from '../live-stream.js?v=0.4.0-beta.9';
+import LiveStream from '../live-stream.js?v=0.4.0-beta.4';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
     startKeepAwake as sharedStartKeepAwake,
     stopKeepAwake as sharedStopKeepAwake
 } from '../device-unlock.js?v=0.4.0-beta.4';
-import { drawElementOverlays } from '../canvas-overlay-renderer.js?v=0.4.0-beta.10';
-import { showPrerequisiteGuidance } from '../prerequisite-dialog.js?v=0.4.0-beta';
+import { drawElementOverlays } from '../canvas-overlay-renderer.js?v=0.4.0-beta.4';
+import { showPrerequisiteGuidance } from '../prerequisite-dialog.js?v=0.4.0-beta.4';
 
 // Helper to get API base
 function getApiBase() {

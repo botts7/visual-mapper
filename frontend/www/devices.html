@@ -498,6 +498,9 @@
                     <button id="tab-connection" class="config-tab active" style="padding: 10px 20px; background: none; border: none; border-bottom: 2px solid var(--primary-color); color: var(--primary-color); font-weight: 600; cursor: pointer; margin-right: 10px;">
                         Connection
                     </button>
+                    <button id="tab-repair" class="config-tab" style="padding: 10px 20px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); cursor: pointer; margin-right: 10px;">
+                        Re-pair (Wireless)
+                    </button>
                     <button id="tab-security" class="config-tab" style="padding: 10px 20px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); cursor: pointer;">
                         Lock Screen Security
                     </button>
@@ -519,6 +522,42 @@
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
                         <button id="reconfigureCancel" class="btn btn-secondary">Cancel</button>
                         <button id="reconfigureConfirm" class="btn btn-primary">Reconnect</button>
+                    </div>
+                </div>
+
+                <!-- Re-pair Tab Content (Android 11+ Wireless Debugging) -->
+                <div id="content-repair" class="tab-content" style="display: none;">
+                    <div class="info-box" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 12px; margin-bottom: 15px;">
+                        <strong>Re-pair with New Pairing Code:</strong><br>
+                        <span style="font-size: 13px; color: var(--text-secondary);">
+                            1. On device: Settings → Developer Options → Wireless debugging<br>
+                            2. Tap "Pair device with pairing code"<br>
+                            3. Enter the NEW pairing code and ports below
+                        </span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                        <div>
+                            <label style="display: block; margin-bottom: 5px;">Device IP:</label>
+                            <input type="text" id="repairHost" placeholder="192.168.1.2" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px;">Pairing Code (6 digits):</label>
+                            <input type="text" id="repairCode" placeholder="123456" maxlength="6" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                        <div>
+                            <label style="display: block; margin-bottom: 5px;">Pairing Port:</label>
+                            <input type="number" id="repairPairingPort" placeholder="37899" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px;">Connection Port:</label>
+                            <input type="number" id="repairConnectionPort" placeholder="45441" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button id="repairCancel" class="btn btn-secondary">Cancel</button>
+                        <button id="repairConfirm" class="btn btn-primary">Pair & Connect</button>
                     </div>
                 </div>
 
@@ -959,8 +998,9 @@
                                     ? `<button onclick="window.reconnectKnownDevice('${device.connectionId}')" class="btn btn-primary btn-sm" style="white-space: nowrap;">🔌 Reconnect</button>`
                                     : isConnected
                                     ? `<button onclick="window.disconnectDevice('${device.connectionId}')" class="btn btn-secondary btn-sm" style="white-space: nowrap;">⏏️ Disconnect</button>`
-                                    : `<span style="font-size: 11px; color: var(--text-secondary);">Pair to reconnect</span>`
+                                    : ``
                                 }
+                                <button onclick="window.configureKnownDevice('${device.stableId}', '${device.connectionId || ''}', ${!isConnected && !hasReconnectable})" class="btn btn-sm" style="background: #6366f1; color: white; white-space: nowrap;" title="Configure connection or re-pair device">⚙️ Configure</button>
                                 <button onclick="window.removeKnownDevice('${device.stableId}')" class="btn btn-sm" style="background: #dc3545; color: white; white-space: nowrap;" title="Remove this device from the list">🗑️ Remove</button>
                             </div>
                         </div>
@@ -1557,7 +1597,150 @@
 
         // Attach tab click handlers
         document.getElementById('tab-connection').addEventListener('click', () => switchConfigTab('connection'));
+        document.getElementById('tab-repair').addEventListener('click', () => switchConfigTab('repair'));
         document.getElementById('tab-security').addEventListener('click', () => switchConfigTab('security'));
+
+        // Configure known device handler (opens modal, optionally on Re-pair tab)
+        let configureStableDeviceId = null;
+
+        window.configureKnownDevice = async (stableId, connectionId, openRepairTab = false) => {
+            configureStableDeviceId = stableId;
+
+            // Parse current IP:PORT from connection ID if available
+            const ipMatch = connectionId?.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):?(\d+)?$/);
+            const currentIp = ipMatch ? ipMatch[1] : '';
+            const currentPort = ipMatch ? (ipMatch[2] || '5555') : '5555';
+
+            // Set up connection tab
+            reconfigureOldDeviceId = connectionId || null;
+            document.getElementById('reconfigureDeviceId').textContent = stableId + (connectionId ? ` (${connectionId})` : ' - needs pairing');
+            document.getElementById('newDeviceHost').value = currentIp;
+            document.getElementById('newDevicePort').value = currentPort;
+
+            // Set up re-pair tab with same IP if known
+            document.getElementById('repairHost').value = currentIp;
+            document.getElementById('repairCode').value = '';
+            document.getElementById('repairPairingPort').value = '';
+            document.getElementById('repairConnectionPort').value = '';
+
+            // Open on appropriate tab
+            switchConfigTab(openRepairTab ? 'repair' : 'connection');
+
+            // Initialize security UI for this device (if device is connected)
+            if (connectionId) {
+                const securityContainer = document.getElementById('securityConfigContainer');
+                if (securityContainer && typeof deviceSecurityUI !== 'undefined') {
+                    await deviceSecurityUI.initialize(connectionId, securityContainer, {
+                        onSave: () => {
+                            document.getElementById('reconfigureModal').style.display = 'none';
+                            configureStableDeviceId = null;
+                        },
+                        onCancel: () => {
+                            document.getElementById('reconfigureModal').style.display = 'none';
+                            configureStableDeviceId = null;
+                        }
+                    });
+                }
+            } else {
+                // No connection - show message that device must be connected first
+                const securityContainer = document.getElementById('securityConfigContainer');
+                if (securityContainer) {
+                    securityContainer.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">Device must be connected to configure lock screen security.</p>';
+                }
+            }
+
+            // Show modal
+            document.getElementById('reconfigureModal').style.display = 'flex';
+        };
+
+        // Re-pair button handlers
+        document.getElementById('repairCancel').addEventListener('click', () => {
+            document.getElementById('reconfigureModal').style.display = 'none';
+        });
+
+        document.getElementById('repairConfirm').addEventListener('click', async () => {
+            const host = document.getElementById('repairHost').value.trim();
+            const code = document.getElementById('repairCode').value.trim();
+            const pairingPort = document.getElementById('repairPairingPort').value.trim();
+            const connectionPort = document.getElementById('repairConnectionPort').value.trim();
+            const status = document.getElementById('connectionStatus');
+
+            if (!host || !code || !pairingPort || !connectionPort) {
+                alert('Please fill in all fields: IP, Pairing Code, Pairing Port, and Connection Port');
+                return;
+            }
+
+            if (code.length !== 6 || !/^\d+$/.test(code)) {
+                alert('Pairing code must be exactly 6 digits');
+                return;
+            }
+
+            status.textContent = `Re-pairing device at ${host}...`;
+            status.className = 'status';
+            document.getElementById('reconfigureModal').style.display = 'none';
+
+            try {
+                // Step 1: Pair with new code
+                const pairResponse = await fetch(`${API_BASE}/adb/pair`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ip: host,
+                        pairing_port: parseInt(pairingPort),
+                        pairing_code: code,
+                        connection_port: parseInt(connectionPort)
+                    })
+                });
+
+                if (!pairResponse.ok) {
+                    const error = await pairResponse.json();
+                    throw new Error(error.detail || 'Pairing failed');
+                }
+
+                status.textContent = `Pairing successful, connecting to ${host}:${connectionPort}...`;
+
+                // Step 2: Connect
+                const connectResponse = await fetch(`${API_BASE}/adb/connect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        host: host,
+                        port: parseInt(connectionPort)
+                    })
+                });
+
+                if (!connectResponse.ok) {
+                    const error = await connectResponse.json();
+                    throw new Error(error.detail || 'Connection failed');
+                }
+
+                const result = await connectResponse.json();
+                status.textContent = `✓ Re-paired and connected to ${host}:${connectionPort}`;
+                status.className = 'status success';
+
+                // Update saved device info with new connection
+                if (configureStableDeviceId) {
+                    const savedDevices = JSON.parse(localStorage.getItem('savedDevices') || '[]');
+                    const deviceIndex = savedDevices.findIndex(d => d.stableDeviceId === configureStableDeviceId);
+                    if (deviceIndex >= 0) {
+                        savedDevices[deviceIndex].ip = host;
+                        savedDevices[deviceIndex].port = parseInt(connectionPort);
+                        savedDevices[deviceIndex].deviceId = `${host}:${connectionPort}`;
+                        localStorage.setItem('savedDevices', JSON.stringify(savedDevices));
+                    }
+                }
+
+                // Refresh device lists
+                setTimeout(() => {
+                    loadDevices();
+                    renderKnownDevices();
+                }, 500);
+
+            } catch (error) {
+                status.textContent = `✗ Re-pair failed: ${error.message}`;
+                status.className = 'status error';
+            }
+        });
 
         // Reconfigure device handler
         let reconfigureOldDeviceId = null;

@@ -173,6 +173,11 @@
                             <span class="screen-label">Screen:</span>
                             <span id="currentActivity" class="current-activity">--</span>
                         </div>
+                        <!-- Command Method Badge -->
+                        <div id="commandMethodBadge" class="command-method-badge" title="Command routing method">
+                            <span class="method-icon">🔌</span>
+                            <span id="commandMethodLabel" class="method-label">--</span>
+                        </div>
                         <div class="quick-divider"></div>
 
                         <!-- Navigation -->
@@ -232,6 +237,7 @@
                             <option value="mjpeg-v2">MJPEG v2</option>
                         </select>
                         <button class="quick-btn capture-mode-streaming" id="qabReconnect" title="Reconnect Stream">⟳</button>
+                        <button class="quick-btn capture-mode-streaming" id="qabRestartCompanion" title="Restart Companion Streaming (via MQTT)">📱</button>
                         <span id="connectionStatus" class="connection-status capture-mode-streaming" style="min-width: 100px; text-align: center;"></span>
                         <div class="quick-divider capture-mode-streaming"></div>
 
@@ -429,6 +435,9 @@
             <div id="panelBackdrop" class="panel-backdrop"></div>
             <!-- Fullscreen toggle button -->
             <button id="fullscreenToggle" class="fullscreen-toggle" title="Toggle fullscreen (F11)">⛶</button>
+            <!-- Fullscreen drawer tab (shows Elements/Flow panel) -->
+            <div id="fullscreenDrawerTab" class="fullscreen-drawer-tab" title="Toggle Elements/Flow panel"></div>
+            <div id="fullscreenDrawerBackdrop" class="fullscreen-drawer-backdrop"></div>
         </div>
 
         <!-- Step 4: Review & Test -->

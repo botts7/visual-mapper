@@ -263,8 +263,47 @@ export function hideHoverTooltip(wizard, hoverTooltip) {
 // ==========================================
 
 /**
+ * Calculate letterbox offset and scale for when device content is centered in frame
+ * Returns {offsetX, offsetY, scale} for transforming device coords to canvas coords
+ * @param {number} canvasWidth - Canvas width
+ * @param {number} canvasHeight - Canvas height
+ * @param {number} deviceWidth - Device width
+ * @param {number} deviceHeight - Device height
+ */
+function getLetterboxTransform(canvasWidth, canvasHeight, deviceWidth, deviceHeight) {
+    if (deviceWidth <= 0 || deviceHeight <= 0) {
+        return { offsetX: 0, offsetY: 0, scale: 1 };
+    }
+
+    const frameAspect = canvasWidth / canvasHeight;
+    const deviceAspect = deviceWidth / deviceHeight;
+
+    let scale, offsetX = 0, offsetY = 0;
+
+    if (Math.abs(frameAspect - deviceAspect) < 0.01) {
+        // Aspects match - simple scaling, no letterbox
+        scale = canvasWidth / deviceWidth;
+    } else if (frameAspect > deviceAspect) {
+        // Frame is wider than device (pillarbox - black bars on sides)
+        // Device content is scaled to fit height, centered horizontally
+        scale = canvasHeight / deviceHeight;
+        const contentWidth = deviceWidth * scale;
+        offsetX = (canvasWidth - contentWidth) / 2;
+    } else {
+        // Frame is taller than device (letterbox - black bars on top/bottom)
+        // Device content is scaled to fit width, centered vertically
+        scale = canvasWidth / deviceWidth;
+        const contentHeight = deviceHeight * scale;
+        offsetY = (canvasHeight - contentHeight) / 2;
+    }
+
+    return { offsetX, offsetY, scale };
+}
+
+/**
  * Highlight hovered element using CSS overlay (no canvas re-render)
  * Handles both polling mode (screenshot) and streaming mode (live stream)
+ * Accounts for letterboxing when device and frame aspect ratios differ
  * @param {Object} wizard - The wizard instance
  * @param {Object} element - The element to highlight
  */
@@ -291,32 +330,44 @@ export function highlightHoveredElement(wizard, element) {
     // CRITICAL: For scroll containers, the highlight must be positioned relative to scroll position
     // canvasRect is viewport position (affected by scroll), but absolute positioning is relative to container
     // So we need the canvas offset WITHIN the scrollable content, not the viewport offset
-    const offsetX = canvasRect.left - containerRect.left + container.scrollLeft;
-    const offsetY = canvasRect.top - containerRect.top + container.scrollTop;
+    const canvasOffsetX = canvasRect.left - containerRect.left + container.scrollLeft;
+    const canvasOffsetY = canvasRect.top - containerRect.top + container.scrollTop;
 
     // Get CSS scale (canvas bitmap size to display size)
     const cssScaleX = canvasRect.width / wizard.canvas.width;
     const cssScaleY = canvasRect.height / wizard.canvas.height;
 
     // In streaming mode, element bounds are in device coords, canvas may be at lower res
-    // We need to scale: device coords → canvas coords → CSS display coords
-    // IMPORTANT: Use separate X and Y scales to handle aspect ratio differences
-    let deviceToCanvasScaleX = 1;
-    let deviceToCanvasScaleY = 1;
+    // We need to scale: device coords → canvas coords (with letterbox) → CSS display coords
+    let letterboxOffsetX = 0, letterboxOffsetY = 0, letterboxScale = 1;
     if (wizard.captureMode === 'streaming' && wizard.liveStream) {
-        // Scale from device resolution to canvas resolution (separate X/Y for aspect ratio)
-        deviceToCanvasScaleX = wizard.canvas.width / wizard.liveStream.deviceWidth;
-        deviceToCanvasScaleY = wizard.canvas.height / wizard.liveStream.deviceHeight;
+        const transform = getLetterboxTransform(
+            wizard.canvas.width, wizard.canvas.height,
+            wizard.liveStream.deviceWidth, wizard.liveStream.deviceHeight
+        );
+        letterboxOffsetX = transform.offsetX;
+        letterboxOffsetY = transform.offsetY;
+        letterboxScale = transform.scale;
+
+        // Debug log
+        console.log(`[Hover] captureMode=${wizard.captureMode}, canvas=${wizard.canvas.width}x${wizard.canvas.height}, device=${wizard.liveStream.deviceWidth}x${wizard.liveStream.deviceHeight}, offset=(${letterboxOffsetX.toFixed(1)},${letterboxOffsetY.toFixed(1)}), scale=${letterboxScale.toFixed(4)}`);
+    } else {
+        console.log(`[Hover] NOT streaming: captureMode=${wizard.captureMode}, hasLiveStream=${!!wizard.liveStream}`);
     }
 
     const b = element.bounds;
-    // First scale from device to canvas, then from canvas to CSS display
-    const totalScaleX = deviceToCanvasScaleX * cssScaleX;
-    const totalScaleY = deviceToCanvasScaleY * cssScaleY;
-    const x = b.x * totalScaleX + offsetX;
-    const y = b.y * totalScaleY + offsetY;
-    const w = b.width * totalScaleX;
-    const h = b.height * totalScaleY;
+    // Transform: device → canvas (with letterbox offset) → CSS display
+    // Canvas coords = device * letterboxScale + letterboxOffset
+    // CSS coords = canvasCoords * cssScale + canvasOffset
+    const canvasX = b.x * letterboxScale + letterboxOffsetX;
+    const canvasY = b.y * letterboxScale + letterboxOffsetY;
+    const canvasW = b.width * letterboxScale;
+    const canvasH = b.height * letterboxScale;
+
+    const x = canvasX * cssScaleX + canvasOffsetX;
+    const y = canvasY * cssScaleY + canvasOffsetY;
+    const w = canvasW * cssScaleX;
+    const h = canvasH * cssScaleY;
 
     highlight.style.cssText = `
         position: absolute;

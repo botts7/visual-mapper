@@ -724,7 +724,8 @@
         const runningFlows = new Set(); // Track currently executing flows
         const deviceInfoMap = new Map(); // Map device_id to device info (model, etc.)
         const connectedDeviceIds = new Set(); // Track connected device IDs
-        let deviceIdentityMap = {}; // For reconnection info
+        let deviceIdentityMap = {}; // stable_device_id -> device info
+        let connectionToStableMap = {}; // connection_id -> stable_device_id (reverse lookup)
 
         // Check if a device is connected
         function isDeviceConnected(deviceId) {
@@ -735,6 +736,15 @@
             const identityInfo = deviceIdentityMap[deviceId];
             if (identityInfo && identityInfo.current_connection) {
                 if (connectedDeviceIds.has(identityInfo.current_connection)) return true;
+            }
+
+            // Check via reverse lookup (old connection ID -> stable ID -> current connection)
+            const stableId = connectionToStableMap[deviceId];
+            if (stableId && deviceIdentityMap[stableId]) {
+                const stableInfo = deviceIdentityMap[stableId];
+                if (stableInfo.current_connection && connectedDeviceIds.has(stableInfo.current_connection)) {
+                    return true;
+                }
             }
 
             return false;
@@ -748,9 +758,21 @@
                 const data = await response.json();
                 const devices = data.devices || [];
                 deviceIdentityMap = {};
+                connectionToStableMap = {};
                 devices.forEach(device => {
                     deviceIdentityMap[device.stable_device_id] = device;
+                    // Build reverse lookup from all known connection IDs to stable ID
+                    if (device.current_connection) {
+                        connectionToStableMap[device.current_connection] = device.stable_device_id;
+                    }
+                    // Also map historical connections
+                    if (device.connection_history) {
+                        device.connection_history.forEach(conn => {
+                            connectionToStableMap[conn] = device.stable_device_id;
+                        });
+                    }
                 });
+                console.log('[Flows] Loaded device identities:', Object.keys(deviceIdentityMap).length, 'devices,', Object.keys(connectionToStableMap).length, 'connection mappings');
             } catch (error) {
                 console.warn('[Flows] Could not load device identities:', error);
             }

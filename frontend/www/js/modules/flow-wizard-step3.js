@@ -67,8 +67,8 @@ import { showToast } from './toast.js?v=0.4.0-beta.4';
 import FlowCanvasRenderer from './flow-canvas-renderer.js?v=0.4.0-beta.4';
 import FlowInteractions from './flow-interactions.js?v=0.4.0-beta.4';
 import FlowStepManager from './flow-step-manager.js?v=0.4.0-beta.4';
-import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.11';
-import LiveStream from './live-stream.js?v=0.4.0-beta.9';
+import FlowRecorder from './flow-recorder.js?v=0.4.0-beta.4';
+import LiveStream from './live-stream.js?v=0.4.0-beta.4';
 import * as Dialogs from './flow-wizard-dialogs.js?v=0.4.0-beta.4';
 import {
     ensureDeviceUnlocked as sharedEnsureUnlocked,
@@ -79,16 +79,16 @@ import {
 
 // Phase 2 Refactor: Import modularized components
 // These modules were extracted from this file for maintainability
-import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.10';
+import * as Step3Controller from './step3-controller.js?v=0.4.0-beta.4';
 import {
     drawElementOverlays,
     drawElementOverlaysScaled,
     drawTextLabel
-} from './canvas-overlay-renderer.js?v=0.4.0-beta.10';
+} from './canvas-overlay-renderer.js?v=0.4.0-beta.4';
 
 // Prerequisite checking - detects missing accessibility/streaming services
-import { PrerequisiteChecker, quickCheckPrerequisites } from './prerequisite-checker.js?v=0.4.0-beta';
-import { showPrerequisiteDialog, showPrerequisiteGuidance, hidePrerequisiteGuidance } from './prerequisite-dialog.js?v=0.4.0-beta';
+import { PrerequisiteChecker, quickCheckPrerequisites } from './prerequisite-checker.js?v=0.4.0-beta.4';
+import { showPrerequisiteDialog, showPrerequisiteGuidance, hidePrerequisiteGuidance } from './prerequisite-dialog.js?v=0.4.0-beta.4';
 
 // Phase 3 Refactor: Extracted modules for maintainability
 // These modules contain pure functions extracted from this file
@@ -123,6 +123,52 @@ function toggleFullscreen(wizard) {
     }
 
     console.log(`[FlowWizard] Fullscreen mode: ${isFullscreen ? 'ON' : 'OFF'}`);
+}
+
+/**
+ * Setup fullscreen drawer toggle for Elements/Flow panel
+ * Shows a slide-out drawer in fullscreen mode
+ * @param {Object} wizard - The wizard object
+ */
+function setupFullscreenDrawer(wizard) {
+    const drawerTab = document.getElementById('fullscreenDrawerTab');
+    const rightPanel = document.getElementById('rightPanel');
+    const backdrop = document.getElementById('fullscreenDrawerBackdrop');
+
+    if (!drawerTab || !rightPanel) return;
+
+    // Toggle drawer on tab click
+    drawerTab.addEventListener('click', () => {
+        const isOpen = rightPanel.classList.toggle('drawer-open');
+        drawerTab.classList.toggle('drawer-open', isOpen);
+        backdrop?.classList.toggle('visible', isOpen);
+        console.log(`[FlowWizard] Fullscreen drawer: ${isOpen ? 'OPEN' : 'CLOSED'}`);
+    });
+
+    // Close drawer when clicking backdrop
+    backdrop?.addEventListener('click', () => {
+        rightPanel.classList.remove('drawer-open');
+        drawerTab.classList.remove('drawer-open');
+        backdrop.classList.remove('visible');
+    });
+
+    // Close drawer when exiting fullscreen
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.attributeName === 'class') {
+                const isFullscreen = document.body.classList.contains('wizard-fullscreen');
+                if (!isFullscreen) {
+                    // Exiting fullscreen - close drawer
+                    rightPanel.classList.remove('drawer-open');
+                    drawerTab.classList.remove('drawer-open');
+                    backdrop?.classList.remove('visible');
+                }
+            }
+        });
+    });
+    observer.observe(document.body, { attributes: true });
+
+    console.log('[FlowWizard] Fullscreen drawer initialized');
 }
 
 /**
@@ -1213,9 +1259,22 @@ export function setupRecordingUI(wizard) {
         }
     });
 
-    // Touch support for mobile
+    // Touch support for mobile/tablet
     wizard.canvas.addEventListener('touchstart', (e) => onGestureStart(wizard, e), { passive: false });
+    wizard.canvas.addEventListener('touchmove', (e) => {
+        // Prevent scrolling while dragging on canvas (for swipe gestures)
+        if (wizard.isDragging && e.cancelable) {
+            e.preventDefault();
+        }
+    }, { passive: false });
     wizard.canvas.addEventListener('touchend', (e) => onGestureEnd(wizard, e));
+    wizard.canvas.addEventListener('touchcancel', () => {
+        // Cancel drag if touch is cancelled
+        if (wizard.isDragging) {
+            wizard.isDragging = false;
+            wizard.dragStart = null;
+        }
+    });
 
     // Listen for zoom changes from gestures (pinch/wheel)
     wizard.canvas.addEventListener('zoomChanged', (e) => {
@@ -1372,6 +1431,9 @@ export function setupToolbarHandlers(wizard) {
             }
         });
     }
+
+    // Fullscreen drawer toggle (for Elements/Flow panel)
+    setupFullscreenDrawer(wizard);
 
     // Recording toggle - pause/resume action recording
     document.getElementById('qabRecordToggle')?.addEventListener('click', () => wizard.toggleRecording());
@@ -1685,10 +1747,10 @@ export function setupCaptureMode(wizard) {
     const savedQuality = localStorage.getItem('flowWizard.streamQuality') || 'fast';
 
     // Check if streaming is currently active - don't interrupt it during navigation
-    const isStreamingActive = wizard.liveStream?.isStreaming ||
+    const isStreamingActiveLocal = wizard.liveStream?.isStreaming ||
                               wizard.captureMode === 'streaming';
 
-    if (isStreamingActive) {
+    if (isStreamingActiveLocal) {
         console.log('[FlowWizard] Preserving active stream during navigation');
         // Update UI to reflect current streaming state without triggering mode change
         if (captureModeSelect) {
@@ -1699,12 +1761,29 @@ export function setupCaptureMode(wizard) {
         wizard.captureMode = 'streaming';
         // Skip the setCaptureMode call that would stop streaming
         // Just setup the event listeners below
+    } else if (wizard.selectedDevice) {
+        // Check server-side streaming status - companion might be streaming even if we just loaded
+        checkCompanionStreamingStatus(wizard, wizard.selectedDevice).then(streamStatus => {
+            if (streamStatus.active && !wizard.liveStream?.isStreaming) {
+                console.log('[FlowWizard] Server reports streaming is active - auto-switching to streaming mode');
+                if (captureModeSelect) {
+                    captureModeSelect.value = 'streaming';
+                }
+                localStorage.setItem('flowWizard.captureMode', 'streaming');
+                wizard.captureMode = 'streaming';
+                wizard.streamMode = streamStatus.mode || 'mjpeg-v2';
+                // Start the streaming UI
+                setCaptureMode(wizard, 'streaming');
+            }
+        }).catch(err => {
+            console.warn('[FlowWizard] Could not check server streaming status:', err);
+        });
     }
 
     // Handle capture mode change (select dropdown)
     if (captureModeSelect) {
         // Only apply saved mode if not already streaming
-        if (!isStreamingActive) {
+        if (!isStreamingActiveLocal) {
             captureModeSelect.value = savedMode;
             // Don't await here - initialization continues, mode will be set
             setCaptureMode(wizard, savedMode);
@@ -2217,9 +2296,12 @@ export async function startStreaming(wizard) {
                 updateStreamStatus(wizard, 'connected', 'Live');
                 break;
             case 'disconnected':
+                // Hide loading overlay when giving up
+                wizard.hideLoadingOverlay();
+                wizard._streamLoadingHidden = true;
                 updateStreamStatus(wizard, 'disconnected', 'Offline');
                 if (attempts >= 10) {
-                    showToast('Device connection failed after 10 attempts', 'error', 5000);
+                    showToast('Connection failed - tap canvas or use Reconnect button', 'error', 5000);
                 }
                 break;
         }
@@ -2234,13 +2316,14 @@ export async function startStreaming(wizard) {
     // Show FPS and capture time in status
     wizard.liveStream.onMetricsUpdate = (metrics) => {
         if (wizard.captureMode === 'streaming' && wizard.liveStream?.connectionState === 'connected') {
-            // BACKUP: Ensure loading overlay is hidden when receiving metrics
-            // This catches cases where onFrame callback didn't fire properly
-            if (!wizard._streamLoadingHidden) {
-                console.log('[FlowWizard] Hiding overlay via onMetricsUpdate backup');
-                wizard.hideLoadingOverlay();
-                wizard._streamLoadingHidden = true;
+            // AGGRESSIVE: Always force-hide overlay when receiving metrics
+            // This catches all edge cases where the overlay gets stuck
+            const overlay = document.getElementById('screenshotLoading');
+            if (overlay && overlay.classList.contains('visible')) {
+                console.log('[FlowWizard] Force-hiding overlay via onMetricsUpdate (overlay was stuck)');
+                overlay.classList.remove('visible');
             }
+            wizard._streamLoadingHidden = true;
 
             const captureTime = Math.round(metrics.captureTime || 0);
             let quality = 'connected';
@@ -2570,11 +2653,10 @@ function showAccessibilityServicePrompt() {
         try {
             const deviceId = window.flowWizard?.selectedDevice;
             if (deviceId) {
-                await fetch(`${getApiBase()}/adb/shell`, {
+                await fetch(`${getApiBase()}/shell/${encodeURIComponent(deviceId)}/execute`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        device_id: deviceId,
                         command: 'am start -n com.visualmapper.companion/.ui.fragments.MainContainerActivity'
                     })
                 });
@@ -3195,7 +3277,10 @@ export function onGestureStart(wizard, e) {
     // Ignore during pinch gestures
     if (wizard.canvasRenderer?.isPinching) return;
 
-    e.preventDefault();
+    // Only prevent default if the event is cancelable (avoids browser intervention warnings)
+    if (e.cancelable) {
+        e.preventDefault();
+    }
 
     const rect = wizard.canvas.getBoundingClientRect();
     let clientX, clientY;
@@ -3261,6 +3346,16 @@ export async function onGestureEnd(wizard, e) {
     if (distance < wizard.MIN_SWIPE_DISTANCE) {
         // It's a tap
         console.log(`[FlowWizard] Tap at canvas (${wizard.dragStart.canvasX}, ${wizard.dragStart.canvasY})`);
+
+        // If stream is disconnected, trigger reconnect instead of normal tap
+        if (wizard.captureMode === 'streaming' &&
+            wizard.liveStream?.connectionState === 'disconnected') {
+            console.log('[FlowWizard] Stream disconnected - triggering reconnect on tap');
+            showToast('Reconnecting...', 'info', 2000);
+            reconnectStream(wizard);
+            wizard.dragStart = null;
+            return;
+        }
 
         // Show tap ripple effect (convert canvas coords to display coords, then add offset)
         const rippleX = wizard.dragStart.canvasX * cssScale + canvasOffsetX;

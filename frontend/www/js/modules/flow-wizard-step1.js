@@ -1,9 +1,12 @@
 /**
  * Flow Wizard Step 1 - Device Selection
- * Visual Mapper v0.0.6
+ * Visual Mapper v0.0.7
  *
+ * v0.0.7: Add companion app installation check after device selection
  * v0.0.6: Pause sensor updates when device is selected
  */
+
+import { checkAndPromptCompanionInstall } from './companion-install-dialog.js?v=0.4.0-beta.4';
 
 // Helper to get API base
 function getApiBase() {
@@ -92,6 +95,17 @@ export async function loadStep(wizard) {
                 // Pause sensor updates for this device to reduce ADB contention
                 if (wizard.pauseSensorUpdates) {
                     await wizard.pauseSensorUpdates(wizard.selectedDevice);
+                }
+
+                // Check if companion app is installed (unless user opted out)
+                // This runs asynchronously and shows a dialog if not installed
+                try {
+                    const companionResult = await checkAndPromptCompanionInstall(connectionId);
+                    wizard.companionInstalled = companionResult.installed;
+                    console.log(`[Step1] Companion check: installed=${companionResult.installed}, skipped=${companionResult.skipped}`);
+                } catch (error) {
+                    console.warn('[Step1] Companion check failed:', error);
+                    wizard.companionInstalled = false;
                 }
 
                 // Dispatch tutorial event

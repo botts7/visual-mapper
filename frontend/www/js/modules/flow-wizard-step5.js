@@ -12,8 +12,8 @@
  */
 
 import { showToast } from './toast.js?v=0.4.0-beta.4';
-import { PREREQ_NAMES } from './prerequisite-checker.js?v=0.4.0-beta';
-import { hidePrerequisiteGuidance } from './prerequisite-dialog.js?v=0.4.0-beta';
+import { PREREQ_NAMES } from './prerequisite-checker.js?v=0.4.0-beta.4';
+import { hidePrerequisiteGuidance } from './prerequisite-dialog.js?v=0.4.0-beta.4';
 
 function getApiBase() {
     return window.API_BASE || '/api';

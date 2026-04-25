@@ -30,6 +30,7 @@ class FlowRecorder {
         this.appPackage = appPackage;
         this.recordMode = recordMode; // 'execute' or 'record-only'
         this.forceRestart = true; // Default to fresh start - force-stop app before launching
+        this.streamingMode = false; // Set to true when LiveStream is active - skips redundant captures
         this.steps = [];
         this.currentScreenshot = null;
         this.screenshotMetadata = null;
@@ -69,10 +70,11 @@ class FlowRecorder {
     /**
      * Start recording session
      * Launches app and captures initial quick screenshot
+     * In streaming mode, skips screenshot capture (stream provides visuals)
      */
     async start() {
         try {
-            console.log('[FlowRecorder] Starting recording session...');
+            console.log(`[FlowRecorder] Starting recording session... (streaming: ${this.streamingMode})`);
 
             // NOTE: Device unlock is now handled by prepareDeviceForStreaming() in streaming mode
             // or by captureScreenshot() in polling mode. Removed duplicate unlock call here
@@ -80,6 +82,14 @@ class FlowRecorder {
 
             // Launch the app (includes force-stop if forceRestart is true)
             await this.launchApp();
+
+            // In streaming mode, skip the screenshot capture - stream provides visuals
+            if (this.streamingMode) {
+                console.log('[FlowRecorder] Streaming mode - skipping screenshot capture');
+                await this.wait(500); // Brief wait for stability
+                showToast('App launched - streaming active', 'success', 2000);
+                return true;
+            }
 
             // Brief wait for app to initialize (reduced from 3s)
             await this.wait(1500);
@@ -99,8 +109,17 @@ class FlowRecorder {
     /**
      * Wait for UI to settle by detecting loading indicators and toast notifications
      * Keeps capturing until no loading elements are detected
+     * In streaming mode, skips screenshot capture to avoid ADB contention
      */
     async waitForUIToSettle() {
+        // In streaming mode, skip screenshot-based UI detection to avoid ADB contention
+        // The stream will show UI changes in real-time
+        if (this.streamingMode) {
+            console.log('[FlowRecorder] Streaming mode - skipping UI settle detection (stream shows live UI)');
+            await this.wait(500); // Brief wait for stability
+            return;
+        }
+
         console.log('[FlowRecorder] Waiting for UI to settle (smart detection)...');
 
         const maxAttempts = 10;
@@ -265,8 +284,30 @@ class FlowRecorder {
     /**
      * Wait for splash screen to finish
      * Keeps capturing screenshots until splash screen is gone or timeout
+     * Uses adaptive check intervals - faster initially for responsive apps
+     * In streaming mode, uses activity check instead of screenshot capture to avoid ADB contention
      */
-    async waitForSplashScreen(maxWaitMs = 8000, checkIntervalMs = 500) {
+    async waitForSplashScreen(maxWaitMs = 4000, checkIntervalMs = 250) {
+        // In streaming mode, skip screenshot-based splash detection to avoid ADB contention
+        // The stream will show the splash screen visually, and we just wait a reasonable time
+        if (this.streamingMode) {
+            console.log(`[FlowRecorder] Streaming mode - using lightweight splash detection`);
+            // Just wait a bit and check activity, don't capture screenshots
+            await this.wait(1000);
+            const screen = await this.getCurrentScreen();
+            if (screen?.activity?.activity) {
+                const activity = screen.activity.activity.toLowerCase();
+                if (!/splash|launch|loading|logo/i.test(activity)) {
+                    console.log(`[FlowRecorder] App ready (activity: ${screen.activity.activity})`);
+                    return true;
+                }
+            }
+            // If still on splash-like activity, wait a bit more
+            await this.wait(1500);
+            console.log(`[FlowRecorder] Splash wait complete (streaming mode)`);
+            return true;
+        }
+
         const startTime = Date.now();
         let attempts = 0;
         const maxAttempts = Math.ceil(maxWaitMs / checkIntervalMs);
@@ -286,7 +327,10 @@ class FlowRecorder {
 
             attempts++;
             console.log(`[FlowRecorder] Still on splash screen, waiting... (attempt ${attempts}/${maxAttempts})`);
-            await this.wait(checkIntervalMs);
+
+            // Adaptive: check faster initially (200ms for first 4 attempts), then use normal interval
+            const interval = attempts < 4 ? 200 : checkIntervalMs;
+            await this.wait(interval);
         }
 
         console.warn(`[FlowRecorder] Splash screen timeout after ${maxWaitMs}ms - proceeding anyway`);
@@ -294,11 +338,86 @@ class FlowRecorder {
     }
 
     /**
+     * Check if companion app is available for the device
+     * @returns {Promise<boolean>} - True if companion is streaming
+     */
+    async isCompanionAvailable() {
+        try {
+            const response = await fetch(`${this.apiBase}/stream/companion/stats`);
+            if (!response.ok) return false;
+
+            const stats = await response.json();
+            if (!stats.connected || !stats.active_devices?.length) return false;
+
+            // Extract IP from device ID (handles formats like "192.168.86.2:42519" or "192_168_86_2_42519")
+            const extractIp = (id) => {
+                // Remove common suffixes like "_companion"
+                let cleaned = id.replace(/_companion$/, '');
+                // Convert underscores to dots and take first 4 octets
+                const parts = cleaned.replace(/_/g, '.').split(/[:.]/);
+                if (parts.length >= 4) {
+                    return parts.slice(0, 4).join('.');
+                }
+                return cleaned.split(':')[0];
+            };
+
+            const deviceIp = extractIp(this.deviceId);
+            for (const companionId of stats.active_devices) {
+                const companionIp = extractIp(companionId);
+                // Check IP match (handles different ports)
+                if (deviceIp === companionIp) {
+                    console.log(`[FlowRecorder] Companion available: ${companionId} (IP match: ${deviceIp})`);
+                    return true;
+                }
+            }
+
+            // Also check if there's exactly one companion (single device scenario)
+            if (stats.active_devices.length === 1) {
+                console.log(`[FlowRecorder] Single companion available: ${stats.active_devices[0]}`);
+                return true;
+            }
+
+            console.log(`[FlowRecorder] No companion match for device ${this.deviceId} (IP: ${deviceIp})`);
+            return false;
+        } catch (error) {
+            console.warn('[FlowRecorder] Failed to check companion status:', error);
+            return false;
+        }
+    }
+
+    /**
      * Launch the target app
+     * Uses unified /adb/launch endpoint - CommandRouter handles WebSocket → MQTT → ADB routing
      */
     async launchApp() {
         console.log(`[FlowRecorder] Launching ${this.appPackage} (forceRestart: ${this.forceRestart})...`);
 
+        // Check if app is already in foreground BEFORE launching
+        // This preserves companion streaming when app is already running
+        const preCheckScreen = await this.getCurrentScreen();
+        const appAlreadyInForeground = preCheckScreen?.activity?.package === this.appPackage;
+
+        if (appAlreadyInForeground && !this.forceRestart) {
+            console.log('[FlowRecorder] App already in foreground, skipping launch to preserve streaming');
+            // Still add the launch step for flow consistency
+            const screenInfo = preCheckScreen;
+            const expectedActivity = screenInfo?.activity?.activity || null;
+            console.log(`[FlowRecorder] Current activity: ${expectedActivity}`);
+
+            await this.addStep({
+                step_type: 'launch_app',
+                package: this.appPackage,
+                description: `Launch ${this.appPackage}`,
+                expected_activity: expectedActivity,
+                actual_activity: expectedActivity,
+                skipped: true, // Mark that actual launch was skipped
+                recovery_action: 'force_restart_app'
+            });
+
+            return; // Skip actual launch
+        }
+
+        // Use unified /adb/launch endpoint - CommandRouter handles routing automatically
         const response = await fetch(`${this.apiBase}/adb/launch`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -310,18 +429,25 @@ class FlowRecorder {
         });
 
         if (!response.ok) {
-            throw new Error('Failed to launch app');
+            const error = await response.text();
+            throw new Error(`Failed to launch app: ${error}`);
         }
 
         const result = await response.json();
-        console.log('[FlowRecorder] App launched:', result);
+        console.log(`[FlowRecorder] App launched via ${result.method || 'unknown'}:`, result);
 
         // Brief wait for app to start
         await this.wait(500);
 
-        // Wait for any splash screen to finish before capturing activity
-        // This ensures we record the main app activity, not a splash/loading screen
-        await this.waitForSplashScreen(8000, 500);
+        // Check if app is now in foreground
+        const currentScreen = await this.getCurrentScreen();
+        if (currentScreen?.activity?.package === this.appPackage) {
+            console.log('[FlowRecorder] App now in foreground, skipping splash wait');
+        } else {
+            // Wait for any splash screen to finish before capturing activity
+            // This ensures we record the main app activity, not a splash/loading screen
+            await this.waitForSplashScreen(4000, 250);
+        }
 
         // Also wait for any loading indicators to clear
         await this.waitForUIToSettle(3, 500);
@@ -900,7 +1026,8 @@ class FlowRecorder {
 
     /**
      * Restart the current app (force stop and relaunch)
-     * Useful when pull-to-refresh doesn't work
+     * Uses unified /adb/launch endpoint with force_restart=true
+     * Backend CommandRouter handles WebSocket → MQTT → ADB routing automatically
      */
     async restartApp() {
         if (!this.appPackage) {
@@ -909,36 +1036,25 @@ class FlowRecorder {
 
         console.log(`[FlowRecorder] Restarting app ${this.appPackage}...`);
 
-        // Force stop the app
-        const stopResponse = await fetch(`${this.apiBase}/adb/stop-app`, {
+        // Use unified /adb/launch endpoint - CommandRouter handles routing
+        // This automatically uses WebSocket/MQTT when companion is streaming
+        const response = await fetch(`${this.apiBase}/adb/launch`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 device_id: this.deviceId,
-                package: this.appPackage
+                package: this.appPackage,
+                force_restart: true
             })
         });
 
-        if (!stopResponse.ok) {
-            throw new Error('Failed to stop app');
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(`Failed to restart app: ${error}`);
         }
 
-        // Wait a moment for the stop to complete
-        await this.wait(500);
-
-        // Relaunch the app
-        const launchResponse = await fetch(`${this.apiBase}/adb/launch`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                device_id: this.deviceId,
-                package: this.appPackage
-            })
-        });
-
-        if (!launchResponse.ok) {
-            throw new Error('Failed to launch app');
-        }
+        const result = await response.json();
+        console.log(`[FlowRecorder] App restarted via ${result.method || 'unknown'}`);
 
         await this.addStep({
             step_type: 'restart_app',

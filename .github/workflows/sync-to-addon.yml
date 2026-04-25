@@ -10,10 +10,25 @@ on:
       - '**.md'
       - '.github/**'
 
+# Debounce rapid-fire pushes (e.g. release cuts that land 4 commits in 30 min).
+# Only the latest run per branch survives; the debounce sleep below gives a
+# coalesce window so multiple pushes within ~5 min produce a single addon-repo
+# commit and a single GHCR rebuild, instead of thrashing HA Supervisor caches.
+concurrency:
+  group: sync-to-addon-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   sync-to-addon:
     runs-on: ubuntu-latest
     steps:
+      - name: Debounce window
+        # Any newer push during this sleep cancels this run via the concurrency
+        # group above, so only the final commit in a burst gets synced.
+        # Manual workflow_dispatch runs skip the wait.
+        if: github.event_name == 'push'
+        run: sleep 300
+
       - name: Checkout main repo
         uses: actions/checkout@v4
         with:
