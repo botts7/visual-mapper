@@ -10,10 +10,25 @@ on:
       - '**.md'
       - '.github/**'
 
+# Debounce rapid-fire pushes (e.g. release cuts that land 4 commits in 30 min).
+# Only the latest run per branch survives; the debounce sleep below gives a
+# coalesce window so multiple pushes within ~5 min produce a single addon-repo
+# commit and a single GHCR rebuild, instead of thrashing HA Supervisor caches.
+concurrency:
+  group: sync-to-addon-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   sync-to-addon:
     runs-on: ubuntu-latest
     steps:
+      - name: Debounce window
+        # Any newer push during this sleep cancels this run via the concurrency
+        # group above, so only the final commit in a burst gets synced.
+        # Manual workflow_dispatch runs skip the wait.
+        if: github.event_name == 'push'
+        run: sleep 300
+
       - name: Checkout main repo
         uses: actions/checkout@v4
         with:
@@ -76,10 +91,15 @@ jobs:
           # Update config.yaml version
           sed -i "s/^version: .*/version: ${{ steps.info.outputs.version }}/" "$TARGET_DIR/config.yaml"
 
-          # For beta builds, update name and slug to avoid conflicts with stable
+          # For beta builds, update name and slug to avoid conflicts with stable.
+          # Beta also listens on port 18085 internally (set in visual-mapper-beta/run.sh)
+          # so two side-by-side installs don't collide on container port 8080.
           if [ "${{ steps.info.outputs.target }}" = "beta" ]; then
             sed -i "s/^name: Visual Mapper$/name: Visual Mapper Beta/" "$TARGET_DIR/config.yaml"
             sed -i "s/^slug: visual_mapper$/slug: visual_mapper_beta/" "$TARGET_DIR/config.yaml"
+            sed -i "s|^  8080/tcp: 8080$|  18085/tcp: 18085|" "$TARGET_DIR/config.yaml"
+            sed -i "s|^  8080/tcp: Web UI (HTTP)$|  18085/tcp: Web UI (HTTP - beta)|" "$TARGET_DIR/config.yaml"
+            sed -i "s|^webui: http://\[HOST\]:\[PORT:8080\]$|webui: http://[HOST]:[PORT:18085]|" "$TARGET_DIR/config.yaml"
           fi
 
           # Update CACHE_BUST in Dockerfile
