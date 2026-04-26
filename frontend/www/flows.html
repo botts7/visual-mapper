@@ -3599,7 +3599,7 @@
 
         async function checkCompanionAppStatus(deviceId) {
             // Convert ADB device ID to stable format for companion app lookup
-            // e.g., "192.168.1.2:46747" -> "192_168_86_2_46747" or similar variations
+            // e.g., "192.168.1.2:5555" -> "192_0_2_10_5555" or similar variations
             const statusPanel = document.getElementById('companionStatusPanel');
             const statusIndicator = document.getElementById('companionStatusIndicator');
             const liveDiscoveryOption = document.getElementById('liveDiscoveryOption');

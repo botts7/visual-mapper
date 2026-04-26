@@ -67,7 +67,7 @@ In the Home Assistant addon configuration:
 
 ```yaml
 ml_training_mode: "remote"
-ml_remote_host: "192.168.86.50"  # IP of your ML server
+ml_remote_host: "192.0.2.50"  # IP of your ML server
 ml_remote_port: 8099             # Optional API port
 ```
 
@@ -85,19 +85,19 @@ Best for development and testing - run ML training on your dev machine with NPU/
 
 ```powershell
 cd scripts
-.\run_ml_dev.ps1 -Broker 192.168.86.66 -Port 1883
+.\run_ml_dev.ps1 -Broker 192.0.2.66 -Port 1883
 
 # With authentication
-.\run_ml_dev.ps1 -Broker 192.168.86.66 -Username mqtt_user -Password mqtt_pass
+.\run_ml_dev.ps1 -Broker 192.0.2.66 -Username mqtt_user -Password mqtt_pass
 
 # Use Deep Q-Network
-.\run_ml_dev.ps1 -Broker 192.168.86.66 -DQN
+.\run_ml_dev.ps1 -Broker 192.0.2.66 -DQN
 
 # Use NPU acceleration (DirectML)
-.\run_ml_dev.ps1 -Broker 192.168.86.66 -DQN -UseNPU
+.\run_ml_dev.ps1 -Broker 192.0.2.66 -DQN -UseNPU
 
 # Use Coral Edge TPU (USB Coral accelerator)
-.\run_ml_dev.ps1 -Broker 192.168.86.66 -UseCoral
+.\run_ml_dev.ps1 -Broker 192.0.2.66 -UseCoral
 ```
 
 #### Linux/Mac (Bash)
@@ -106,19 +106,19 @@ cd scripts
 cd scripts
 chmod +x run_ml_dev.sh
 
-./run_ml_dev.sh --broker 192.168.86.66 --port 1883
+./run_ml_dev.sh --broker 192.0.2.66 --port 1883
 
 # With authentication
-./run_ml_dev.sh --broker 192.168.86.66 --username mqtt_user --password mqtt_pass
+./run_ml_dev.sh --broker 192.0.2.66 --username mqtt_user --password mqtt_pass
 
 # Use Deep Q-Network
-./run_ml_dev.sh --broker 192.168.86.66 --dqn
+./run_ml_dev.sh --broker 192.0.2.66 --dqn
 
 # Use NPU acceleration
-./run_ml_dev.sh --broker 192.168.86.66 --dqn --use-npu
+./run_ml_dev.sh --broker 192.0.2.66 --dqn --use-npu
 
 # Use Coral Edge TPU (USB Coral accelerator)
-./run_ml_dev.sh --broker 192.168.86.66 --use-coral
+./run_ml_dev.sh --broker 192.0.2.66 --use-coral
 ```
 
 **Command Line Options:**
@@ -146,7 +146,7 @@ docker build -f backend/Dockerfile.ml -t visual-mapper-ml:latest backend/
 # Run with environment variables
 docker run -d \
   --name visual-mapper-ml \
-  -e MQTT_BROKER=192.168.86.66 \
+  -e MQTT_BROKER=192.0.2.66 \
   -e MQTT_PORT=1883 \
   -e USE_DQN=true \
   -v $(pwd)/data:/app/data \
@@ -225,7 +225,7 @@ python -c "from pycoral.utils.edgetpu import list_edge_tpus; print(list_edge_tpu
 **4. Run ML Training with Coral:**
 
 ```bash
-./run_ml_dev.sh --broker 192.168.86.66 --use-coral
+./run_ml_dev.sh --broker 192.0.2.66 --use-coral
 ```
 
 **Note:** Coral Edge TPU only supports inference, not training. The ML server trains on CPU and uses Coral for fast inference during exploration.
@@ -239,7 +239,7 @@ For Windows devices with NPU (Neural Processing Unit) support:
 pip install onnxruntime-directml
 
 # Run with DirectML acceleration
-.\run_ml_dev.ps1 -Broker 192.168.86.66 -UseNPU
+.\run_ml_dev.ps1 -Broker 192.0.2.66 -UseNPU
 ```
 
 ### CUDA (NVIDIA GPU)
@@ -251,7 +251,7 @@ For NVIDIA GPUs:
 pip install torch --index-url https://download.pytorch.org/whl/cu118
 
 # Run with DQN (automatically uses CUDA if available)
-./run_ml_dev.sh --broker 192.168.86.66 --dqn
+./run_ml_dev.sh --broker 192.0.2.66 --dqn
 ```
 
 ---
