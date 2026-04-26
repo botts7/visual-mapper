@@ -2480,7 +2480,7 @@ async function refreshDeviceId(wizard) {
     const currentId = wizard.selectedDevice;
     if (!currentId) return null;
 
-    // Extract IP from device ID (e.g., "192.168.86.2" from "192.168.86.2:42519")
+    // Extract IP from device ID (e.g., "192.0.2.10" from "192.0.2.10:5555")
     const ipMatch = currentId.match(/^(\d+\.\d+\.\d+\.\d+)/);
     if (!ipMatch) {
         console.log('[FlowWizard] Device ID is not IP-based, keeping as-is:', currentId);

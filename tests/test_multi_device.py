@@ -237,15 +237,15 @@ class TestCompanionCrossInjection:
         companion_registry: dict[str, dict] = {}
 
         # Simulate companion registration
-        companion_device_id = "192_168_86_129_companion"
+        companion_device_id = "192_0_2_129_companion"
         companion_registry[companion_device_id] = {
-            "ip": "192.168.86.129",
+            "ip": "192.0.2.129",
             "serial": "ZY22ABC123",
             "last_frame": datetime.now()
         }
 
         assert companion_device_id in companion_registry
-        assert companion_registry[companion_device_id]["ip"] == "192.168.86.129"
+        assert companion_registry[companion_device_id]["ip"] == "192.0.2.129"
 
     def test_md09_serial_based_matching_finds_companion(self):
         """MD-09: ADB device with matching serial finds companion via serial mapping."""
@@ -253,13 +253,13 @@ class TestCompanionCrossInjection:
         companion_serials: dict[str, str] = {}
 
         # Register companion with serial
-        companion_id = "192_168_86_129_companion"
+        companion_id = "192_0_2_129_companion"
         device_serial = "ZY22ABC123"
         serial_to_companion[device_serial] = companion_id
         companion_serials[companion_id] = device_serial
 
         # ADB device has different IP but same serial
-        adb_device_id = "192.168.86.2:5555"
+        adb_device_id = "192.0.2.10:5555"
         adb_serial = "ZY22ABC123"
 
         # Find companion by serial
@@ -278,9 +278,9 @@ class TestCompanionCrossInjection:
         subscribers: dict[str, list[asyncio.Queue]] = {}
 
         # Primary device ID (from ADB)
-        primary_id = "192.168.86.2:5555"
+        primary_id = "192.0.2.10:5555"
         # Alias device ID (from companion WiFi)
-        alias_id = "192.168.86.129:5555"
+        alias_id = "192.0.2.129:5555"
 
         # Both IDs have subscribers
         subscribers[primary_id] = [asyncio.Queue(maxsize=3)]
@@ -297,12 +297,12 @@ class TestCompanionCrossInjection:
         serial_to_device: dict[str, list[str]] = {}
 
         # Setup: Companion knows its serial maps to these device IDs
-        companion_id = "192_168_86_129_companion"
+        companion_id = "192_0_2_129_companion"
         companion_serial = "ZY22ABC123"
 
         # These device IDs should receive companion frames
-        primary_id = "192.168.86.2:5555"
-        alias_id = "192.168.86.129:5555"
+        primary_id = "192.0.2.10:5555"
+        alias_id = "192.0.2.129:5555"
 
         serial_to_device[companion_serial] = [primary_id, alias_id]
 
@@ -338,7 +338,7 @@ class TestCompanionCrossInjection:
         active_companions: dict[str, dict] = {}
 
         # Only one companion active
-        active_companions["192_168_86_129"] = {
+        active_companions["192_0_2_129"] = {
             "serial": "ZY22ABC123",
             "last_frame": datetime.now()
         }
@@ -353,22 +353,22 @@ class TestCompanionCrossInjection:
         unknown_device = "10.0.0.100:5555"
         fallback = find_companion_fallback(unknown_device)
 
-        assert fallback == "192_168_86_129"
+        assert fallback == "192_0_2_129"
 
     def test_md13_multiple_companions_disambiguated_by_serial(self):
         """MD-13: Multiple companions streaming, serial mapping disambiguates."""
         serial_to_companion: dict[str, str] = {}
 
         # Two companions registered
-        serial_to_companion["ZY22ABC123"] = "192_168_86_129"
-        serial_to_companion["R5CR999888"] = "192_168_86_130"
+        serial_to_companion["ZY22ABC123"] = "192_0_2_129"
+        serial_to_companion["R5CR999888"] = "192_0_2_130"
 
         # ADB devices with different serials
         def find_correct_companion(adb_serial: str) -> str | None:
             return serial_to_companion.get(adb_serial)
 
-        assert find_correct_companion("ZY22ABC123") == "192_168_86_129"
-        assert find_correct_companion("R5CR999888") == "192_168_86_130"
+        assert find_correct_companion("ZY22ABC123") == "192_0_2_129"
+        assert find_correct_companion("R5CR999888") == "192_0_2_130"
         assert find_correct_companion("UNKNOWN") is None
 
 
@@ -536,7 +536,7 @@ class TestADBDeviceLocking:
         serial_cache[serial] = old_device_id
 
         # Device reconnects with different port
-        new_device_id = "192.168.1.100:42519"
+        new_device_id = "192.168.1.100:5555"
 
         # Serial still maps correctly
         assert serial in serial_cache
@@ -786,12 +786,12 @@ class TestCrossInjectionCorrectness:
         serial_to_devices: dict[str, list[str]] = {}
 
         # Companion info
-        companion_id = "192_168_86_129_companion"
+        companion_id = "192_0_2_129_companion"
         companion_serial = "ZY22ABC123"
 
         # Matching devices (should receive frames)
-        ip_match_device = "192.168.86.129:5555"  # IP match
-        serial_match_device = "192.168.86.2:5555"  # Serial match
+        ip_match_device = "192.0.2.129:5555"  # IP match
+        serial_match_device = "192.0.2.10:5555"  # Serial match
 
         # Non-matching device (should NOT receive frames)
         other_device = "192.168.1.100:5555"

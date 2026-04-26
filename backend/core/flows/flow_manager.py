@@ -159,7 +159,7 @@ class FlowManager:
         """
         Get all flows for a specific device
 
-        Supports both network device_id (192.168.1.2:46747) and stable_device_id (c7028879b7a83aa7).
+        Supports both network device_id (192.168.1.2:5555) and stable_device_id (c7028879b7a83aa7).
         This allows Android companion app to query using stable ID across IP/port changes.
         """
         # First try direct file load (for network device_id)

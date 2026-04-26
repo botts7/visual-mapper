@@ -229,7 +229,7 @@ class ExplorationController:
                         # Use topic device ID - this is what we need to publish to
                         # Prefer device IDs that look like IP-based (our app uses these)
                         if topic_device_id and "_" in topic_device_id:
-                            # IP-based device ID like 192_168_86_129_46747
+                            # IP-based device ID like 192_0_2_129_5555
                             if self.device_id != topic_device_id:
                                 self.device_id = topic_device_id
                                 acc_status = (

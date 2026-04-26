@@ -5,7 +5,7 @@ Run this directly to test unlock without rebuilding Docker.
 
 Usage:
     python test_unlock.py <device_ip:port> <pin>
-    python test_unlock.py 192.168.86.2:46747 1109
+    python test_unlock.py 192.0.2.10:5555 0000
 """
 
 import subprocess
@@ -13,8 +13,8 @@ import sys
 import time
 
 # Device settings
-DEVICE_ID = sys.argv[1] if len(sys.argv) > 1 else "192.168.86.2:46747"
-PIN = sys.argv[2] if len(sys.argv) > 2 else "1109"
+DEVICE_ID = sys.argv[1] if len(sys.argv) > 1 else "192.0.2.10:5555"
+PIN = sys.argv[2] if len(sys.argv) > 2 else "0000"
 
 
 def adb(cmd: str) -> str:

@@ -161,9 +161,9 @@ class CompanionStreamReceiver:
         (e.g., different network perspectives, NAT, or multi-subnet scenarios).
 
         Args:
-            adb_device_id: The ADB connection ID (e.g., "192.168.86.2:5555")
+            adb_device_id: The ADB connection ID (e.g., "192.0.2.10:5555")
             serial: The stable device serial (hardware serial)
-            companion_device_id: The companion's device_id (e.g., "192_168_86_129_companion")
+            companion_device_id: The companion's device_id (e.g., "192_0_2_129_companion")
         """
         self._serial_to_companion[serial] = companion_device_id
         self._companion_serials[companion_device_id] = serial
@@ -370,8 +370,8 @@ class CompanionStreamReceiver:
         Extract IP address from various device ID formats.
 
         Supported formats:
-        - 192.168.1.2:42519 (ADB format with port)
-        - 192_168_1_2_42519 (underscore format)
+        - 192.168.1.2:5555 (ADB format with port)
+        - 192_168_1_2_5555 (underscore format)
         - 192.168.1.2 (IP only)
         """
         # Replace underscores with dots for normalization
@@ -395,11 +395,11 @@ class CompanionStreamReceiver:
         3. Single active companion fallback (when only one companion is streaming)
 
         The fallback handles cases where:
-        - Companion app uses tablet's WiFi IP (e.g., 192.168.86.129)
-        - ADB connects through different IP (e.g., 192.168.86.2)
+        - Companion app uses tablet's WiFi IP (e.g., 192.0.2.129)
+        - ADB connects through different IP (e.g., 192.0.2.10)
 
         Args:
-            device_id: The ADB device ID (e.g., "192.168.86.2:5555")
+            device_id: The ADB device ID (e.g., "192.0.2.10:5555")
             adb_serial: Optional device serial for cross-subnet matching
 
         Returns the companion device_id if found, None otherwise.

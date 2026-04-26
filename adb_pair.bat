@@ -11,7 +11,7 @@ echo.
 echo ============================================================
 echo.
 
-set /p PAIR_IP="Enter pairing IP:PORT (e.g., 192.168.86.2:37123): "
+set /p PAIR_IP="Enter pairing IP:PORT (e.g., 192.0.2.10:5555): "
 set /p PAIR_CODE="Enter 6-digit pairing code: "
 
 echo.
@@ -22,7 +22,7 @@ echo.
 echo ============================================================
 echo Now enter the CONNECTION port (shown on main wireless debugging screen)
 echo ============================================================
-set /p CONNECT_IP="Enter connection IP:PORT (e.g., 192.168.86.2:46747): "
+set /p CONNECT_IP="Enter connection IP:PORT (e.g., 192.0.2.10:5555): "
 
 echo.
 echo Connecting to %CONNECT_IP%...
@@ -43,5 +43,5 @@ adb -s %CONNECT_IP% shell getprop ro.product.manufacturer
 adb -s %CONNECT_IP% shell getprop ro.product.model
 
 echo.
-echo Done! You can now run: python test_unlock.py %CONNECT_IP% 1109
+echo Done! You can now run: python test_unlock.py %CONNECT_IP% 0000
 pause

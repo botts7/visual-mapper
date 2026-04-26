@@ -195,11 +195,11 @@ class TestDeviceMatching:
             return device_id
 
         assert extract_ip("192.168.1.2:5555") == "192.168.1.2"
-        assert extract_ip("10.0.0.100:42519") == "10.0.0.100"
+        assert extract_ip("10.0.0.100:5555") == "10.0.0.100"
         assert extract_ip("emulator-5554") == "emulator-5554"
 
     def test_extract_ip_from_underscore_format(self):
-        """Extract IP from underscore format like '192_168_1_2_42519'."""
+        """Extract IP from underscore format like '192_168_1_2_5555'."""
         def extract_ip_underscore(device_id: str) -> str:
             parts = device_id.split('_')
             if len(parts) >= 4:
@@ -212,7 +212,7 @@ class TestDeviceMatching:
                     pass
             return device_id
 
-        assert extract_ip_underscore("192_168_1_2_42519") == "192.168.1.2"
+        assert extract_ip_underscore("192_168_1_2_5555") == "192.168.1.2"
         assert extract_ip_underscore("10_0_0_100_5555") == "10.0.0.100"
         assert extract_ip_underscore("invalid_device") == "invalid_device"
 
@@ -258,7 +258,7 @@ class TestDeviceMatching:
         assert find_companion("192.168.1.100:5555") == "192.168.1.100"
 
         # Serial match when IP doesn't match
-        assert find_companion("192.168.86.2:5555", "ZY22ABC123") == "192.168.1.100"
+        assert find_companion("192.0.2.10:5555", "ZY22ABC123") == "192.168.1.100"
 
         # No match
         assert find_companion("10.0.0.1:5555", "UNKNOWN") is None

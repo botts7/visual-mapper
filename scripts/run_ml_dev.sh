@@ -4,8 +4,8 @@
 #
 # Usage:
 #   ./run_ml_dev.sh                          # Uses localhost MQTT
-#   ./run_ml_dev.sh --broker 192.168.86.66   # Connect to HA MQTT
-#   ./run_ml_dev.sh --broker 192.168.86.66 --dqn  # Use Deep Q-Network
+#   ./run_ml_dev.sh --broker 192.0.2.66   # Connect to HA MQTT
+#   ./run_ml_dev.sh --broker 192.0.2.66 --dqn  # Use Deep Q-Network
 
 set -e
 

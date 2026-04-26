@@ -49,10 +49,10 @@ class TestWebSocketRegistration:
         mock_ws = Mock()
         mock_send = AsyncMock()
 
-        router.register_websocket("192.168.1.2:42519", mock_ws, mock_send)
+        router.register_websocket("192.168.1.2:5555", mock_ws, mock_send)
 
-        assert "192.168.1.2:42519" in router._websocket_connections
-        assert router.has_websocket("192.168.1.2:42519")
+        assert "192.168.1.2:5555" in router._websocket_connections
+        assert router.has_websocket("192.168.1.2:5555")
 
     def test_unregister_websocket(self):
         """Should unregister WebSocket connection for device."""
@@ -60,11 +60,11 @@ class TestWebSocketRegistration:
         mock_ws = Mock()
         mock_send = AsyncMock()
 
-        router.register_websocket("192.168.1.2:42519", mock_ws, mock_send)
-        router.unregister_websocket("192.168.1.2:42519")
+        router.register_websocket("192.168.1.2:5555", mock_ws, mock_send)
+        router.unregister_websocket("192.168.1.2:5555")
 
-        assert "192.168.1.2:42519" not in router._websocket_connections
-        assert not router.has_websocket("192.168.1.2:42519")
+        assert "192.168.1.2:5555" not in router._websocket_connections
+        assert not router.has_websocket("192.168.1.2:5555")
 
     def test_unregister_clears_disconnect_on_reconnect(self):
         """Registering should clear previous disconnect timestamp."""
@@ -73,13 +73,13 @@ class TestWebSocketRegistration:
         mock_send = AsyncMock()
 
         # Simulate disconnect then reconnect
-        router.register_websocket("192.168.1.2:42519", mock_ws, mock_send)
-        router.unregister_websocket("192.168.1.2:42519")
+        router.register_websocket("192.168.1.2:5555", mock_ws, mock_send)
+        router.unregister_websocket("192.168.1.2:5555")
         assert "192.168.1" in str(router._websocket_disconnected_at)  # normalized ID recorded
 
-        router.register_websocket("192.168.1.2:42519", mock_ws, mock_send)
+        router.register_websocket("192.168.1.2:5555", mock_ws, mock_send)
         # Disconnect timestamp should be cleared on reconnect
-        normalized = router._normalize_device_id("192.168.1.2:42519")
+        normalized = router._normalize_device_id("192.168.1.2:5555")
         assert normalized not in router._websocket_disconnected_at
 
 
@@ -89,7 +89,7 @@ class TestDeviceIdNormalization:
     def test_normalize_with_port(self):
         """Should strip port from device ID."""
         router = CommandRouter()
-        assert router._normalize_device_id("192.168.1.2:42519") == "192.168.1.2"
+        assert router._normalize_device_id("192.168.1.2:5555") == "192.168.1.2"
 
     def test_normalize_with_underscores(self):
         """Should convert underscores to dots."""
@@ -111,19 +111,19 @@ class TestRoutingLogic:
         mock_ws = Mock()
         mock_send = AsyncMock()
 
-        router.register_websocket("192.168.1.2:42519", mock_ws, mock_send)
+        router.register_websocket("192.168.1.2:5555", mock_ws, mock_send)
 
-        assert router._should_use_websocket("192.168.1.2:42519") is True
+        assert router._should_use_websocket("192.168.1.2:5555") is True
 
     def test_should_not_use_websocket_without_connection(self):
         """Should not use WebSocket when no connection registered."""
         router = CommandRouter()
-        assert router._should_use_websocket("192.168.1.2:42519") is False
+        assert router._should_use_websocket("192.168.1.2:5555") is False
 
     def test_should_use_mqtt_without_deps(self):
         """Should not use MQTT when no deps available."""
         router = CommandRouter()
-        assert router._should_use_mqtt("192.168.1.2:42519") is False
+        assert router._should_use_mqtt("192.168.1.2:5555") is False
 
     def test_should_use_mqtt_with_connected_device(self):
         """Should use MQTT when device is connected via MQTT."""
@@ -139,8 +139,8 @@ class TestRoutingLogic:
 
         router.set_deps(mock_deps)
 
-        assert router._should_use_mqtt("192.168.1.2:42519") is True
-        mock_mqtt.is_device_connected.assert_called_with("192.168.1.2:42519")
+        assert router._should_use_mqtt("192.168.1.2:5555") is True
+        mock_mqtt.is_device_connected.assert_called_with("192.168.1.2:5555")
 
     def test_should_not_use_mqtt_when_broker_disconnected(self):
         """Should not use MQTT when broker is not connected."""
@@ -154,7 +154,7 @@ class TestRoutingLogic:
 
         router.set_deps(mock_deps)
 
-        assert router._should_use_mqtt("192.168.1.2:42519") is False
+        assert router._should_use_mqtt("192.168.1.2:5555") is False
 
 
 class TestMQTTManagerIsDeviceConnected:
@@ -165,9 +165,9 @@ class TestMQTTManagerIsDeviceConnected:
         from core.mqtt.mqtt_manager import MQTTManager
 
         manager = MQTTManager(broker="localhost")
-        manager.set_device_capabilities("192.168.1.2:42519", ["CAP_OVERLAY_V2"])
+        manager.set_device_capabilities("192.168.1.2:5555", ["CAP_OVERLAY_V2"])
 
-        assert manager.is_device_connected("192.168.1.2:42519") is True
+        assert manager.is_device_connected("192.168.1.2:5555") is True
 
     def test_is_device_connected_with_sanitized_id(self):
         """Should find device with sanitized ID format."""
@@ -175,10 +175,10 @@ class TestMQTTManagerIsDeviceConnected:
 
         manager = MQTTManager(broker="localhost")
         # Store with sanitized format
-        sanitized = manager._sanitize_device_id("192.168.1.2:42519")
+        sanitized = manager._sanitize_device_id("192.168.1.2:5555")
         manager._device_capabilities[sanitized] = ["CAP_OVERLAY_V2"]
 
-        assert manager.is_device_connected("192.168.1.2:42519") is True
+        assert manager.is_device_connected("192.168.1.2:5555") is True
 
     def test_is_device_connected_with_companion_format(self):
         """Should find device with companion ID format."""
@@ -186,17 +186,17 @@ class TestMQTTManagerIsDeviceConnected:
 
         manager = MQTTManager(broker="localhost")
         # Store with companion format
-        companion_id = manager._get_companion_device_id("192.168.1.2:42519")
+        companion_id = manager._get_companion_device_id("192.168.1.2:5555")
         manager._device_capabilities[companion_id] = ["CAP_OVERLAY_V2"]
 
-        assert manager.is_device_connected("192.168.1.2:42519") is True
+        assert manager.is_device_connected("192.168.1.2:5555") is True
 
     def test_is_device_connected_false_when_not_found(self):
         """Should return False when device not in any tracking dict."""
         from core.mqtt.mqtt_manager import MQTTManager
 
         manager = MQTTManager(broker="localhost")
-        assert manager.is_device_connected("192.168.1.2:42519") is False
+        assert manager.is_device_connected("192.168.1.2:5555") is False
 
 
 class TestCommandExecution:
@@ -208,7 +208,7 @@ class TestCommandExecution:
         router = CommandRouter()
 
         result = await router.execute(
-            "192.168.1.2:42519",
+            "192.168.1.2:5555",
             "unknown_command",
             {}
         )
@@ -222,7 +222,7 @@ class TestCommandExecution:
         router = CommandRouter()
 
         result = await router.execute(
-            "192.168.1.2:42519",
+            "192.168.1.2:5555",
             "tap",
             {"x": 100}  # Missing "y"
         )
@@ -237,7 +237,7 @@ class TestCommandExecution:
         mock_ws = Mock()
         mock_send = AsyncMock()
 
-        router.register_websocket("192.168.1.2:42519", mock_ws, mock_send)
+        router.register_websocket("192.168.1.2:5555", mock_ws, mock_send)
 
         # Mock the companion stream manager at the import location
         with patch('core.streaming.companion_receiver.companion_stream_manager') as mock_csm:
@@ -247,7 +247,7 @@ class TestCommandExecution:
             # Since we have no real WS, it will timeout and fall through to ADB
             # The test verifies routing logic works correctly
             result = await router.execute(
-                "192.168.1.2:42519",
+                "192.168.1.2:5555",
                 "tap",
                 {"x": 100, "y": 200},
                 timeout=0.1  # Short timeout for test
@@ -278,7 +278,7 @@ class TestCommandExecution:
         router.set_deps(mock_deps)
 
         result = await router.execute(
-            "192.168.1.2:42519",
+            "192.168.1.2:5555",
             "launch_app",
             {"package_name": "com.example.app"}
         )
@@ -305,7 +305,7 @@ class TestCommandExecution:
         router.set_deps(mock_deps)
 
         result = await router.execute(
-            "192.168.1.2:42519",
+            "192.168.1.2:5555",
             "wake_screen",
             {}
         )
@@ -330,7 +330,7 @@ class TestCommandExecution:
         router.set_deps(mock_deps)
 
         result = await router.execute(
-            "192.168.1.2:42519",
+            "192.168.1.2:5555",
             "unlock",
             {}
         )
@@ -349,9 +349,9 @@ class TestRoutingInfo:
         mock_ws = Mock()
         mock_send = AsyncMock()
 
-        router.register_websocket("192.168.1.2:42519", mock_ws, mock_send)
+        router.register_websocket("192.168.1.2:5555", mock_ws, mock_send)
 
-        info = router.get_routing_info("192.168.1.2:42519")
+        info = router.get_routing_info("192.168.1.2:5555")
 
         assert info["websocket_available"] is True
         assert info["recommended_method"] == "websocket"
@@ -370,7 +370,7 @@ class TestRoutingInfo:
 
         router.set_deps(mock_deps)
 
-        info = router.get_routing_info("192.168.1.2:42519")
+        info = router.get_routing_info("192.168.1.2:5555")
 
         assert info["websocket_available"] is False
         assert info["mqtt_available"] is True
@@ -386,7 +386,7 @@ class TestRoutingInfo:
 
         router.set_deps(mock_deps)
 
-        info = router.get_routing_info("192.168.1.2:42519")
+        info = router.get_routing_info("192.168.1.2:5555")
 
         assert info["websocket_available"] is False
         assert info["mqtt_available"] is False

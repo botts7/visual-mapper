@@ -1367,8 +1367,8 @@ async def stream_device_mjpeg_v2(websocket: WebSocket, device_id: str):
         # Subscribe to shared capture pipeline
         # If companion is streaming, don't start ADB producer - companion frames will be cross-injected
         # IMPORTANT: Always subscribe to the ORIGINAL device_id because:
-        # 1. Cross-injection delivers frames to the ADB device_id (e.g., 192.168.86.2:42519)
-        # 2. Not to the companion_device_id (e.g., 192_168_86_2_companion)
+        # 1. Cross-injection delivers frames to the ADB device_id (e.g., 192.0.2.10:5555)
+        # 2. Not to the companion_device_id (e.g., 192_0_2_10_companion)
         using_companion = False
         if companion_active:
             logger.info(f"[WS-MJPEG-v2] Using companion stream for {device_id} (no ADB producer)")
@@ -1581,8 +1581,8 @@ async def companion_stream(websocket: WebSocket, device_id: str):
                 injections += 1
 
             # CRITICAL FIX: Also inject to all devices that match this companion
-            # This handles IP mismatch between companion (e.g., 192.168.86.129)
-            # and ADB device (e.g., 192.168.86.2:5555)
+            # This handles IP mismatch between companion (e.g., 192.0.2.129)
+            # and ADB device (e.g., 192.0.2.10:5555)
             for subscriber_device_id in subscribers:
                 if subscriber_device_id == device_id:
                     continue  # Already injected above

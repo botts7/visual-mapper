@@ -4,8 +4,8 @@
 
 ## Problem Statement
 Companion app frames were not being matched to ADB devices when the IP addresses differed. This happened because:
-1. Companion app registers with its WiFi IP (e.g., `192.168.86.129`)
-2. ADB connects to a different IP (e.g., `192.168.86.2:5555`)
+1. Companion app registers with its WiFi IP (e.g., `192.0.2.129`)
+2. ADB connects to a different IP (e.g., `192.0.2.10:5555`)
 3. The IP matching in `find_companion_for_device()` failed
 4. Multi-device setups couldn't use the single-companion fallback
 

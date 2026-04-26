@@ -349,7 +349,7 @@ class FlowRecorder {
             const stats = await response.json();
             if (!stats.connected || !stats.active_devices?.length) return false;
 
-            // Extract IP from device ID (handles formats like "192.168.86.2:42519" or "192_168_86_2_42519")
+            // Extract IP from device ID (handles formats like "192.0.2.10:5555" or "192_0_2_10_5555")
             const extractIp = (id) => {
                 // Remove common suffixes like "_companion"
                 let cleaned = id.replace(/_companion$/, '');

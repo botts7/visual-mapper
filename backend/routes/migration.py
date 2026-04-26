@@ -156,7 +156,7 @@ async def cleanup_duplicate_flow_files():
     """
     Clean up duplicate flow files caused by device IP/port changes.
 
-    When a device reconnects with a new port (e.g., 192.168.1.100:5555 -> :42519),
+    When a device reconnects with a new port (e.g., 192.168.1.100:5555 -> :5555),
     flow files may be duplicated. This endpoint:
     1. Identifies flow files for the same device (same IP, different ports)
     2. Consolidates flows into a single file per device
