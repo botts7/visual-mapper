@@ -119,7 +119,7 @@ class MQTTManager:
         Set device info for friendly MQTT device names
 
         Args:
-            device_id: ADB device ID (e.g., "192.168.1.2:46747")
+            device_id: ADB device ID (e.g., "192.168.1.2:5555")
             model: Device model (e.g., "SM X205", "Galaxy Tab A7")
             friendly_name: Custom friendly name (overrides model)
             app_name: Current app name for context (e.g., "BYD")
@@ -176,7 +176,7 @@ class MQTTManager:
         Store device capabilities from announcement or status message.
 
         Args:
-            device_id: Device identifier (e.g., "192.168.1.2:46747" or "SM_X205")
+            device_id: Device identifier (e.g., "192.168.1.2:5555" or "SM_X205")
             capabilities: List of capability strings (e.g., ["CAP_OVERLAY_V2", "CAP_CLIENT_OCR"])
         """
         self._device_capabilities[device_id] = capabilities or []
@@ -770,7 +770,7 @@ class MQTTManager:
         """Publish device availability status
 
         Args:
-            device_id: Connection ID (e.g., 192.168.1.2:46747)
+            device_id: Connection ID (e.g., 192.168.1.2:5555)
             online: True for online, False for offline
             stable_device_id: Optional stable ID - if provided, use this instead of device_id
                               to match what's used in sensor discovery (prevents duplicates when IP changes)
@@ -1598,7 +1598,7 @@ class MQTTManager:
         Payload: {
             "device_id": "SM_X205",
             "ip": "192.168.1.2",
-            "adb_port": 46747,
+            "adb_port": 5555,
             "model": "SM-X205",
             "android_version": "13",
             "already_paired": true,

@@ -43,7 +43,7 @@ class DeviceDataMigrator:
         Discover mappings between old device IDs (IP:port or hash) and new stable IDs.
 
         Args:
-            device_serial_map: Known mappings like {"192.168.1.2:46747": "R9YT50J4S9D"}
+            device_serial_map: Known mappings like {"192.168.1.2:5555": "R9YT50J4S9D"}
 
         Returns:
             Complete mapping including derived legacy hashes
@@ -201,7 +201,7 @@ class DeviceDataMigrator:
         self, sensor_id: str, mappings: Dict[str, str], new_stable_id: str
     ) -> str:
         """Update sensor_id to use stable device ID prefix"""
-        # Pattern: 192_168_86_2_46747_sensor_xxxx
+        # Pattern: 192_0_2_10_5555_sensor_xxxx
         # Should become: R9YT50J4S9D_sensor_xxxx
 
         for old_pattern, stable_id in mappings.items():
@@ -340,7 +340,7 @@ class DeviceDataMigrator:
         Run full migration of sensors and flows.
 
         Args:
-            device_serial_map: Mapping like {"192.168.1.2:46747": "R9YT50J4S9D"}
+            device_serial_map: Mapping like {"192.168.1.2:5555": "R9YT50J4S9D"}
             dry_run: If True, only report changes without modifying
 
         Returns:
@@ -378,7 +378,7 @@ def main():
     )
     parser.add_argument("--device-map", type=str, help="JSON file with device mappings")
     parser.add_argument(
-        "--conn-id", type=str, help="Connection ID (e.g., 192.168.1.2:46747)"
+        "--conn-id", type=str, help="Connection ID (e.g., 192.168.1.2:5555)"
     )
     parser.add_argument(
         "--stable-id", type=str, help="Stable device ID (e.g., R9YT50J4S9D)"

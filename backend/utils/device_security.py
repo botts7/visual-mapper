@@ -350,7 +350,7 @@ class DeviceSecurityManager:
         This preserves the passcode encryption by re-encrypting with the new device_id.
 
         Args:
-            old_device_id: Old device identifier (e.g., "192.168.86.2:5555")
+            old_device_id: Old device identifier (e.g., "192.0.2.10:5555")
             stable_id: New stable identifier (e.g., "R9YT50J4S9D")
 
         Returns:
@@ -421,7 +421,7 @@ class DeviceSecurityManager:
         Used for migrating old configs when device reconnects on different port.
 
         Args:
-            ip_address: IP address to search for (e.g., "192.168.86.2")
+            ip_address: IP address to search for (e.g., "192.0.2.10")
 
         Returns:
             device_id of found config, or None
