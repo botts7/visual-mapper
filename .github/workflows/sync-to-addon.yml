@@ -91,10 +91,15 @@ jobs:
           # Update config.yaml version
           sed -i "s/^version: .*/version: ${{ steps.info.outputs.version }}/" "$TARGET_DIR/config.yaml"
 
-          # For beta builds, update name and slug to avoid conflicts with stable
+          # For beta builds, update name and slug to avoid conflicts with stable.
+          # Beta also listens on port 18085 internally (set in visual-mapper-beta/run.sh)
+          # so two side-by-side installs don't collide on container port 8080.
           if [ "${{ steps.info.outputs.target }}" = "beta" ]; then
             sed -i "s/^name: Visual Mapper$/name: Visual Mapper Beta/" "$TARGET_DIR/config.yaml"
             sed -i "s/^slug: visual_mapper$/slug: visual_mapper_beta/" "$TARGET_DIR/config.yaml"
+            sed -i "s|^  8080/tcp: 8080$|  18085/tcp: 18085|" "$TARGET_DIR/config.yaml"
+            sed -i "s|^  8080/tcp: Web UI (HTTP)$|  18085/tcp: Web UI (HTTP - beta)|" "$TARGET_DIR/config.yaml"
+            sed -i "s|^webui: http://\[HOST\]:\[PORT:8080\]$|webui: http://[HOST]:[PORT:18085]|" "$TARGET_DIR/config.yaml"
           fi
 
           # Update CACHE_BUST in Dockerfile
