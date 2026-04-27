@@ -9,10 +9,13 @@ import time
 import uuid
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 from datetime import datetime, timezone
 from PIL import Image
 import io
+
+if TYPE_CHECKING:
+    from .flow_consolidation import ConsolidationGroup
 
 from .flow_models import (
     SensorCollectionFlow,

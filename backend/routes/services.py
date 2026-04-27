@@ -126,7 +126,7 @@ def _get_ml_training_mode() -> str:
 
 def check_ml_training_status() -> ServiceStatus:
     """Check ML training server status"""
-    global ml_training_process, ml_training_thread, ml_training_instance
+    global ml_training_process
 
     # Get configured mode
     mode = _get_ml_training_mode()
