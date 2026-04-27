@@ -247,3 +247,11 @@ dmypy.json
 # =============================================================================
 docker-build.log
 docker-compose.override.ymlandroid-companion/
+
+# Claude Code working-directory markers
+tmpclaude-*-cwd
+
+# Application runtime logs (don't commit local server output)
+server_err.log
+server_out.log
+backend/backend_log.txt
