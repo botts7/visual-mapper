@@ -23,6 +23,11 @@ This document outlines the testing procedures for all enhancements implemented i
    - 4.1 Toast Notifications
    - 4.2 Centralized Debug Logging
    - 4.3 Dynamic triggered_by Parameter
+5. [Security & Access Controls](#5-security--access-controls)
+   - 5.1 REST Auth Enforcement
+   - 5.2 WebSocket Auth Enforcement
+   - 5.3 CORS Origin Policy
+   - 5.4 Proxy Header Trust
 
 ---
 
@@ -399,6 +404,60 @@ curl -X POST "http://localhost:8080/api/flows/device123/flow456/execute?triggere
 curl "http://localhost:8080/api/flows/device123/flow456/history"
 # Should show triggered_by value in history entries
 ```
+
+---
+
+## 5. Security & Access Controls
+
+These tests validate that the companion auth and CORS changes behave correctly.
+
+### 5.1 REST Auth Enforcement
+
+**Test Cases:**
+
+| ID | Test Case | Steps | Expected Result |
+|----|-----------|-------|-----------------|
+| AUTH-01 | Protected endpoint without key | 1. Set `COMPANION_API_KEY`<br>2. Call a protected endpoint without header | 401 Unauthorized |
+| AUTH-02 | Protected endpoint with key | 1. Call protected endpoint with `X-Companion-Key` | 200 OK |
+
+**Verification (example):**
+```bash
+curl -i http://localhost:8080/api/stream/shared/stats
+curl -i -H "X-Companion-Key: YOUR_KEY" http://localhost:8080/api/stream/shared/stats
+```
+
+---
+
+### 5.2 WebSocket Auth Enforcement
+
+**Test Cases:**
+
+| ID | Test Case | Steps | Expected Result |
+|----|-----------|-------|-----------------|
+| WS-01 | Stream WS without key | 1. Connect to `/ws/stream-mjpeg-v2/{device_id}` without header | Connection closes (1008) |
+| WS-02 | Stream WS with key | 1. Connect with `X-Companion-Key` header | Stream starts |
+
+---
+
+### 5.3 CORS Origin Policy
+
+**Test Cases:**
+
+| ID | Test Case | Steps | Expected Result |
+|----|-----------|-------|-----------------|
+| CORS-01 | Allowed origin | Set `CORS_ALLOW_ORIGINS` to include your UI origin | Browser requests succeed |
+| CORS-02 | Disallowed origin | Try from a different origin | Browser blocks |
+
+---
+
+### 5.4 Proxy Header Trust
+
+**Test Cases:**
+
+| ID | Test Case | Steps | Expected Result |
+|----|-----------|-------|-----------------|
+| PROXY-01 | Trust disabled | `TRUST_PROXY_HEADERS=false`, spoof `X-Forwarded-For` | Auth still enforced |
+| PROXY-02 | Trust enabled | `TRUST_PROXY_HEADERS=true`, spoof `X-Forwarded-For` | Header respected |
 
 ---
 

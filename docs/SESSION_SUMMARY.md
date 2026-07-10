@@ -84,13 +84,20 @@
 ### Blocked
 - None
 
+### Bug Fixes
+- [x] Fix prerequisite flows not being saved/linked properly
+  - Step 3 was launching the selected app instead of using current screen
+  - Step 5 was saving flows as regular flows without linking to prerequisite type
+  - Now: Skip app launch in prerequisite mode, show guidance panel
+  - Now: Save flow, link to prerequisite type, show proper dialog
+  - Commit: `bb6feee`
+
 ### Discovered Issues
 - Token handling uses static key without expiration (acceptable for HA integration, documented for future)
 
 ### Next Steps
-1. Continue to Priority 4: Code Quality
-2. Split `flow-wizard-step3.js` (257KB) into modules
-3. Standardize error response formats
+1. Test prerequisite flow recording end-to-end
+2. Consider additional bug fixes based on user feedback
 
 ---
 
@@ -128,8 +135,8 @@
 ## Session History
 
 ### Session: 2026-01-27 (Current)
-**Focus:** Complete all priorities (2-5)
-**Outcome:** ALL PRIORITIES COMPLETE - Security, Testing, Code Quality, Documentation
+**Focus:** Complete all priorities (2-5) + Bug fixes
+**Outcome:** ALL PRIORITIES COMPLETE - Security, Testing, Code Quality, Documentation; Bug fix for prerequisite flows
 **Commits:**
 - `e4f6fc4` - security: Restrict CORS config and add security startup warning
 - `c574941` - test: Add comprehensive test suite for prerequisite flows
@@ -146,6 +153,7 @@
 - `11f5ab8` - refactor: Consolidate duplicate stream code
 - `e8bd996` - docs: Add API documentation
 - `fc56dc1` - docs: Add user guide
+- `bb6feee` - fix: Handle prerequisite mode in flow wizard step 3 and step 5
 
 ### Session: 2026-01-26
 **Focus:** Priority 1 - Critical Stability Fixes + Priority 2 Start
