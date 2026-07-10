@@ -2,42 +2,33 @@
 
 ## Building the Android Companion App
 
-The Android app requires JAVA_HOME to be set correctly. Use this command to build:
+The Android app requires JAVA_HOME to be set. Use this command to build:
 
 ```bash
-cmd //c "C:\\Users\\botts\\build_android.bat"
+cd "C:/Users/botts/Downloads/Visual Mapper/android-companion" && JAVA_HOME="/c/Program Files/Android/Android Studio/jbr" ./gradlew.bat assembleDebug
 ```
-
-Or use the batch file directly in Windows:
-```cmd
-C:\Users\botts\build_android.bat
-```
-
-The batch file sets JAVA_HOME and runs:
-- `JAVA_HOME=C:\Program Files\Android\Android Studio\jbr`
-- `gradlew clean assembleDebug`
 
 ### APK Location
-After build: `android-companion\app\build\outputs\apk\debug\app-debug.apk`
+After build: `android-companion/app/build/outputs/apk/debug/app-debug.apk`
 
 ### Installing on Device
 
-1. Connect device via WiFi ADB:
-   ```bash
-   adb pair <ip>:<pair-port> <pairing-code>
-   adb connect <ip>:<connection-port>
-   ```
+```bash
+adb install -r "C:/Users/botts/Downloads/Visual Mapper/android-companion/app/build/outputs/apk/debug/app-debug.apk"
+```
 
-2. Install APK:
-   ```bash
-   adb install -r "C:\Users\botts\Downloads\Visual Mapper\android-companion\app\build\outputs\apk\debug\app-debug.apk"
-   ```
+### Force Restart App (if needed)
 
-3. Force restart app if needed:
-   ```bash
-   adb shell am force-stop com.visualmapper.companion
-   adb shell am start -n com.visualmapper.companion/.ui.fragments.MainContainerActivity
-   ```
+```bash
+adb shell am force-stop com.visualmapper.companion && adb shell am start -n com.visualmapper.companion/.ui.fragments.MainContainerActivity
+```
+
+### WiFi ADB Connection (if needed)
+
+```bash
+adb pair <ip>:<pair-port> <pairing-code>
+adb connect <ip>:<connection-port>
+```
 
 ## Running the Backend
 
