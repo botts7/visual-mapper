@@ -93,6 +93,7 @@ class RouteDependencies:
     # =========================================================================
     ws_log_handler: Optional[object] = None  # WebSocketLogHandler instance
     element_text_extractor: Optional[object] = None  # ElementTextExtractor instance
+    companion_receiver: Optional[object] = None  # CompanionStreamManager instance
 
 
 # Global dependencies instance (set once at startup)

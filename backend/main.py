@@ -793,6 +793,17 @@ async def lifespan(app: FastAPI):
                         f"[Server] Registered serial mapping: {companion_device_id} -> {device_serial}"
                     )
 
+                # Register android_id for robust cross-IP matching
+                # android_id is stable across WiFi network changes
+                android_id = announcement.get("android_id")
+                if android_id and ip:
+                    from core.streaming.companion_receiver import companion_stream_manager
+                    companion_device_id = f"{ip.replace('.', '_')}_companion"
+                    companion_stream_manager.set_companion_android_id(companion_device_id, android_id)
+                    logger.info(
+                        f"[Server] Registered android_id mapping: {companion_device_id} -> {android_id[:8]}..."
+                    )
+
                 # Auto-connect if already paired
                 if already_paired and ip and adb_port:
                     # Check if not already connected

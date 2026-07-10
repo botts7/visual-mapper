@@ -280,6 +280,25 @@ class ADBBridge:
 
         return result
 
+    async def shell_command(self, device_id: str, command: str) -> str:
+        """
+        Run an arbitrary shell command on a device.
+
+        This is a public wrapper around _run_shell_adaptive for general use.
+
+        Args:
+            device_id: Device identifier
+            command: Shell command to execute
+
+        Returns:
+            Command output as string, or empty string on error
+        """
+        try:
+            return await self._run_shell_adaptive(device_id, command)
+        except Exception as e:
+            logger.debug(f"[ADBBridge] shell_command failed: {e}")
+            return ""
+
     async def _resolve_device_connection(self, device_id: str) -> tuple:
         """
         Resolve a device ID (connection ID or stable ID) to its connection.
@@ -550,8 +569,13 @@ class ADBBridge:
         self._device_serial_cache[device_id] = serial
         logger.debug(f"[ADBBridge] Manually cached serial for {device_id}: {serial}")
 
-    def _get_cached_ui_elements(self, device_id: str) -> Optional[List[Dict]]:
-        """Get cached UI elements if still valid"""
+    def _get_cached_ui_elements(self, device_id: str, ignore_ttl: bool = False) -> Optional[List[Dict]]:
+        """Get cached UI elements if still valid.
+
+        Args:
+            device_id: Device identifier
+            ignore_ttl: If True, return cached elements even if expired (for streaming-safe mode)
+        """
         if not self._ui_cache_enabled:
             return None
 
@@ -559,16 +583,16 @@ class ADBBridge:
         if not cache_entry:
             return None
 
-        # Check if cache is still valid
+        # Check if cache is still valid (unless ignore_ttl is set)
         age_ms = (time.time() - cache_entry["timestamp"]) * 1000
-        if age_ms > self._ui_cache_ttl_ms:
+        if not ignore_ttl and age_ms > self._ui_cache_ttl_ms:
             logger.debug(
                 f"[ADBBridge] UI cache expired for {device_id} (age: {age_ms:.0f}ms)"
             )
             return None
 
         self._ui_cache_hits += 1
-        logger.debug(f"[ADBBridge] UI cache HIT for {device_id} (age: {age_ms:.0f}ms)")
+        logger.debug(f"[ADBBridge] UI cache HIT for {device_id} (age: {age_ms:.0f}ms, ignore_ttl={ignore_ttl})")
         return cache_entry["elements"]
 
     def _set_cached_ui_elements(
@@ -661,6 +685,8 @@ class ADBBridge:
         Returns:
             PNG image bytes (empty on failure)
         """
+        import subprocess  # Import at method level to ensure availability in except block
+
         conn = self.devices.get(device_id)
         if not conn:
             return b""
@@ -686,8 +712,6 @@ class ADBBridge:
 
                 # Fall back to subprocess if adbutils failed or returned too little data
                 if not result or len(result) < 1000:
-                    import subprocess
-
                     def _run_screencap():
                         proc_result = subprocess.run(
                             ["adb", "-s", device_id, "exec-out", "screencap", "-p"],
@@ -1672,7 +1696,8 @@ class ADBBridge:
             return b""
 
     async def get_ui_elements(
-        self, device_id: str, force_refresh: bool = False, bounds_only: bool = False
+        self, device_id: str, force_refresh: bool = False, bounds_only: bool = False,
+        streaming_safe: bool = False
     ) -> List[Dict]:
         """
         Extract UI element hierarchy using uiautomator.
@@ -1682,6 +1707,8 @@ class ADBBridge:
             force_refresh: If True, bypass cache and fetch fresh data
             bounds_only: If True, parse only text, resource_id, class, and bounds
                         (30-40% faster - use for sensor extraction)
+            streaming_safe: If True, return cached elements if lock is busy
+                           (prevents blocking streaming capture with slow uiautomator dump)
 
         Returns:
             List of element dicts with text, bounds, resource_id, etc.
@@ -1698,6 +1725,25 @@ class ADBBridge:
             cached = self._get_cached_ui_elements(resolved_id)
             if cached is not None:
                 return cached
+
+        # Streaming-safe mode: avoid blocking ADB streaming with slow uiautomator dump
+        # If the device lock is busy (likely streaming), return cached elements even if stale
+        if streaming_safe:
+            lock = self._device_locks.get(device_id)
+            if lock and lock.locked():
+                # Lock is busy, try to return cached elements (even if stale)
+                cached = self._get_cached_ui_elements(resolved_id, ignore_ttl=True)
+                if cached is not None:
+                    logger.debug(
+                        f"[ADBBridge] Streaming-safe: returning cached elements for {device_id} "
+                        f"(lock busy, {len(cached)} elements)"
+                    )
+                    return cached
+                # No cache available, return empty rather than block streaming
+                logger.debug(
+                    f"[ADBBridge] Streaming-safe: no cache for {device_id}, returning empty (lock busy)"
+                )
+                return []
 
         # Use per-device lock to allow concurrent UI extraction on different devices
         async with self._get_device_lock(device_id):

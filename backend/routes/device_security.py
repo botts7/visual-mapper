@@ -330,6 +330,8 @@ async def auto_unlock_device(device_id: str):
         # If streaming, prefer CommandRouter for unlock (uses WebSocket -> MQTT -> ADB)
         if is_streaming:
             # Use CommandRouter which prefers WebSocket when streaming
+            has_pin = bool(passcode)
+            logger.info(f"[API] Sending unlock via CommandRouter (has_pin={has_pin}, pin_len={len(passcode) if passcode else 0})")
             unlock_result = await command_router.execute(
                 device_id, "unlock", {"pin": passcode or ""}
             )
@@ -337,33 +339,62 @@ async def auto_unlock_device(device_id: str):
             success = unlock_result.success
 
             if success:
-                logger.info(f"[API] Device {device_id} unlocked via {method_used}")
-                return {
-                    "success": True,
-                    "message": f"Device unlocked via {method_used}",
-                    "method": method_used,
-                    "unlock_status": unlock_status,
-                }
+                # Verify the unlock actually worked (companion may report success but not unlock)
+                await asyncio.sleep(0.8)  # Give device time to process
+                still_locked = await deps.adb_bridge.is_locked(device_id)
+                if not still_locked:
+                    logger.info(f"[API] Device {device_id} unlocked via {method_used} (verified)")
+                    return {
+                        "success": True,
+                        "message": f"Device unlocked via {method_used}",
+                        "method": method_used,
+                        "unlock_status": unlock_status,
+                    }
+                else:
+                    logger.warning(f"[API] {method_used} reported success but device still locked - falling back to ADB")
             else:
                 logger.warning(f"[API] Unlock via {method_used} failed, trying ADB fallback")
 
         # ADB fallback (or primary if not streaming)
         # If passcode configured with auto_unlock, try PIN first (faster for PIN-locked devices)
         if passcode and config.get("strategy") == "auto_unlock":
-            logger.info(f"[API] Attempting PIN unlock for {device_id}")
+            logger.info(f"[API] Attempting PIN unlock for {device_id} (passcode length: {len(passcode)})")
             try:
                 success = await deps.adb_bridge.unlock_device(device_id, passcode)
                 method_used = "adb"
                 if success:
                     logger.info(f"[API] Device {device_id} unlocked with PIN")
+                else:
+                    # Verify lock state after PIN attempt
+                    await asyncio.sleep(0.5)
+                    is_locked = await deps.adb_bridge.is_locked(device_id)
+                    if not is_locked:
+                        logger.info(f"[API] Device {device_id} actually unlocked (verification passed)")
+                        success = True
+                    else:
+                        logger.warning(f"[API] PIN unlock returned False, device still locked")
             except Exception as e:
-                logger.warning(f"[API] PIN unlock failed: {e}")
+                logger.warning(f"[API] PIN unlock failed with exception: {e}")
+
+            # If PIN failed, try swipe as fallback (device might only have swipe lock)
+            if not success:
+                logger.info(f"[API] PIN unlock failed, trying swipe fallback")
+                try:
+                    await deps.adb_bridge.unlock_screen(device_id)
+                    await asyncio.sleep(0.5)
+                    is_locked = await deps.adb_bridge.is_locked(device_id)
+                    if not is_locked:
+                        logger.info(f"[API] Device {device_id} unlocked via swipe fallback")
+                        success = True
+                except Exception as e:
+                    logger.debug(f"[API] Swipe fallback failed: {e}")
         else:
             # No passcode configured - try swipe unlock
+            logger.info(f"[API] No passcode configured, trying swipe unlock for {device_id}")
             try:
                 await deps.adb_bridge.unlock_screen(device_id)
                 method_used = "adb"
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
 
                 # Check if swipe was enough
                 is_locked = await deps.adb_bridge.is_locked(device_id)
@@ -375,8 +406,10 @@ async def auto_unlock_device(device_id: str):
                         "method": "adb",
                         "unlock_status": unlock_status,
                     }
+                else:
+                    logger.warning(f"[API] Swipe unlock didn't work, device still locked (may need PIN)")
             except Exception as e:
-                logger.debug(f"[API] Swipe unlock attempt: {e}")
+                logger.warning(f"[API] Swipe unlock attempt failed: {e}")
 
         # Get updated status after attempt
         unlock_status = deps.adb_bridge.get_unlock_status(device_id)

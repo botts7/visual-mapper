@@ -166,13 +166,22 @@ async def capture_screenshot(request: ScreenshotRequest):
 
 
 @router.get("/elements/{device_id}")
-async def get_elements_only(device_id: str):
-    """Get UI elements without capturing screenshot (faster for streaming mode)"""
+async def get_elements_only(device_id: str, streaming_safe: bool = False):
+    """Get UI elements without capturing screenshot (faster for streaming mode).
+
+    Args:
+        device_id: The device identifier
+        streaming_safe: If True, return cached elements if ADB lock is busy
+                       (prevents blocking streaming capture with slow uiautomator dump)
+    """
     deps = get_deps()
     try:
-        logger.info(f"[API] Getting elements only from {device_id}")
-        # CRITICAL: force_refresh=True to avoid stale/cached elements from previous screen
-        elements = await deps.adb_bridge.get_ui_elements(device_id, force_refresh=True)
+        # If streaming_safe, don't force_refresh since we prefer cache when lock is busy
+        force_refresh = not streaming_safe
+        logger.info(f"[API] Getting elements from {device_id} (streaming_safe={streaming_safe})")
+        elements = await deps.adb_bridge.get_ui_elements(
+            device_id, force_refresh=force_refresh, streaming_safe=streaming_safe
+        )
         logger.info(f"[API] Got {len(elements)} elements")
 
         # Get current app/activity info for stale element detection

@@ -118,6 +118,13 @@ class CompanionStreamReceiver:
         # Maps companion device_id -> known serial (if provided during registration)
         self._companion_serials: Dict[str, str] = {}
 
+        # Android ID mapping for robust cross-IP matching
+        # Maps android_id (Settings.Secure.ANDROID_ID) -> companion device_id
+        # This is stable across WiFi network changes, unlike IP-based device_id
+        self._android_id_to_companion: Dict[str, str] = {}
+        # Reverse mapping: companion device_id -> android_id
+        self._companion_android_ids: Dict[str, str] = {}
+
     async def register_device(self, device_id: str) -> bool:
         """Register a device for companion streaming.
 
@@ -195,6 +202,47 @@ class CompanionStreamReceiver:
             Companion device_id if found, None otherwise
         """
         return self._serial_to_companion.get(serial)
+
+    def set_companion_android_id(self, companion_device_id: str, android_id: str):
+        """
+        Register android_id for cross-IP matching.
+
+        Android ID (Settings.Secure.ANDROID_ID) is stable across WiFi network changes,
+        enabling device matching when the IP-based device_id no longer matches.
+
+        Args:
+            companion_device_id: The companion's device_id (e.g., "192_0_2_10_companion")
+            android_id: The stable Android ID from Settings.Secure.ANDROID_ID
+        """
+        self._android_id_to_companion[android_id] = companion_device_id
+        self._companion_android_ids[companion_device_id] = android_id
+        logger.info(
+            f"[CompanionReceiver] Android ID mapping: {android_id[:8]}... -> {companion_device_id}"
+        )
+
+    def get_companion_by_android_id(self, android_id: str) -> Optional[str]:
+        """
+        Get companion device_id by stable android_id.
+
+        Args:
+            android_id: The stable Android ID from Settings.Secure.ANDROID_ID
+
+        Returns:
+            Companion device_id if found, None otherwise
+        """
+        return self._android_id_to_companion.get(android_id)
+
+    def get_android_id_for_companion(self, companion_device_id: str) -> Optional[str]:
+        """
+        Get the android_id for a companion device.
+
+        Args:
+            companion_device_id: The companion's device_id
+
+        Returns:
+            The android_id if registered, None otherwise
+        """
+        return self._companion_android_ids.get(companion_device_id)
 
     async def receive_frame(self, device_id: str, frame_data: bytes) -> bool:
         """
@@ -316,6 +364,47 @@ class CompanionStreamReceiver:
             logger.error(f"[CompanionReceiver] Invalid frame header: {e}")
             return False
 
+        # Validate payload is not empty or too small
+        payload_size = len(frame_data) - header_size
+        if payload_size < 100:
+            # Skip extremely small frames (likely empty or corrupt)
+            if stats.frames_received <= 10:
+                logger.warning(
+                    f"[CompanionReceiver] {device_id} skipping tiny frame: "
+                    f"payload={payload_size} bytes (header={header_size})"
+                )
+            return False
+
+        # Validate payload magic bytes
+        payload_start = frame_data[header_size:header_size + 4]
+        if codec == StreamCodec.JPEG:
+            # JPEG must start with 0xFF 0xD8 (SOI marker)
+            if len(payload_start) >= 2 and (payload_start[0] != 0xFF or payload_start[1] != 0xD8):
+                if stats.frames_received <= 10:
+                    logger.warning(
+                        f"[CompanionReceiver] {device_id} invalid JPEG magic: "
+                        f"0x{payload_start[0]:02X} 0x{payload_start[1]:02X} (expected 0xFF 0xD8)"
+                    )
+                return False
+        elif codec == StreamCodec.H264:
+            # H.264 NAL units should have start codes (0x00 0x00 0x01 or 0x00 0x00 0x00 0x01)
+            # or raw NAL unit data if Annex B format
+            if len(payload_start) >= 3:
+                has_start_code = (
+                    (payload_start[0] == 0 and payload_start[1] == 0 and payload_start[2] == 1) or
+                    (len(payload_start) >= 4 and payload_start[0] == 0 and payload_start[1] == 0 and
+                     payload_start[2] == 0 and payload_start[3] == 1)
+                )
+                # NAL unit type in first byte after start code (5 bits: 0x1F mask)
+                # If no start code, first byte should be NAL header
+                if not has_start_code and payload_start[0] == 0 and payload_start[1] == 0:
+                    if stats.frames_received <= 10:
+                        logger.warning(
+                            f"[CompanionReceiver] {device_id} invalid H.264 data: "
+                            f"starts with 0x{payload_start[0]:02X} 0x{payload_start[1]:02X}"
+                        )
+                    return False
+
         # Update stats
         stats.frames_received += 1
         stats.bytes_received += len(frame_data)
@@ -329,7 +418,6 @@ class CompanionStreamReceiver:
 
         # Log periodically (more often for first 10 frames to debug issues)
         if stats.frames_received <= 10 or stats.frames_received % 60 == 0:
-            payload_size = len(frame_data) - header_size
             dim_info = f"{width}x{height} ({stats.orientation})" if width > 0 else "no dims"
             codec_name = "H.264" if codec == StreamCodec.H264 else "JPEG"
             keyframe_info = ", KEYFRAME" if is_keyframe else ""
@@ -385,14 +473,20 @@ class CompanionStreamReceiver:
             return match.group(1)
         return None
 
-    def find_companion_for_device(self, device_id: str, adb_serial: Optional[str] = None) -> Optional[str]:
+    def find_companion_for_device(
+        self,
+        device_id: str,
+        adb_serial: Optional[str] = None,
+        android_id: Optional[str] = None
+    ) -> Optional[str]:
         """
         Find a companion stream that matches the given device ID.
 
         Matching strategy (in order of priority):
-        1. IP address match (ignoring port differences)
-        2. Device serial match (for cross-subnet scenarios)
-        3. Single active companion fallback (when only one companion is streaming)
+        1. Android ID match (stable across IP changes - highest priority)
+        2. IP address match (ignoring port differences)
+        3. Device serial match (for cross-subnet scenarios)
+        4. Single active companion fallback (when only one companion is streaming)
 
         The fallback handles cases where:
         - Companion app uses tablet's WiFi IP (e.g., 192.0.2.129)
@@ -401,6 +495,7 @@ class CompanionStreamReceiver:
         Args:
             device_id: The ADB device ID (e.g., "192.0.2.10:5555")
             adb_serial: Optional device serial for cross-subnet matching
+            android_id: Optional Android ID for stable cross-IP matching
 
         Returns the companion device_id if found, None otherwise.
         """
@@ -418,7 +513,25 @@ class CompanionStreamReceiver:
             if time_since_connect < 30.0 or time_since_frame < 5.0:
                 active_companions.append((companion_id, stats))
 
-        # Strategy 1: IP address match
+        # Strategy 1: Android ID match (most reliable - stable across IP changes)
+        if android_id:
+            companion_id = self._android_id_to_companion.get(android_id)
+            if companion_id and any(c[0] == companion_id for c in active_companions):
+                logger.info(
+                    f"[CompanionReceiver] Android ID match: {device_id} (android_id={android_id[:8]}...) -> {companion_id}"
+                )
+                return companion_id
+
+            # Also check reverse mapping - look through active companions
+            for companion_id, stats in active_companions:
+                comp_android_id = self._companion_android_ids.get(companion_id)
+                if comp_android_id and comp_android_id == android_id:
+                    logger.info(
+                        f"[CompanionReceiver] Android ID match (companion-side): {device_id} -> {companion_id}"
+                    )
+                    return companion_id
+
+        # Strategy 2: IP address match
         if target_ip:
             for companion_id, stats in active_companions:
                 companion_ip = self._extract_ip(companion_id)
@@ -426,7 +539,7 @@ class CompanionStreamReceiver:
                     logger.debug(f"[CompanionReceiver] IP match: {device_id} -> {companion_id}")
                     return companion_id
 
-        # Strategy 2: Serial number match (for cross-subnet scenarios)
+        # Strategy 3: Serial number match (for cross-subnet scenarios)
         # This handles cases where ADB and companion see different IPs for the same device
         if adb_serial:
             # Check if we have a direct serial mapping

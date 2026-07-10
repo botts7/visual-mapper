@@ -319,6 +319,7 @@ class DeviceIdentityResolver:
                         "manufacturer": info.get("manufacturer"),
                         "last_seen": info.get("last_seen"),
                         "connection_count": len(info.get("connection_history", [])),
+                        "connection_history": info.get("connection_history", []),
                     }
                 )
             return devices

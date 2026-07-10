@@ -425,6 +425,22 @@ STEP_SCHEMAS: Dict[str, Dict[str, Any]] = {
             "description": {"type": "string", "description": "Step description"}
         },
     },
+    # =========================================================================
+    # Shell Commands (Prerequisite Flows)
+    # =========================================================================
+    "shell": {
+        "name": "Shell Command",
+        "description": "Execute an arbitrary shell command on the device via ADB",
+        "required": ["command"],
+        "optional": ["description"],
+        "fields": {
+            "command": {
+                "type": "string",
+                "description": "Shell command to execute (e.g., am start -a android.settings.ACCESSIBILITY_SETTINGS)",
+            },
+            "description": {"type": "string", "description": "Step description"},
+        },
+    },
 }
 
 # Schema version for cache busting

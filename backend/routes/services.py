@@ -79,10 +79,14 @@ def check_mqtt_status() -> ServiceStatus:
     try:
         import paho.mqtt.client as mqtt
 
-        broker = os.environ.get("MQTT_BROKER", "localhost")
-        port = int(os.environ.get("MQTT_PORT", "1883"))
-        username = os.environ.get("MQTT_USERNAME", "")
-        password = os.environ.get("MQTT_PASSWORD", "")
+        # Load from saved settings first, then fall back to environment
+        settings = load_settings()
+        mqtt_settings = settings.get("mqtt", {})
+
+        broker = mqtt_settings.get("broker") or os.environ.get("MQTT_BROKER", "localhost")
+        port = mqtt_settings.get("port") or int(os.environ.get("MQTT_PORT", "1883"))
+        username = mqtt_settings.get("username") or os.environ.get("MQTT_USERNAME", "")
+        password = mqtt_settings.get("password") or os.environ.get("MQTT_PASSWORD", "")
 
         # Compatible with both paho-mqtt 1.x and 2.x
         try:
@@ -231,6 +235,52 @@ async def get_all_services_status():
 async def get_mqtt_status():
     """Get MQTT broker status"""
     return check_mqtt_status()
+
+
+@router.post("/mqtt/reconnect", response_model=ServiceStatus)
+async def reconnect_mqtt():
+    """Reconnect to MQTT broker (useful if broker started after backend)"""
+    from routes import get_deps
+
+    deps = get_deps()
+    if not deps.mqtt_manager:
+        raise HTTPException(status_code=500, detail="MQTT manager not initialized")
+
+    try:
+        broker = os.environ.get("MQTT_BROKER", "localhost")
+        port = int(os.environ.get("MQTT_PORT", "1883"))
+        username = os.environ.get("MQTT_USERNAME", "")
+        password = os.environ.get("MQTT_PASSWORD", "")
+
+        # Disconnect first if connected
+        if deps.mqtt_manager.is_connected:
+            await deps.mqtt_manager.disconnect()
+
+        # Reconnect
+        await deps.mqtt_manager.connect(
+            broker_host=broker,
+            broker_port=port,
+            username=username if username else None,
+            password=password if password else None,
+        )
+
+        if deps.mqtt_manager.is_connected:
+            return ServiceStatus(
+                name="MQTT Broker",
+                running=True,
+                details=f"Reconnected to {broker}:{port}",
+            )
+        else:
+            return ServiceStatus(
+                name="MQTT Broker",
+                running=False,
+                details="Reconnection attempted but not connected",
+            )
+    except Exception as e:
+        logger.error(f"MQTT reconnect failed: {e}")
+        return ServiceStatus(
+            name="MQTT Broker", running=False, details=f"Reconnect failed: {str(e)}"
+        )
 
 
 @router.get("/ml/status", response_model=ServiceStatus)

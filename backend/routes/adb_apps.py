@@ -197,6 +197,12 @@ async def launch_app(request: LaunchAppRequest):
             }
         )
 
+        # Log the method used - critical for debugging MediaProjection issues
+        logger.info(
+            f"[API] Launch result: {request.package} via {result.method.value} "
+            f"(success={result.success}, latency={result.latency_ms:.0f}ms)"
+        )
+
         if not result.success:
             raise HTTPException(status_code=500, detail=result.error or "Launch failed")
 

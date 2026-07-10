@@ -79,6 +79,11 @@ class MQTTManager:
         # Standard capabilities: CAP_OVERLAY_V2, CAP_CLIENT_OCR, CAP_INTENT_PREVIEW
         self._device_capabilities: Dict[str, list] = {}
 
+        # Maps android_id -> companion device_id for stable matching
+        # Android ID is stable across IP changes, unlike the IP-based device_id
+        # This enables robust device matching when WiFi IP changes
+        self._android_id_to_device: Dict[str, str] = {}
+
         logger.info(
             f"[MQTTManager] Initialized with broker={broker}:{port} (Platform: {'Windows' if IS_WINDOWS else 'Linux'})"
         )
@@ -218,6 +223,65 @@ class MQTTManager:
         """
         return self._device_capabilities.get(device_id, [])
 
+    def is_device_connected(self, device_id: str) -> bool:
+        """
+        Check if companion app is connected via MQTT for a specific device.
+
+        This is used by CommandRouter to determine if MQTT commands can be sent
+        to the companion app. Connection is detected via device capabilities
+        which are populated from companion status/announcement messages.
+
+        Args:
+            device_id: Device identifier (e.g., "192.168.1.2:5555")
+
+        Returns:
+            True if companion is connected for this device, False otherwise
+        """
+        # Normalize device ID to match how capabilities are stored
+        # Try multiple formats since device_id could be in various forms
+        sanitized = self._sanitize_device_id(device_id)
+        companion_id = self._get_companion_device_id(device_id)
+
+        # Check if we have capabilities for this device (indicates companion is connected)
+        # Capabilities are populated when companion sends status/announcement messages
+        if device_id in self._device_capabilities:
+            return True
+        if sanitized in self._device_capabilities:
+            return True
+        if companion_id in self._device_capabilities:
+            return True
+
+        # Also check device_info which is populated when companion connects
+        if device_id in self._device_info:
+            return True
+        if sanitized in self._device_info:
+            return True
+
+        return False
+
+    def update_settings(
+        self,
+        broker: str = None,
+        port: int = None,
+        username: str = None,
+        password: str = None,
+    ):
+        """
+        Update MQTT connection settings.
+
+        Call disconnect() before this, then connect() after to apply changes.
+        """
+        if broker is not None:
+            self.broker = broker
+        if port is not None:
+            self.port = port
+        if username is not None:
+            self.username = username if username else None
+        if password is not None:
+            self.password = password if password else None
+
+        logger.info(f"[MQTTManager] Settings updated: {self.broker}:{self.port}")
+
     async def connect(self) -> bool:
         """Connect to MQTT broker"""
         if IS_WINDOWS:
@@ -264,9 +328,20 @@ class MQTTManager:
             def on_disconnect(client, userdata, rc):
                 logger.info(f"[MQTTManager] Disconnected from broker (code {rc})")
                 self._connected = False
+                # Auto-reconnect if unexpected disconnect (rc != 0)
+                if rc != 0:
+                    logger.info("[MQTTManager] Unexpected disconnect, will auto-reconnect...")
+                    # paho-mqtt with loop_start() will auto-reconnect, but we can help it
+                    try:
+                        client.reconnect()
+                    except Exception as e:
+                        logger.warning(f"[MQTTManager] Reconnect attempt failed: {e}")
 
             self.client.on_connect = on_connect
             self.client.on_disconnect = on_disconnect
+
+            # Configure reconnection delays (min 1s, max 30s)
+            self.client.reconnect_delay_set(min_delay=1, max_delay=30)
 
             # Connect
             self.client.connect(self.broker, self.port, keepalive=60)
@@ -359,6 +434,67 @@ class MQTTManager:
             .replace("+", "_")
             .replace("#", "_")
         )
+
+    def _get_companion_device_id(self, device_id: str) -> str:
+        """
+        Convert device ID to companion app's MQTT device ID for action topics.
+
+        The companion app announces its device_id via MQTT. We look up the
+        actual announced device_id by matching the IP address.
+
+        - Input: "192.0.2.10:5555" (backend ADB format with port)
+        - Output: The companion's actual announced device_id
+
+        Falls back to IP_companion format if no announcement found.
+        """
+        # Extract IP from device_id (e.g., "192.0.2.10:5555" -> "192.0.2.10")
+        target_ip = device_id.split(":")[0] if ":" in device_id else device_id
+
+        # Look up announced devices to find matching companion
+        announced = getattr(self, "_announced_devices", {})
+        for announced_device_id, announcement in announced.items():
+            announced_ip = announcement.get("ip", "")
+            if announced_ip == target_ip:
+                logger.info(
+                    f"[MQTTManager] Found announced companion for {target_ip}: {announced_device_id}"
+                )
+                return announced_device_id
+
+        # Fallback: generate device ID using _companion suffix format
+        # This is what the companion's generateDeviceId() produces
+        sanitized_ip = target_ip.replace(".", "_")
+        fallback_id = f"{sanitized_ip}_companion"
+        logger.info(
+            f"[MQTTManager] No announced device for {target_ip}, using _companion format: {fallback_id}"
+        )
+        return fallback_id
+
+    def _get_all_companion_device_ids(self, device_id: str) -> list:
+        """
+        Get all possible companion device ID formats for a given device.
+
+        Returns multiple IDs to try when sending commands, since the companion
+        might be subscribed with different ID formats.
+        """
+        target_ip = device_id.split(":")[0] if ":" in device_id else device_id
+        sanitized_ip = target_ip.replace(".", "_")
+
+        ids = []
+
+        # 1. Check announced device
+        announced = getattr(self, "_announced_devices", {})
+        for announced_device_id, announcement in announced.items():
+            announced_ip = announcement.get("ip", "")
+            if announced_ip == target_ip:
+                ids.append(announced_device_id)
+                break
+
+        # 2. Add _companion format (from generateDeviceId)
+        companion_format = f"{sanitized_ip}_companion"
+        if companion_format not in ids:
+            ids.append(companion_format)
+
+        return ids
 
     def _get_device_id_for_topic(self, sensor: SensorDefinition) -> str:
         """Get the best device ID to use for MQTT topics (prefer stable_device_id)"""
@@ -829,6 +965,148 @@ class MQTTManager:
             attrs_ok = await self.publish_attributes(sensor, attributes)
 
         return state_ok and attrs_ok
+
+    # ========== Auto-Sensor Methods (Zero-Config) ==========
+
+    async def publish_auto_sensor_discovery(
+        self,
+        device_id: str,
+        stable_device_id: str,
+        sensor_id: str,
+        name: str,
+        sensor_type: str = "sensor",
+        icon: str = "mdi:eye",
+        device_class: Optional[str] = None,
+        unit: Optional[str] = None,
+    ) -> bool:
+        """
+        Publish MQTT discovery for an auto-created sensor.
+
+        Auto-sensors are created automatically on device connect and require
+        no user configuration.
+
+        Args:
+            device_id: Network device ID (e.g., 192.168.1.2:5555)
+            stable_device_id: Stable hardware ID (survives IP changes)
+            sensor_id: Unique sensor ID (e.g., tablet_app_screen)
+            name: Human-readable name (e.g., "App Screen")
+            sensor_type: "sensor" or "binary_sensor"
+            icon: MDI icon (e.g., "mdi:application")
+            device_class: HA device class (optional)
+            unit: Unit of measurement (optional)
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected to broker")
+            return False
+
+        try:
+            sanitized_device = self._sanitize_device_id(stable_device_id or device_id)
+            sanitized_sensor = self._sanitize_device_id(sensor_id)
+
+            # Discovery topic
+            component = "binary_sensor" if sensor_type == "binary_sensor" else "sensor"
+            topic = f"homeassistant/{component}/{sanitized_device}/{sanitized_sensor}/config"
+
+            # State and attributes topics
+            state_topic = f"visual_mapper/{sanitized_device}/auto/{sanitized_sensor}/state"
+            attributes_topic = f"visual_mapper/{sanitized_device}/auto/{sanitized_sensor}/attributes"
+            availability_topic = self._get_availability_topic(stable_device_id or device_id)
+
+            # Build payload
+            payload = {
+                "name": name,
+                "unique_id": f"visual_mapper_{sanitized_device}_{sanitized_sensor}",
+                "state_topic": state_topic,
+                "availability_topic": availability_topic,
+                "json_attributes_topic": attributes_topic,
+                "icon": icon,
+                "device": {
+                    "identifiers": [f"visual_mapper_{sanitized_device}_auto"],
+                    "name": self.get_device_display_name(device_id, "Auto Sensors"),
+                    "manufacturer": "Visual Mapper",
+                    "model": "Auto Sensors",
+                    "sw_version": APP_VERSION,
+                },
+            }
+
+            if device_class:
+                payload["device_class"] = device_class
+
+            if unit:
+                payload["unit_of_measurement"] = unit
+
+            if sensor_type == "binary_sensor":
+                payload["payload_on"] = "ON"
+                payload["payload_off"] = "OFF"
+
+            payload_json = json.dumps(payload)
+
+            if IS_WINDOWS:
+                result = self.client.publish(topic, payload_json, retain=True)
+                success = result.rc == mqtt.MQTT_ERR_SUCCESS
+            else:
+                await self.client.publish(topic, payload_json, retain=True)
+                success = True
+
+            if success:
+                logger.info(f"[MQTTManager] Published auto-sensor discovery: {sensor_id}")
+            return success
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to publish auto-sensor discovery: {e}")
+            return False
+
+    async def publish_auto_sensor_state(
+        self,
+        device_name: str,
+        sensor_id: str,
+        state: str,
+        attributes: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Publish state update for an auto-created sensor.
+
+        Args:
+            device_name: Sanitized device name (e.g., 192_168_1_2_5555)
+            sensor_id: Sensor ID (e.g., tablet_app_screen)
+            state: State value (e.g., "Netflix - Playing")
+            attributes: Optional attributes dict
+        """
+        if not self._connected or not self.client:
+            return False
+
+        try:
+            sanitized_device = self._sanitize_device_id(device_name)
+            sanitized_sensor = self._sanitize_device_id(sensor_id)
+
+            state_topic = f"visual_mapper/{sanitized_device}/auto/{sanitized_sensor}/state"
+
+            if IS_WINDOWS:
+                result = self.client.publish(state_topic, str(state), retain=True)
+                success = result.rc == mqtt.MQTT_ERR_SUCCESS
+            else:
+                await self.client.publish(state_topic, str(state), retain=True)
+                success = True
+
+            # Publish attributes if provided
+            if attributes and success:
+                attributes_topic = f"visual_mapper/{sanitized_device}/auto/{sanitized_sensor}/attributes"
+                attributes_json = json.dumps(attributes, default=str)
+
+                if IS_WINDOWS:
+                    self.client.publish(attributes_topic, attributes_json, retain=True)
+                else:
+                    await self.client.publish(attributes_topic, attributes_json, retain=True)
+
+            # Log initial state publishes for key sensors
+            if any(key in sensor_id for key in ["screen_on", "companion", "accessibility"]):
+                logger.info(f"[MQTTManager] Published auto-sensor state: {sensor_id}={state}")
+
+            return success
+
+        except Exception as e:
+            logger.debug(f"[MQTTManager] Failed to publish auto-sensor state: {e}")
+            return False
 
     # ========== Action Discovery Methods ==========
 
@@ -1500,6 +1778,357 @@ class MQTTManager:
             # Clean up pending request
             self._pending_ui_requests.pop(request_id, None)
 
+    async def request_launch_app(
+        self, device_id: str, package_name: str, force_restart: bool = True, timeout: float = 10.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app to launch an app via Intent (doesn't kill MediaProjection).
+
+        This sends a command to the companion app which uses Android Intent to launch
+        the target app. Unlike ADB monkey command, this preserves MediaProjection streaming.
+
+        Args:
+            device_id: Android device ID (sanitized or unsanitized)
+            package_name: Package name of app to launch (e.g., com.example.app)
+            force_restart: If True, clear task and restart app fresh
+            timeout: Maximum seconds to wait for response (default 10s)
+
+        Returns:
+            Response dict with success status, or None if timeout/error
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected to broker - cannot request app launch")
+            return None
+
+        import uuid
+        request_id = str(uuid.uuid4())
+
+        # Create a Future to wait for the response
+        response_future = asyncio.Future()
+
+        # Store pending request
+        if not hasattr(self, "_pending_action_requests"):
+            self._pending_action_requests = {}
+        self._pending_action_requests[request_id] = response_future
+
+        try:
+            sanitized_device = self._sanitize_device_id(device_id)
+
+            # Setup response handler if not already done
+            self._setup_action_response_handler()
+
+            # Subscribe to response topic
+            response_topic = f"visual_mapper/{sanitized_device}/action_response/state"
+            if IS_WINDOWS:
+                self.client.subscribe(response_topic)
+            else:
+                await self.client.subscribe(response_topic)
+
+            # Build command payload
+            command_payload = {
+                "request_id": request_id,
+                "packageName": package_name,
+                "forceRestart": force_restart,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            # Publish to action command topic
+            command_topic = f"visual_mapper/{sanitized_device}/action/launch_app/execute"
+            payload_json = json.dumps(command_payload)
+
+            if IS_WINDOWS:
+                result = self.client.publish(command_topic, payload_json, qos=1)
+                if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                    logger.error("[MQTTManager] Failed to publish launch_app command")
+                    return None
+            else:
+                await self.client.publish(command_topic, payload_json, qos=1)
+
+            logger.info(
+                f"[MQTTManager] Sent launch_app command to {device_id}: {package_name} "
+                f"(forceRestart={force_restart})"
+            )
+
+            # Wait for response with timeout
+            try:
+                response = await asyncio.wait_for(response_future, timeout=timeout)
+                logger.info(f"[MQTTManager] Received launch_app response: {response.get('success', False)}")
+                return response
+            except asyncio.TimeoutError:
+                logger.warning(f"[MQTTManager] launch_app request timed out after {timeout}s")
+                return None
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to request app launch: {e}")
+            return None
+        finally:
+            # Clean up pending request
+            self._pending_action_requests.pop(request_id, None)
+
+    async def request_tap(
+        self, device_id: str, x: float, y: float, timeout: float = 5.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app to perform a tap gesture via AccessibilityService.
+
+        Args:
+            device_id: Android device ID
+            x: X coordinate to tap
+            y: Y coordinate to tap
+            timeout: Maximum seconds to wait for response
+
+        Returns:
+            Response dict with success status, or None if timeout/error
+        """
+        return await self._request_action(
+            device_id, "tap", {"x": x, "y": y}, timeout
+        )
+
+    async def request_swipe(
+        self, device_id: str, x1: float, y1: float, x2: float, y2: float,
+        duration: int = 300, timeout: float = 5.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app to perform a swipe gesture via AccessibilityService.
+
+        Args:
+            device_id: Android device ID
+            x1, y1: Start coordinates
+            x2, y2: End coordinates
+            duration: Swipe duration in milliseconds
+            timeout: Maximum seconds to wait for response
+
+        Returns:
+            Response dict with success status, or None if timeout/error
+        """
+        return await self._request_action(
+            device_id, "swipe",
+            {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "duration": duration},
+            timeout
+        )
+
+    async def request_key_event(
+        self, device_id: str, key: str, timeout: float = 5.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app to send a key event via AccessibilityService.
+
+        Args:
+            device_id: Android device ID
+            key: Key name (BACK, HOME, RECENTS, etc.) or keycode
+            timeout: Maximum seconds to wait for response
+
+        Returns:
+            Response dict with success status, or None if timeout/error
+        """
+        return await self._request_action(
+            device_id, "key_event", {"key": key}, timeout
+        )
+
+    async def request_input_text(
+        self, device_id: str, text: str, timeout: float = 5.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app to input text via AccessibilityService.
+
+        Args:
+            device_id: Android device ID
+            text: Text to input
+            timeout: Maximum seconds to wait for response
+
+        Returns:
+            Response dict with success status, or None if timeout/error
+        """
+        return await self._request_action(
+            device_id, "input_text", {"text": text}, timeout
+        )
+
+    async def request_wake_screen(
+        self, device_id: str, timeout: float = 5.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app to wake the device screen.
+
+        Returns:
+            Response dict with success status, or None if timeout/error
+        """
+        return await self._request_action(
+            device_id, "wake_screen", {}, timeout
+        )
+
+    async def request_unlock(
+        self, device_id: str, pin: str = "", timeout: float = 10.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app to unlock the device screen.
+
+        Args:
+            device_id: Android device ID
+            pin: Optional PIN/passcode for secure lock screens
+            timeout: Maximum seconds to wait for response
+
+        Returns:
+            Response dict with success status, or None if timeout/error
+        """
+        return await self._request_action(
+            device_id, "unlock", {"pin": pin}, timeout
+        )
+
+    async def request_is_locked(
+        self, device_id: str, timeout: float = 5.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app to check if device is locked.
+
+        Returns:
+            Response dict with isLocked status, or None if timeout/error
+        """
+        return await self._request_action(
+            device_id, "is_locked", {}, timeout
+        )
+
+    async def request_screen_state(
+        self, device_id: str, timeout: float = 5.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app to get screen state (on/off, locked).
+
+        Returns:
+            Response dict with isScreenOn and isLocked, or None if timeout/error
+        """
+        return await self._request_action(
+            device_id, "get_screen_state", {}, timeout
+        )
+
+    async def _request_action(
+        self, device_id: str, action: str, params: Dict[str, Any], timeout: float
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Generic method to send an action command to companion app and wait for response.
+
+        Args:
+            device_id: Android device ID
+            action: Action name (tap, swipe, key_event, etc.)
+            params: Action parameters
+            timeout: Maximum seconds to wait for response
+
+        Returns:
+            Response dict with success status, or None if timeout/error
+        """
+        if not self._connected or not self.client:
+            logger.error(f"[MQTTManager] Not connected to broker - cannot request {action}")
+            return None
+
+        import uuid
+        request_id = str(uuid.uuid4())
+        logger.info(f"[MQTTManager] Starting {action} request for {device_id}, request_id={request_id[:8]}...")
+
+        # Create a Future to wait for the response
+        response_future = asyncio.Future()
+
+        # Store pending request
+        if not hasattr(self, "_pending_action_requests"):
+            self._pending_action_requests = {}
+        self._pending_action_requests[request_id] = response_future
+
+        try:
+            # Get all possible device ID formats (announced + _companion fallback)
+            # The companion might be subscribed with different ID formats
+            companion_device_ids = self._get_all_companion_device_ids(device_id)
+            logger.info(f"[MQTTManager] Device ID formats to try: {companion_device_ids}")
+
+            # Setup response handler if not already done
+            self._setup_action_response_handler()
+
+            # Subscribe to response topics for ALL device ID formats
+            for companion_device_id in companion_device_ids:
+                response_topic = f"visual_mapper/{companion_device_id}/action_response/state"
+                logger.info(f"[MQTTManager] Subscribing to response topic: {response_topic}")
+                if IS_WINDOWS:
+                    self.client.subscribe(response_topic)
+                else:
+                    await self.client.subscribe(response_topic)
+
+            # Build command payload
+            command_payload = {
+                "request_id": request_id,
+                **params,
+                "timestamp": datetime.now().isoformat(),
+            }
+            payload_json = json.dumps(command_payload)
+
+            # Publish to ALL device ID formats (one of them should match the companion's subscription)
+            for companion_device_id in companion_device_ids:
+                command_topic = f"visual_mapper/{companion_device_id}/action/{action}/execute"
+                logger.info(f"[MQTTManager] Publishing to: {command_topic}")
+
+                if IS_WINDOWS:
+                    result = self.client.publish(command_topic, payload_json, qos=1)
+                    if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                        logger.error(f"[MQTTManager] Failed to publish {action} to {command_topic}")
+                else:
+                    await self.client.publish(command_topic, payload_json, qos=1)
+
+            logger.info(f"[MQTTManager] Sent {action} command to {len(companion_device_ids)} topic(s) for {device_id}")
+
+            # Wait for response with timeout
+            try:
+                response = await asyncio.wait_for(response_future, timeout=timeout)
+                logger.info(f"[MQTTManager] Received {action} response: success={response.get('success', False)}")
+                return response
+            except asyncio.TimeoutError:
+                logger.warning(f"[MQTTManager] {action} request timed out after {timeout}s")
+                return None
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to request {action}: {e}")
+            return None
+        finally:
+            # Clean up pending request
+            self._pending_action_requests.pop(request_id, None)
+
+    def _setup_action_response_handler(self):
+        """
+        Setup handler for action responses from companion app.
+        """
+        if hasattr(self, "_action_response_handler_setup"):
+            return
+
+        if IS_WINDOWS:
+            # Store the original callback if any
+            original_callback = getattr(self.client, "on_message", None)
+
+            def on_message_with_action(client, userdata, message):
+                import re
+                topic = message.topic
+
+                # Check for action response
+                match = re.match(r"visual_mapper/([^/]+)/action_response/state", topic)
+                if match:
+                    try:
+                        response_data = json.loads(message.payload.decode())
+                        # Action responses don't have request_id in same format,
+                        # so we resolve the most recent pending request
+                        if hasattr(self, "_pending_action_requests") and self._pending_action_requests:
+                            # Get the first (most recent) pending request
+                            for req_id, future in list(self._pending_action_requests.items()):
+                                if not future.done():
+                                    if self._event_loop:
+                                        self._event_loop.call_soon_threadsafe(
+                                            future.set_result, response_data
+                                        )
+                                    break
+                    except Exception as e:
+                        logger.error(f"[MQTTManager] Error processing action response: {e}")
+
+                # Call original callback if exists
+                if original_callback:
+                    original_callback(client, userdata, message)
+
+            self.client.on_message = on_message_with_action
+            self._action_response_handler_setup = True
+            logger.info("[MQTTManager] Action response handler registered (Windows)")
+
     def _setup_ui_response_handler(self):
         """
         Setup handler for UI tree responses from companion app.
@@ -1649,9 +2278,32 @@ class MQTTManager:
                                 f"[MQTTManager] Device {device_id} capabilities: {capabilities}"
                             )
 
+                        # Extract and store android_id for robust device matching
+                        # android_id is stable across IP changes, enabling matching
+                        # when WiFi network changes
+                        android_id = announcement.get("android_id")
+                        if android_id:
+                            self._android_id_to_device[android_id] = device_id
+                            logger.info(
+                                f"[MQTTManager] Registered android_id mapping: {android_id[:8]}... -> {device_id}"
+                            )
+
                         # Store announced device for API access
                         if not hasattr(self, "_announced_devices"):
                             self._announced_devices = {}
+
+                        # Remove stale announcements from same IP but different device_id
+                        # (happens when device IP changes or device_id is regenerated)
+                        announcement_ip = announcement.get("ip", "")
+                        if announcement_ip:
+                            stale_ids = [
+                                did for did, ann in self._announced_devices.items()
+                                if ann.get("ip") == announcement_ip and did != device_id
+                            ]
+                            for stale_id in stale_ids:
+                                logger.info(f"[MQTTManager] Removing stale announcement: {stale_id} (same IP: {announcement_ip})")
+                                del self._announced_devices[stale_id]
+
                         self._announced_devices[device_id] = announcement
 
                         callback(announcement)
@@ -1688,3 +2340,257 @@ class MQTTManager:
             List of announcement dicts with device info
         """
         return list(getattr(self, "_announced_devices", {}).values())
+
+    def get_companion_by_android_id(self, android_id: str) -> Optional[str]:
+        """
+        Find companion device_id by stable android_id.
+
+        Android ID is stable across IP changes, enabling device matching
+        when the WiFi network changes and the IP-based device_id no longer matches.
+
+        Args:
+            android_id: The stable Android ID from Settings.Secure.ANDROID_ID
+
+        Returns:
+            The companion device_id if found, None otherwise
+        """
+        return self._android_id_to_device.get(android_id)
+
+    # =========================================================================
+    # Streaming Control (Remote control of companion streaming)
+    # =========================================================================
+
+    async def request_stop_streaming(
+        self, device_id: str, timeout: float = 10.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app to stop screen streaming.
+
+        Args:
+            device_id: Android device ID (sanitized or unsanitized)
+            timeout: Maximum seconds to wait for response
+
+        Returns:
+            Response dict with success status, or None if timeout/error
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected to broker - cannot stop streaming")
+            return None
+
+        import uuid
+        request_id = str(uuid.uuid4())
+
+        # Create a Future to wait for the response
+        response_future = asyncio.Future()
+
+        # Store pending request
+        if not hasattr(self, "_pending_action_requests"):
+            self._pending_action_requests = {}
+        self._pending_action_requests[request_id] = response_future
+
+        try:
+            sanitized_device = self._sanitize_device_id(device_id)
+
+            # Setup response handler if not already done
+            self._setup_action_response_handler()
+
+            # Subscribe to response topic
+            response_topic = f"visual_mapper/{sanitized_device}/action_response/state"
+            if IS_WINDOWS:
+                self.client.subscribe(response_topic)
+            else:
+                await self.client.subscribe(response_topic)
+
+            # Build command payload
+            command_payload = {
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            # Publish to action command topic
+            command_topic = f"visual_mapper/{sanitized_device}/action/stop_streaming/execute"
+            payload_json = json.dumps(command_payload)
+
+            if IS_WINDOWS:
+                result = self.client.publish(command_topic, payload_json, qos=1)
+                if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                    logger.error("[MQTTManager] Failed to publish stop_streaming command")
+                    return None
+            else:
+                await self.client.publish(command_topic, payload_json, qos=1)
+
+            logger.info(f"[MQTTManager] Sent stop_streaming command to {device_id}")
+
+            # Wait for response with timeout
+            try:
+                response = await asyncio.wait_for(response_future, timeout=timeout)
+                logger.info(f"[MQTTManager] Received stop_streaming response: {response.get('success', False)}")
+                return response
+            except asyncio.TimeoutError:
+                logger.warning(f"[MQTTManager] stop_streaming request timed out after {timeout}s")
+                return None
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to request stop streaming: {e}")
+            return None
+        finally:
+            # Clean up pending request
+            self._pending_action_requests.pop(request_id, None)
+
+    async def request_streaming_status(
+        self, device_id: str, timeout: float = 10.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app streaming status.
+
+        Args:
+            device_id: Android device ID (sanitized or unsanitized)
+            timeout: Maximum seconds to wait for response
+
+        Returns:
+            Response dict with streaming status, or None if timeout/error
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected to broker - cannot get streaming status")
+            return None
+
+        import uuid
+        request_id = str(uuid.uuid4())
+
+        # Create a Future to wait for the response
+        response_future = asyncio.Future()
+
+        # Store pending request
+        if not hasattr(self, "_pending_action_requests"):
+            self._pending_action_requests = {}
+        self._pending_action_requests[request_id] = response_future
+
+        try:
+            sanitized_device = self._sanitize_device_id(device_id)
+
+            # Setup response handler if not already done
+            self._setup_action_response_handler()
+
+            # Subscribe to response topic
+            response_topic = f"visual_mapper/{sanitized_device}/action_response/state"
+            if IS_WINDOWS:
+                self.client.subscribe(response_topic)
+            else:
+                await self.client.subscribe(response_topic)
+
+            # Build command payload
+            command_payload = {
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            # Publish to action command topic
+            command_topic = f"visual_mapper/{sanitized_device}/action/get_streaming_status/execute"
+            payload_json = json.dumps(command_payload)
+
+            if IS_WINDOWS:
+                result = self.client.publish(command_topic, payload_json, qos=1)
+                if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                    logger.error("[MQTTManager] Failed to publish get_streaming_status command")
+                    return None
+            else:
+                await self.client.publish(command_topic, payload_json, qos=1)
+
+            logger.info(f"[MQTTManager] Sent get_streaming_status command to {device_id}")
+
+            # Wait for response with timeout
+            try:
+                response = await asyncio.wait_for(response_future, timeout=timeout)
+                logger.info(f"[MQTTManager] Received streaming_status response: {response}")
+                return response
+            except asyncio.TimeoutError:
+                logger.warning(f"[MQTTManager] get_streaming_status request timed out after {timeout}s")
+                return None
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to get streaming status: {e}")
+            return None
+        finally:
+            # Clean up pending request
+            self._pending_action_requests.pop(request_id, None)
+
+    async def request_start_streaming(
+        self, device_id: str, timeout: float = 10.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request companion app to start screen streaming.
+
+        Note: This shows a notification on the device that the user must tap
+        to grant MediaProjection permission. Full remote start is not possible
+        due to Android security requirements.
+
+        Args:
+            device_id: Android device ID (sanitized or unsanitized)
+            timeout: Maximum seconds to wait for response
+
+        Returns:
+            Response dict with status (notification_shown or already_streaming)
+        """
+        if not self._connected or not self.client:
+            logger.error("[MQTTManager] Not connected to broker - cannot request streaming")
+            return None
+
+        import uuid
+        request_id = str(uuid.uuid4())
+
+        # Create a Future to wait for the response
+        response_future = asyncio.Future()
+
+        # Store pending request
+        if not hasattr(self, "_pending_action_requests"):
+            self._pending_action_requests = {}
+        self._pending_action_requests[request_id] = response_future
+
+        try:
+            sanitized_device = self._sanitize_device_id(device_id)
+
+            # Setup response handler if not already done
+            self._setup_action_response_handler()
+
+            # Subscribe to response topic
+            response_topic = f"visual_mapper/{sanitized_device}/action_response/state"
+            if IS_WINDOWS:
+                self.client.subscribe(response_topic)
+            else:
+                await self.client.subscribe(response_topic)
+
+            # Build command payload
+            command_payload = {
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            # Publish to action command topic
+            command_topic = f"visual_mapper/{sanitized_device}/action/request_streaming/execute"
+            payload_json = json.dumps(command_payload)
+
+            if IS_WINDOWS:
+                result = self.client.publish(command_topic, payload_json, qos=1)
+                if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                    logger.error("[MQTTManager] Failed to publish request_streaming command")
+                    return None
+            else:
+                await self.client.publish(command_topic, payload_json, qos=1)
+
+            logger.info(f"[MQTTManager] Sent request_streaming command to {device_id}")
+
+            # Wait for response with timeout
+            try:
+                response = await asyncio.wait_for(response_future, timeout=timeout)
+                logger.info(f"[MQTTManager] Received request_streaming response: {response}")
+                return response
+            except asyncio.TimeoutError:
+                logger.warning(f"[MQTTManager] request_streaming request timed out after {timeout}s")
+                return None
+
+        except Exception as e:
+            logger.error(f"[MQTTManager] Failed to request streaming: {e}")
+            return None
+        finally:
+            # Clean up pending request
+            self._pending_action_requests.pop(request_id, None)

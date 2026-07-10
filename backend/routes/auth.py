@@ -25,8 +25,7 @@ import os
 import logging
 from typing import Optional
 from fastapi import Depends, HTTPException, Request, status
-from starlette.websockets import WebSocket, WebSocketException
-from starlette import status as ws_status
+from starlette.websockets import WebSocket
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +33,9 @@ logger = logging.getLogger(__name__)
 # In standalone: set in .env file
 # In HA Add-on: set via options.json -> ENV mapping
 COMPANION_API_KEY = os.getenv("COMPANION_API_KEY", "")
+
+# Trust proxy headers (X-Forwarded-For) only when explicitly enabled
+TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
 
 # Trusted IP ranges for HA Add-on (Docker internal networks)
 # Common Docker internal subnet: 172.16.0.0/12
@@ -46,10 +48,10 @@ HA_TRUSTED_SUBNETS = [
 
 def _get_client_ip(headers: dict, client_host: Optional[str]) -> str:
     """Extract client IP from headers or direct client host."""
-    # Check X-Forwarded-For first (common with reverse proxies)
-    x_forwarded_for = headers.get("X-Forwarded-For", "")
-    if x_forwarded_for:
-        return x_forwarded_for.split(",")[0].strip()
+    if TRUST_PROXY_HEADERS:
+        x_forwarded_for = headers.get("X-Forwarded-For", "")
+        if x_forwarded_for:
+            return x_forwarded_for.split(",")[0].strip()
     return client_host or ""
 
 
@@ -156,7 +158,10 @@ async def verify_companion_ws(websocket: WebSocket) -> bool:
     Verify companion authentication for WebSocket connections.
 
     Mirrors verify_companion_auth logic for HTTP requests.
-    Raises WebSocketException on failure.
+
+    Returns:
+        True if authenticated
+        False if authentication fails (caller should close connection with code 1008)
     """
     if _is_trusted_websocket(websocket):
         return True
@@ -169,7 +174,7 @@ async def verify_companion_ws(websocket: WebSocket) -> bool:
     logger.warning(
         f"[Auth] Unauthorized WebSocket from {client_ip} to {websocket.url.path}"
     )
-    raise WebSocketException(code=ws_status.WS_1008_POLICY_VIOLATION)
+    return False
 
 
 async def verify_companion_auth(request: Request) -> bool:

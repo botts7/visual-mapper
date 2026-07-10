@@ -101,7 +101,7 @@ def get_error_with_hint(error_type: str, original_message: str = "") -> dict:
     }
 
 
-def classify_error(error_message: str) -> str:
+def classify_error(error_message: str) -> Optional[str]:
     """
     Classify an error message to determine the appropriate hint type.
 
@@ -109,20 +109,27 @@ def classify_error(error_message: str) -> str:
         error_message: The error message to classify
 
     Returns:
-        Error type key for ERROR_HINTS lookup
+        Error type key for ERROR_HINTS lookup, or None if unclassified
     """
     msg = error_message.lower()
 
     # Device connection errors
-    if "locked" in msg or "lock screen" in msg:
+    if "locked" in msg or "lock screen" in msg or "unlock" in msg:
         return "device_locked"
-    if "device" in msg and ("not found" in msg or "offline" in msg or "disconnected" in msg):
-        return "device_offline"
-    if "adb" in msg or "connection refused" in msg or "connection reset" in msg:
+
+    # ADB connection errors (check before device_offline to catch "adb" prefix errors)
+    if ("adb" in msg and ("error" in msg or "failed" in msg)) or "connection refused" in msg or "connection reset" in msg:
         return "adb_connection"
 
+    # Device offline/unreachable
+    if "device" in msg and ("not found" in msg or "offline" in msg or "disconnected" in msg or "not connected" in msg):
+        return "device_offline"
+    if "cannot reach" in msg or "unreachable" in msg:
+        return "device_offline"
+
     # Element finding errors
-    if "element" in msg and ("not found" in msg or "could not find" in msg or "no match" in msg):
+    if ("element" in msg or "button" in msg or "ui" in msg) and \
+       ("not found" in msg or "could not find" in msg or "no match" in msg or "missing" in msg):
         return "element_not_found"
 
     # Navigation errors
@@ -158,7 +165,7 @@ def classify_error(error_message: str) -> str:
         return "permission_denied"
 
     # Default - no specific hint
-    return ""
+    return None
 
 
 class VisualMapperError(Exception):

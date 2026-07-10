@@ -58,7 +58,7 @@ class AppNameBackgroundFetcher:
         Args:
             package_name: App package name
         """
-        # Skip if already completed or failed
+        # Skip if already completed or failed (session tracking)
         if package_name in self.completed or package_name in self.failed:
             logger.debug(
                 f"[AppNameBackgroundFetcher] Already processed: {package_name}"
@@ -76,6 +76,15 @@ class AppNameBackgroundFetcher:
         if package_name in self.queue:
             logger.debug(f"[AppNameBackgroundFetcher] Already queued: {package_name}")
             return
+
+        # Skip if already cached in Play Store metadata (persists across restarts)
+        if self.playstore_scraper:
+            metadata_path = self.playstore_scraper.metadata_dir / f"{package_name}.json"
+            if metadata_path.exists():
+                logger.debug(
+                    f"[AppNameBackgroundFetcher] Already cached: {package_name}"
+                )
+                return
 
         # Add to queue
         self.queue.append(package_name)

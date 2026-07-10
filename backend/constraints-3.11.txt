@@ -1,8 +1,8 @@
 # Pinned versions for the Python 3.11 baseline.
 # Use with: pip install -r backend/requirements.txt -c backend/constraints-3.11.txt
 fastapi==0.104.1
-uvicorn[standard]==0.24.0
-adb-shell[async]==0.4.4
+uvicorn==0.24.0
+adb-shell==0.4.4
 aiofiles==23.2.1
 async-timeout==5.0.1
 websockets==12.0

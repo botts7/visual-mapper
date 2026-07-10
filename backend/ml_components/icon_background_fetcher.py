@@ -42,6 +42,7 @@ class IconBackgroundFetcher:
         # Background task queue (device_id, package_name)
         self.queue = deque()
         self.processing: Set[str] = set()  # Currently processing
+        self.failed: Set[str] = set()  # Failed to fetch (don't retry)
         self.task = None  # Background worker task
         self.running = False
 
@@ -57,6 +58,11 @@ class IconBackgroundFetcher:
         """
         key = f"{device_id}:{package_name}"
 
+        # Skip if previously failed (don't retry apps not on Play Store)
+        if package_name in self.failed:
+            logger.debug(f"[IconBackgroundFetcher] Previously failed: {package_name}")
+            return
+
         # Skip if already in queue or processing
         if key in self.processing:
             logger.debug(f"[IconBackgroundFetcher] Already processing: {package_name}")
@@ -66,6 +72,13 @@ class IconBackgroundFetcher:
         for item in self.queue:
             if item == (device_id, package_name):
                 logger.debug(f"[IconBackgroundFetcher] Already queued: {package_name}")
+                return
+
+        # Skip if already cached (Play Store cache)
+        if self.playstore_scraper:
+            cache_path = self.playstore_scraper._get_cache_path(package_name)
+            if cache_path.exists():
+                logger.debug(f"[IconBackgroundFetcher] Already cached: {package_name}")
                 return
 
         # Add to queue
@@ -185,11 +198,15 @@ class IconBackgroundFetcher:
                     f"[IconBackgroundFetcher] Skipping APK extraction (wizard active): {package_name}"
                 )
 
+            # Mark as failed so we don't retry
+            self.failed.add(package_name)
             logger.warning(
-                f"[IconBackgroundFetcher] ❌ Failed to fetch icon: {package_name}"
+                f"[IconBackgroundFetcher] ❌ Failed to fetch icon: {package_name} (added to failed list)"
             )
 
         except Exception as e:
+            # Mark as failed on exception too
+            self.failed.add(package_name)
             logger.error(
                 f"[IconBackgroundFetcher] Fetch failed for {package_name}: {e}"
             )
@@ -224,5 +241,6 @@ class IconBackgroundFetcher:
         return {
             "queue_size": len(self.queue),
             "processing_count": len(self.processing),
+            "failed_count": len(self.failed),
             "is_running": self.running,
         }

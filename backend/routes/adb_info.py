@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 import logging
 import time
 from routes import get_deps
+from core.command_router import command_router
 
 logger = logging.getLogger(__name__)
 
@@ -124,10 +125,29 @@ async def get_screen_state(device_id: str):
 
 @router.get("/lock-status/{device_id}")
 async def get_lock_status(device_id: str):
-    """Check if device is locked (showing lock screen)"""
+    """Check if device is locked (showing lock screen).
+
+    Routes through companion (WebSocket/MQTT) when available for faster response.
+    """
     deps = get_deps()
     try:
         logger.info(f"[API] Checking lock status for {device_id}")
+        command_router.set_deps(deps)
+
+        # Try to get screen state via CommandRouter (prefers companion)
+        result = await command_router.execute(device_id, "get_screen_state", {})
+
+        if result.success and result.data:
+            return {
+                "success": True,
+                "device_id": device_id,
+                "is_locked": result.data.get("isLocked", False),
+                "screen_on": result.data.get("isScreenOn", True),
+                "method": result.method.value,
+                "timestamp": time.time(),
+            }
+
+        # Fallback to direct ADB if command router failed
         is_locked = await deps.adb_bridge.is_locked(device_id)
         is_screen_on = await deps.adb_bridge.is_screen_on(device_id)
         return {
@@ -135,6 +155,7 @@ async def get_lock_status(device_id: str):
             "device_id": device_id,
             "is_locked": is_locked,
             "screen_on": is_screen_on,
+            "method": "adb_fallback",
             "timestamp": time.time(),
         }
     except Exception as e:
