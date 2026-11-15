@@ -803,7 +803,7 @@ class FlowScheduler:
                             queue.task_done()
 
                             # Re-queue with slight delay (don't block the queue)
-                            async def requeue_after_delay():
+                            async def requeue_after_delay(queued=queued):
                                 await asyncio.sleep(10)
                                 # Only requeue if scheduler still running
                                 if self._running and queued.flow.enabled:
