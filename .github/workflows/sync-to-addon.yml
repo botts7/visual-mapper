@@ -82,7 +82,7 @@ jobs:
           cp requirements.txt "$TARGET_DIR/requirements.txt" 2>/dev/null || true
 
           # Sync addon config.yaml (HA addon UI configuration)
-          cp backend/config/config.yaml "$TARGET_DIR/config.yaml"
+          cp backend/config/addon-config.reference.yaml "$TARGET_DIR/config.yaml"
 
           # Sync translations for HA addon UI
           rm -rf "$TARGET_DIR/translations"
