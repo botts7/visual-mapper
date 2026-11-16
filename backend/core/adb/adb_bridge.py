@@ -2291,7 +2291,9 @@ class ADBBridge:
             logger.debug(f"[ADBBridge] Waking screen...")
             await conn.shell("input keyevent 224")  # KEYCODE_WAKEUP
             await asyncio.sleep(0.3)
-            await conn.shell("input keyevent 26")  # KEYCODE_POWER (backup)
+            # POWER toggles, so only use it as a backup when WAKEUP didn't work
+            if not await self.is_screen_on(device_id):
+                await conn.shell("input keyevent 26")  # KEYCODE_POWER (backup)
 
             await asyncio.sleep(0.5)
 
