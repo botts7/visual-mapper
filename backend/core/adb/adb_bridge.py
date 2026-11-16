@@ -23,6 +23,7 @@ from .adb_manager import ADBManager
 from .base_connection import BaseADBConnection
 from ml_components.playstore_icon_scraper import PlayStoreIconScraper
 from .adb_helpers import PersistentADBShell, PersistentShellPool
+from .adb_mdns import browse_tls_connect_services, parse_tls_connect_services
 from services.device_identity import get_device_identity_resolver
 
 # Optional: adbutils for faster screenshot capture (persistent connections)
@@ -1284,6 +1285,75 @@ class ADBBridge:
             except Exception as e:
                 logger.error(f"[ADBBridge] Network scan failed: {e}")
                 return []
+
+    async def list_tls_connect_services(self) -> List[Dict]:
+        """
+        List Android 11+ wireless debugging endpoints advertised over mDNS.
+
+        Tries `adb mdns services` first, then a python-zeroconf browse (adb
+        builds without an mDNS backend, e.g. Alpine android-tools, answer
+        "unknown host service"). Returns `_adb-tls-connect._tcp` entries as
+        [{"name", "ip", "port"}], or [] on any failure. Warns once only when
+        both sources are unavailable.
+        """
+        services, adb_error = await self._adb_mdns_services()
+        if services:
+            logger.debug(f"[ADBBridge] mDNS TLS connect services (source: adb): {services}")
+            return services
+
+        try:
+            services = await browse_tls_connect_services(raise_errors=True)
+        except Exception as e:
+            if adb_error:
+                self._log_mdns_unavailable(f"adb: {adb_error}; zeroconf: {e}")
+            else:
+                logger.debug(f"[ADBBridge] zeroconf browse failed: {e}")
+            return []
+
+        logger.debug(
+            f"[ADBBridge] mDNS TLS connect services (source: zeroconf): {services}"
+        )
+        return services
+
+    async def _adb_mdns_services(self):
+        """Run `adb mdns services`. Returns (services, error or None)."""
+
+        def _run_mdns_services():
+            result = subprocess.run(
+                ["adb", "mdns", "services"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return result.returncode, result.stdout, result.stderr
+
+        try:
+            returncode, stdout, stderr = await asyncio.to_thread(_run_mdns_services)
+        except Exception as e:
+            return [], str(e) or type(e).__name__
+
+        # Unsupported builds print the header, then "error: unknown host service"
+        output = f"{stdout or ''}\n{stderr or ''}"
+        error_lines = [
+            line.strip()
+            for line in output.splitlines()
+            if line.strip().lower().startswith(("error", "adb: error", "unknown"))
+        ]
+        if returncode != 0 or error_lines:
+            return [], error_lines[0] if error_lines else f"exit {returncode}"
+
+        return parse_tls_connect_services(stdout), None
+
+    def _log_mdns_unavailable(self, reason: str) -> None:
+        """Warn once that no mDNS lookup is usable, then stay quiet."""
+        if getattr(self, "_mdns_unavailable_logged", False):
+            logger.debug(f"[ADBBridge] mDNS lookup unavailable: {reason}")
+            return
+        self._mdns_unavailable_logged = True
+        logger.warning(
+            f"[ADBBridge] mDNS lookup unavailable ({reason}); "
+            "wireless debugging port changes cannot be auto-recovered"
+        )
 
     async def discover_devices(self) -> List[Dict]:
         """
