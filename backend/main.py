@@ -504,6 +504,7 @@ async def lifespan(app: FastAPI):
         device_migrator=device_migrator,
         mqtt_manager=mqtt_manager,
         check_interval=30,  # Check every 30 seconds
+        flow_scheduler=flow_scheduler,
     )
     logger.info("[Server] ✅ Connection Monitor initialized")
 
@@ -810,6 +811,19 @@ async def lifespan(app: FastAPI):
                                 logger.debug(
                                     f"[Server] Could not reconnect to {device_id}: {result.stdout.strip()}"
                                 )
+                                # Android 11+ wireless debugging may be on a new TLS port
+                                stable_id = next(
+                                    (
+                                        sid
+                                        for sid, ids in device_migrator.device_map.items()
+                                        if device_id in ids
+                                    ),
+                                    None,
+                                )
+                                if stable_id and await connection_monitor.recover_moved_endpoint(
+                                    device_id, stable_id
+                                ):
+                                    reconnected_count += 1
                         except Exception as e:
                             logger.debug(
                                 f"[Server] Failed to auto-reconnect to {device_id}: {e}"

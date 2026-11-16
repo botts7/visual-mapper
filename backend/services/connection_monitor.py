@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from services.command_queue import get_command_queue, CommandQueue
+from services.tls_endpoint_recovery import find_moved_tls_endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ class ConnectionMonitor:
         debounce_seconds: float = 5.0,
         check_interval: int = 30,
         max_retry_delay: int = 300,
+        flow_scheduler=None,
     ):
         """
         Initialize the connection monitor.
@@ -91,8 +93,10 @@ class ConnectionMonitor:
             debounce_seconds: Time to wait before considering device truly offline
             check_interval: Seconds between ADB health checks
             max_retry_delay: Maximum backoff delay for reconnection attempts
+            flow_scheduler: Optional FlowScheduler, re-keyed when a device moves address
         """
         self.adb_bridge = adb_bridge
+        self.flow_scheduler = flow_scheduler
         self.mqtt_manager = mqtt_manager
         self.device_migrator = device_migrator
         self.command_queue = command_queue or get_command_queue()
@@ -430,13 +434,14 @@ class ConnectionMonitor:
                 f"will retry in {status.retry_delay}s"
             )
 
-            # After several failed attempts, try network scan
-            if retry_num == 3 and status.stable_device_id and self.device_migrator:
+            # Every 3rd failed attempt, look for the device at a new address
+            # (wireless debugging restarts on a new random TLS port)
+            if retry_num % 3 == 0 and status.stable_device_id:
                 logger.info(
                     f"[ConnectionMonitor] Searching network for {device_id} "
                     f"with stable ID {status.stable_device_id}"
                 )
-                await self._scan_for_device(status.stable_device_id)
+                await self._scan_for_device(status.stable_device_id, device_id)
 
     async def _try_direct_reconnect(self, device_id: str) -> bool:
         """Try to reconnect to device at its known address"""
@@ -465,17 +470,64 @@ class ConnectionMonitor:
             logger.debug(f"[ConnectionMonitor] Direct reconnect failed for {device_id}: {e}")
             return False
 
-    async def _scan_for_device(self, stable_device_id: str):
+    async def _scan_for_device(
+        self, stable_device_id: str, old_device_id: Optional[str] = None
+    ):
         """Scan network to find a device with a specific stable ID"""
         try:
             logger.info(
                 f"[ConnectionMonitor] Scanning network for device with stable ID {stable_device_id}"
             )
+            if old_device_id and await self.recover_moved_endpoint(
+                old_device_id, stable_device_id
+            ):
+                return
             if self.adb_bridge:
                 await self.adb_bridge.discover_devices()
             logger.info("[ConnectionMonitor] Network scan complete")
         except Exception as e:
             logger.error(f"[ConnectionMonitor] Network scan failed: {e}")
+
+    async def recover_moved_endpoint(
+        self, old_device_id: str, stable_device_id: str
+    ) -> Optional[str]:
+        """
+        Find a wireless device on its new TLS port and move tracking to it.
+
+        Returns the new device_id, or None if nothing was found.
+        """
+        if not self.adb_bridge:
+            return None
+        new_device_id = await find_moved_tls_endpoint(
+            self.adb_bridge,
+            old_device_id,
+            stable_device_id,
+            on_rejected=self.remove_device,
+        )
+        if new_device_id:
+            await self._retire_endpoint(old_device_id, new_device_id)
+        return new_device_id
+
+    async def _retire_endpoint(self, old_device_id: str, new_device_id: str):
+        """Drop the stale address: adb disconnect, stop monitoring, stop its scheduler."""
+        try:
+            await self.adb_bridge.disconnect_device(old_device_id)
+        except Exception as e:
+            logger.debug(f"[ConnectionMonitor] Disconnect of {old_device_id} failed: {e}")
+
+        await self.remove_device(old_device_id)
+
+        if self.flow_scheduler:
+            try:
+                await self.flow_scheduler.retire_device(old_device_id, new_device_id)
+            except Exception as e:
+                logger.warning(
+                    f"[ConnectionMonitor] Scheduler remap {old_device_id} -> {new_device_id} failed: {e}"
+                )
+
+        logger.info(
+            f"[ConnectionMonitor] Remapped {old_device_id} -> {new_device_id}"
+        )
 
     def _on_status_update(self, device_id: str, status_data: dict):
         """Handle device status update from MQTT (sync callback)"""

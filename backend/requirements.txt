@@ -20,6 +20,9 @@ psutil==5.9.7
 adbutils>=2.12.0
 av>=11.0.0
 
+# Wireless debugging port discovery (mDNS _adb-tls-connect._tcp)
+zeroconf>=0.146.0
+
 # Play Store app info
 google-play-scraper>=1.2.4
 

@@ -1059,6 +1059,47 @@ class FlowScheduler:
             f"[FlowScheduler] Reloaded {len(enabled_flows)} flows for {device_id}"
         )
 
+    async def retire_device(self, old_device_id: str, new_device_id: str):
+        """
+        Move scheduling from a stale device address to its new one.
+
+        Used when a device reconnects on a new ip:port (e.g. Android 11+
+        wireless debugging picked a new TLS port). Stops the per-device
+        scheduler task and queue for the old address so the same flows are
+        not run twice, then restarts periodic scheduling under the new one.
+
+        Args:
+            old_device_id: Stale connection ID (ip:port)
+            new_device_id: Current connection ID for the same device
+        """
+        if old_device_id == new_device_id:
+            return
+
+        await self.cancel_queued_flows_for_device(old_device_id)
+
+        task = self._scheduler_tasks.pop(old_device_id, None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            logger.info(
+                f"[FlowScheduler] Stopped scheduler task for retired device {old_device_id}"
+            )
+
+        for per_device in (
+            self._queues,
+            self._device_locks,
+            self._queue_depths,
+            self._queued_flow_ids,
+        ):
+            per_device.pop(old_device_id, None)
+
+        # Periodic tasks are keyed by flow_id, so this replaces (not
+        # duplicates) the tasks that still carry the old address.
+        await self.reload_flows(new_device_id)
+
     def get_queue_depth(self, device_id: str) -> int:
         """Get current queue depth for a device"""
         return self._queue_depths.get(device_id, 0)
