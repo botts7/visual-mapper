@@ -2501,6 +2501,7 @@ class FlowExecutor:
             # Only process sensors that need updating (filtered by interval above)
             sensor_updates = []  # List of (sensor, value) tuples for batch publishing
             cached_count = 0
+            empty_count = 0  # Element found but extraction yielded nothing usable
             interval_skipped_count = len(step.sensor_ids) - len(sensors_to_capture)
             for sensor_id in sensors_to_capture:
                 # Check session cache first - avoid redundant captures
@@ -2570,6 +2571,20 @@ class FlowExecutor:
                             if sensor.extraction_rule
                             else None
                         )
+
+                    # Empty/missing extraction is a failed capture, not a value.
+                    # Keep last good current_value + last_updated, don't cache,
+                    # don't publish. "0" / 0 and a non-empty fallback_value
+                    # are real values and still pass.
+                    if value is None or (
+                        isinstance(value, str) and not value.strip()
+                    ):
+                        logger.warning(
+                            f"  Empty extraction for {sensor.friendly_name} "
+                            f"(raw text {raw_text!r}), keeping last value"
+                        )
+                        empty_count += 1
+                        continue
 
                     # Store in result and session cache
                     result.captured_sensors[sensor_id] = value
@@ -2662,6 +2677,11 @@ class FlowExecutor:
             if interval_skipped_count > 0:
                 logger.debug(
                     f"  Interval skip: {interval_skipped_count}/{total_sensors} skipped (not due for update)"
+                )
+            if empty_count > 0:
+                logger.warning(
+                    f"  Empty extraction: {empty_count}/{total_sensors} sensors "
+                    f"not updated (kept last value)"
                 )
             # Only fail if no sensors were captured AND none were skipped by interval
             # (interval-skipped sensors are intentional, not failures)
