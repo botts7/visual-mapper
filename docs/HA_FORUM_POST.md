@@ -1,4 +1,4 @@
-# Visual Mapper v0.3.1 - Transform Android Devices into HA Sensors & Automation
+# Visual Mapper v0.4.0 - Transform Android Devices into HA Sensors & Automation
 
 Hey everyone! I've been working on an open-source project that I think could be useful for the community, and I'm looking for testers and contributors to help improve it.
 
@@ -20,24 +20,24 @@ Visual Mapper lets you **create Home Assistant sensors from any Android app's UI
 4. Schedule flows to run periodically (e.g., every 5 minutes)
 5. Sensors auto-publish to HA via MQTT with auto-discovery
 
-## Current Features (v0.3.1)
+## Current Features (v0.4.0)
 
-| Feature | Status |
-|---------|--------|
-| WiFi ADB connection (Android 11+) | ✅ Working |
-| USB ADB connection | ✅ Working |
-| Screenshot capture & element detection | ✅ Working |
-| Visual Flow Wizard (record & replay) | ✅ Working |
-| Sensor creation from UI elements | ✅ Working |
-| MQTT auto-discovery to Home Assistant | ✅ Working |
-| Scheduled flow execution | ✅ Working |
-| Multi-device support | ✅ Working |
-| Live screen streaming (MJPEG v2) | ✅ Working |
-| Auto-unlock (PIN/passcode) | ✅ Working |
-| Smart screen sleep prevention | ✅ Working |
-| ML Training Server (optional) | ✅ Working |
-| Android Companion App | ✅ Working |
-| Dark mode UI | ✅ Working |
+- ✅ WiFi ADB connection (Android 11+)
+- ✅ USB ADB connection
+- ✅ Screenshot capture & element detection
+- ✅ Visual Flow Wizard (record & replay)
+- ✅ Sensor creation from UI elements
+- ✅ MQTT auto-discovery to Home Assistant
+- ✅ Scheduled flow execution
+- ✅ Multi-device support
+- ✅ Live screen streaming (MJPEG v2)
+- ✅ Auto-unlock (PIN/passcode)
+- ✅ Smart screen sleep prevention
+- ✅ ML Training Server (optional)
+- ✅ Android Companion App
+- ✅ Dark mode UI
+- ✅ **NEW** Full-width responsive UI
+- ✅ **NEW** Mobile/tablet support
 
 ## Screenshots
 
@@ -60,36 +60,44 @@ HA sensors created
 
 The optional Android companion app provides enhanced automation via Accessibility Service instead of ADB. This gives you reliable, native access to UI elements without ADB connection issues.
 
-**[Download APK](https://github.com/botts7/visual-mapper-android/releases)** (v0.2.0 - Signed)
+**[Download APK](https://github.com/botts7/visual-mapper-android/releases)** (v0.3.3 - Signed)
 
 ### Features
 
-| Feature | Status |
-|---------|--------|
-| **Accessibility Service** | |
-| UI element capture & interaction | ✅ Working |
-| Gesture dispatch (tap, swipe, scroll) | ✅ Working |
-| Pull-to-refresh automation | ✅ Working |
-| Text input automation | ✅ Working |
-| Screen wake/sleep control | ✅ Working |
-| Key event simulation | ✅ Working |
-| **Flow Execution** | |
-| All step types (TAP, SWIPE, TEXT_INPUT, WAIT, etc.) | ✅ Working |
-| Conditional logic (if element exists, if text matches) | ✅ Working |
-| Screen wake/sleep steps | ✅ Working |
-| **ML & Navigation** | |
-| TensorFlow Lite with NNAPI/GPU acceleration | ✅ Working |
-| Q-Learning exploration with Room persistence | ✅ Working |
-| Dijkstra path planning with reliability weighting | ✅ Working |
-| On-device model inference | ✅ Working |
-| **Server Integration** | |
-| MQTT sensor publishing to Home Assistant | ✅ Working |
-| Bidirectional flow sync with server | ✅ Working |
-| Real-time status updates | ✅ Working |
-| **Security** | |
-| Encrypted storage | ✅ Working |
-| Audit logging | ✅ Working |
-| Privacy controls & app exclusions | ✅ Working |
+**Screen Streaming (NEW)**
+- ✅ MediaProjection low-latency capture (50-150ms)
+- ✅ Adaptive FPS based on battery state
+- ✅ WebSocket MJPEG binary protocol
+- ✅ Orientation change handling
+
+**Accessibility Service**
+- ✅ UI element capture & interaction
+- ✅ Gesture dispatch (tap, swipe, scroll)
+- ✅ Pull-to-refresh automation
+- ✅ Text input automation
+- ✅ Screen wake/sleep control
+- ✅ Key event simulation
+
+**Flow Execution**
+- ✅ All step types (TAP, SWIPE, TEXT_INPUT, WAIT, etc.)
+- ✅ Conditional logic (if element exists, if text matches)
+- ✅ Screen wake/sleep steps
+
+**ML & Navigation**
+- ✅ TensorFlow Lite with NNAPI/GPU acceleration
+- ✅ Q-Learning exploration with Room persistence
+- ✅ Dijkstra path planning with reliability weighting
+- ✅ On-device model inference
+
+**Server Integration**
+- ✅ MQTT sensor publishing to Home Assistant
+- ✅ Bidirectional flow sync with server
+- ✅ Real-time status updates
+
+**Security**
+- ✅ Encrypted storage
+- ✅ Audit logging
+- ✅ Privacy controls & app exclusions
 
 ### When to Use the Companion App
 
@@ -104,21 +112,15 @@ The optional Android companion app provides enhanced automation via Accessibilit
 The ML Training Server enables real-time Q-learning from Android exploration data. The Android app explores your apps and learns optimal navigation paths over time.
 
 **Deployment Options:**
-
-| Option | Description |
-|--------|-------------|
-| **Local (in add-on)** | Enable in add-on config - ML runs alongside Visual Mapper |
-| **Remote** | Run on a separate machine with GPU/NPU for better training |
-| **Dev machine** | Use included scripts to run ML training with full hardware acceleration |
+- **Local (in add-on)** - Enable in add-on config, ML runs alongside Visual Mapper
+- **Remote** - Run on a separate machine with GPU/NPU for better training
+- **Dev machine** - Use included scripts to run ML training with full hardware acceleration
 
 **Hardware Acceleration:**
-
-| Accelerator | Platform | Use Case |
-|-------------|----------|----------|
-| Coral Edge TPU | USB/M.2/PCIe | Raspberry Pi, Linux servers |
-| DirectML (NPU) | Windows ARM/x64 | Windows laptops with NPU |
-| CUDA (GPU) | NVIDIA GPUs | High-performance servers |
-| CPU | All platforms | Fallback, always available |
+- **Coral Edge TPU** - USB/M.2/PCIe - Raspberry Pi, Linux servers
+- **DirectML (NPU)** - Windows ARM/x64 - Windows laptops with NPU
+- **CUDA (GPU)** - NVIDIA GPUs - High-performance servers
+- **CPU** - All platforms - Fallback, always available
 
 ```yaml
 # Add-on config to enable local ML training
@@ -206,20 +208,35 @@ This is **beta software** - it works, but there are rough edges:
 
 ## Links
 
-| Resource | Link |
-|----------|------|
-| Main Repository | https://github.com/botts7/visual-mapper |
-| HA Add-on Repository | https://github.com/botts7/visual-mapper-addon |
-| Android Companion App | https://github.com/botts7/visual-mapper-android |
-| **Download Android APK** | https://github.com/botts7/visual-mapper-android/releases |
-| Issues / Bug Reports | https://github.com/botts7/visual-mapper/issues |
-| ML Training Docs | https://github.com/botts7/visual-mapper/blob/master/docs/ML_TRAINING.md |
+- **Main Repository:** https://github.com/botts7/visual-mapper
+- **v0.4.0 Release:** https://github.com/botts7/visual-mapper/releases/tag/v0.4.0
+- **HA Add-on Repository:** https://github.com/botts7/visual-mapper-addon
+- **Add-on v0.4.0 Release:** https://github.com/botts7/visual-mapper-addon/releases/tag/v0.4.0
+- **Android Companion App:** https://github.com/botts7/visual-mapper-android
+- **Download Android APK v0.3.3:** https://github.com/botts7/visual-mapper-android/releases/tag/v0.3.3
+- **Issues / Bug Reports:** https://github.com/botts7/visual-mapper/issues
+- **ML Training Docs:** https://github.com/botts7/visual-mapper/blob/main/docs/ML_TRAINING.md
 
 ---
 
 ## Changelog
 
-### v0.3.1 (Latest)
+### v0.4.0 (Latest)
+- **Full-Width Layout**: All pages now use full viewport width with 24px edge padding - no more wasted screen space
+- **Mobile Responsive Design**: Flows and Navigation Learn pages now work properly on mobile/tablet devices
+- **Elements Tab Redesign**: Card-based layout matching Smart tab style with type icons, alternative names dropdown, current value display, and collapsible grouped tree structure
+- **UI Consistency**: All container widths now consistent across dashboard, flows, performance, and flow wizard pages
+
+### Android Companion App v0.3.3
+- **MediaProjection Screen Streaming**: Low-latency capture (50-150ms vs 100-3000ms ADB)
+- **Adaptive FPS**: 25 FPS when charging, 20/12/5 FPS on battery based on level
+- **Battery Caching**: Check battery state every 30s instead of every frame
+- **Improved Frame Buffer**: Increased buffer size for smoother capture
+- **MJPEG Protocol v2**: Header includes width/height for orientation detection
+- **WebSocket MJPEG Protocol**: Binary streaming compatible with backend SharedCaptureManager
+- **Orientation Handling**: Automatically recreates VirtualDisplay when device rotates
+
+### v0.3.1
 - **Dynamic Cache Busting**: All pages now use session-based cache busting - no more stale CSS/JS
 - **Dark Mode Everywhere**: Dark mode support added to all pages with instant theme switching (no flash)
 - **Dev Tools Improvements**: Version info now fetched dynamically from API

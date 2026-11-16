@@ -2,18 +2,26 @@
 Device Registration Routes - Android Companion App Registration
 
 Provides endpoints for registering Android companion app devices.
+Persists device registry to data/device_registry.json
 """
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import logging
-from typing import List, Optional
+import json
+import os
+from pathlib import Path
+from typing import List, Optional, Dict
 from datetime import datetime
 from routes import get_deps
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/devices", tags=["device_registration"])
+
+# Registry file path
+DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
+REGISTRY_FILE = DATA_DIR / "device_registry.json"
 
 
 # Request/Response models
@@ -39,9 +47,50 @@ class DeviceInfo(BaseModel):
     connected: Optional[bool] = None
 
 
-# In-memory device registry (for now)
-# TODO: Persist to database/file if needed
-registered_devices = {}
+# =============================================================================
+# DEVICE REGISTRY PERSISTENCE
+# =============================================================================
+
+def _load_registry() -> Dict[str, "DeviceInfo"]:
+    """Load device registry from file"""
+    if not REGISTRY_FILE.exists():
+        return {}
+
+    try:
+        with open(REGISTRY_FILE, "r") as f:
+            data = json.load(f)
+
+        registry = {}
+        for device_id, device_data in data.items():
+            registry[device_id] = DeviceInfo(**device_data)
+        logger.info(f"[Device Registration] Loaded {len(registry)} devices from {REGISTRY_FILE}")
+        return registry
+    except (json.JSONDecodeError, OSError) as e:
+        logger.error(f"[Device Registration] Failed to load registry: {e}")
+        return {}
+
+
+def _save_registry():
+    """Save device registry to file"""
+    try:
+        # Ensure data directory exists
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Convert DeviceInfo objects to dicts
+        data = {
+            device_id: device.model_dump() if hasattr(device, "model_dump") else device.dict()
+            for device_id, device in registered_devices.items()
+        }
+
+        with open(REGISTRY_FILE, "w") as f:
+            json.dump(data, f, indent=2, default=str)
+        logger.debug(f"[Device Registration] Saved {len(data)} devices to {REGISTRY_FILE}")
+    except (OSError, TypeError) as e:
+        logger.error(f"[Device Registration] Failed to save registry: {e}")
+
+
+# Load existing registry on module import
+registered_devices: Dict[str, DeviceInfo] = _load_registry()
 
 
 @router.post("/register")
@@ -70,6 +119,9 @@ async def register_device(device: DeviceRegistration):
         )
 
         registered_devices[device.deviceId] = device_info
+
+        # Persist to file
+        _save_registry()
 
         logger.info(
             f"[Device Registration] Device registered successfully: {device.deviceId}"
@@ -167,6 +219,10 @@ async def unregister_device(device_id: str):
         raise HTTPException(status_code=404, detail="Device not found")
 
     device = registered_devices.pop(device_id)
+
+    # Persist to file
+    _save_registry()
+
     logger.info(f"[Device Registration] Device unregistered: {device_id}")
 
     return {"success": True, "message": f"Device {device.deviceName} unregistered"}

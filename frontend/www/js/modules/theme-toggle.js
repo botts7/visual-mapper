@@ -18,10 +18,14 @@ class ThemeToggle {
      * @private
      */
     _loadTheme() {
-        // Check localStorage first
-        const stored = localStorage.getItem(this.STORAGE_KEY);
-        if (stored) {
-            return stored;
+        // Check localStorage first (with error handling)
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEY);
+            if (stored) {
+                return stored;
+            }
+        } catch (error) {
+            console.warn('[ThemeToggle] Failed to load theme from storage:', error.message);
         }
 
         // Fall back to system preference
@@ -50,7 +54,11 @@ class ThemeToggle {
      */
     toggle() {
         this.currentTheme = this.currentTheme === 'light' ? 'dark' : 'light';
-        localStorage.setItem(this.STORAGE_KEY, this.currentTheme);
+        try {
+            localStorage.setItem(this.STORAGE_KEY, this.currentTheme);
+        } catch (error) {
+            console.warn('[ThemeToggle] Failed to save theme:', error.message);
+        }
         this.apply();
 
         console.log('[ThemeToggle] Toggled to theme:', this.currentTheme);
@@ -76,7 +84,11 @@ class ThemeToggle {
         }
 
         this.currentTheme = theme;
-        localStorage.setItem(this.STORAGE_KEY, this.currentTheme);
+        try {
+            localStorage.setItem(this.STORAGE_KEY, this.currentTheme);
+        } catch (error) {
+            console.warn('[ThemeToggle] Failed to save theme:', error.message);
+        }
         this.apply();
 
         console.log('[ThemeToggle] Set theme:', this.currentTheme);
