@@ -14,7 +14,7 @@
  * @module OnboardingWizard
  */
 
-import DeviceSecurityUI from './device-security.js?v=0.4.0-beta.3.65';
+import DeviceSecurityUI from './device-security.js?v=0.4.7-beta.1';
 
 class OnboardingWizard {
     constructor() {
@@ -49,15 +49,24 @@ class OnboardingWizard {
      * Check if onboarding has been completed
      */
     isOnboardingComplete() {
-        return localStorage.getItem('onboarding_complete') === 'true';
+        try {
+            return localStorage.getItem('onboarding_complete') === 'true';
+        } catch (error) {
+            console.warn('[Onboarding] Failed to check storage:', error.message);
+            return false;
+        }
     }
 
     /**
      * Mark onboarding as complete
      */
     markOnboardingComplete() {
-        localStorage.setItem('onboarding_complete', 'true');
-        localStorage.setItem('onboarding_completed_at', new Date().toISOString());
+        try {
+            localStorage.setItem('onboarding_complete', 'true');
+            localStorage.setItem('onboarding_completed_at', new Date().toISOString());
+        } catch (error) {
+            console.warn('[Onboarding] Failed to save completion state:', error.message);
+        }
     }
 
     /**
@@ -855,9 +864,13 @@ class OnboardingWizard {
      * Reset onboarding (for development/testing)
      */
     static reset() {
-        localStorage.removeItem('onboarding_complete');
-        localStorage.removeItem('onboarding_completed_at');
-        console.log('[Onboarding] Reset complete');
+        try {
+            localStorage.removeItem('onboarding_complete');
+            localStorage.removeItem('onboarding_completed_at');
+            console.log('[Onboarding] Reset complete');
+        } catch (error) {
+            console.warn('[Onboarding] Failed to reset storage:', error.message);
+        }
     }
 }
 
