@@ -7,7 +7,7 @@
  * v0.0.6: Fixed elementIndex passthrough to createTextSensor
  */
 
-import { showToast } from './toast.js?v=0.4.5';
+import { showToast } from './toast.js?v=0.4.6';
 
 /**
  * Add tap step from element (via panel)
