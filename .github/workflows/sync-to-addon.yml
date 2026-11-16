@@ -84,6 +84,14 @@ jobs:
           # Sync addon config.yaml (HA addon UI configuration)
           cp backend/config/config.yaml "$TARGET_DIR/config.yaml"
 
+          # Drop the nested source manifest that came along with backend/.
+          # Supervisor scans the repo recursively and indexes manifests by slug,
+          # so a stale backend/config/config.yaml (slug visual_mapper, no
+          # Dockerfile beside it) can shadow the real one and break the build.
+          # Clean both folders so the other channel's leftover goes too.
+          rm -f addon-repo/visual-mapper/backend/config/config.yaml \
+                addon-repo/visual-mapper-beta/backend/config/config.yaml
+
           # Sync translations for HA addon UI
           rm -rf "$TARGET_DIR/translations"
           cp -r backend/translations/translations "$TARGET_DIR/translations"
@@ -107,6 +115,33 @@ jobs:
           sed -i "s/CACHE_BUST=.*/CACHE_BUST=$CACHE_BUST/" "$TARGET_DIR/Dockerfile"
 
           echo "Sync complete!"
+
+      - name: Check for duplicate add-on slugs
+        working-directory: addon-repo
+        run: |
+          # Every manifest that declares a slug must be unique and sit next to
+          # a Dockerfile, or Supervisor may pick the wrong one.
+          FAIL=0
+          LIST=$(mktemp)
+          find . -path ./.git -prune -o -type f \
+            \( -name config.yaml -o -name config.yml -o -name config.json \) -print |
+          while read -r f; do
+            slug=$(sed -n -E 's/^slug:[[:space:]]*"?([^"[:space:]]+)"?.*/\1/p; s/.*"slug"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$f" | head -1)
+            [ -n "$slug" ] && echo "$slug $f"
+          done > "$LIST"
+          cat "$LIST"
+          DUPES=$(cut -d' ' -f1 "$LIST" | sort | uniq -d)
+          if [ -n "$DUPES" ]; then
+            echo "::error::Duplicate add-on slugs: $DUPES"
+            FAIL=1
+          fi
+          while read -r slug f; do
+            if [ ! -f "$(dirname "$f")/Dockerfile" ]; then
+              echo "::error::Manifest $f (slug $slug) has no Dockerfile beside it"
+              FAIL=1
+            fi
+          done < "$LIST"
+          exit $FAIL
 
       - name: Commit and push to addon repo
         working-directory: addon-repo
