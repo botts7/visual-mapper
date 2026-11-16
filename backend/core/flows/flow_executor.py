@@ -337,15 +337,47 @@ class FlowExecutor:
                     f"[FlowExecutor] Unlock attempt {attempt + 1}/{MAX_UNLOCK_ATTEMPTS} for {device_id}"
                 )
 
-            # Check if AUTO_UNLOCK is configured - if not, return helpful error on first attempt
+            # No AUTO_UNLOCK passcode. The device may only *look* locked because the
+            # screen is asleep (keyguard is reported while off; Samsung SCREEN_OFF
+            # counts as locked). Wake it, re-check, then try the swipe /
+            # dismiss-keyguard path before blaming a missing PIN. Always re-verify
+            # with is_locked(); the configured strategy is never proof of unlocked.
             if attempt == 0 and not has_auto_unlock:
-                # Device is locked but AUTO_UNLOCK not configured - tell user what to do
+                strategy = (security_config or {}).get("strategy")
+                manual_only = strategy == LockStrategy.MANUAL_ONLY.value
+                try:
+                    await self.adb_bridge.ensure_screen_on(device_id)
+                    await asyncio.sleep(0.5)  # keyguard settles after wake
+                    if not await self.adb_bridge.is_locked(device_id):
+                        logger.info(f"[FlowExecutor] Device {device_id} ready after wake")
+                        return {"success": True}
+                    if not manual_only:
+                        await self.adb_bridge.unlock_screen(device_id)
+                        await asyncio.sleep(0.5)
+                        if not await self.adb_bridge.is_locked(device_id):
+                            logger.info(
+                                f"[FlowExecutor] Device {device_id} unlocked via wake + swipe"
+                            )
+                            return {"success": True}
+                except Exception as e:
+                    logger.warning(f"[FlowExecutor] Wake/swipe for {device_id} failed: {e}")
+
+                if manual_only:
+                    logger.warning(
+                        f"[FlowExecutor] Device {device_id} is locked (strategy=manual_only)"
+                    )
+                    return {
+                        "success": False,
+                        "error": "Device is locked and its unlock strategy is Manual Only. Unlock it on the device, or change Device Settings > Security.",
+                        "reason": "manual_only"
+                    }
                 logger.warning(
-                    f"[FlowExecutor] Device {device_id} is locked but AUTO_UNLOCK not configured"
+                    f"[FlowExecutor] Device {device_id} still locked after wake + swipe, "
+                    f"AUTO_UNLOCK not configured (strategy={strategy})"
                 )
                 return {
                     "success": False,
-                    "error": "Device is locked but unlock is not configured. Go to Device Settings > Security and enable AUTO_UNLOCK with your PIN/passcode.",
+                    "error": "Device is still locked after waking and swiping, so it likely has a PIN, pattern or password. Go to Device Settings > Security and enable AUTO_UNLOCK with your passcode.",
                     "reason": "not_configured"
                 }
 
