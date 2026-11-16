@@ -331,6 +331,24 @@ class ADBBridge:
             f"[ADBBridge] Registered device discovered callback: {callback.__name__}"
         )
 
+    async def _notify_device_discovered(self, device_id: str, model: str = "") -> None:
+        """Run post-connect callbacks (MQTT discovery, monitor, availability).
+
+        Shared by auto-import (discover_devices) and explicit connects
+        (connect_device: manual, pair, MQTT announcement).
+        """
+        for callback in self._device_discovered_callbacks:
+            try:
+                await callback(device_id, model)
+            except TypeError:
+                # Fallback for callbacks that don't accept model
+                try:
+                    await callback(device_id)
+                except Exception as e:
+                    logger.error(f"[ADBBridge] Device discovered callback failed: {e}")
+            except Exception as e:
+                logger.error(f"[ADBBridge] Device discovered callback failed: {e}")
+
     def _get_device_lock(self, device_id: str) -> asyncio.Lock:
         """
         Get or create a per-device lock for concurrent multi-device operations.
@@ -859,6 +877,7 @@ class ADBBridge:
             if await conn.connect():
                 self.devices[device_id] = conn
                 logger.info(f"[ADBBridge] Connected to {device_id}")
+                model = None
 
                 # Register device with identity resolver for stable ID mapping
                 try:
@@ -887,6 +906,12 @@ class ADBBridge:
                     logger.warning(
                         f"[ADBBridge] Failed to register device identity: {e}"
                     )
+
+                # Same post-connect path as auto-import: MQTT discovery,
+                # connection monitor, availability "online".
+                await self._notify_device_discovered(
+                    device_id, model.strip() if model else ""
+                )
 
                 return device_id
             else:
@@ -1337,17 +1362,7 @@ class ADBBridge:
                             self.devices[device_id] = conn
 
                             # Trigger device discovered callbacks with model info
-                            for callback in self._device_discovered_callbacks:
-                                try:
-                                    # Pass model as optional second argument
-                                    await callback(device_id, model)
-                                except TypeError:
-                                    # Fallback for callbacks that don't accept model
-                                    await callback(device_id)
-                                except Exception as e:
-                                    logger.error(
-                                        f"[ADBBridge] Device discovered callback failed: {e}"
-                                    )
+                            await self._notify_device_discovered(device_id, model)
                         except Exception as e:
                             logger.warning(
                                 f"[ADBBridge] Failed to auto-import {device_id}: {e}"
