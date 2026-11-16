@@ -127,7 +127,7 @@ jobs:
             \( -name config.yaml -o -name config.yml -o -name config.json \) -print |
           while read -r f; do
             slug=$(sed -n -E 's/^slug:[[:space:]]*"?([^"[:space:]]+)"?.*/\1/p; s/.*"slug"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$f" | head -1)
-            [ -n "$slug" ] && echo "$slug $f"
+            if [ -n "$slug" ]; then echo "$slug $f"; fi
           done > "$LIST"
           cat "$LIST"
           DUPES=$(cut -d' ' -f1 "$LIST" | sort | uniq -d)
