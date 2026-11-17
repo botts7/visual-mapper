@@ -22,6 +22,10 @@ async def get_devices():
     try:
         devices = await deps.adb_bridge.get_devices()
 
+        # Don't report endpoints the connection monitor sees as offline as connected
+        if deps.connection_monitor:
+            devices = deps.connection_monitor.annotate_devices(devices)
+
         # Update MQTT device info cache with device models for friendly names
         if deps.mqtt_manager:
             for device in devices:

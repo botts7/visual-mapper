@@ -23,6 +23,7 @@ from pathlib import Path
 from PIL import Image
 
 from utils.version import APP_VERSION
+from utils.log_config import configure_logging
 from core.adb.adb_bridge import ADBBridge
 from core.sensors.sensor_manager import SensorManager
 from core.sensors.sensor_models import SensorDefinition, TextExtractionRule
@@ -46,6 +47,7 @@ from utils.action_models import (
 from utils.error_handler import handle_api_error
 from utils.device_migrator import DeviceMigrator
 from services.connection_monitor import ConnectionMonitor
+from services.startup_reconnect import reconnect_stored_device
 from utils.device_security import DeviceSecurityManager
 
 # Phase 8: Flow System
@@ -94,12 +96,8 @@ from routes import (
     ml,
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+# Configure logging (LOG_LEVEL is exported by run.sh from the add-on option)
+configure_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -768,7 +766,6 @@ async def lifespan(app: FastAPI):
             try:
                 import glob
                 import json
-                import subprocess
 
                 # Find all sensor files in data directory
                 sensor_files = glob.glob(str(DATA_DIR / "sensors_*.json"))
@@ -792,38 +789,15 @@ async def lifespan(app: FastAPI):
 
                     for device_id in device_ids:
                         try:
-                            # Try to connect via adb
-                            result = subprocess.run(
-                                ["adb", "connect", device_id],
-                                capture_output=True,
-                                text=True,
-                                timeout=10,
-                            )
-                            if (
-                                "connected" in result.stdout.lower()
-                                or "already connected" in result.stdout.lower()
+                            # Resolves stable IDs to ip:port, connects like a
+                            # manual connect, then tries TLS port recovery once
+                            if await reconnect_stored_device(
+                                device_id,
+                                adb_bridge,
+                                connection_monitor,
+                                device_map=device_migrator.device_map,
                             ):
-                                logger.info(
-                                    f"[Server] ✅ Auto-reconnected to {device_id}"
-                                )
                                 reconnected_count += 1
-                            else:
-                                logger.debug(
-                                    f"[Server] Could not reconnect to {device_id}: {result.stdout.strip()}"
-                                )
-                                # Android 11+ wireless debugging may be on a new TLS port
-                                stable_id = next(
-                                    (
-                                        sid
-                                        for sid, ids in device_migrator.device_map.items()
-                                        if device_id in ids
-                                    ),
-                                    None,
-                                )
-                                if stable_id and await connection_monitor.recover_moved_endpoint(
-                                    device_id, stable_id
-                                ):
-                                    reconnected_count += 1
                         except Exception as e:
                             logger.debug(
                                 f"[Server] Failed to auto-reconnect to {device_id}: {e}"

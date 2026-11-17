@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from services.command_queue import get_command_queue, CommandQueue
+from services.endpoint_resolver import is_network_endpoint
 from services.tls_endpoint_recovery import find_moved_tls_endpoint
 
 logger = logging.getLogger(__name__)
@@ -219,6 +220,25 @@ class ConnectionMonitor:
         if device_id in self._devices:
             del self._devices[device_id]
             logger.info(f"[ConnectionMonitor] Stopped monitoring {device_id}")
+
+    def is_offline(self, device_id: str) -> bool:
+        """True if the monitor tracks this device and last saw it offline."""
+        status = self._devices.get(device_id)
+        return bool(status and not status.online)
+
+    def annotate_devices(self, devices: list) -> list:
+        """
+        Mark devices the monitor considers offline as not connected.
+
+        ADBBridge keeps a stale connection object for a dropped endpoint, so
+        its device list can still say state=device / connected=true.
+        """
+        for device in devices:
+            if self.is_offline(device.get("id")):
+                device["state"] = "offline"
+                device["connected"] = False
+                device["current_activity"] = "Offline"
+        return devices
 
     def get_status_summary(self) -> dict:
         """Get summary of monitored devices"""
@@ -503,6 +523,7 @@ class ConnectionMonitor:
             old_device_id,
             stable_device_id,
             on_rejected=self.remove_device,
+            device_map=getattr(self.device_migrator, "device_map", None),
         )
         if new_device_id:
             await self._retire_endpoint(old_device_id, new_device_id)
@@ -510,10 +531,11 @@ class ConnectionMonitor:
 
     async def _retire_endpoint(self, old_device_id: str, new_device_id: str):
         """Drop the stale address: adb disconnect, stop monitoring, stop its scheduler."""
-        try:
-            await self.adb_bridge.disconnect_device(old_device_id)
-        except Exception as e:
-            logger.debug(f"[ConnectionMonitor] Disconnect of {old_device_id} failed: {e}")
+        if is_network_endpoint(old_device_id):
+            try:
+                await self.adb_bridge.disconnect_device(old_device_id)
+            except Exception as e:
+                logger.debug(f"[ConnectionMonitor] Disconnect of {old_device_id} failed: {e}")
 
         await self.remove_device(old_device_id)
 

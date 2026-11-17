@@ -8,22 +8,20 @@ device stays paired and keeps its IP, so the stored ip:port goes stale.
 This looks up the device's current `_adb-tls-connect._tcp` mDNS endpoint on
 the same IP, connects to it and only accepts it if the stable device ID
 matches. Shared by the connection monitor and startup auto-reconnect.
+
+Every attempt logs one INFO summary line:
+  [TLSRecovery] lookup for <old> (stable <id>): adb=..., zeroconf=...,
+  unicast=...; candidates on <ip>: [...]; result=...
 """
 
 import logging
-from typing import Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Dict, Iterable, List, Optional
+
+from services.endpoint_resolver import resolve_adb_endpoints, split_endpoint
 
 logger = logging.getLogger(__name__)
 
-
-def split_endpoint(device_id: str):
-    """Split "ip:port" into (ip, port). Returns (None, None) for USB serials."""
-    if not device_id or ":" not in device_id:
-        return None, None
-    ip, _, port = device_id.rpartition(":")
-    if not port.isdigit():
-        return None, None
-    return ip, int(port)
+__all__ = ["find_moved_tls_endpoint", "split_endpoint"]
 
 
 async def find_moved_tls_endpoint(
@@ -31,40 +29,58 @@ async def find_moved_tls_endpoint(
     old_device_id: str,
     stable_device_id: str,
     on_rejected: Optional[Callable[[str], Awaitable[None]]] = None,
+    resolver=None,
+    device_map: Optional[Dict[str, Iterable[str]]] = None,
 ) -> Optional[str]:
     """
     Connect to the device's new wireless debugging port, verified by stable ID.
 
     Args:
-        adb_bridge: ADBBridge (list_tls_connect_services, connect_device,
+        adb_bridge: ADBBridge (lookup_tls_connect_services, connect_device,
             get_device_serial, disconnect_device)
-        old_device_id: Stale "ip:port" endpoint
+        old_device_id: Stale "ip:port" endpoint, or a stable ID whose last
+            ip:port is resolved through the identity registry
         stable_device_id: Stable ID recorded for that device
         on_rejected: Optional async callback for a candidate that turned out
             to be a different device (after it was disconnected)
+        resolver / device_map: Identity registry and migrator map used to
+            resolve a non ip:port `old_device_id` (defaults to the registry)
 
     Returns:
         New device_id ("ip:port") if found and verified, else None
     """
-    old_ip, old_port = split_endpoint(old_device_id)
+    endpoints = resolve_adb_endpoints(old_device_id, resolver, device_map)
+    old_endpoint = endpoints[0] if endpoints else None
+    old_ip, old_port = split_endpoint(old_endpoint)
+    prefix = f"[TLSRecovery] lookup for {old_device_id} (stable {stable_device_id})"
+
     if not old_ip or not stable_device_id:
+        logger.info(f"{prefix}: no ip:port known; result=none")
         return None
 
-    services = await adb_bridge.list_tls_connect_services()
-    candidates = [
-        s for s in services if s["ip"] == old_ip and s["port"] != old_port
-    ]
-    if not candidates:
-        logger.debug(
-            f"[TLSRecovery] No new wireless debugging port advertised for {old_ip}"
-        )
+    try:
+        report = await adb_bridge.lookup_tls_connect_services(target_ip=old_ip)
+    except Exception as e:
+        logger.info(f"{prefix}: lookup failed ({e}); result=none")
         return None
 
+    services = report.get("services", [])
+    candidates = [s for s in services if s["ip"] == old_ip and s["port"] != old_port]
+    sources = (
+        f"adb={report.get('adb')}, zeroconf={report.get('zeroconf')}, "
+        f"unicast={report.get('unicast')}"
+    )
+    candidate_ports = [s["port"] for s in candidates]
+    if old_endpoint != old_device_id:
+        prefix = f"{prefix} via {old_endpoint}"
+
+    outcomes: List[str] = []
+    adopted = None
     for service in candidates:
         candidate = f"{service['ip']}:{service['port']}"
         logger.info(
             f"[TLSRecovery] Found new wireless debugging port {candidate} "
-            f"({service['name']}) for {old_device_id}, stable ID {stable_device_id}"
+            f"({service['name']}) for {old_endpoint}, stable ID {stable_device_id}"
         )
         try:
             new_device_id = await adb_bridge.connect_device(
@@ -72,6 +88,7 @@ async def find_moved_tls_endpoint(
             )
         except Exception as e:
             logger.info(f"[TLSRecovery] Could not connect to {candidate}: {e}")
+            outcomes.append(f"connect failed ({candidate})")
             continue
 
         try:
@@ -86,12 +103,14 @@ async def find_moved_tls_endpoint(
             logger.info(
                 f"[TLSRecovery] Verified {new_device_id} is stable ID {stable_device_id}"
             )
-            return new_device_id
+            adopted = new_device_id
+            break
 
         logger.warning(
             f"[TLSRecovery] {new_device_id} is a different device "
             f"(stable ID {serial}, expected {stable_device_id}), disconnecting"
         )
+        outcomes.append(f"rejected (serial mismatch: {new_device_id} is {serial})")
         try:
             await adb_bridge.disconnect_device(new_device_id)
         except Exception as e:
@@ -102,4 +121,16 @@ async def find_moved_tls_endpoint(
             except Exception as e:
                 logger.debug(f"[TLSRecovery] on_rejected for {new_device_id} failed: {e}")
 
-    return None
+    if adopted:
+        result = f"adopted {adopted}"
+    elif outcomes:
+        result = "; ".join(outcomes)
+    elif services:
+        result = f"none ({len(services)} services, none on {old_ip} with a new port)"
+    else:
+        result = "none"
+
+    logger.info(
+        f"{prefix}: {sources}; candidates on {old_ip}: {candidate_ports}; result={result}"
+    )
+    return adopted
