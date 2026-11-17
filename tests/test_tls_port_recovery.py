@@ -305,10 +305,19 @@ def test_browse_returns_empty_when_nothing_answers(mdns_module):
 # --- ConnectionMonitor recovery ---------------------------------------------
 
 
+def lookup_report(services, adb="unavailable", zeroconf=None, unicast="skipped"):
+    return {
+        "services": list(services),
+        "adb": adb,
+        "zeroconf": zeroconf if zeroconf is not None else f"{len(services)} services",
+        "unicast": unicast,
+    }
+
+
 def make_bridge(services, serials):
     """Fake ADBBridge. `serials` maps device_id -> stable ID."""
     return SimpleNamespace(
-        list_tls_connect_services=AsyncMock(return_value=services),
+        lookup_tls_connect_services=AsyncMock(return_value=lookup_report(services)),
         connect_device=AsyncMock(side_effect=lambda ip, port: f"{ip}:{port}"),
         get_device_serial=AsyncMock(
             side_effect=lambda device_id, force_refresh=False: serials.get(device_id)
@@ -386,7 +395,7 @@ def test_serial_mismatch_disconnects_candidate_without_remap(monitor_module):
 
 
 def test_mdns_unavailable_falls_back_to_discover(monitor_module):
-    # list_tls_connect_services returns [] on adb error / no mDNS support.
+    # The lookup returns no services on adb error / no mDNS support.
     async def exercise():
         bridge = make_bridge([], {})
         monitor = make_monitor(monitor_module, bridge)
@@ -404,7 +413,7 @@ def test_mdns_unavailable_falls_back_to_discover(monitor_module):
 def test_mdns_raising_does_not_crash_monitor(monitor_module):
     async def exercise():
         bridge = make_bridge([], {})
-        bridge.list_tls_connect_services = AsyncMock(side_effect=OSError("boom"))
+        bridge.lookup_tls_connect_services = AsyncMock(side_effect=OSError("boom"))
         monitor = make_monitor(monitor_module, bridge)
 
         await fail_until_scan(monitor)
@@ -448,7 +457,7 @@ def test_scan_runs_on_every_third_failed_retry(monitor_module):
             status.last_seen = 0
             await monitor._attempt_reconnection(OLD_ID)
 
-        assert bridge.list_tls_connect_services.await_count == 2  # attempts 3, 6
+        assert bridge.lookup_tls_connect_services.await_count == 2  # attempts 3, 6
 
     asyncio.run(exercise())
 

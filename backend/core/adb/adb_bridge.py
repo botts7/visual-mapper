@@ -23,7 +23,12 @@ from .adb_manager import ADBManager
 from .base_connection import BaseADBConnection
 from ml_components.playstore_icon_scraper import PlayStoreIconScraper
 from .adb_helpers import PersistentADBShell, PersistentShellPool
-from .adb_mdns import browse_tls_connect_services, parse_tls_connect_services
+from .adb_mdns import (
+    browse_tls_connect_services,
+    describe_error,
+    parse_tls_connect_services,
+    unicast_query_tls_connect_services,
+)
 from services.device_identity import get_device_identity_resolver
 
 # Optional: adbutils for faster screenshot capture (persistent connections)
@@ -1296,24 +1301,60 @@ class ADBBridge:
         [{"name", "ip", "port"}], or [] on any failure. Warns once only when
         both sources are unavailable.
         """
+        return (await self.lookup_tls_connect_services())["services"]
+
+    async def lookup_tls_connect_services(self, target_ip: Optional[str] = None) -> Dict:
+        """
+        Look up `_adb-tls-connect._tcp` endpoints and report what each source did.
+
+        Order: `adb mdns services`, then a zeroconf multicast browse if adb
+        gave nothing, then (only with `target_ip`, and only if nothing was
+        found on that IP) a unicast query straight to <target_ip>:5353.
+
+        Returns:
+            {"services": [{"name", "ip", "port"}], "adb": "unavailable"|"N",
+             "zeroconf": "skipped"|"error: X"|"N services",
+             "unicast": "skipped"|"error: X"|"N services"}
+        """
+        report = {"services": [], "adb": "", "zeroconf": "skipped", "unicast": "skipped"}
+
         services, adb_error = await self._adb_mdns_services()
+        report["adb"] = "unavailable" if adb_error else str(len(services))
         if services:
             logger.debug(f"[ADBBridge] mDNS TLS connect services (source: adb): {services}")
-            return services
+        else:
+            try:
+                services = await browse_tls_connect_services(raise_errors=True)
+                report["zeroconf"] = f"{len(services)} services"
+                logger.debug(
+                    f"[ADBBridge] mDNS TLS connect services (source: zeroconf): {services}"
+                )
+            except Exception as e:
+                services = []
+                report["zeroconf"] = f"error: {describe_error(e)}"
+                if adb_error:
+                    self._log_mdns_unavailable(f"adb: {adb_error}; zeroconf: {e}")
+                else:
+                    logger.debug(f"[ADBBridge] zeroconf browse failed: {e}")
 
-        try:
-            services = await browse_tls_connect_services(raise_errors=True)
-        except Exception as e:
-            if adb_error:
-                self._log_mdns_unavailable(f"adb: {adb_error}; zeroconf: {e}")
-            else:
-                logger.debug(f"[ADBBridge] zeroconf browse failed: {e}")
-            return []
+        if target_ip and not any(s["ip"] == target_ip for s in services):
+            try:
+                unicast = await unicast_query_tls_connect_services(
+                    target_ip, raise_errors=True
+                )
+                report["unicast"] = f"{len(unicast)} services"
+                logger.debug(
+                    f"[ADBBridge] mDNS TLS connect services (source: unicast {target_ip}): {unicast}"
+                )
+                known = {(s["ip"], s["port"]) for s in services}
+                services = services + [
+                    s for s in unicast if (s["ip"], s["port"]) not in known
+                ]
+            except Exception as e:
+                report["unicast"] = f"error: {describe_error(e)}"
 
-        logger.debug(
-            f"[ADBBridge] mDNS TLS connect services (source: zeroconf): {services}"
-        )
-        return services
+        report["services"] = services
+        return report
 
     async def _adb_mdns_services(self):
         """Run `adb mdns services`. Returns (services, error or None)."""
