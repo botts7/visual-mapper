@@ -61,6 +61,7 @@ class AppDefaults:
     CONNECTION_CHECK_INTERVAL: int = 30  # Device health check interval
     CONNECTION_RETRY_DELAY: int = 10  # Initial retry delay
     CONNECTION_MAX_RETRY_DELAY: int = 300  # Maximum retry delay (5 minutes)
+    CONNECTION_RETRY_ENABLED: bool = True  # Auto-reconnect / port recovery
 
     # ==========================================================================
     # Streaming Settings
@@ -93,8 +94,32 @@ class AppDefaults:
             MQTT_PORT=int(os.getenv("MQTT_PORT", cls.MQTT_PORT)),
             MQTT_DISCOVERY_PREFIX=os.getenv("MQTT_DISCOVERY_PREFIX", cls.MQTT_DISCOVERY_PREFIX),
             SENSOR_UPDATE_INTERVAL=int(os.getenv("SENSOR_UPDATE_INTERVAL", cls.SENSOR_UPDATE_INTERVAL)),
-            CONNECTION_CHECK_INTERVAL=int(os.getenv("CONNECTION_CHECK_INTERVAL", cls.CONNECTION_CHECK_INTERVAL)),
+            CONNECTION_CHECK_INTERVAL=env_int("CONNECTION_CHECK_INTERVAL", cls.CONNECTION_CHECK_INTERVAL),
+            CONNECTION_MAX_RETRY_DELAY=env_int("CONNECTION_MAX_RETRY_DELAY", cls.CONNECTION_MAX_RETRY_DELAY),
+            CONNECTION_RETRY_ENABLED=env_bool("CONNECTION_RETRY_ENABLED", cls.CONNECTION_RETRY_ENABLED),
         )
+
+
+def env_int(name: str, default: int) -> int:
+    """Integer from env; empty or invalid values fall back to the default."""
+    value = os.getenv(name, "")
+    try:
+        return int(str(value).strip()) if str(value).strip() else default
+    except ValueError:
+        return default
+
+
+def env_bool(name: str, default: bool) -> bool:
+    """Boolean from env ("true"/"false", also 1/0, yes/no, on/off)."""
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    value = value.strip().lower()
+    if value in ("true", "1", "yes", "on"):
+        return True
+    if value in ("false", "0", "no", "off"):
+        return False
+    return default
 
 
 # Global defaults instance - can be overridden at runtime

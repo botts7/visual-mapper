@@ -47,7 +47,15 @@ from utils.action_models import (
 from utils.error_handler import handle_api_error
 from utils.device_migrator import DeviceMigrator
 from services.connection_monitor import ConnectionMonitor
-from services.startup_reconnect import reconnect_stored_device
+from services.startup_reconnect import (
+    connect_configured_device,
+    reconnect_stored_device,
+)
+from services.sensor_publish import (
+    publish_sensor_on_startup,
+    republish_sensor_attributes,
+)
+from config.defaults import AppDefaults
 from utils.device_security import DeviceSecurityManager
 
 # Phase 8: Flow System
@@ -497,12 +505,22 @@ async def lifespan(app: FastAPI):
     logger.info("[Server] ✅ Flow System initialized and scheduler started")
 
     # Initialize Connection Monitor (handles device health checks and auto-recovery)
+    # Add-on options: connection_check_interval / _max_retry_delay / _retry_enabled
+    connection_settings = AppDefaults.from_env()
     connection_monitor = ConnectionMonitor(
         adb_bridge=adb_bridge,
         device_migrator=device_migrator,
         mqtt_manager=mqtt_manager,
-        check_interval=30,  # Check every 30 seconds
+        check_interval=connection_settings.CONNECTION_CHECK_INTERVAL,
+        max_retry_delay=connection_settings.CONNECTION_MAX_RETRY_DELAY,
+        retry_enabled=connection_settings.CONNECTION_RETRY_ENABLED,
         flow_scheduler=flow_scheduler,
+    )
+    logger.info(
+        f"[Server] Connection Monitor settings: check every "
+        f"{connection_settings.CONNECTION_CHECK_INTERVAL}s, max retry delay "
+        f"{connection_settings.CONNECTION_MAX_RETRY_DELAY}s, retry "
+        f"{'enabled' if connection_settings.CONNECTION_RETRY_ENABLED else 'disabled'}"
     )
     logger.info("[Server] ✅ Connection Monitor initialized")
 
@@ -665,6 +683,13 @@ async def lifespan(app: FastAPI):
                             # Reload managers to pick up migrated configurations
                             sensor_manager._load_all_sensors()  # Reload sensor definitions
                             flow_manager._load_all_flows()  # Reload flows
+
+                        # Point sensors still holding an old ip:port at this one
+                        remapped = sensor_manager.remap_device_endpoint(
+                            stable_device_id, device_id
+                        )
+                        if remapped and mqtt_manager:
+                            await republish_sensor_attributes(mqtt_manager, remapped)
                 except Exception as e:
                     logger.warning(
                         f"[Server] Device migration check failed for {device_id}: {e}"
@@ -683,20 +708,10 @@ async def lifespan(app: FastAPI):
                         )
                         for sensor in sensors:
                             try:
-                                # Publish discovery config
-                                await mqtt_manager.publish_discovery(sensor)
-                                logger.debug(
-                                    f"[Server] Published discovery for {sensor.sensor_id}"
+                                # Discovery always; cached state only if enabled
+                                await publish_sensor_on_startup(
+                                    mqtt_manager, sensor, "initial"
                                 )
-
-                                # Publish initial state if sensor has current_value
-                                if sensor.current_value:
-                                    await mqtt_manager.publish_state(
-                                        sensor, sensor.current_value
-                                    )
-                                    logger.info(
-                                        f"[Server] Published initial state for {sensor.sensor_id}: {sensor.current_value}"
-                                    )
                             except Exception as e:
                                 logger.error(
                                     f"[Server] Failed to publish discovery for {sensor.sensor_id}: {e}"
@@ -764,6 +779,9 @@ async def lifespan(app: FastAPI):
             """Attempt to reconnect to previously connected devices on startup"""
             await asyncio.sleep(2)  # Wait for server to fully initialize
             try:
+                # Add-on option adb_device_ip / adb_device_port
+                await connect_configured_device(adb_bridge)
+
                 import glob
                 import json
 
@@ -854,20 +872,10 @@ async def lifespan(app: FastAPI):
                         )
                         for sensor in sensors:
                             try:
-                                # Publish discovery config
-                                await mqtt_manager.publish_discovery(sensor)
-                                logger.debug(
-                                    f"[Server] Published delayed discovery for {sensor.sensor_id}"
+                                # Discovery always; cached state only if enabled
+                                await publish_sensor_on_startup(
+                                    mqtt_manager, sensor, "delayed"
                                 )
-
-                                # Publish initial state if sensor has current_value
-                                if sensor.current_value:
-                                    await mqtt_manager.publish_state(
-                                        sensor, sensor.current_value
-                                    )
-                                    logger.info(
-                                        f"[Server] Published delayed state for {sensor.sensor_id}: {sensor.current_value}"
-                                    )
                             except Exception as e:
                                 logger.error(
                                     f"[Server] Failed delayed discovery for {sensor.sensor_id}: {e}"

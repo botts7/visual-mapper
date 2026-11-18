@@ -18,6 +18,7 @@ from datetime import datetime
 import logging
 import re
 from routes import get_deps
+from services.sensor_publish import should_publish_cached_state
 from core.sensors.sensor_models import SensorDefinition, TextExtractionRule
 from core.sensors.text_extractor import TextExtractor
 from core.mqtt.ha_device_classes import (
@@ -253,7 +254,7 @@ async def create_sensor(sensor: SensorDefinition, auto_reuse: bool = True):
                         f"[API] Published MQTT discovery for new sensor {created_sensor.sensor_id}"
                     )
                     # Also publish initial state if available
-                    if created_sensor.current_value:
+                    if should_publish_cached_state(created_sensor):
                         await deps.mqtt_manager.publish_state(
                             created_sensor, created_sensor.current_value
                         )
@@ -379,7 +380,7 @@ async def update_sensor(sensor: SensorDefinition):
                         f"[API] Republished MQTT discovery for {sensor.sensor_id}"
                     )
                     # Also publish current state if available
-                    if updated_sensor.current_value:
+                    if should_publish_cached_state(updated_sensor):
                         await deps.mqtt_manager.publish_state(
                             updated_sensor, updated_sensor.current_value
                         )

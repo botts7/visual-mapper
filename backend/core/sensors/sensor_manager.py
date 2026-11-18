@@ -234,6 +234,61 @@ class SensorManager:
 
         return all_matching_sensors
 
+    def remap_device_endpoint(
+        self, stable_device_id: str, new_device_id: str
+    ) -> List[SensorDefinition]:
+        """
+        Point a device's sensors at its current ip:port.
+
+        After a port change (wireless debugging restart) or IP change, sensors
+        keep the old ip:port in `device_id`, which feeds the MQTT `device_id`
+        attribute. Rewrites `device_id` (and the file's list-level device_id)
+        for sensors whose stable_device_id matches and whose device_id is a
+        different ip:port. stable_device_id, topics and files are unchanged.
+
+        Returns:
+            The updated sensors
+        """
+        if not stable_device_id or not new_device_id:
+            return []
+
+        updated: List[SensorDefinition] = []
+        for sensor_file in self.data_dir.glob("sensors_*.json"):
+            try:
+                with open(sensor_file, "r", encoding="utf-8") as f:
+                    sensor_list = SensorList(**json.load(f))
+            except Exception as e:
+                logger.error(f"[SensorManager] Failed to load {sensor_file}: {e}")
+                continue
+
+            old_ids = set()
+            for sensor in sensor_list.sensors:
+                if (
+                    sensor.stable_device_id == stable_device_id
+                    and ":" in (sensor.device_id or "")
+                    and sensor.device_id != new_device_id
+                ):
+                    old_ids.add(sensor.device_id)
+                    sensor.device_id = new_device_id
+                    updated.append(sensor)
+            if not old_ids:
+                continue
+            if sensor_list.device_id in old_ids:
+                sensor_list.device_id = new_device_id
+
+            try:
+                sensor_list.last_modified = datetime.now(timezone.utc)
+                with open(sensor_file, "w", encoding="utf-8") as f:
+                    json.dump(sensor_list.model_dump(mode="json"), f, indent=2, default=str)
+                logger.info(
+                    f"[SensorManager] Remapped sensors in {sensor_file.name}: "
+                    f"{sorted(old_ids)} -> {new_device_id}"
+                )
+            except Exception as e:
+                logger.error(f"[SensorManager] Failed to save {sensor_file}: {e}")
+
+        return updated
+
     def update_sensor(self, sensor: SensorDefinition) -> SensorDefinition:
         """
         Update an existing sensor
