@@ -82,6 +82,7 @@ class ConnectionMonitor:
         check_interval: int = 30,
         max_retry_delay: int = 300,
         flow_scheduler=None,
+        retry_enabled: bool = True,
     ):
         """
         Initialize the connection monitor.
@@ -95,9 +96,12 @@ class ConnectionMonitor:
             check_interval: Seconds between ADB health checks
             max_retry_delay: Maximum backoff delay for reconnection attempts
             flow_scheduler: Optional FlowScheduler, re-keyed when a device moves address
+            retry_enabled: When False, only track online/offline status; never
+                reconnect or search for a moved endpoint
         """
         self.adb_bridge = adb_bridge
         self.flow_scheduler = flow_scheduler
+        self.retry_enabled = retry_enabled
         self.mqtt_manager = mqtt_manager
         self.device_migrator = device_migrator
         self.command_queue = command_queue or get_command_queue()
@@ -403,6 +407,8 @@ class ConnectionMonitor:
 
     async def _attempt_reconnection(self, device_id: str):
         """Attempt to reconnect to an offline device with exponential backoff"""
+        if not self.retry_enabled:
+            return
         status = self._devices.get(device_id)
         if not status:
             return

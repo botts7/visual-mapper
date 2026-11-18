@@ -9,7 +9,8 @@ endpoint answers, try TLS port recovery once on the most recent IP.
 """
 
 import logging
-from typing import Dict, Iterable, Optional
+import os
+from typing import Dict, Iterable, Mapping, Optional
 
 from services.endpoint_resolver import (
     resolve_adb_endpoints,
@@ -54,3 +55,35 @@ async def reconnect_stored_device(
         return None
     # Android 11+ wireless debugging may be on a new TLS port (same IP)
     return await connection_monitor.recover_moved_endpoint(endpoints[0], stable_id)
+
+
+async def connect_configured_device(
+    adb_bridge, env: Optional[Mapping[str, str]] = None
+) -> Optional[str]:
+    """
+    Connect the device set in the add-on options (adb_device_ip/port).
+
+    Reads ADB_DEVICE_IP and ADB_DEVICE_PORT (default 5555). Does nothing when
+    the IP is empty. Uses connect_device, the same path as a manual connect.
+
+    Returns:
+        The connected ip:port, or None
+    """
+    env = os.environ if env is None else env
+    host = (env.get("ADB_DEVICE_IP") or "").strip()
+    if not host:
+        return None
+    port_text = (env.get("ADB_DEVICE_PORT") or "").strip()
+    try:
+        port = int(port_text) if port_text else 5555
+    except ValueError:
+        logger.warning(f"[Server] Invalid ADB_DEVICE_PORT {port_text!r}, using 5555")
+        port = 5555
+
+    try:
+        device_id = await adb_bridge.connect_device(host, port)
+        logger.info(f"[Server] Connected configured device {device_id}")
+        return device_id
+    except Exception as e:
+        logger.warning(f"[Server] Could not connect configured device {host}:{port}: {e}")
+        return None
